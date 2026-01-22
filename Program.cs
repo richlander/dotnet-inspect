@@ -2,8 +2,8 @@ using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector;
 
 // Parse command-line arguments
 bool jsonOutput = args.Contains("--json");
@@ -152,12 +152,7 @@ try
     // Output results
     if (jsonOutput)
     {
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
-        Console.WriteLine(JsonSerializer.Serialize(result, options));
+        Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult));
     }
     else
     {
@@ -883,65 +878,4 @@ static void PrintConsoleOutput(InspectionResult result)
             Console.WriteLine($"  {dep.Id} {dep.Version}");
         }
     }
-}
-
-class InspectionResult
-{
-    public string PackageName { get; set; } = "";
-    public string Version { get; set; } = "";
-    public string? Description { get; set; }
-    public string? Authors { get; set; }
-    public string? Repository { get; set; }
-    public bool IsToolPackage { get; set; }
-    public List<string>? PackageTypes { get; set; }
-    public List<string>? TargetFrameworks { get; set; }
-    public List<string>? SupportedRids { get; set; }
-    public bool IsFrameworkDependent { get; set; }
-    public bool HasRidSpecificAssets { get; set; }
-    public bool HasNativeDependencies { get; set; }
-    public string? RuntimeTargetRid { get; set; }
-    public List<string>? NativeFiles { get; set; }
-    public List<DependencyGroup>? DependencyGroups { get; set; }
-    public List<PackageDependency>? RuntimeDependencies { get; set; }
-    public AuditSummary? AuditSummary { get; set; }
-    public List<AssemblyAudit>? AssemblyAudits { get; set; }
-}
-
-class DependencyGroup
-{
-    public string TargetFramework { get; set; } = "";
-    public List<PackageDependency> Dependencies { get; set; } = [];
-}
-
-class PackageDependency
-{
-    public string Id { get; set; } = "";
-    public string Version { get; set; } = "";
-}
-
-class AuditSummary
-{
-    public int TotalAssemblies { get; set; }
-    public int DeterministicCount { get; set; }
-    public int SourceLinkCount { get; set; }
-    public int EmbeddedPdbCount { get; set; }
-    public bool AllDeterministic { get; set; }
-    public bool AllHaveSourceLink { get; set; }
-}
-
-class AssemblyAudit
-{
-    public string FileName { get; set; } = "";
-    public string FileType { get; set; } = "";
-    public string? PdbFormat { get; set; }
-    public string? PdbPath { get; set; }
-    public bool HasEmbeddedPdb { get; set; }
-    public bool HasReproducibleFlag { get; set; }
-    public bool? HasNormalizedPaths { get; set; }
-    public bool HasSourceLink { get; set; }
-    public bool IsDeterministic { get; set; }
-    public string? RepositoryUrl { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SourceLinkJson { get; set; }
-    public List<string>? NonNormalizedPaths { get; set; }
 }
