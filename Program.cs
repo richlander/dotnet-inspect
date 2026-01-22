@@ -1,5 +1,8 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -586,6 +589,12 @@ static AssemblyAudit? AuditDll(string dllPath, string extractPath, Guid sourceLi
     // Determine overall deterministic status
     audit.IsDeterministic = audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
 
+    // Extract assembly info
+    audit.AssemblyInfo = ExtractAssemblyInfo(peReader);
+
+    // Extract API surface
+    audit.ApiSurface = ExtractApiSurface(peReader);
+
     return audit;
 }
 
@@ -721,6 +730,372 @@ static string? ExtractRepositoryUrl(string sourceLink)
     return null;
 }
 
+static AssemblyInfo ExtractAssemblyInfo(PEReader peReader)
+{
+    var info = new AssemblyInfo();
+
+    // PE Header information
+    var peHeaders = peReader.PEHeaders;
+    var coffHeader = peHeaders.CoffHeader;
+    var corHeader = peHeaders.CorHeader;
+
+    // Determine architecture
+    info.Architecture = coffHeader.Machine switch
+    {
+        Machine.I386 => corHeader?.Flags.HasFlag(CorFlags.Requires32Bit) == true ? "x86" :
+                        corHeader?.Flags.HasFlag(CorFlags.Prefers32Bit) == true ? "AnyCPU (32-bit preferred)" : "AnyCPU",
+        Machine.Amd64 => "x64",
+        Machine.Arm => "ARM",
+        Machine.Arm64 => "ARM64",
+        _ => coffHeader.Machine.ToString()
+    };
+
+    info.IsAnyCpu = coffHeader.Machine == Machine.I386 &&
+                    corHeader?.Flags.HasFlag(CorFlags.Requires32Bit) != true;
+    info.Prefers32Bit = corHeader?.Flags.HasFlag(CorFlags.Prefers32Bit) == true;
+    info.IsSigned = corHeader?.Flags.HasFlag(CorFlags.StrongNameSigned) == true;
+
+    // Determine if executable or DLL
+    info.IsExecutable = peHeaders.IsExe;
+    info.IsDll = peHeaders.IsDll;
+
+    // Get metadata
+    var metadataReader = peReader.GetMetadataReader();
+
+    // Runtime version
+    info.RuntimeVersion = metadataReader.MetadataVersion;
+    info.MetadataVersion = metadataReader.GetTableRowCount(TableIndex.Module);
+
+    // Check for unsafe code by looking for System.Security.UnverifiableCodeAttribute
+    // or by checking if the assembly references pointers
+    info.HasUnsafeCode = CheckForUnsafeCode(metadataReader);
+
+    // Assembly definition
+    if (metadataReader.IsAssembly)
+    {
+        var assemblyDef = metadataReader.GetAssemblyDefinition();
+        info.AssemblyName = metadataReader.GetString(assemblyDef.Name);
+        info.AssemblyVersion = assemblyDef.Version.ToString();
+        info.Culture = metadataReader.GetString(assemblyDef.Culture);
+        if (string.IsNullOrEmpty(info.Culture))
+            info.Culture = "neutral";
+
+        // Public key token
+        var publicKey = metadataReader.GetBlobBytes(assemblyDef.PublicKey);
+        if (publicKey.Length > 0)
+        {
+            info.PublicKeyToken = Convert.ToHexString(publicKey.TakeLast(8).ToArray()).ToLowerInvariant();
+        }
+    }
+
+    // Get custom attributes for additional info
+    foreach (var attrHandle in metadataReader.CustomAttributes)
+    {
+        var attr = metadataReader.GetCustomAttribute(attrHandle);
+        string? attrName = GetAttributeName(metadataReader, attr);
+
+        if (attrName == "System.Runtime.Versioning.TargetFrameworkAttribute")
+        {
+            info.TargetFramework = GetAttributeStringValue(metadataReader, attr);
+        }
+        else if (attrName == "System.Reflection.AssemblyFileVersionAttribute")
+        {
+            info.FileVersion = GetAttributeStringValue(metadataReader, attr);
+        }
+        else if (attrName == "System.Reflection.AssemblyInformationalVersionAttribute")
+        {
+            info.InformationalVersion = GetAttributeStringValue(metadataReader, attr);
+        }
+    }
+
+    return info;
+}
+
+static bool CheckForUnsafeCode(MetadataReader reader)
+{
+    // Check for UnverifiableCodeAttribute which indicates unsafe code
+    foreach (var attrHandle in reader.CustomAttributes)
+    {
+        var attr = reader.GetCustomAttribute(attrHandle);
+        string? attrName = GetAttributeName(reader, attr);
+        if (attrName == "System.Security.UnverifiableCodeAttribute")
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static string? GetAttributeName(MetadataReader reader, CustomAttribute attr)
+{
+    if (attr.Constructor.Kind == HandleKind.MemberReference)
+    {
+        var memberRef = reader.GetMemberReference((MemberReferenceHandle)attr.Constructor);
+        if (memberRef.Parent.Kind == HandleKind.TypeReference)
+        {
+            var typeRef = reader.GetTypeReference((TypeReferenceHandle)memberRef.Parent);
+            string ns = reader.GetString(typeRef.Namespace);
+            string name = reader.GetString(typeRef.Name);
+            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        }
+    }
+    else if (attr.Constructor.Kind == HandleKind.MethodDefinition)
+    {
+        var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)attr.Constructor);
+        var typeDef = reader.GetTypeDefinition(methodDef.GetDeclaringType());
+        string ns = reader.GetString(typeDef.Namespace);
+        string name = reader.GetString(typeDef.Name);
+        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+    }
+    return null;
+}
+
+static string? GetAttributeStringValue(MetadataReader reader, CustomAttribute attr)
+{
+    try
+    {
+        var value = reader.GetBlobReader(attr.Value);
+        // Skip prolog (2 bytes)
+        value.ReadUInt16();
+        // Read the string value
+        return value.ReadSerializedString();
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static ApiSurface ExtractApiSurface(PEReader peReader)
+{
+    var surface = new ApiSurface();
+    var reader = peReader.GetMetadataReader();
+
+    foreach (var typeDefHandle in reader.TypeDefinitions)
+    {
+        var typeDef = reader.GetTypeDefinition(typeDefHandle);
+        var attributes = typeDef.Attributes;
+
+        // Only include public types
+        bool isPublic = (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.Public ||
+                        (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.NestedPublic;
+
+        if (!isPublic)
+            continue;
+
+        string typeName = reader.GetString(typeDef.Name);
+
+        // Skip compiler-generated types
+        if (typeName.StartsWith("<") || typeName.StartsWith("__"))
+            continue;
+
+        var apiType = new ApiType
+        {
+            Namespace = reader.GetString(typeDef.Namespace),
+            Name = typeName,
+            IsSealed = (attributes & TypeAttributes.Sealed) != 0,
+            IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+        };
+
+        // Determine kind
+        if ((attributes & TypeAttributes.Interface) != 0)
+        {
+            apiType.Kind = "interface";
+        }
+        else if (!typeDef.BaseType.IsNil)
+        {
+            string? baseTypeName = GetTypeName(reader, typeDef.BaseType);
+            apiType.BaseType = baseTypeName;
+
+            apiType.Kind = baseTypeName switch
+            {
+                "System.Enum" => "enum",
+                "System.ValueType" => "struct",
+                "System.Delegate" or "System.MulticastDelegate" => "delegate",
+                _ => "class"
+            };
+        }
+        else
+        {
+            apiType.Kind = "class";
+        }
+
+        apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
+
+        // Get interfaces
+        var interfaces = typeDef.GetInterfaceImplementations();
+        if (interfaces.Count > 0)
+        {
+            apiType.Interfaces = [];
+            foreach (var ifaceHandle in interfaces)
+            {
+                var iface = reader.GetInterfaceImplementation(ifaceHandle);
+                string? ifaceName = GetTypeName(reader, iface.Interface);
+                if (ifaceName != null)
+                    apiType.Interfaces.Add(ifaceName);
+            }
+        }
+
+        // Get public members
+        apiType.Members = [];
+
+        // Methods
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if ((method.Attributes & MethodAttributes.Public) == 0)
+                continue;
+
+            string methodName = reader.GetString(method.Name);
+
+            // Skip property accessors and event accessors
+            if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
+                methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                continue;
+
+            var member = new ApiMember
+            {
+                Name = methodName,
+                Kind = methodName == ".ctor" ? "constructor" : "method",
+                IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
+                IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0,
+                IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
+                Signature = GetMethodSignature(reader, method)
+            };
+
+            apiType.Members.Add(member);
+            surface.PublicMethodCount++;
+        }
+
+        // Properties
+        foreach (var propHandle in typeDef.GetProperties())
+        {
+            var prop = reader.GetPropertyDefinition(propHandle);
+            var accessors = prop.GetAccessors();
+
+            // Check if any accessor is public
+            bool isPublicProp = false;
+            if (!accessors.Getter.IsNil)
+            {
+                var getter = reader.GetMethodDefinition(accessors.Getter);
+                isPublicProp = (getter.Attributes & MethodAttributes.Public) != 0;
+            }
+            if (!isPublicProp && !accessors.Setter.IsNil)
+            {
+                var setter = reader.GetMethodDefinition(accessors.Setter);
+                isPublicProp = (setter.Attributes & MethodAttributes.Public) != 0;
+            }
+
+            if (!isPublicProp)
+                continue;
+
+            var member = new ApiMember
+            {
+                Name = reader.GetString(prop.Name),
+                Kind = "property",
+                Signature = GetPropertySignature(reader, prop)
+            };
+
+            apiType.Members.Add(member);
+            surface.PublicPropertyCount++;
+        }
+
+        // Fields (only public non-backing fields)
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if ((field.Attributes & FieldAttributes.Public) == 0)
+                continue;
+
+            string fieldName = reader.GetString(field.Name);
+            if (fieldName.StartsWith("<"))
+                continue; // Skip backing fields
+
+            var member = new ApiMember
+            {
+                Name = fieldName,
+                Kind = "field",
+                IsStatic = (field.Attributes & FieldAttributes.Static) != 0
+            };
+
+            apiType.Members.Add(member);
+            surface.PublicFieldCount++;
+        }
+
+        // Events
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var evt = reader.GetEventDefinition(eventHandle);
+            var accessors = evt.GetAccessors();
+
+            // Check if adder is public
+            if (accessors.Adder.IsNil)
+                continue;
+
+            var adder = reader.GetMethodDefinition(accessors.Adder);
+            if ((adder.Attributes & MethodAttributes.Public) == 0)
+                continue;
+
+            var member = new ApiMember
+            {
+                Name = reader.GetString(evt.Name),
+                Kind = "event",
+                IsStatic = (adder.Attributes & MethodAttributes.Static) != 0
+            };
+
+            apiType.Members.Add(member);
+            surface.PublicEventCount++;
+        }
+
+        surface.Types.Add(apiType);
+        surface.PublicTypeCount++;
+    }
+
+    return surface;
+}
+
+static string? GetTypeName(MetadataReader reader, EntityHandle handle)
+{
+    if (handle.Kind == HandleKind.TypeReference)
+    {
+        var typeRef = reader.GetTypeReference((TypeReferenceHandle)handle);
+        string ns = reader.GetString(typeRef.Namespace);
+        string name = reader.GetString(typeRef.Name);
+        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+    }
+    else if (handle.Kind == HandleKind.TypeDefinition)
+    {
+        var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+        string ns = reader.GetString(typeDef.Namespace);
+        string name = reader.GetString(typeDef.Name);
+        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+    }
+    else if (handle.Kind == HandleKind.TypeSpecification)
+    {
+        // Generic type - simplified handling
+        return "(generic)";
+    }
+    return null;
+}
+
+static string GetMethodSignature(MetadataReader reader, MethodDefinition method)
+{
+    string name = reader.GetString(method.Name);
+    var signature = method.DecodeSignature(new SignatureTypeProvider(), null);
+
+    var parameters = signature.ParameterTypes.Select((p, i) => p).ToList();
+    string paramStr = string.Join(", ", parameters);
+
+    return $"{signature.ReturnType} {name}({paramStr})";
+}
+
+static string GetPropertySignature(MetadataReader reader, PropertyDefinition prop)
+{
+    string name = reader.GetString(prop.Name);
+    var signature = prop.DecodeSignature(new SignatureTypeProvider(), null);
+    return $"{signature.ReturnType} {name}";
+}
+
 static void PrintConsoleOutput(InspectionResult result)
 {
     Console.WriteLine();
@@ -838,6 +1213,28 @@ static void PrintConsoleOutput(InspectionResult result)
             if (audit.RepositoryUrl != null)
             {
                 Console.WriteLine($"      Repository: {audit.RepositoryUrl}");
+            }
+
+            // Assembly Info
+            if (audit.AssemblyInfo != null)
+            {
+                var info = audit.AssemblyInfo;
+                Console.WriteLine($"      Architecture: {info.Architecture}{(info.IsSigned ? " | Signed" : "")}{(info.HasUnsafeCode ? " | Unsafe" : "")}");
+                if (info.TargetFramework != null)
+                {
+                    Console.WriteLine($"      Target Framework: {info.TargetFramework}");
+                }
+                if (info.AssemblyVersion != null)
+                {
+                    Console.WriteLine($"      Version: {info.AssemblyVersion}");
+                }
+            }
+
+            // API Surface summary
+            if (audit.ApiSurface != null)
+            {
+                var api = audit.ApiSurface;
+                Console.WriteLine($"      API: {api.PublicTypeCount} types, {api.PublicMethodCount} methods, {api.PublicPropertyCount} properties");
             }
 
             if (audit.NonNormalizedPaths is { Count: > 0 })

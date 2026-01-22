@@ -17,4 +17,10 @@ public class AssemblyAudit
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SourceLinkJson { get; set; }
     public List<string>? NonNormalizedPaths { get; set; }
+
+    // Assembly metadata
+    public AssemblyInfo? AssemblyInfo { get; set; }
+
+    // Public API surface
+    public ApiSurface? ApiSurface { get; set; }
 }
