@@ -6,6 +6,7 @@ namespace DotnetInspector;
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(InspectionResult))]
+[JsonSerializable(typeof(RidPackageReference))]
 public partial class JsonContext : JsonSerializerContext
 {
 }

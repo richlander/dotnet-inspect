@@ -24,4 +24,12 @@ public class AssemblyInfo
     // Metadata
     public string? RuntimeVersion { get; set; }
     public int MetadataVersion { get; set; }
+
+    // Compilation type detection
+    public string? CompilationType { get; set; }  // "CoreCLR", "NativeAOT", "Native", "ReadyToRun"
+    public bool IsNativeAot { get; set; }
+    public bool IsReadyToRun { get; set; }
+    public bool HasManagedMetadata { get; set; }
+    public bool HasCorHeader { get; set; }
+    public bool HasILCode { get; set; }
 }

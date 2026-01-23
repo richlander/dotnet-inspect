@@ -292,6 +292,76 @@ static void ParseNuspec(string nuspecPath, InspectionResult result)
 
 static void AnalyzeToolsDirectory(string toolsDir, InspectionResult result)
 {
+    // First, check for DotnetToolSettings.xml to detect RID-specific tool format
+    string[] settingsFiles = Directory.GetFiles(toolsDir, "DotnetToolSettings.xml", SearchOption.AllDirectories);
+
+    foreach (string settingsFile in settingsFiles)
+    {
+        try
+        {
+            var doc = XDocument.Load(settingsFile);
+            var root = doc.Root;
+
+            // Check for Version="2" (RID-specific tool format)
+            string? version = root?.Attribute("Version")?.Value;
+            if (version == "2")
+            {
+                result.ToolFormat = "DotNetCliTool Version=\"2\" (RID-specific)";
+                result.IsRidSpecificPointerPackage = true;
+                result.IsFrameworkDependent = false; // RID packages are self-contained
+                result.HasRidSpecificAssets = true;
+
+                // Extract commands
+                var commands = root?.Element("Commands")?.Elements("Command");
+                if (commands != null)
+                {
+                    result.ToolCommands = commands
+                        .Select(c => c.Attribute("Name")?.Value)
+                        .Where(n => n != null)
+                        .Cast<string>()
+                        .ToList();
+                }
+
+                // Extract RuntimeIdentifierPackages
+                var ridPackages = root?.Element("RuntimeIdentifierPackages")?.Elements("RuntimeIdentifierPackage");
+                if (ridPackages != null)
+                {
+                    result.RuntimeIdentifierPackages = ridPackages
+                        .Select(r => new RidPackageReference
+                        {
+                            RuntimeIdentifier = r.Attribute("RuntimeIdentifier")?.Value ?? "",
+                            PackageId = r.Attribute("Id")?.Value ?? ""
+                        })
+                        .ToList();
+
+                    // Also populate SupportedRids from the RuntimeIdentifierPackages
+                    result.SupportedRids = result.RuntimeIdentifierPackages
+                        .Select(r => r.RuntimeIdentifier)
+                        .ToList();
+                }
+            }
+            else if (version == "1" || version == null)
+            {
+                result.ToolFormat = "DotNetCliTool Version=\"1\" (portable)";
+
+                // Extract commands for v1 format too
+                var commands = root?.Element("Commands")?.Elements("Command");
+                if (commands != null)
+                {
+                    result.ToolCommands = commands
+                        .Select(c => c.Attribute("Name")?.Value)
+                        .Where(n => n != null)
+                        .Cast<string>()
+                        .ToList();
+                }
+            }
+        }
+        catch
+        {
+            // Ignore parse errors for settings files
+        }
+    }
+
     // Tools directory structure: tools/{tfm}/{rid}/ or tools/{tfm}/any/
     foreach (string tfmDir in Directory.GetDirectories(toolsDir))
     {
@@ -312,9 +382,13 @@ static void AnalyzeToolsDirectory(string toolsDir, InspectionResult result)
             }
 
             // Check if 'any' means framework-dependent
+            // But don't override if we already detected this is a RID-specific pointer package
             if (rid.Equals("any", StringComparison.OrdinalIgnoreCase))
             {
-                result.IsFrameworkDependent = true;
+                if (!result.IsRidSpecificPointerPackage)
+                {
+                    result.IsFrameworkDependent = true;
+                }
             }
             else
             {
@@ -520,10 +594,14 @@ static AssemblyAudit? AuditDll(string dllPath, string extractPath, Guid sourceLi
     using FileStream stream = File.OpenRead(dllPath);
     using PEReader peReader = new(stream);
 
-    if (!peReader.HasMetadata)
-        return null;
-
     string relativePath = Path.GetRelativePath(extractPath, dllPath);
+
+    // Handle native binaries (no managed metadata)
+    if (!peReader.HasMetadata)
+    {
+        return AuditNativeBinary(peReader, relativePath);
+    }
+
     var audit = new AssemblyAudit
     {
         FileName = relativePath,
@@ -596,6 +674,112 @@ static AssemblyAudit? AuditDll(string dllPath, string extractPath, Guid sourceLi
     audit.ApiSurface = ExtractApiSurface(peReader);
 
     return audit;
+}
+
+static AssemblyAudit AuditNativeBinary(PEReader peReader, string relativePath)
+{
+    var audit = new AssemblyAudit
+    {
+        FileName = relativePath,
+        FileType = "native"
+    };
+
+    var peHeaders = peReader.PEHeaders;
+    var coffHeader = peHeaders.CoffHeader;
+
+    // Create AssemblyInfo for native binaries
+    var info = new AssemblyInfo
+    {
+        HasCorHeader = false,
+        HasManagedMetadata = false,
+        HasILCode = false,
+        IsExecutable = peHeaders.IsExe,
+        IsDll = peHeaders.IsDll
+    };
+
+    // Determine architecture
+    info.Architecture = coffHeader.Machine switch
+    {
+        Machine.I386 => "x86",
+        Machine.Amd64 => "x64",
+        Machine.Arm => "ARM",
+        Machine.Arm64 => "ARM64",
+        _ => coffHeader.Machine.ToString()
+    };
+
+    // Detect if this is a NativeAOT binary by checking for specific indicators
+    // NativeAOT binaries have characteristic import patterns and may have
+    // specific sections or symbols
+    bool isNativeAot = DetectNativeAot(peReader);
+
+    info.IsNativeAot = isNativeAot;
+    info.CompilationType = isNativeAot ? "NativeAOT" : "Native";
+
+    audit.AssemblyInfo = info;
+    return audit;
+}
+
+static bool DetectNativeAot(PEReader peReader)
+{
+    // NativeAOT detection heuristics:
+    // 1. Check for RhpNewFast or other CoreRT/NativeAOT runtime symbols in exports
+    // 2. Check for .NET AOT-specific sections
+    // 3. Check import table for patterns
+
+    try
+    {
+        var peHeaders = peReader.PEHeaders;
+
+        // Check the PE sections for NativeAOT-specific patterns
+        foreach (var section in peHeaders.SectionHeaders)
+        {
+            string sectionName = section.Name;
+
+            // NativeAOT uses specific section names like ".managed" or keeps ".text"
+            // but the key indicator is the absence of .NET metadata combined with
+            // characteristic runtime patterns
+
+            // Look for hydrated/frozen object sections (NativeAOT specific)
+            if (sectionName == ".data" || sectionName == ".rdata")
+            {
+                // NativeAOT typically has frozen objects in data sections
+                // This is a soft indicator
+            }
+        }
+
+        // Check the import directory for NativeAOT patterns
+        // NativeAOT links against OS APIs directly rather than mscoree.dll or coreclr.dll
+        var importDir = peHeaders.PEHeader?.ImportTableDirectory;
+        if (importDir is { Size: > 0 })
+        {
+            // If we find imports, check they're not CLR-related
+            // NativeAOT won't import from mscoree.dll, coreclr.dll, or clrjit.dll
+            // This would require reading the import table which is more complex
+
+            // For now, use a simpler heuristic: if no COR header and no metadata,
+            // but the binary size is substantial, it could be NativeAOT
+        }
+
+        // Check for debug directory entries that might indicate NativeAOT
+        foreach (var entry in peReader.ReadDebugDirectory())
+        {
+            // NativeAOT binaries may have reproducible/deterministic markers
+            if (entry.Type == DebugDirectoryEntryType.Reproducible)
+            {
+                // Having reproducible flag without metadata suggests NativeAOT
+                // (since regular native builds rarely have this)
+                return true;
+            }
+        }
+    }
+    catch
+    {
+        // If we can't analyze, default to unknown
+    }
+
+    // Without more specific indicators, we can't definitively say it's NativeAOT
+    // A pure native binary (C/C++) would look similar
+    return false;
 }
 
 static AssemblyAudit? AuditStandalonePdb(string pdbPath, string extractPath, Guid sourceLinkGuid)
@@ -738,6 +922,61 @@ static AssemblyInfo ExtractAssemblyInfo(PEReader peReader)
     var peHeaders = peReader.PEHeaders;
     var coffHeader = peHeaders.CoffHeader;
     var corHeader = peHeaders.CorHeader;
+
+    // Check for COR header presence (managed code indicator)
+    info.HasCorHeader = corHeader != null;
+    info.HasManagedMetadata = peReader.HasMetadata;
+
+    // Check for ReadyToRun (R2R) compilation - has both IL and native code
+    // R2R binaries have a ManagedNativeHeader directory in the COR header
+    bool hasR2R = false;
+    if (corHeader != null)
+    {
+        // R2R assemblies have a non-empty ManagedNativeHeaderDirectory
+        var managedNativeHeader = corHeader.ManagedNativeHeaderDirectory;
+        hasR2R = managedNativeHeader.Size > 0;
+    }
+
+    // Check for IL code - CoreCLR has IL, NativeAOT strips it
+    // The ILOnly flag indicates pure IL with no native code
+    bool hasILCode = corHeader != null && peReader.HasMetadata;
+    bool isILOnly = corHeader?.Flags.HasFlag(CorFlags.ILOnly) == true;
+
+    info.HasILCode = hasILCode;
+    info.IsReadyToRun = hasR2R;
+
+    // Determine compilation type
+    if (corHeader == null)
+    {
+        // No COR header = native code
+        // Could be NativeAOT or pure native (C/C++)
+        // NativeAOT binaries are native but were compiled from .NET
+        info.CompilationType = "Native";
+        info.IsNativeAot = false; // Can't definitively say it's NAOT without more info
+    }
+    else if (hasR2R)
+    {
+        info.CompilationType = "ReadyToRun";
+        info.IsNativeAot = false;
+    }
+    else if (isILOnly)
+    {
+        info.CompilationType = "CoreCLR";
+        info.IsNativeAot = false;
+    }
+    else if (hasILCode)
+    {
+        // Has COR header and metadata but not IL-only
+        // This could be mixed-mode or potentially NativeAOT with stubs
+        info.CompilationType = "CoreCLR";
+        info.IsNativeAot = false;
+    }
+    else
+    {
+        // Has COR header but no metadata = unusual, likely corrupted
+        info.CompilationType = "Unknown";
+        info.IsNativeAot = false;
+    }
 
     // Determine architecture
     info.Architecture = coffHeader.Machine switch
@@ -1125,6 +1364,26 @@ static void PrintConsoleOutput(InspectionResult result)
         Console.WriteLine($"Package Types: {string.Join(", ", result.PackageTypes)}");
     }
 
+    if (result.ToolFormat != null)
+    {
+        Console.WriteLine($"Tool Format: {result.ToolFormat}");
+    }
+
+    if (result.ToolCommands is { Count: > 0 })
+    {
+        Console.WriteLine($"Commands: {string.Join(", ", result.ToolCommands)}");
+    }
+
+    if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
+    {
+        Console.WriteLine();
+        Console.WriteLine("=== RuntimeIdentifierPackages ===");
+        foreach (var ridPkg in result.RuntimeIdentifierPackages)
+        {
+            Console.WriteLine($"  {ridPkg.RuntimeIdentifier} → {ridPkg.PackageId}");
+        }
+    }
+
     Console.WriteLine();
     Console.WriteLine("=== RID Analysis ===");
 
@@ -1219,6 +1478,21 @@ static void PrintConsoleOutput(InspectionResult result)
             if (audit.AssemblyInfo != null)
             {
                 var info = audit.AssemblyInfo;
+
+                // Show compilation type prominently
+                if (info.CompilationType != null)
+                {
+                    string compTypeDisplay = info.CompilationType switch
+                    {
+                        "NativeAOT" => "NativeAOT (ahead-of-time compiled)",
+                        "CoreCLR" => "CoreCLR (JIT compiled)",
+                        "ReadyToRun" => "ReadyToRun (hybrid IL + native)",
+                        "Native" => "Native (unmanaged)",
+                        _ => info.CompilationType
+                    };
+                    Console.WriteLine($"      Compilation: {compTypeDisplay}");
+                }
+
                 Console.WriteLine($"      Architecture: {info.Architecture}{(info.IsSigned ? " | Signed" : "")}{(info.HasUnsafeCode ? " | Unsafe" : "")}");
                 if (info.TargetFramework != null)
                 {

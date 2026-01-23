@@ -14,6 +14,12 @@ public class InspectionResult
     public bool IsFrameworkDependent { get; set; }
     public bool HasRidSpecificAssets { get; set; }
     public bool HasNativeDependencies { get; set; }
+
+    // RID-specific tool (DotNetCliTool Version="2") properties
+    public string? ToolFormat { get; set; }
+    public bool IsRidSpecificPointerPackage { get; set; }
+    public List<string>? ToolCommands { get; set; }
+    public List<RidPackageReference>? RuntimeIdentifierPackages { get; set; }
     public string? RuntimeTargetRid { get; set; }
     public List<string>? NativeFiles { get; set; }
     public List<DependencyGroup>? DependencyGroups { get; set; }
