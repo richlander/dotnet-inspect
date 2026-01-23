@@ -7,18 +7,22 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Xml.Linq;
 using DotnetInspector;
+using MarkdownData;
 
 // Parse command-line arguments
 bool jsonOutput = args.Contains("--json");
-string[] filteredArgs = args.Where(a => a != "--json").ToArray();
+bool consoleOutput = args.Contains("--console");
+string[] filteredArgs = args.Where(a => a != "--mdf" && a != "--json" && a != "--console").ToArray();
 
 if (filteredArgs.Length < 1)
 {
-    Console.WriteLine("Usage: dotnet-inspector <package-name> [version] [--json]");
-    Console.WriteLine("   or: dotnet-inspector <path-to-nupkg> [--json]");
+    Console.WriteLine("Usage: dotnet-inspector <package-name> [version] [--mdf|--json|--console]");
+    Console.WriteLine("   or: dotnet-inspector <path-to-nupkg> [--mdf|--json|--console]");
     Console.WriteLine();
     Console.WriteLine("Options:");
-    Console.WriteLine("  --json    Output results as JSON");
+    Console.WriteLine("  --mdf       Output results as Markdown Data Format (default)");
+    Console.WriteLine("  --json      Output results as JSON");
+    Console.WriteLine("  --console   Output results in console format (legacy)");
     Console.WriteLine();
     Console.WriteLine("If version is omitted, the latest version will be used.");
     Console.WriteLine();
@@ -64,7 +68,7 @@ else
     else
     {
         // Auto-discover latest version
-        string? latestVersion = await GetLatestVersionAsync(client, packageName, jsonOutput);
+        string? latestVersion = await GetLatestVersionAsync(client, packageName, consoleOutput);
         if (latestVersion == null)
         {
             Console.WriteLine($"Failed to get latest version for package: {packageName}");
@@ -87,20 +91,20 @@ try
     if (isLocalFile)
     {
         string localPath = filteredArgs[0];
-        if (!jsonOutput) Console.WriteLine($"Processing local package: {Path.GetFileName(localPath)}");
+        if (consoleOutput) Console.WriteLine($"Processing local package: {Path.GetFileName(localPath)}");
         ZipFile.ExtractToDirectory(localPath, extractPath);
     }
     else
     {
         string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-        if (!jsonOutput) Console.WriteLine($"Downloading: {nupkgUrl}");
+        if (consoleOutput) Console.WriteLine($"Downloading: {nupkgUrl}");
 
         byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
         string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
         await File.WriteAllBytesAsync(nupkgPath, packageBytes);
         ZipFile.ExtractToDirectory(nupkgPath, extractPath);
 
-        if (!jsonOutput) Console.WriteLine("Package downloaded successfully.");
+        if (consoleOutput) Console.WriteLine("Package downloaded successfully.");
     }
 
     // Parse package metadata
@@ -152,14 +156,26 @@ try
     // Audit assemblies for SourceLink and deterministic builds
     AuditAssemblies(extractPath, result, sourceLinkGuid);
 
+    // Verify RID-specific packages exist (for RID-specific pointer packages)
+    if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
+    {
+        string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(filteredArgs[0])) : null;
+        await VerifyRidPackagesAsync(client, result, result.Version, localDir, consoleOutput);
+    }
+
     // Output results
     if (jsonOutput)
     {
         Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult));
     }
-    else
+    else if (consoleOutput)
     {
         PrintConsoleOutput(result);
+    }
+    else
+    {
+        // Default: MDF output
+        Console.WriteLine(MdfSerializer.Serialize(result, new MdfContext { BoldFieldNames = true }));
     }
 
     return 0;
@@ -184,12 +200,12 @@ finally
     }
 }
 
-static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, bool jsonOutput)
+static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, bool verbose)
 {
     try
     {
         string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
-        if (!jsonOutput) Console.WriteLine($"Fetching versions from: {indexUrl}");
+        if (verbose) Console.WriteLine($"Fetching versions from: {indexUrl}");
 
         string json = await client.GetStringAsync(indexUrl);
         using var doc = JsonDocument.Parse(json);
@@ -200,14 +216,14 @@ static async Task<string?> GetLatestVersionAsync(HttpClient client, string packa
             if (versionList.Count > 0)
             {
                 string? latest = versionList[^1]; // Take the last (latest) version
-                if (!jsonOutput) Console.WriteLine($"Latest version: {latest}");
+                if (verbose) Console.WriteLine($"Latest version: {latest}");
                 return latest;
             }
         }
     }
     catch (HttpRequestException ex)
     {
-        if (!jsonOutput) Console.WriteLine($"Error fetching versions: {ex.Message}");
+        if (verbose) Console.WriteLine($"Error fetching versions: {ex.Message}");
     }
 
     return null;
@@ -1335,6 +1351,56 @@ static string GetPropertySignature(MetadataReader reader, PropertyDefinition pro
     return $"{signature.ReturnType} {name}";
 }
 
+static async Task VerifyRidPackagesAsync(HttpClient client, InspectionResult result, string version, string? localDir, bool verbose)
+{
+    if (result.RuntimeIdentifierPackages == null)
+        return;
+
+    foreach (var ridPkg in result.RuntimeIdentifierPackages)
+    {
+        if (localDir != null)
+        {
+            // Local verification: check if sibling .nupkg file exists
+            string expectedFileName = $"{ridPkg.PackageId}.{version}.nupkg";
+            string expectedPath = Path.Combine(localDir, expectedFileName);
+            ridPkg.Exists = File.Exists(expectedPath);
+
+            if (verbose)
+            {
+                string status = ridPkg.Exists == true ? "found" : "NOT FOUND";
+                Console.WriteLine($"  {ridPkg.RuntimeIdentifier}: {status} ({expectedFileName})");
+            }
+        }
+        else
+        {
+            // Remote verification: check NuGet API
+            string packageId = ridPkg.PackageId.ToLowerInvariant();
+            string checkVersion = version.ToLowerInvariant();
+            string url = $"https://api.nuget.org/v3-flatcontainer/{packageId}/{checkVersion}/{packageId}.nuspec";
+
+            try
+            {
+                var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
+                ridPkg.Exists = response.IsSuccessStatusCode;
+
+                if (verbose)
+                {
+                    string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
+                    Console.WriteLine($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
+                }
+            }
+            catch
+            {
+                ridPkg.Exists = false;
+                if (verbose)
+                {
+                    Console.WriteLine($"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version})");
+                }
+            }
+        }
+    }
+}
+
 static void PrintConsoleOutput(InspectionResult result)
 {
     Console.WriteLine();
@@ -1380,7 +1446,13 @@ static void PrintConsoleOutput(InspectionResult result)
         Console.WriteLine("=== RuntimeIdentifierPackages ===");
         foreach (var ridPkg in result.RuntimeIdentifierPackages)
         {
-            Console.WriteLine($"  {ridPkg.RuntimeIdentifier} → {ridPkg.PackageId}");
+            string status = ridPkg.Exists switch
+            {
+                true => "✓",
+                false => "✗ NOT FOUND",
+                null => "?"
+            };
+            Console.WriteLine($"  {ridPkg.RuntimeIdentifier} → {ridPkg.PackageId} [{status}]");
         }
     }
 
