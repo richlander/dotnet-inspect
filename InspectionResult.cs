@@ -1,29 +1,51 @@
+using System.Text.Json.Serialization;
 using MarkdownData;
 
 namespace DotnetInspector;
 
-[MdfSerializable(TitleProperty = nameof(PackageName))]
+[MdfSerializable(TitleProperty = nameof(PackageName), DescriptionProperty = nameof(Description))]
 public class InspectionResult
 {
     [MdfPropertyName("Package")]
     public string PackageName { get; set; } = "";
 
     public string Version { get; set; } = "";
+
+    [MdfIgnore] // Rendered as paragraph via DescriptionProperty
     public string? Description { get; set; }
+
     public string? Authors { get; set; }
     public string? Repository { get; set; }
 
     [MdfPropertyName("Tool Package")]
     public bool IsToolPackage { get; set; }
 
-    [MdfPropertyName("Package Types")]
+    [MdfIgnore]
     public List<string>? PackageTypes { get; set; }
 
-    [MdfPropertyName("Target Frameworks")]
+    [MdfPropertyName("Package Types")]
+    [JsonIgnore]
+    public string? PackageTypesSummary => PackageTypes is { Count: > 0 }
+        ? string.Join(", ", PackageTypes)
+        : null;
+
+    [MdfIgnore]
     public List<string>? TargetFrameworks { get; set; }
 
-    [MdfPropertyName("Supported RIDs")]
+    [MdfPropertyName("Target Frameworks")]
+    [JsonIgnore]
+    public string? TargetFrameworksSummary => TargetFrameworks is { Count: > 0 }
+        ? string.Join(", ", TargetFrameworks)
+        : null;
+
+    [MdfIgnore]
     public List<string>? SupportedRids { get; set; }
+
+    [MdfPropertyName("Supported RIDs")]
+    [JsonIgnore]
+    public string? SupportedRidsSummary => SupportedRids is { Count: > 0 }
+        ? string.Join(", ", SupportedRids)
+        : null;
 
     [MdfPropertyName("Framework Dependent")]
     public bool IsFrameworkDependent { get; set; }
@@ -41,8 +63,14 @@ public class InspectionResult
     [MdfPropertyName("RID-Specific Pointer Package")]
     public bool IsRidSpecificPointerPackage { get; set; }
 
-    [MdfPropertyName("Tool Commands")]
+    [MdfIgnore]
     public List<string>? ToolCommands { get; set; }
+
+    [MdfPropertyName("Tool Commands")]
+    [JsonIgnore]
+    public string? ToolCommandsSummary => ToolCommands is { Count: > 0 }
+        ? string.Join(", ", ToolCommands)
+        : null;
 
     [MdfSection(Name = "RID Packages")]
     public List<RidPackageReference>? RuntimeIdentifierPackages { get; set; }
@@ -50,11 +78,28 @@ public class InspectionResult
     [MdfPropertyName("Runtime Target RID")]
     public string? RuntimeTargetRid { get; set; }
 
-    [MdfPropertyName("Native Files")]
+    [MdfIgnore]
     public List<string>? NativeFiles { get; set; }
 
-    [MdfSection(Name = "Package Dependencies")]
+    [MdfPropertyName("Native Files")]
+    [JsonIgnore]
+    public string? NativeFilesSummary => NativeFiles is { Count: > 0 }
+        ? string.Join(", ", NativeFiles)
+        : null;
+
+    [MdfIgnore]
     public List<DependencyGroup>? DependencyGroups { get; set; }
+
+    [MdfSection(Name = "Package Dependencies")]
+    [JsonIgnore]
+    public List<FlatDependency>? FlatDependencies => DependencyGroups?
+        .SelectMany(g => g.Dependencies.Select(d => new FlatDependency
+        {
+            TargetFramework = g.TargetFramework,
+            Id = d.Id,
+            Version = d.Version
+        }))
+        .ToList();
 
     [MdfSection(Name = "Runtime Dependencies")]
     public List<PackageDependency>? RuntimeDependencies { get; set; }

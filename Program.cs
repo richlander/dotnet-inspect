@@ -11,25 +11,27 @@ using MarkdownData;
 
 // Parse command-line arguments
 bool jsonOutput = args.Contains("--json");
-bool consoleOutput = args.Contains("--console");
-string[] filteredArgs = args.Where(a => a != "--mdf" && a != "--json" && a != "--console").ToArray();
+bool verbose = args.Contains("--verbose") || args.Contains("-v");
+bool showHelp = args.Contains("--help") || args.Contains("help");
+string[] filteredArgs = args.Where(a => a != "--mdf" && a != "--json" && a != "--verbose" && a != "-v" && a != "--help" && a != "help").ToArray();
 
-if (filteredArgs.Length < 1)
+if (showHelp || filteredArgs.Length < 1)
 {
-    Console.WriteLine("Usage: dotnet-inspector <package-name> [version] [--mdf|--json|--console]");
-    Console.WriteLine("   or: dotnet-inspector <path-to-nupkg> [--mdf|--json|--console]");
+    Console.WriteLine("Usage: dotnet-inspect <package-name> [version] [--mdf|--json]");
+    Console.WriteLine("   or: dotnet-inspect <path-to-nupkg> [--mdf|--json]");
     Console.WriteLine();
     Console.WriteLine("Options:");
     Console.WriteLine("  --mdf       Output results as Markdown Data Format (default)");
     Console.WriteLine("  --json      Output results as JSON");
-    Console.WriteLine("  --console   Output results in console format (legacy)");
+    Console.WriteLine("  --verbose   Show progress messages on stderr");
+    Console.WriteLine("  --help      Show this help message");
     Console.WriteLine();
     Console.WriteLine("If version is omitted, the latest version will be used.");
     Console.WriteLine();
     Console.WriteLine("Examples:");
-    Console.WriteLine("  dotnet-inspector dotnet-ef");
-    Console.WriteLine("  dotnet-inspector dotnet-ef 9.0.0");
-    Console.WriteLine("  dotnet-inspector ./MyTool.1.0.0.nupkg --json");
+    Console.WriteLine("  dotnet-inspect dotnet-ef");
+    Console.WriteLine("  dotnet-inspect dotnet-ef 9.0.0");
+    Console.WriteLine("  dotnet-inspect ./MyTool.1.0.0.nupkg --json");
     return 1;
 }
 
@@ -48,7 +50,7 @@ if (isLocalFile)
     string localPath = filteredArgs[0];
     if (!File.Exists(localPath))
     {
-        Console.WriteLine($"Error: File not found: {localPath}");
+        Console.Error.WriteLine($"Error: File not found: {localPath}");
         return 1;
     }
 
@@ -68,10 +70,10 @@ else
     else
     {
         // Auto-discover latest version
-        string? latestVersion = await GetLatestVersionAsync(client, packageName, consoleOutput);
+        string? latestVersion = await GetLatestVersionAsync(client, packageName, verbose);
         if (latestVersion == null)
         {
-            Console.WriteLine($"Failed to get latest version for package: {packageName}");
+            Console.Error.WriteLine($"Failed to get latest version for package: {packageName}");
             return 1;
         }
         version = latestVersion;
@@ -91,20 +93,20 @@ try
     if (isLocalFile)
     {
         string localPath = filteredArgs[0];
-        if (consoleOutput) Console.WriteLine($"Processing local package: {Path.GetFileName(localPath)}");
+        if (verbose) Console.Error.WriteLine($"Processing local package: {Path.GetFileName(localPath)}");
         ZipFile.ExtractToDirectory(localPath, extractPath);
     }
     else
     {
         string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-        if (consoleOutput) Console.WriteLine($"Downloading: {nupkgUrl}");
+        if (verbose) Console.Error.WriteLine($"Downloading: {nupkgUrl}");
 
         byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
         string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
         await File.WriteAllBytesAsync(nupkgPath, packageBytes);
         ZipFile.ExtractToDirectory(nupkgPath, extractPath);
 
-        if (consoleOutput) Console.WriteLine("Package downloaded successfully.");
+        if (verbose) Console.Error.WriteLine("Package downloaded successfully.");
     }
 
     // Parse package metadata
@@ -160,17 +162,13 @@ try
     if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
     {
         string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(filteredArgs[0])) : null;
-        await VerifyRidPackagesAsync(client, result, result.Version, localDir, consoleOutput);
+        await VerifyRidPackagesAsync(client, result, result.Version, localDir, verbose);
     }
 
     // Output results
     if (jsonOutput)
     {
         Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult));
-    }
-    else if (consoleOutput)
-    {
-        PrintConsoleOutput(result);
     }
     else
     {
@@ -182,7 +180,7 @@ try
 }
 catch (HttpRequestException ex)
 {
-    Console.WriteLine($"Failed to download package: {ex.Message}");
+    Console.Error.WriteLine($"Failed to download package: {ex.Message}");
     return 1;
 }
 finally
@@ -205,7 +203,7 @@ static async Task<string?> GetLatestVersionAsync(HttpClient client, string packa
     try
     {
         string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
-        if (verbose) Console.WriteLine($"Fetching versions from: {indexUrl}");
+        if (verbose) Console.Error.WriteLine($"Fetching versions from: {indexUrl}");
 
         string json = await client.GetStringAsync(indexUrl);
         using var doc = JsonDocument.Parse(json);
@@ -216,14 +214,14 @@ static async Task<string?> GetLatestVersionAsync(HttpClient client, string packa
             if (versionList.Count > 0)
             {
                 string? latest = versionList[^1]; // Take the last (latest) version
-                if (verbose) Console.WriteLine($"Latest version: {latest}");
+                if (verbose) Console.Error.WriteLine($"Latest version: {latest}");
                 return latest;
             }
         }
     }
     catch (HttpRequestException ex)
     {
-        if (verbose) Console.WriteLine($"Error fetching versions: {ex.Message}");
+        if (verbose) Console.Error.WriteLine($"Error fetching versions: {ex.Message}");
     }
 
     return null;
@@ -1368,7 +1366,7 @@ static async Task VerifyRidPackagesAsync(HttpClient client, InspectionResult res
             if (verbose)
             {
                 string status = ridPkg.Exists == true ? "found" : "NOT FOUND";
-                Console.WriteLine($"  {ridPkg.RuntimeIdentifier}: {status} ({expectedFileName})");
+                Console.Error.WriteLine($"  {ridPkg.RuntimeIdentifier}: {status} ({expectedFileName})");
             }
         }
         else
@@ -1386,7 +1384,7 @@ static async Task VerifyRidPackagesAsync(HttpClient client, InspectionResult res
                 if (verbose)
                 {
                     string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
-                    Console.WriteLine($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
+                    Console.Error.WriteLine($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
                 }
             }
             catch
@@ -1394,231 +1392,9 @@ static async Task VerifyRidPackagesAsync(HttpClient client, InspectionResult res
                 ridPkg.Exists = false;
                 if (verbose)
                 {
-                    Console.WriteLine($"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version})");
+                    Console.Error.WriteLine($"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version})");
                 }
             }
-        }
-    }
-}
-
-static void PrintConsoleOutput(InspectionResult result)
-{
-    Console.WriteLine();
-    Console.WriteLine($"Package: {result.PackageName}");
-    Console.WriteLine($"Version: {result.Version}");
-
-    if (result.Description != null)
-    {
-        Console.WriteLine($"Description: {result.Description}");
-    }
-
-    if (result.Authors != null)
-    {
-        Console.WriteLine($"Authors: {result.Authors}");
-    }
-
-    if (result.Repository != null)
-    {
-        Console.WriteLine($"Repository: {result.Repository}");
-    }
-
-    Console.WriteLine();
-    Console.WriteLine($"Is Tool Package: {(result.IsToolPackage ? "Yes" : "No")}");
-
-    if (result.PackageTypes is { Count: > 0 })
-    {
-        Console.WriteLine($"Package Types: {string.Join(", ", result.PackageTypes)}");
-    }
-
-    if (result.ToolFormat != null)
-    {
-        Console.WriteLine($"Tool Format: {result.ToolFormat}");
-    }
-
-    if (result.ToolCommands is { Count: > 0 })
-    {
-        Console.WriteLine($"Commands: {string.Join(", ", result.ToolCommands)}");
-    }
-
-    if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
-    {
-        Console.WriteLine();
-        Console.WriteLine("=== RuntimeIdentifierPackages ===");
-        foreach (var ridPkg in result.RuntimeIdentifierPackages)
-        {
-            string status = ridPkg.Exists switch
-            {
-                true => "✓",
-                false => "✗ NOT FOUND",
-                null => "?"
-            };
-            Console.WriteLine($"  {ridPkg.RuntimeIdentifier} → {ridPkg.PackageId} [{status}]");
-        }
-    }
-
-    Console.WriteLine();
-    Console.WriteLine("=== RID Analysis ===");
-
-    if (result.TargetFrameworks is { Count: > 0 })
-    {
-        Console.WriteLine($"Target Frameworks: {string.Join(", ", result.TargetFrameworks)}");
-    }
-
-    if (result.SupportedRids is { Count: > 0 })
-    {
-        Console.WriteLine($"Supported RIDs: {string.Join(", ", result.SupportedRids)}");
-
-        // Categorize RIDs
-        var windowsRids = result.SupportedRids.Where(r => r.StartsWith("win", StringComparison.OrdinalIgnoreCase)).ToList();
-        var linuxRids = result.SupportedRids.Where(r => r.StartsWith("linux", StringComparison.OrdinalIgnoreCase)).ToList();
-        var osxRids = result.SupportedRids.Where(r => r.StartsWith("osx", StringComparison.OrdinalIgnoreCase)).ToList();
-        var otherRids = result.SupportedRids.Where(r =>
-            !r.StartsWith("win", StringComparison.OrdinalIgnoreCase) &&
-            !r.StartsWith("linux", StringComparison.OrdinalIgnoreCase) &&
-            !r.StartsWith("osx", StringComparison.OrdinalIgnoreCase) &&
-            !r.Equals("any", StringComparison.OrdinalIgnoreCase)).ToList();
-
-        if (windowsRids.Count > 0) Console.WriteLine($"  Windows: {string.Join(", ", windowsRids)}");
-        if (linuxRids.Count > 0) Console.WriteLine($"  Linux: {string.Join(", ", linuxRids)}");
-        if (osxRids.Count > 0) Console.WriteLine($"  macOS: {string.Join(", ", osxRids)}");
-        if (otherRids.Count > 0) Console.WriteLine($"  Other: {string.Join(", ", otherRids)}");
-        if (result.SupportedRids.Contains("any")) Console.WriteLine($"  Portable: any");
-    }
-    else
-    {
-        Console.WriteLine("Supported RIDs: (none - framework-dependent only)");
-    }
-
-    Console.WriteLine();
-    Console.WriteLine($"Framework-Dependent: {(result.IsFrameworkDependent ? "Yes" : "No")}");
-    Console.WriteLine($"Has RID-Specific Assets: {(result.HasRidSpecificAssets ? "Yes" : "No")}");
-    Console.WriteLine($"Has Native Dependencies: {(result.HasNativeDependencies ? "Yes" : "No")}");
-
-    if (result.RuntimeTargetRid != null)
-    {
-        Console.WriteLine($"Runtime Target RID (from deps.json): {result.RuntimeTargetRid}");
-    }
-
-    if (result.NativeFiles is { Count: > 0 })
-    {
-        Console.WriteLine();
-        Console.WriteLine("Native Files:");
-        foreach (var file in result.NativeFiles)
-        {
-            Console.WriteLine($"  {file}");
-        }
-    }
-
-    // Assembly Audit Section
-    if (result.AuditSummary != null)
-    {
-        Console.WriteLine();
-        Console.WriteLine("=== Assembly Audit ===");
-        Console.WriteLine($"Total Assemblies: {result.AuditSummary.TotalAssemblies}");
-        Console.WriteLine($"Deterministic: {result.AuditSummary.DeterministicCount}/{result.AuditSummary.TotalAssemblies} {(result.AuditSummary.AllDeterministic ? "✓" : "✗")}");
-        Console.WriteLine($"Has SourceLink: {result.AuditSummary.SourceLinkCount}/{result.AuditSummary.TotalAssemblies} {(result.AuditSummary.AllHaveSourceLink ? "✓" : "✗")}");
-        Console.WriteLine($"Embedded PDB: {result.AuditSummary.EmbeddedPdbCount}/{result.AuditSummary.TotalAssemblies}");
-    }
-
-    if (result.AssemblyAudits is { Count: > 0 })
-    {
-        Console.WriteLine();
-        foreach (var audit in result.AssemblyAudits)
-        {
-            string status = audit.IsDeterministic ? "✓" : "✗";
-            string sourceLink = audit.HasSourceLink ? "SourceLink" : "No SourceLink";
-            string pdbInfo = audit.HasEmbeddedPdb ? "Embedded PDB" : (audit.PdbFormat ?? "");
-
-            Console.WriteLine($"  [{status}] {audit.FileName}");
-            Console.WriteLine($"      Deterministic: {(audit.IsDeterministic ? "Yes" : "No")} | Reproducible Flag: {(audit.HasReproducibleFlag ? "Yes" : "No")} | {sourceLink}");
-
-            if (audit.HasEmbeddedPdb)
-            {
-                Console.WriteLine($"      PDB: Embedded Portable PDB");
-            }
-            else if (audit.PdbFormat != null)
-            {
-                Console.WriteLine($"      PDB: {audit.PdbFormat}");
-            }
-
-            if (audit.RepositoryUrl != null)
-            {
-                Console.WriteLine($"      Repository: {audit.RepositoryUrl}");
-            }
-
-            // Assembly Info
-            if (audit.AssemblyInfo != null)
-            {
-                var info = audit.AssemblyInfo;
-
-                // Show compilation type prominently
-                if (info.CompilationType != null)
-                {
-                    string compTypeDisplay = info.CompilationType switch
-                    {
-                        "NativeAOT" => "NativeAOT (ahead-of-time compiled)",
-                        "CoreCLR" => "CoreCLR (JIT compiled)",
-                        "ReadyToRun" => "ReadyToRun (hybrid IL + native)",
-                        "Native" => "Native (unmanaged)",
-                        _ => info.CompilationType
-                    };
-                    Console.WriteLine($"      Compilation: {compTypeDisplay}");
-                }
-
-                Console.WriteLine($"      Architecture: {info.Architecture}{(info.IsSigned ? " | Signed" : "")}{(info.HasUnsafeCode ? " | Unsafe" : "")}");
-                if (info.TargetFramework != null)
-                {
-                    Console.WriteLine($"      Target Framework: {info.TargetFramework}");
-                }
-                if (info.AssemblyVersion != null)
-                {
-                    Console.WriteLine($"      Version: {info.AssemblyVersion}");
-                }
-            }
-
-            // API Surface summary
-            if (audit.ApiSurface != null)
-            {
-                var api = audit.ApiSurface;
-                Console.WriteLine($"      API: {api.PublicTypeCount} types, {api.PublicMethodCount} methods, {api.PublicPropertyCount} properties");
-            }
-
-            if (audit.NonNormalizedPaths is { Count: > 0 })
-            {
-                Console.WriteLine($"      Non-normalized paths:");
-                foreach (var path in audit.NonNormalizedPaths.Take(3))
-                {
-                    Console.WriteLine($"        {path}");
-                }
-                if (audit.NonNormalizedPaths.Count > 3)
-                {
-                    Console.WriteLine($"        ... and {audit.NonNormalizedPaths.Count - 3} more");
-                }
-            }
-        }
-    }
-
-    if (result.DependencyGroups is { Count: > 0 })
-    {
-        Console.WriteLine();
-        Console.WriteLine("=== Package Dependencies (from nuspec) ===");
-        foreach (var group in result.DependencyGroups)
-        {
-            Console.WriteLine($"[{group.TargetFramework}]");
-            foreach (var dep in group.Dependencies)
-            {
-                Console.WriteLine($"  {dep.Id} {dep.Version}");
-            }
-        }
-    }
-
-    if (result.RuntimeDependencies is { Count: > 0 })
-    {
-        Console.WriteLine();
-        Console.WriteLine("=== Runtime Dependencies (from deps.json) ===");
-        foreach (var dep in result.RuntimeDependencies.OrderBy(d => d.Id))
-        {
-            Console.WriteLine($"  {dep.Id} {dep.Version}");
         }
     }
 }
