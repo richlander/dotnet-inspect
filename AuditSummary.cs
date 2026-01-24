@@ -1,25 +1,25 @@
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class AuditSummary
 {
-    [MdfPropertyName("Total Assemblies")]
+    [MarkOutPropertyName("Total Assemblies")]
     public int TotalAssemblies { get; set; }
 
-    [MdfPropertyName("Deterministic")]
+    [MarkOutPropertyName("Deterministic")]
     public int DeterministicCount { get; set; }
 
-    [MdfPropertyName("SourceLink")]
+    [MarkOutPropertyName("SourceLink")]
     public int SourceLinkCount { get; set; }
 
-    [MdfPropertyName("Embedded PDB")]
+    [MarkOutPropertyName("Embedded PDB")]
     public int EmbeddedPdbCount { get; set; }
 
-    [MdfPropertyName("All Deterministic")]
+    [MarkOutPropertyName("All Deterministic")]
     public bool AllDeterministic { get; set; }
 
-    [MdfPropertyName("All Have SourceLink")]
+    [MarkOutPropertyName("All Have SourceLink")]
     public bool AllHaveSourceLink { get; set; }
 }

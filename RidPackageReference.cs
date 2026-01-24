@@ -1,24 +1,24 @@
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class RidPackageReference
 {
-    [MdfPropertyName("RID")]
+    [MarkOutPropertyName("RID")]
     public string RuntimeIdentifier { get; set; } = "";
 
-    [MdfPropertyName("Package")]
+    [MarkOutPropertyName("Package")]
     public string PackageId { get; set; } = "";
 
     /// <summary>
     /// Whether the RID-specific package exists (verified via local file or NuGet).
     /// Null means not checked.
     /// </summary>
-    [MdfIgnore]
+    [MarkOutIgnore]
     public bool? Exists { get; set; }
 
-    [MdfPropertyName("Available")]
+    [MarkOutPropertyName("Available")]
     public string AvailableDisplay => Exists switch
     {
         true => "yes",

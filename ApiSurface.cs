@@ -1,79 +1,79 @@
 using System.Text.Json.Serialization;
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class ApiSurface
 {
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<ApiType> Types { get; set; } = [];
 
-    [MdfPropertyName("Public Types")]
+    [MarkOutPropertyName("Public Types")]
     public int PublicTypeCount { get; set; }
 
-    [MdfPropertyName("Public Methods")]
+    [MarkOutPropertyName("Public Methods")]
     public int PublicMethodCount { get; set; }
 
-    [MdfPropertyName("Public Properties")]
+    [MarkOutPropertyName("Public Properties")]
     public int PublicPropertyCount { get; set; }
 
-    [MdfPropertyName("Public Events")]
+    [MarkOutPropertyName("Public Events")]
     public int PublicEventCount { get; set; }
 
-    [MdfPropertyName("Public Fields")]
+    [MarkOutPropertyName("Public Fields")]
     public int PublicFieldCount { get; set; }
 }
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class ApiType
 {
     public string? Namespace { get; set; }
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
 
-    [MdfPropertyName("Sealed")]
+    [MarkOutPropertyName("Sealed")]
     public bool IsSealed { get; set; }
 
-    [MdfPropertyName("Abstract")]
+    [MarkOutPropertyName("Abstract")]
     public bool IsAbstract { get; set; }
 
-    [MdfPropertyName("Static")]
+    [MarkOutPropertyName("Static")]
     public bool IsStatic { get; set; }
 
-    [MdfPropertyName("Base Type")]
+    [MarkOutPropertyName("Base Type")]
     public string? BaseType { get; set; }
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? Interfaces { get; set; }
 
-    [MdfPropertyName("Interfaces")]
+    [MarkOutPropertyName("Interfaces")]
     [JsonIgnore]
     public string? InterfacesSummary => Interfaces is { Count: > 0 }
         ? string.Join(", ", Interfaces)
         : null;
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<ApiMember>? Members { get; set; }
 }
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class ApiMember
 {
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // method, property, field, event, constructor
 
-    [MdfPropertyName("Return Type")]
+    [MarkOutPropertyName("Return Type")]
     public string? ReturnType { get; set; }
 
     public string? Signature { get; set; }
 
-    [MdfPropertyName("Static")]
+    [MarkOutPropertyName("Static")]
     public bool IsStatic { get; set; }
 
-    [MdfPropertyName("Virtual")]
+    [MarkOutPropertyName("Virtual")]
     public bool IsVirtual { get; set; }
 
-    [MdfPropertyName("Abstract")]
+    [MarkOutPropertyName("Abstract")]
     public bool IsAbstract { get; set; }
 }

@@ -1,13 +1,13 @@
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class DependencyGroup
 {
-    [MdfPropertyName("Target Framework")]
+    [MarkOutPropertyName("Target Framework")]
     public string TargetFramework { get; set; } = "";
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<PackageDependency> Dependencies { get; set; } = [];
 }

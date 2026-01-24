@@ -1,61 +1,61 @@
 using System.Text.Json.Serialization;
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
 // Summary helper for AssemblyInfo in table display
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class AssemblyAudit
 {
-    [MdfPropertyName("File")]
+    [MarkOutPropertyName("File")]
     public string FileName { get; set; } = "";
 
-    [MdfPropertyName("Type")]
+    [MarkOutPropertyName("Type")]
     public string FileType { get; set; } = "";
 
-    [MdfPropertyName("PDB Format")]
+    [MarkOutPropertyName("PDB Format")]
     public string? PdbFormat { get; set; }
 
-    [MdfPropertyName("PDB Path")]
+    [MarkOutPropertyName("PDB Path")]
     public string? PdbPath { get; set; }
 
-    [MdfPropertyName("Embedded PDB")]
+    [MarkOutPropertyName("Embedded PDB")]
     public bool HasEmbeddedPdb { get; set; }
 
-    [MdfPropertyName("Reproducible Flag")]
+    [MarkOutPropertyName("Reproducible Flag")]
     public bool HasReproducibleFlag { get; set; }
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public bool? HasNormalizedPaths { get; set; }
 
-    [MdfPropertyName("SourceLink")]
+    [MarkOutPropertyName("SourceLink")]
     public bool HasSourceLink { get; set; }
 
     public bool IsDeterministic { get; set; }
 
-    [MdfPropertyName("Repository URL")]
+    [MarkOutPropertyName("Repository URL")]
     public string? RepositoryUrl { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [MdfIgnore]
+    [MarkOutIgnore]
     public string? SourceLinkJson { get; set; }
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? NonNormalizedPaths { get; set; }
 
     // Assembly metadata
-    [MdfIgnore]
+    [MarkOutIgnore]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
 
     // Public API surface
-    [MdfIgnore]
+    [MarkOutIgnore]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSurface? ApiSurface { get; set; }
 
     // Computed summary properties for MDF table display
-    [MdfPropertyName("Assembly")]
+    [MarkOutPropertyName("Assembly")]
     [JsonIgnore]
     public string? AssemblySummary => AssemblyInfo switch
     {
@@ -69,7 +69,7 @@ public class AssemblyAudit
         }.Where(s => !string.IsNullOrEmpty(s)))
     };
 
-    [MdfPropertyName("API")]
+    [MarkOutPropertyName("API")]
     [JsonIgnore]
     public string? ApiSummary => ApiSurface switch
     {

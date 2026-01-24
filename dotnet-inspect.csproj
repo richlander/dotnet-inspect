@@ -10,8 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\markdown-data-format\src\MarkdownData\MarkdownData.csproj" />
-    <ProjectReference Include="..\markdown-data-format\src\MarkdownData.SourceGeneration\MarkdownData.SourceGeneration.csproj"
+    <ProjectReference Include="..\markout\src\MarkOut\MarkOut.csproj" />
+    <ProjectReference Include="..\markout\src\MarkOut.SourceGeneration\MarkOut.SourceGeneration.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="true" />
   </ItemGroup>

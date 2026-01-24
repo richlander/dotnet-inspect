@@ -1,23 +1,23 @@
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
-[MdfSerializable]
+[MarkOutSerializable]
 public class AssemblyInfo
 {
-    [MdfPropertyName("Name")]
+    [MarkOutPropertyName("Name")]
     public string? AssemblyName { get; set; }
 
-    [MdfPropertyName("Assembly Version")]
+    [MarkOutPropertyName("Assembly Version")]
     public string? AssemblyVersion { get; set; }
 
-    [MdfPropertyName("File Version")]
+    [MarkOutPropertyName("File Version")]
     public string? FileVersion { get; set; }
 
-    [MdfPropertyName("Informational Version")]
+    [MarkOutPropertyName("Informational Version")]
     public string? InformationalVersion { get; set; }
 
-    [MdfPropertyName("Target Framework")]
+    [MarkOutPropertyName("Target Framework")]
     public string? TargetFramework { get; set; }
 
     public string? Culture { get; set; }
@@ -25,51 +25,51 @@ public class AssemblyInfo
     // PE header information
     public string? Architecture { get; set; }  // AnyCPU, x86, x64, ARM, ARM64
 
-    [MdfPropertyName("Any CPU")]
+    [MarkOutPropertyName("Any CPU")]
     public bool IsAnyCpu { get; set; }
 
-    [MdfPropertyName("Prefers 32-bit")]
+    [MarkOutPropertyName("Prefers 32-bit")]
     public bool Prefers32Bit { get; set; }
 
-    [MdfPropertyName("Executable")]
+    [MarkOutPropertyName("Executable")]
     public bool IsExecutable { get; set; }
 
-    [MdfPropertyName("DLL")]
+    [MarkOutPropertyName("DLL")]
     public bool IsDll { get; set; }
 
     // Assembly characteristics
-    [MdfPropertyName("Signed")]
+    [MarkOutPropertyName("Signed")]
     public bool IsSigned { get; set; }
 
-    [MdfPropertyName("Public Key Token")]
+    [MarkOutPropertyName("Public Key Token")]
     public string? PublicKeyToken { get; set; }
 
-    [MdfPropertyName("Unsafe Code")]
+    [MarkOutPropertyName("Unsafe Code")]
     public bool HasUnsafeCode { get; set; }
 
     // Metadata
-    [MdfPropertyName("Runtime Version")]
+    [MarkOutPropertyName("Runtime Version")]
     public string? RuntimeVersion { get; set; }
 
-    [MdfPropertyName("Metadata Version")]
+    [MarkOutPropertyName("Metadata Version")]
     public int MetadataVersion { get; set; }
 
     // Compilation type detection
-    [MdfPropertyName("Compilation Type")]
+    [MarkOutPropertyName("Compilation Type")]
     public string? CompilationType { get; set; }  // "CoreCLR", "NativeAOT", "Native", "ReadyToRun"
 
-    [MdfPropertyName("Native AOT")]
+    [MarkOutPropertyName("Native AOT")]
     public bool IsNativeAot { get; set; }
 
-    [MdfPropertyName("Ready To Run")]
+    [MarkOutPropertyName("Ready To Run")]
     public bool IsReadyToRun { get; set; }
 
-    [MdfPropertyName("Managed Metadata")]
+    [MarkOutPropertyName("Managed Metadata")]
     public bool HasManagedMetadata { get; set; }
 
-    [MdfPropertyName("COR Header")]
+    [MarkOutPropertyName("COR Header")]
     public bool HasCorHeader { get; set; }
 
-    [MdfPropertyName("IL Code")]
+    [MarkOutPropertyName("IL Code")]
     public bool HasILCode { get; set; }
 }

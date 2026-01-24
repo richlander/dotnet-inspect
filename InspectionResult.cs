@@ -1,96 +1,96 @@
 using System.Text.Json.Serialization;
-using MarkdownData;
+using MarkOut;
 
 namespace DotnetInspector;
 
-[MdfSerializable(TitleProperty = nameof(PackageName), DescriptionProperty = nameof(Description))]
+[MarkOutSerializable(TitleProperty = nameof(PackageName), DescriptionProperty = nameof(Description))]
 public class InspectionResult
 {
-    [MdfPropertyName("Package")]
+    [MarkOutPropertyName("Package")]
     public string PackageName { get; set; } = "";
 
     public string Version { get; set; } = "";
 
-    [MdfIgnore] // Rendered as paragraph via DescriptionProperty
+    [MarkOutIgnore] // Rendered as paragraph via DescriptionProperty
     public string? Description { get; set; }
 
     public string? Authors { get; set; }
     public string? Repository { get; set; }
 
-    [MdfPropertyName("Tool Package")]
+    [MarkOutPropertyName("Tool Package")]
     public bool IsToolPackage { get; set; }
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? PackageTypes { get; set; }
 
-    [MdfPropertyName("Package Types")]
+    [MarkOutPropertyName("Package Types")]
     [JsonIgnore]
     public string? PackageTypesSummary => PackageTypes is { Count: > 0 }
         ? string.Join(", ", PackageTypes)
         : null;
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? TargetFrameworks { get; set; }
 
-    [MdfPropertyName("Target Frameworks")]
+    [MarkOutPropertyName("Target Frameworks")]
     [JsonIgnore]
     public string? TargetFrameworksSummary => TargetFrameworks is { Count: > 0 }
         ? string.Join(", ", TargetFrameworks)
         : null;
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? SupportedRids { get; set; }
 
-    [MdfPropertyName("Supported RIDs")]
+    [MarkOutPropertyName("Supported RIDs")]
     [JsonIgnore]
     public string? SupportedRidsSummary => SupportedRids is { Count: > 0 }
         ? string.Join(", ", SupportedRids)
         : null;
 
-    [MdfPropertyName("Framework Dependent")]
+    [MarkOutPropertyName("Framework Dependent")]
     public bool IsFrameworkDependent { get; set; }
 
-    [MdfPropertyName("RID-Specific Assets")]
+    [MarkOutPropertyName("RID-Specific Assets")]
     public bool HasRidSpecificAssets { get; set; }
 
-    [MdfPropertyName("Native Dependencies")]
+    [MarkOutPropertyName("Native Dependencies")]
     public bool HasNativeDependencies { get; set; }
 
     // RID-specific tool (DotNetCliTool Version="2") properties
-    [MdfPropertyName("Tool Format")]
+    [MarkOutPropertyName("Tool Format")]
     public string? ToolFormat { get; set; }
 
-    [MdfPropertyName("RID-Specific Pointer Package")]
+    [MarkOutPropertyName("RID-Specific Pointer Package")]
     public bool IsRidSpecificPointerPackage { get; set; }
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? ToolCommands { get; set; }
 
-    [MdfPropertyName("Tool Commands")]
+    [MarkOutPropertyName("Tool Commands")]
     [JsonIgnore]
     public string? ToolCommandsSummary => ToolCommands is { Count: > 0 }
         ? string.Join(", ", ToolCommands)
         : null;
 
-    [MdfSection(Name = "RID Packages")]
+    [MarkOutSection(Name = "RID Packages")]
     public List<RidPackageReference>? RuntimeIdentifierPackages { get; set; }
 
-    [MdfPropertyName("Runtime Target RID")]
+    [MarkOutPropertyName("Runtime Target RID")]
     public string? RuntimeTargetRid { get; set; }
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<string>? NativeFiles { get; set; }
 
-    [MdfPropertyName("Native Files")]
+    [MarkOutPropertyName("Native Files")]
     [JsonIgnore]
     public string? NativeFilesSummary => NativeFiles is { Count: > 0 }
         ? string.Join(", ", NativeFiles)
         : null;
 
-    [MdfIgnore]
+    [MarkOutIgnore]
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
-    [MdfSection(Name = "Package Dependencies")]
+    [MarkOutSection(Name = "Package Dependencies")]
     [JsonIgnore]
     public List<FlatDependency>? FlatDependencies => DependencyGroups?
         .SelectMany(g => g.Dependencies.Select(d => new FlatDependency
@@ -101,12 +101,12 @@ public class InspectionResult
         }))
         .ToList();
 
-    [MdfSection(Name = "Runtime Dependencies")]
+    [MarkOutSection(Name = "Runtime Dependencies")]
     public List<PackageDependency>? RuntimeDependencies { get; set; }
 
-    [MdfSection(Name = "Audit Summary")]
+    [MarkOutSection(Name = "Audit Summary")]
     public AuditSummary? AuditSummary { get; set; }
 
-    [MdfSection(Name = "Assembly Audit")]
+    [MarkOutSection(Name = "Assembly Audit")]
     public List<AssemblyAudit>? AssemblyAudits { get; set; }
 }
