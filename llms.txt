@@ -118,20 +118,19 @@ Control section detail with `-v:` option:
 
 ## Section Filtering (H2s)
 
-Filter output by H2 section numbers:
+Filter output by H2 section numbers (first H2 = 1, etc.). Content before first H2 is always included.
+
+**Section indices by command:**
+- `package`: 1=Metadata, 2=Package Dependencies
+- `assembly`: 1=Assembly Info, 2=Build Audit (with --audit)
+- `api` (type list): 1=Types
+- `api` (single type): 1=Members
 
 ```bash
-# Include only sections 1 and 3
-dotnet-inspect package Foo -s:1,3
-
-# Exclude section 2
-dotnet-inspect package Foo -x:2
-
-# Combine with verbosity
-dotnet-inspect package Foo -v:d -x:2
+dotnet-inspect package Foo -s:1      # Metadata only
+dotnet-inspect package Foo -x:2      # Exclude dependencies
+dotnet-inspect package Foo -v:d -s:1 # Detailed metadata only
 ```
-
-Sections are numbered by H2 headings in order (first H2 = 1, second H2 = 2, etc.). Content before the first H2 (title/description) is always included.
 
 ## Tips
 

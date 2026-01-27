@@ -1,7 +1,9 @@
 using System.IO.Compression;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -199,11 +201,27 @@ public class ApiCommand : ICommand
         }
     }
 
+    private static readonly JsonSerializerOptions s_jsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = JsonTypeInfoResolver.Combine(
+            ApiJsonContext.Default,
+            ApiTypeJsonContext.Default)
+    };
+
+    private static string SerializeJson<T>(T value, JsonTypeInfo<T> _)
+    {
+        return JsonSerializer.Serialize(value, s_jsonOptions);
+    }
+
     private static void WriteFullApiOutput(ApiSurface api, ApiOptions options)
     {
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
+            Console.WriteLine(SerializeJson(api, ApiJsonContext.Default.ApiSurface));
         }
         else
         {
@@ -249,7 +267,7 @@ public class ApiCommand : ICommand
     {
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(type, ApiTypeJsonContext.Default.ApiType));
+            Console.WriteLine(SerializeJson(type, ApiTypeJsonContext.Default.ApiType));
         }
         else
         {

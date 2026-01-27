@@ -51,7 +51,12 @@ public class SignatureTypeProvider : ISignatureTypeProvider<string, object?>
     public string GetByReferenceType(string elementType) => $"ref {elementType}";
     public string GetPointerType(string elementType) => $"{elementType}*";
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-        => $"{genericType}<{string.Join(", ", typeArguments)}>";
+    {
+        // Strip .NET arity suffix (e.g., List`1 -> List)
+        var backtickIndex = genericType.IndexOf('`');
+        var cleanName = backtickIndex >= 0 ? genericType[..backtickIndex] : genericType;
+        return $"{cleanName}<{string.Join(", ", typeArguments)}>";
+    }
     public string GetGenericMethodParameter(object? genericContext, int index) => $"T{index}";
     public string GetGenericTypeParameter(object? genericContext, int index) => $"T{index}";
     public string GetFunctionPointerType(MethodSignature<string> signature) => "delegate*";
