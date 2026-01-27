@@ -63,10 +63,13 @@ dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize
 # Multiple members
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize
 
+# Show implemented interfaces
+dotnet-inspect api JsonDocument --package System.Text.Json --interfaces
+
 # SourceLink URL and/or docs (requires embedded PDB with SourceLink)
 dotnet-inspect api AnsiConsole --package Spectre.Console --source-url --docs
 
-# Docs for specific member
+# Docs for specific member (works in all verbosity modes)
 dotnet-inspect api Renderable --package Spectre.Console --docs -m Render
 
 # JSON output
@@ -142,6 +145,8 @@ dotnet-inspect package Foo -v:d -s:1 # Detailed metadata only
 
 - Package names support version suffix: `PackageName@1.2.3`
 - Assembly paths in packages use forward slashes: `lib/net8.0/Foo.dll`
-- `-m`/`--member` filter is case-insensitive, shows all matching overloads; use with `-v:q` for compact list
+- `-m`/`--member` filter is case-insensitive, shows all matching overloads; combine with `--docs` for member documentation
+- `--interfaces` shows what interfaces a type implements (hidden by default to reduce noise)
 - `--source-url` and `--docs` require embedded PDB with SourceLink (Spectre.Console has it, System.Text.Json does not)
 - Use `--verbose` to see progress messages on stderr
+- Invalid package versions show helpful error with suggestion to use `--versions`

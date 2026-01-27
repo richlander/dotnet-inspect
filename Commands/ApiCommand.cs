@@ -458,6 +458,19 @@ public class ApiCommand : ICommand
 
     private static void WriteTypeOutput(ApiType type, string? foundIn, ApiOptions options)
     {
+        // Check for member filter miss and warn
+        if (options.MemberFilter?.Count > 0 && type.Members != null)
+        {
+            var matchingMembers = type.Members
+                .Where(m => options.MemberFilter.Contains(m.Name))
+                .ToList();
+
+            if (matchingMembers.Count == 0)
+            {
+                Console.Error.WriteLine($"Warning: No members matched filter '{string.Join(", ", options.MemberFilter)}'");
+            }
+        }
+
         if (options.JsonOutput)
         {
             var outputType = type;
@@ -553,7 +566,7 @@ public class ApiCommand : ICommand
             sb.AppendLine($"  : {type.BaseType}");
         }
 
-        if (type.Interfaces is { Count: > 0 })
+        if (options.ShowInterfaces && type.Interfaces is { Count: > 0 })
         {
             sb.AppendLine($"  implements {string.Join(", ", type.Interfaces)}");
         }
@@ -668,6 +681,12 @@ public class ApiCommand : ICommand
                 foreach (var member in members.OrderBy(m => m.Signature ?? m.Name))
                 {
                     sb.AppendLine($"- `{member.Signature ?? member.Name}`");
+
+                    // Show member documentation if available (when --docs is used with member filter)
+                    if (options.ShowDocs && member.Documentation?.Summary != null)
+                    {
+                        sb.AppendLine($"  > {member.Documentation.Summary}");
+                    }
                 }
             }
         }
@@ -693,6 +712,24 @@ public class ApiCommand : ICommand
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
         sb.AppendLine();
+
+        // When using member filter with --docs, show detailed output with docs
+        if (options.MemberFilter?.Count > 0 && options.ShowDocs)
+        {
+            foreach (var (kind, members) in grouped)
+            {
+                foreach (var member in members.OrderBy(m => m.Signature ?? m.Name))
+                {
+                    sb.AppendLine($"- `{member.Signature ?? member.Name}`");
+
+                    if (member.Documentation?.Summary != null)
+                    {
+                        sb.AppendLine($"  > {member.Documentation.Summary}");
+                    }
+                }
+            }
+            return sb.ToString().TrimEnd();
+        }
 
         foreach (var (kind, members) in grouped)
         {
@@ -871,6 +908,13 @@ public class ApiCommand : ICommand
                 ZipFile.ExtractToDirectory(nupkgPath, extractPath);
                 logger.Log("Package downloaded successfully.");
             }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
+                Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                return null;
+            }
             catch (HttpRequestException ex)
             {
                 Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
@@ -897,7 +941,9 @@ public class ApiCommand : ICommand
                 var versionList = versions.EnumerateArray().Select(v => v.GetString()).ToList();
                 if (versionList.Count > 0)
                 {
-                    string? latest = versionList[^1];
+                    // Prefer stable versions (those without a hyphen)
+                    var stableVersions = versionList.Where(v => v != null && !v.Contains('-')).ToList();
+                    string? latest = stableVersions.Count > 0 ? stableVersions[^1] : versionList[^1];
                     logger.Log($"Latest version: {latest}");
                     return latest;
                 }
@@ -925,6 +971,7 @@ public class ApiCommand : ICommand
         HashSet<string>? memberFilter = null;
         bool showSourceUrl = false;
         bool showDocs = false;
+        bool showInterfaces = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -994,6 +1041,9 @@ public class ApiCommand : ICommand
                 case "--docs":
                     showDocs = true;
                     break;
+                case "--interfaces":
+                    showInterfaces = true;
+                    break;
                 default:
                     if (lower.StartsWith("--package="))
                     {
@@ -1032,7 +1082,8 @@ public class ApiCommand : ICommand
             Verbosity = verbosity,
             MemberFilter = memberFilter,
             ShowSourceUrl = showSourceUrl,
-            ShowDocs = showDocs
+            ShowDocs = showDocs,
+            ShowInterfaces = showInterfaces
         };
 
         return (options, typeName, showHelp);
@@ -1054,4 +1105,5 @@ public record ApiOptions
     public HashSet<string>? MemberFilter { get; init; }
     public bool ShowSourceUrl { get; init; }
     public bool ShowDocs { get; init; }
+    public bool ShowInterfaces { get; init; }
 }

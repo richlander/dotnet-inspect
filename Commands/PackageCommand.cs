@@ -177,6 +177,12 @@ public class PackageCommand : ICommand
 
             return 0;
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
+            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
+            return 1;
+        }
         catch (HttpRequestException ex)
         {
             Console.Error.WriteLine($"Failed to download package: {ex.Message}");
@@ -519,7 +525,9 @@ public class PackageCommand : ICommand
                 var versionList = versions.EnumerateArray().Select(v => v.GetString()).ToList();
                 if (versionList.Count > 0)
                 {
-                    string? latest = versionList[^1];
+                    // Prefer stable versions (those without a hyphen)
+                    var stableVersions = versionList.Where(v => v != null && !v.Contains('-')).ToList();
+                    string? latest = stableVersions.Count > 0 ? stableVersions[^1] : versionList[^1];
                     logger.Log($"Latest version: {latest}");
                     return latest;
                 }
