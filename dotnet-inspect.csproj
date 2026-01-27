@@ -14,10 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\markout\src\Markout\Markout.csproj" />
-    <ProjectReference Include="..\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj"
-                      OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="true" />
+    <PackageReference Include="Markout" Version="0.1.0" />
   </ItemGroup>
 
 </Project>

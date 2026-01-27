@@ -144,6 +144,8 @@ public class HelpCommand : ICommand
         Console.WriteLine("  --assembly <a> Assembly path (local file, or relative path within package)");
         Console.WriteLine("  -m, --member   Filter to specific member(s) (multiple allowed, requires type)");
         Console.WriteLine("  -n <count>     Limit output to N types or N members");
+        Console.WriteLine("  --source-url   Show SourceLink URL for the type (requires embedded PDB)");
+        Console.WriteLine("  --docs         Fetch and display XML doc comments from source");
         Console.WriteLine("  --json         Output as JSON");
         Console.WriteLine("  --markout      Output as Markout (default)");
         Console.WriteLine("  --verbose      Show progress messages on stderr");
@@ -161,6 +163,11 @@ public class HelpCommand : ICommand
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json  # Search all assemblies");
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -v:q  # Compact view");
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member");
+        Console.WriteLine();
+        Console.WriteLine("Source link and documentation:");
+        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json --source-url");
+        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json --docs");
+        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json --source-url --docs");
         Console.WriteLine();
         Console.WriteLine("Compare APIs between versions:");
         Console.WriteLine("  diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \\");

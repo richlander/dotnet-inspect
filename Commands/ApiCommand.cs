@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -112,12 +113,19 @@ public class ApiCommand : ICommand
             else
             {
                 // Find specific type
-                var (apiType, foundIn) = FindType(typeName, searchPath, logger);
-                if (apiType == null)
+                var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger);
+                if (apiType == null || dllPath == null)
                 {
                     Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
                     return 1;
                 }
+
+                // Enrich with source info if requested
+                if (options.ShowSourceUrl || options.ShowDocs)
+                {
+                    await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
+                }
+
                 WriteTypeOutput(apiType, foundIn, options);
             }
 
@@ -137,7 +145,7 @@ public class ApiCommand : ICommand
         }
     }
 
-    private static (ApiType? type, string? assembly) FindType(string typeName, string searchPath, VerboseLogger logger)
+    private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger)
     {
         // Determine if searchPath is a file or directory
         string[] dllFiles;
@@ -151,7 +159,7 @@ public class ApiCommand : ICommand
         }
         else
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         foreach (var dllFile in dllFiles)
@@ -165,7 +173,7 @@ public class ApiCommand : ICommand
                     continue;
 
                 var api = ApiSurfaceExtractor.Extract(peReader);
-                
+
                 // Search for the type by full name or simple name
                 var match = api.Types.FirstOrDefault(t =>
                 {
@@ -177,7 +185,7 @@ public class ApiCommand : ICommand
                 if (match != null)
                 {
                     logger.Log($"Found in: {Path.GetFileName(dllFile)}");
-                    return (match, Path.GetFileName(dllFile));
+                    return (match, Path.GetFileName(dllFile), dllFile);
                 }
             }
             catch
@@ -186,7 +194,141 @@ public class ApiCommand : ICommand
             }
         }
 
-        return (null, null);
+        return (null, null, null);
+    }
+
+    private static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger)
+    {
+        try
+        {
+            using FileStream stream = File.OpenRead(dllPath);
+            using PEReader peReader = new(stream);
+
+            if (!peReader.HasMetadata)
+            {
+                logger.Log("No metadata in assembly, cannot resolve source.");
+                return;
+            }
+
+            // Find embedded PDB
+            MetadataReaderProvider? pdbProvider = null;
+            foreach (var entry in peReader.ReadDebugDirectory())
+            {
+                if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
+                {
+                    pdbProvider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
+                    break;
+                }
+            }
+
+            if (pdbProvider == null)
+            {
+                logger.Log("No embedded PDB found, cannot resolve source.");
+                return;
+            }
+
+            using var _ = pdbProvider;
+            var pdbReader = pdbProvider.GetMetadataReader();
+            var metadataReader = peReader.GetMetadataReader();
+
+            // Create source link resolver
+            var resolver = SourceLinkResolver.Create(pdbReader);
+            if (resolver == null)
+            {
+                logger.Log("No SourceLink information found in PDB.");
+                return;
+            }
+
+            // Find the TypeDefinitionHandle for the type
+            TypeDefinitionHandle? typeHandle = FindTypeDefinitionHandle(metadataReader, typeName);
+            if (typeHandle == null)
+            {
+                logger.Log($"Could not find type definition for '{typeName}'.");
+                return;
+            }
+
+            // Resolve source info for the type
+            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeHandle.Value);
+            if (sourceInfo != null)
+            {
+                apiType.SourceFilePath = sourceInfo.SourceFilePath;
+                apiType.SourceUrl = sourceInfo.SourceUrl;
+                apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
+                apiType.SourceLineNumber = sourceInfo.LineNumber;
+                logger.Log($"Source: {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
+            }
+
+            // Fetch docs if requested
+            if (options.ShowDocs && sourceInfo?.SourceUrl != null)
+            {
+                var fetcher = new SourceFetcher();
+                string? sourceContent = await fetcher.FetchSourceAsync(sourceInfo.SourceUrl);
+
+                if (sourceContent != null)
+                {
+                    var parser = new DocCommentParser();
+
+                    // Parse type documentation
+                    var typeDoc = parser.ExtractTypeDocComment(sourceContent, apiType.Name);
+                    if (typeDoc != null)
+                    {
+                        apiType.Documentation = new DocComment
+                        {
+                            Summary = typeDoc.Summary,
+                            Remarks = typeDoc.Remarks,
+                            Parameters = typeDoc.Parameters,
+                            Returns = typeDoc.Returns
+                        };
+                        logger.Log("Extracted type documentation.");
+                    }
+
+                    // Parse member documentation if filtering by member
+                    if (options.MemberFilter?.Count > 0 && apiType.Members != null)
+                    {
+                        foreach (var member in apiType.Members.Where(m => options.MemberFilter.Contains(m.Name)))
+                        {
+                            var memberDoc = parser.ExtractMemberDocComment(sourceContent, apiType.Name, member.Name);
+                            if (memberDoc != null)
+                            {
+                                member.Documentation = new DocComment
+                                {
+                                    Summary = memberDoc.Summary,
+                                    Remarks = memberDoc.Remarks,
+                                    Parameters = memberDoc.Parameters,
+                                    Returns = memberDoc.Returns
+                                };
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    logger.Log($"Could not fetch source from: {sourceInfo.SourceUrl}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Error enriching source info: {ex.Message}");
+        }
+    }
+
+    private static TypeDefinitionHandle? FindTypeDefinitionHandle(MetadataReader reader, string typeName)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            string name = reader.GetString(typeDef.Name);
+            string ns = reader.GetString(typeDef.Namespace);
+            string fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+
+            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return typeHandle;
+            }
+        }
+        return null;
     }
 
     private static List<string> GetPackageDlls(string extractPath)
@@ -335,7 +477,13 @@ public class ApiCommand : ICommand
                     IsStatic = type.IsStatic,
                     BaseType = type.BaseType,
                     Interfaces = type.Interfaces,
-                    Members = filteredMembers
+                    Members = filteredMembers,
+                    // Preserve source info
+                    SourceFilePath = type.SourceFilePath,
+                    SourceUrl = type.SourceUrl,
+                    GitHubBrowseUrl = type.GitHubBrowseUrl,
+                    SourceLineNumber = type.SourceLineNumber,
+                    Documentation = type.Documentation
                 };
             }
             Console.WriteLine(SerializeJson(outputType, ApiTypeJsonContext.Default.ApiType));
@@ -359,7 +507,7 @@ public class ApiCommand : ICommand
         };
     }
 
-    private static string RenderTypeHeader(ApiType type, string? foundIn, int? memberCount = null)
+    private static string RenderTypeHeader(ApiType type, string? foundIn, ApiOptions options, int? memberCount = null)
     {
         var sb = new StringBuilder();
 
@@ -397,6 +545,24 @@ public class ApiCommand : ICommand
         {
             sb.AppendLine();
             sb.AppendLine($"*from {foundIn}*");
+        }
+
+        // Show source link if available
+        if (options.ShowSourceUrl && type.GitHubBrowseUrl != null)
+        {
+            sb.AppendLine();
+            string fileName = Path.GetFileName(type.SourceFilePath ?? "source");
+            string linkText = type.SourceLineNumber.HasValue
+                ? $"{fileName}:{type.SourceLineNumber}"
+                : fileName;
+            sb.AppendLine($"**Source:** [{linkText}]({type.GitHubBrowseUrl})");
+        }
+
+        // Show documentation summary if available
+        if (options.ShowDocs && type.Documentation?.Summary != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"> {type.Documentation.Summary}");
         }
 
         return sb.ToString();
@@ -470,7 +636,7 @@ public class ApiCommand : ICommand
     private static string RenderTypeQuiet(ApiType type, string? foundIn, ApiOptions options)
     {
         var sb = new StringBuilder();
-        sb.Append(RenderTypeHeader(type, foundIn));
+        sb.Append(RenderTypeHeader(type, foundIn, options));
 
         var grouped = GroupMembersByKind(type, options.MemberFilter);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
@@ -490,7 +656,7 @@ public class ApiCommand : ICommand
     {
         var sb = new StringBuilder();
         var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
-        sb.Append(RenderTypeHeader(type, foundIn, allMembers.Count));
+        sb.Append(RenderTypeHeader(type, foundIn, options, allMembers.Count));
 
         var grouped = GroupMembersByKind(type, options.MemberFilter);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
@@ -504,6 +670,8 @@ public class ApiCommand : ICommand
 
             if (kind == "method" || kind == "constructor")
             {
+                // Add section header for methods/constructors
+                sb.AppendLine($"**{PluralizeKind(kind)}:**");
                 foreach (var nameGroup in byName)
                 {
                     var overloads = nameGroup.ToList();
@@ -541,7 +709,7 @@ public class ApiCommand : ICommand
     private static string RenderTypeNormalOrDetailed(ApiType type, string? foundIn, ApiOptions options)
     {
         var sb = new StringBuilder();
-        sb.Append(RenderTypeHeader(type, foundIn));
+        sb.Append(RenderTypeHeader(type, foundIn, options));
 
         if (type.Members is { Count: > 0 })
         {
@@ -576,6 +744,14 @@ public class ApiCommand : ICommand
                 // Escape pipes in signatures
                 sig = sig.Replace("|", "\\|");
                 sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
+
+                // Show member documentation if available (when --docs is used with member filter)
+                if (member.Documentation?.Summary != null)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"> {member.Documentation.Summary}");
+                    sb.AppendLine();
+                }
             }
 
             if (options.Limit.HasValue && options.Limit.Value < totalCount)
@@ -715,6 +891,8 @@ public class ApiCommand : ICommand
         int? limit = null;
         var verbosity = Verbosity.Minimal;
         HashSet<string>? memberFilter = null;
+        bool showSourceUrl = false;
+        bool showDocs = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -775,6 +953,12 @@ public class ApiCommand : ICommand
                         memberFilter.Add(args[++i]);
                     }
                     break;
+                case "--source-url":
+                    showSourceUrl = true;
+                    break;
+                case "--docs":
+                    showDocs = true;
+                    break;
                 default:
                     if (lower.StartsWith("--package="))
                     {
@@ -810,7 +994,9 @@ public class ApiCommand : ICommand
             Verbose = verbose,
             Limit = limit,
             Verbosity = verbosity,
-            MemberFilter = memberFilter
+            MemberFilter = memberFilter,
+            ShowSourceUrl = showSourceUrl,
+            ShowDocs = showDocs
         };
 
         return (options, typeName, showHelp);
@@ -829,4 +1015,6 @@ public record ApiOptions
     public int? Limit { get; init; }
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string>? MemberFilter { get; init; }
+    public bool ShowSourceUrl { get; init; }
+    public bool ShowDocs { get; init; }
 }

@@ -27,6 +27,8 @@ public partial class ApiJsonContext : JsonSerializerContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ApiType))]
+[JsonSerializable(typeof(DocComment))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 public partial class ApiTypeJsonContext : JsonSerializerContext
 {
 }

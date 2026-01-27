@@ -63,6 +63,18 @@ dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize
 # Multiple members
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize
 
+# Get SourceLink URL for a type (requires embedded PDB with SourceLink)
+dotnet-inspect api AnsiConsole --package Spectre.Console --source-url
+
+# Fetch and display XML doc comments from source
+dotnet-inspect api AnsiConsole --package Spectre.Console --docs
+
+# Both source URL and docs together
+dotnet-inspect api AnsiConsole --package Spectre.Console --source-url --docs
+
+# Source info with member filter (shows member-specific docs)
+dotnet-inspect api Renderable --package Spectre.Console --source-url --docs -m Render
+
 # JSON output
 dotnet-inspect api JsonSerializer --package System.Text.Json --json
 ```
@@ -93,6 +105,16 @@ dotnet-inspect package Newtonsoft.Json --files
 
 ```bash
 dotnet-inspect assembly MyLib.dll --audit
+```
+
+### Get source link and documentation for a type
+
+```bash
+# Shows GitHub link and doc comment summary (requires embedded PDB with SourceLink)
+dotnet-inspect api AnsiConsole --package Spectre.Console --source-url --docs
+
+# Get documentation for a specific member
+dotnet-inspect api Renderable --package Spectre.Console --docs -m Render
 ```
 
 ### Get package dependency information
@@ -146,3 +168,5 @@ dotnet-inspect package Foo -v:d -s:1 # Detailed metadata only
 - Use process substitution for diffs: `diff <(cmd1) <(cmd2)`
 - Use `-m`/`--member` to drill into specific methods - automatically shows full signatures regardless of verbosity level
 - Member filter is case-insensitive and shows all overloads matching the name
+- `--source-url` and `--docs` require embedded PDB with SourceLink (not all packages have this; Spectre.Console does, System.Text.Json does not)
+- `--docs` fetches the actual source file from GitHub to extract XML doc comments

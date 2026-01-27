@@ -3,6 +3,20 @@ using Markout;
 
 namespace DotnetInspector;
 
+/// <summary>
+/// Represents extracted documentation comments from source code.
+/// </summary>
+[MarkoutSerializable]
+public class DocComment
+{
+    public string? Summary { get; set; }
+    public string? Remarks { get; set; }
+
+    [MarkoutIgnore]
+    public Dictionary<string, string>? Parameters { get; set; }
+    public string? Returns { get; set; }
+}
+
 [MarkoutSerializable]
 public class ApiSurface
 {
@@ -55,6 +69,27 @@ public class ApiType
 
     [MarkoutIgnore]
     public List<ApiMember>? Members { get; set; }
+
+    // Source information (populated with --source-url)
+    [MarkoutIgnore]
+    [JsonPropertyName("source_file_path")]
+    public string? SourceFilePath { get; set; }
+
+    [MarkoutIgnore]
+    [JsonPropertyName("source_url")]
+    public string? SourceUrl { get; set; }
+
+    [MarkoutIgnore]
+    [JsonPropertyName("github_browse_url")]
+    public string? GitHubBrowseUrl { get; set; }
+
+    [MarkoutIgnore]
+    [JsonPropertyName("source_line_number")]
+    public int? SourceLineNumber { get; set; }
+
+    // Documentation (populated with --docs)
+    [MarkoutIgnore]
+    public DocComment? Documentation { get; set; }
 }
 
 [MarkoutSerializable]
@@ -76,4 +111,13 @@ public class ApiMember
 
     [MarkoutPropertyName("Abstract")]
     public bool IsAbstract { get; set; }
+
+    // Source information (populated with --source-url)
+    [MarkoutIgnore]
+    [JsonPropertyName("source_line_number")]
+    public int? SourceLineNumber { get; set; }
+
+    // Documentation (populated with --docs)
+    [MarkoutIgnore]
+    public DocComment? Documentation { get; set; }
 }
