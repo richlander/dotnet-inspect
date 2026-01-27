@@ -35,18 +35,39 @@ public class AssemblyCommand : ICommand
 
         try
         {
-            string targetPath;
-
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                // Extract assembly from package
-                var extractedPath = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, logger);
-                if (extractedPath == null)
+                // Extract from package
+                var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, logger);
+                if (extractResult == null)
                 {
                     return 1;
                 }
-                targetPath = extractedPath;
-                tempDir = Path.GetDirectoryName(Path.GetDirectoryName(targetPath));
+
+                var (assemblyPaths, extractPath) = extractResult.Value;
+                tempDir = Path.GetDirectoryName(extractPath);
+
+                // Inspect all assemblies
+                bool first = true;
+                foreach (var targetPath in assemblyPaths)
+                {
+                    var audit = InspectAssembly(targetPath, options, logger);
+                    if (audit == null)
+                    {
+                        logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
+                        continue;
+                    }
+
+                    if (!first)
+                    {
+                        Console.WriteLine();
+                    }
+                    first = false;
+
+                    OutputFormatter.WriteAssemblyResult(audit, options);
+                }
+
+                return 0;
             }
             else
             {
@@ -56,20 +77,17 @@ public class AssemblyCommand : ICommand
                     Console.Error.WriteLine($"Error: File not found: {assemblyPath}");
                     return 1;
                 }
-                targetPath = assemblyPath;
-            }
 
-            // Inspect the assembly
-            var audit = InspectAssembly(targetPath, options, logger);
-            if (audit == null)
-            {
-                Console.Error.WriteLine($"Error: Could not read assembly: {assemblyPath}");
-                return 1;
-            }
+                var audit = InspectAssembly(assemblyPath!, options, logger);
+                if (audit == null)
+                {
+                    Console.Error.WriteLine($"Error: Could not read assembly: {assemblyPath}");
+                    return 1;
+                }
 
-            // Output result
-            OutputFormatter.WriteAssemblyResult(audit, options);
-            return 0;
+                OutputFormatter.WriteAssemblyResult(audit, options);
+                return 0;
+            }
         }
         catch (Exception ex)
         {
@@ -93,7 +111,7 @@ public class AssemblyCommand : ICommand
         }
     }
 
-    private static async Task<string?> ExtractFromPackageAsync(string? assemblyName, string packageSource, VerboseLogger logger)
+    private static async Task<(List<string> assemblyPaths, string extractPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, VerboseLogger logger)
     {
         string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-assembly-{Guid.NewGuid():N}");
         string extractPath = Path.Combine(tempDir, "extracted");
@@ -118,10 +136,10 @@ public class AssemblyCommand : ICommand
             // Treat as NuGet package name - download from nuget.org
             // Support format: PackageName or PackageName@version
             using HttpClient client = new();
-            
+
             string packageName;
             string? version;
-            
+
             int atIndex = packageSource.IndexOf('@');
             if (atIndex > 0)
             {
@@ -162,22 +180,21 @@ public class AssemblyCommand : ICommand
 
         // Find DLLs in the extracted package
         string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
-        
-        // If no assembly name specified, auto-detect
+
+        // If no assembly name specified, return all assemblies from tools or lib directory
         if (string.IsNullOrEmpty(assemblyName))
         {
-            // Prefer lib directory, then tools directory, sorted by highest TFM
-            var libDir = Path.Combine(extractPath, "lib");
             var toolsDir = Path.Combine(extractPath, "tools");
-            
+            var libDir = Path.Combine(extractPath, "lib");
+
             string[] candidates;
-            if (Directory.Exists(libDir))
-            {
-                candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
-            }
-            else if (Directory.Exists(toolsDir))
+            if (Directory.Exists(toolsDir))
             {
                 candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
+            }
+            else if (Directory.Exists(libDir))
+            {
+                candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
             }
             else
             {
@@ -191,10 +208,9 @@ public class AssemblyCommand : ICommand
                 return null;
             }
 
-            // Pick the first DLL, preferring higher TFMs (they sort later alphabetically: net9.0 > net8.0)
-            var selected = candidates.OrderByDescending(f => f).First();
-            logger.Log($"Auto-detected: {Path.GetRelativePath(extractPath, selected)}");
-            return selected;
+            // Return all assemblies, sorted by path
+            var assemblyPaths = candidates.OrderBy(f => f).ToList();
+            return (assemblyPaths, extractPath);
         }
 
         // Normalize the assembly path for comparison
@@ -202,7 +218,7 @@ public class AssemblyCommand : ICommand
 
         // First try to match by relative path (for disambiguation)
         string[] matchingFiles = allDlls
-            .Where(f => 
+            .Where(f =>
             {
                 string relativePath = Path.GetRelativePath(extractPath, f).Replace('\\', '/');
                 return relativePath.Equals(normalizedAssemblyName, StringComparison.OrdinalIgnoreCase);
@@ -239,7 +255,7 @@ public class AssemblyCommand : ICommand
         }
 
         logger.Log($"Found: {Path.GetRelativePath(extractPath, matchingFiles[0])}");
-        return matchingFiles[0];
+        return ([matchingFiles[0]], extractPath);
     }
 
     private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)

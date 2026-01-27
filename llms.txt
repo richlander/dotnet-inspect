@@ -10,7 +10,7 @@ A CLI tool for inspecting .NET assemblies and NuGet packages. Useful for underst
 # View package metadata
 dotnet-inspect package Newtonsoft.Json
 
-# List DLLs in the lib directory
+# List DLLs (tools/ for tool packages, lib/ for regular packages)
 dotnet-inspect package Newtonsoft.Json --files
 
 # List all files in package
@@ -45,36 +45,42 @@ dotnet-inspect assembly lib/net9.0/System.Text.Json.dll --package System.Text.Js
 ### api - View public API surface
 
 ```bash
-# List all types in a package
-dotnet-inspect api --package System.Text.Json
-
 # List all types in a local assembly
 dotnet-inspect api --assembly MyLib.dll
 
-# View a specific type's API
+# List all types from a specific assembly in a package
+dotnet-inspect api --package System.Text.Json --assembly lib/net10.0/System.Text.Json.dll
+
+# View a specific type's API (searches all assemblies in package)
 dotnet-inspect api JsonSerializer --package System.Text.Json
 
 # From a specific version
 dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2
 
+# Filter to specific member(s) - shows all overloads with full signatures
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize
+
+# Multiple members
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize
+
 # JSON output
-dotnet-inspect api --package System.Text.Json --json
+dotnet-inspect api JsonSerializer --package System.Text.Json --json
 ```
 
 ## Common Workflows
 
-### Compare API between package versions
-
-```bash
-diff <(dotnet-inspect api --package System.Text.Json@9.0.2) \
-     <(dotnet-inspect api --package System.Text.Json@10.0.2)
-```
-
-### Compare a specific type between versions
+### Compare a type's API between versions
 
 ```bash
 diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \
      <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
+```
+
+### Compare a specific method's overloads between versions
+
+```bash
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2 -m Deserialize) \
+     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2 -m Deserialize)
 ```
 
 ### Find what assemblies are in a package
@@ -138,3 +144,5 @@ dotnet-inspect package Foo -v:d -s:1 # Detailed metadata only
 - Package names support version suffix: `PackageName@1.2.3`
 - Assembly paths in packages use forward slashes: `lib/net8.0/Foo.dll`
 - Use process substitution for diffs: `diff <(cmd1) <(cmd2)`
+- Use `-m`/`--member` to drill into specific methods - automatically shows full signatures regardless of verbosity level
+- Member filter is case-insensitive and shows all overloads matching the name

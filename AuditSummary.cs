@@ -1,25 +1,25 @@
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector;
 
-[MarkOutSerializable]
+[MarkoutSerializable]
 public class AuditSummary
 {
-    [MarkOutPropertyName("Total Assemblies")]
+    [MarkoutPropertyName("Total Assemblies")]
     public int TotalAssemblies { get; set; }
 
-    [MarkOutPropertyName("Deterministic")]
+    [MarkoutPropertyName("Deterministic")]
     public int DeterministicCount { get; set; }
 
-    [MarkOutPropertyName("SourceLink")]
+    [MarkoutPropertyName("SourceLink")]
     public int SourceLinkCount { get; set; }
 
-    [MarkOutPropertyName("Embedded PDB")]
+    [MarkoutPropertyName("Embedded PDB")]
     public int EmbeddedPdbCount { get; set; }
 
-    [MarkOutPropertyName("All Deterministic")]
+    [MarkoutPropertyName("All Deterministic")]
     public bool AllDeterministic { get; set; }
 
-    [MarkOutPropertyName("All Have SourceLink")]
+    [MarkoutPropertyName("All Have SourceLink")]
     public bool AllHaveSourceLink { get; set; }
 }

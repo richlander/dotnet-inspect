@@ -17,7 +17,7 @@ public static class OutputFormatter
         }
         else
         {
-            var formatter = new MarkOutViewFormatter(result, options);
+            var formatter = new MarkoutViewFormatter(result, options);
             Console.WriteLine(formatter.Render());
         }
     }

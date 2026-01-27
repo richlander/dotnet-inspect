@@ -68,7 +68,7 @@ public class HelpCommand : ICommand
         Console.WriteLine("  [version]      Package version (latest if omitted)");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  --files        List DLLs in the lib directory");
+        Console.WriteLine("  --files        List DLLs (from tools/ for tool packages, lib/ otherwise)");
         Console.WriteLine("  --all          With --files: list all files in entire package");
         Console.WriteLine("  --tree         With --files: display as tree view");
         Console.WriteLine("  --versions     List available versions from nuget.org");
@@ -141,7 +141,8 @@ public class HelpCommand : ICommand
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --package <p>  Extract from package (file, name, or name@version)");
-        Console.WriteLine("  --assembly <a> Extract from a local assembly file");
+        Console.WriteLine("  --assembly <a> Assembly path (local file, or relative path within package)");
+        Console.WriteLine("  -m, --member   Filter to specific member(s) (multiple allowed, requires type)");
         Console.WriteLine("  -n <count>     Limit output to N types or N members");
         Console.WriteLine("  --json         Output as JSON");
         Console.WriteLine("  --markout      Output as Markout (default)");
@@ -155,16 +156,14 @@ public class HelpCommand : ICommand
         Console.WriteLine("  -v:d           Detailed - full member table with limit support");
         Console.WriteLine();
         Console.WriteLine("Examples:");
-        Console.WriteLine("  dotnet-inspect api --package System.Text.Json           # List all types");
-        Console.WriteLine("  dotnet-inspect api --package System.Text.Json -n 5      # List first 5 types");
         Console.WriteLine("  dotnet-inspect api --assembly MyLib.dll                 # List all types");
-        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json  # Single type");
+        Console.WriteLine("  dotnet-inspect api --package System.Text.Json --assembly lib/net10.0/System.Text.Json.dll");
+        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json  # Search all assemblies");
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -v:q  # Compact view");
-        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -v:m  # Grouped overloads");
-        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -n 10 # First 10 members");
+        Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member");
         Console.WriteLine();
         Console.WriteLine("Compare APIs between versions:");
-        Console.WriteLine("  diff <(dotnet-inspect api --package System.Text.Json@9.0.2) \\");
-        Console.WriteLine("       <(dotnet-inspect api --package System.Text.Json@10.0.2)");
+        Console.WriteLine("  diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \\");
+        Console.WriteLine("       <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)");
     }
 }

@@ -3,7 +3,7 @@ using System.Text.Json;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -348,14 +348,23 @@ public class PackageCommand : ICommand
         }
         else
         {
-            // Default: only DLLs in lib directory
+            // Tools packages use 'tools' directory, regular packages use 'lib'
+            string toolsDir = Path.Combine(extractPath, "tools");
             string libDir = Path.Combine(extractPath, "lib");
-            if (!Directory.Exists(libDir))
+
+            if (Directory.Exists(toolsDir))
             {
-                Console.Error.WriteLine("No lib directory found. Use --all to list all files.");
+                searchPath = toolsDir;
+            }
+            else if (Directory.Exists(libDir))
+            {
+                searchPath = libDir;
+            }
+            else
+            {
+                Console.Error.WriteLine("No lib or tools directory found. Use --all to list all files.");
                 return;
             }
-            searchPath = libDir;
             pattern = "*.dll";
         }
 
@@ -420,8 +429,8 @@ public class PackageCommand : ICommand
         // Convert to TreeNode structure
         var treeNodes = BuildTreeNodes(root);
         
-        // Write using MarkOut
-        var writer = new MarkOutWriter(Console.Out);
+        // Write using Markout
+        var writer = new MarkoutWriter(Console.Out);
         writer.WriteTree(treeNodes);
     }
 

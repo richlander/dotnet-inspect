@@ -1,11 +1,11 @@
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector;
 
-[MarkOutSerializable]
+[MarkoutSerializable]
 public class FlatDependency
 {
-    [MarkOutPropertyName("Target Framework")]
+    [MarkoutPropertyName("Target Framework")]
     public string TargetFramework { get; set; } = "";
 
     public string Id { get; set; } = "";

@@ -1,8 +1,8 @@
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector;
 
-[MarkOutSerializable]
+[MarkoutSerializable]
 public class PackageDependency
 {
     public string Id { get; set; } = "";

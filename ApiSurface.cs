@@ -1,79 +1,79 @@
 using System.Text.Json.Serialization;
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector;
 
-[MarkOutSerializable]
+[MarkoutSerializable]
 public class ApiSurface
 {
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<ApiType> Types { get; set; } = [];
 
-    [MarkOutPropertyName("Public Types")]
+    [MarkoutPropertyName("Public Types")]
     public int PublicTypeCount { get; set; }
 
-    [MarkOutPropertyName("Public Methods")]
+    [MarkoutPropertyName("Public Methods")]
     public int PublicMethodCount { get; set; }
 
-    [MarkOutPropertyName("Public Properties")]
+    [MarkoutPropertyName("Public Properties")]
     public int PublicPropertyCount { get; set; }
 
-    [MarkOutPropertyName("Public Events")]
+    [MarkoutPropertyName("Public Events")]
     public int PublicEventCount { get; set; }
 
-    [MarkOutPropertyName("Public Fields")]
+    [MarkoutPropertyName("Public Fields")]
     public int PublicFieldCount { get; set; }
 }
 
-[MarkOutSerializable]
+[MarkoutSerializable]
 public class ApiType
 {
     public string? Namespace { get; set; }
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
 
-    [MarkOutPropertyName("Sealed")]
+    [MarkoutPropertyName("Sealed")]
     public bool IsSealed { get; set; }
 
-    [MarkOutPropertyName("Abstract")]
+    [MarkoutPropertyName("Abstract")]
     public bool IsAbstract { get; set; }
 
-    [MarkOutPropertyName("Static")]
+    [MarkoutPropertyName("Static")]
     public bool IsStatic { get; set; }
 
-    [MarkOutPropertyName("Base Type")]
+    [MarkoutPropertyName("Base Type")]
     public string? BaseType { get; set; }
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<string>? Interfaces { get; set; }
 
-    [MarkOutPropertyName("Interfaces")]
+    [MarkoutPropertyName("Interfaces")]
     [JsonIgnore]
     public string? InterfacesSummary => Interfaces is { Count: > 0 }
         ? string.Join(", ", Interfaces)
         : null;
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<ApiMember>? Members { get; set; }
 }
 
-[MarkOutSerializable]
+[MarkoutSerializable]
 public class ApiMember
 {
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";  // method, property, field, event, constructor
 
-    [MarkOutPropertyName("Return Type")]
+    [MarkoutPropertyName("Return Type")]
     public string? ReturnType { get; set; }
 
     public string? Signature { get; set; }
 
-    [MarkOutPropertyName("Static")]
+    [MarkoutPropertyName("Static")]
     public bool IsStatic { get; set; }
 
-    [MarkOutPropertyName("Virtual")]
+    [MarkoutPropertyName("Virtual")]
     public bool IsVirtual { get; set; }
 
-    [MarkOutPropertyName("Abstract")]
+    [MarkoutPropertyName("Abstract")]
     public bool IsAbstract { get; set; }
 }

@@ -1,20 +1,20 @@
 using DotnetInspector.Options;
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector.Output;
 
 /// <summary>
-/// Renders InspectionResult as section-based MarkOut with verbosity and filtering.
+/// Renders InspectionResult as section-based Markout with verbosity and filtering.
 /// Section filtering is based on H2 boundaries (first H2 = section 1, etc.).
 /// </summary>
-public class MarkOutViewFormatter
+public class MarkoutViewFormatter
 {
     private readonly InspectionResult _result;
     private readonly Verbosity _verbosity;
     private readonly HashSet<int>? _includeSections;
     private readonly HashSet<int>? _excludeSections;
 
-    public MarkOutViewFormatter(InspectionResult result, InspectionOptions options)
+    public MarkoutViewFormatter(InspectionResult result, InspectionOptions options)
     {
         _result = result;
         _verbosity = options.Verbosity;
@@ -24,7 +24,7 @@ public class MarkOutViewFormatter
 
     public string Render()
     {
-        var writer = new MarkOutWriter
+        var writer = new MarkoutWriter
         {
             IncludeSections = _includeSections,
             ExcludeSections = _excludeSections
@@ -66,7 +66,7 @@ public class MarkOutViewFormatter
         return writer.ToString().TrimEnd();
     }
 
-    private void WriteMetadataCompact(MarkOutWriter writer)
+    private void WriteMetadataCompact(MarkoutWriter writer)
     {
         var items = new List<string>();
         if (_result.IsToolPackage) items.Add("Tool Package");
@@ -79,7 +79,7 @@ public class MarkOutViewFormatter
         writer.WriteParagraph(string.Join(" | ", items));
     }
 
-    private void WriteMetadataFull(MarkOutWriter writer)
+    private void WriteMetadataFull(MarkoutWriter writer)
     {
         writer.WriteHeading(2, "Metadata");
         writer.WriteTableStart("Property", "Value");
@@ -108,7 +108,7 @@ public class MarkOutViewFormatter
         writer.WriteTableEnd();
     }
 
-    private void WriteRidPackages(MarkOutWriter writer)
+    private void WriteRidPackages(MarkoutWriter writer)
     {
         if (_result.RuntimeIdentifierPackages is not { Count: > 0 })
             return;
@@ -122,7 +122,7 @@ public class MarkOutViewFormatter
         writer.WriteTableEnd();
     }
 
-    private void WritePackageDeps(MarkOutWriter writer)
+    private void WritePackageDeps(MarkoutWriter writer)
     {
         if (_result.FlatDependencies is not { Count: > 0 })
             return;
@@ -136,7 +136,7 @@ public class MarkOutViewFormatter
         writer.WriteTableEnd();
     }
 
-    private void WriteRuntimeDeps(MarkOutWriter writer)
+    private void WriteRuntimeDeps(MarkoutWriter writer)
     {
         if (_result.RuntimeDependencies is not { Count: > 0 })
             return;
@@ -150,7 +150,7 @@ public class MarkOutViewFormatter
         writer.WriteTableEnd();
     }
 
-    private void WriteAuditSummary(MarkOutWriter writer)
+    private void WriteAuditSummary(MarkoutWriter writer)
     {
         if (_result.AuditSummary is null)
             return;
@@ -164,7 +164,7 @@ public class MarkOutViewFormatter
             writer.WriteParagraph("✓ All assemblies are deterministic with SourceLink");
     }
 
-    private void WriteAssemblyAudit(MarkOutWriter writer)
+    private void WriteAssemblyAudit(MarkoutWriter writer)
     {
         if (_result.AssemblyAudits is not { Count: > 0 })
             return;
@@ -185,7 +185,7 @@ public class MarkOutViewFormatter
         writer.WriteTableEnd();
     }
 
-    private void WriteApiSurface(MarkOutWriter writer)
+    private void WriteApiSurface(MarkoutWriter writer)
     {
         if (_result.AssemblyAudits is not { Count: > 0 })
             return;
@@ -221,7 +221,7 @@ public class MarkOutViewFormatter
         }
     }
 
-    private static void WriteRowIfPresent(MarkOutWriter writer, string property, string? value)
+    private static void WriteRowIfPresent(MarkoutWriter writer, string property, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
             writer.WriteTableRow(property, value);

@@ -1,96 +1,96 @@
 using System.Text.Json.Serialization;
-using MarkOut;
+using Markout;
 
 namespace DotnetInspector;
 
-[MarkOutSerializable(TitleProperty = nameof(PackageName), DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(TitleProperty = nameof(PackageName), DescriptionProperty = nameof(Description))]
 public class InspectionResult
 {
-    [MarkOutPropertyName("Package")]
+    [MarkoutPropertyName("Package")]
     public string PackageName { get; set; } = "";
 
     public string Version { get; set; } = "";
 
-    [MarkOutIgnore] // Rendered as paragraph via DescriptionProperty
+    [MarkoutIgnore] // Rendered as paragraph via DescriptionProperty
     public string? Description { get; set; }
 
     public string? Authors { get; set; }
     public string? Repository { get; set; }
 
-    [MarkOutPropertyName("Tool Package")]
+    [MarkoutPropertyName("Tool Package")]
     public bool IsToolPackage { get; set; }
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<string>? PackageTypes { get; set; }
 
-    [MarkOutPropertyName("Package Types")]
+    [MarkoutPropertyName("Package Types")]
     [JsonIgnore]
     public string? PackageTypesSummary => PackageTypes is { Count: > 0 }
         ? string.Join(", ", PackageTypes)
         : null;
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<string>? TargetFrameworks { get; set; }
 
-    [MarkOutPropertyName("Target Frameworks")]
+    [MarkoutPropertyName("Target Frameworks")]
     [JsonIgnore]
     public string? TargetFrameworksSummary => TargetFrameworks is { Count: > 0 }
         ? string.Join(", ", TargetFrameworks)
         : null;
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<string>? SupportedRids { get; set; }
 
-    [MarkOutPropertyName("Supported RIDs")]
+    [MarkoutPropertyName("Supported RIDs")]
     [JsonIgnore]
     public string? SupportedRidsSummary => SupportedRids is { Count: > 0 }
         ? string.Join(", ", SupportedRids)
         : null;
 
-    [MarkOutPropertyName("Framework Dependent")]
+    [MarkoutPropertyName("Framework Dependent")]
     public bool IsFrameworkDependent { get; set; }
 
-    [MarkOutPropertyName("RID-Specific Assets")]
+    [MarkoutPropertyName("RID-Specific Assets")]
     public bool HasRidSpecificAssets { get; set; }
 
-    [MarkOutPropertyName("Native Dependencies")]
+    [MarkoutPropertyName("Native Dependencies")]
     public bool HasNativeDependencies { get; set; }
 
     // RID-specific tool (DotNetCliTool Version="2") properties
-    [MarkOutPropertyName("Tool Format")]
+    [MarkoutPropertyName("Tool Format")]
     public string? ToolFormat { get; set; }
 
-    [MarkOutPropertyName("RID-Specific Pointer Package")]
+    [MarkoutPropertyName("RID-Specific Pointer Package")]
     public bool IsRidSpecificPointerPackage { get; set; }
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<string>? ToolCommands { get; set; }
 
-    [MarkOutPropertyName("Tool Commands")]
+    [MarkoutPropertyName("Tool Commands")]
     [JsonIgnore]
     public string? ToolCommandsSummary => ToolCommands is { Count: > 0 }
         ? string.Join(", ", ToolCommands)
         : null;
 
-    [MarkOutSection(Name = "RID Packages")]
+    [MarkoutSection(Name = "RID Packages")]
     public List<RidPackageReference>? RuntimeIdentifierPackages { get; set; }
 
-    [MarkOutPropertyName("Runtime Target RID")]
+    [MarkoutPropertyName("Runtime Target RID")]
     public string? RuntimeTargetRid { get; set; }
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<string>? NativeFiles { get; set; }
 
-    [MarkOutPropertyName("Native Files")]
+    [MarkoutPropertyName("Native Files")]
     [JsonIgnore]
     public string? NativeFilesSummary => NativeFiles is { Count: > 0 }
         ? string.Join(", ", NativeFiles)
         : null;
 
-    [MarkOutIgnore]
+    [MarkoutIgnore]
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
-    [MarkOutSection(Name = "Package Dependencies")]
+    [MarkoutSection(Name = "Package Dependencies")]
     [JsonIgnore]
     public List<FlatDependency>? FlatDependencies => DependencyGroups?
         .OrderBy(g => GetTfmSortOrder(g.TargetFramework))
@@ -120,12 +120,12 @@ public class InspectionResult
         return 3;
     }
 
-    [MarkOutSection(Name = "Runtime Dependencies")]
+    [MarkoutSection(Name = "Runtime Dependencies")]
     public List<PackageDependency>? RuntimeDependencies { get; set; }
 
-    [MarkOutSection(Name = "Audit Summary")]
+    [MarkoutSection(Name = "Audit Summary")]
     public AuditSummary? AuditSummary { get; set; }
 
-    [MarkOutSection(Name = "Assembly Audit")]
+    [MarkoutSection(Name = "Assembly Audit")]
     public List<AssemblyAudit>? AssemblyAudits { get; set; }
 }

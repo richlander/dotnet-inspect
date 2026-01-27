@@ -1,7 +1,6 @@
 using System.IO.Compression;
 using System.Reflection.PortableExecutable;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Inspectors;
@@ -24,6 +23,13 @@ public class ApiCommand : ICommand
             return await new HelpCommand("api").ExecuteAsync([]);
         }
 
+        if (options.MemberFilter?.Count > 0 && string.IsNullOrEmpty(typeName))
+        {
+            Console.Error.WriteLine("Error: --member requires a type argument.");
+            Console.Error.WriteLine("Usage: dotnet-inspect api <type> --package <pkg> --member <name>");
+            return 1;
+        }
+
         var logger = new VerboseLogger(options.Verbose);
         string? tempDir = null;
 
@@ -40,6 +46,23 @@ public class ApiCommand : ICommand
                     return 1;
                 }
                 (searchPath, tempDir) = extracted.Value;
+
+                // If --assembly is also specified, use it to select a specific DLL within the package
+                if (!string.IsNullOrEmpty(options.AssemblyPath))
+                {
+                    var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
+                    if (!File.Exists(targetPath))
+                    {
+                        Console.Error.WriteLine($"Error: Assembly '{options.AssemblyPath}' not found in package.");
+                        Console.Error.WriteLine("Available assemblies:");
+                        foreach (var dll in GetPackageDlls(searchPath))
+                        {
+                            Console.Error.WriteLine($"  {Path.GetRelativePath(searchPath, dll)}");
+                        }
+                        return 1;
+                    }
+                    searchPath = targetPath;
+                }
             }
             else if (!string.IsNullOrEmpty(options.AssemblyPath))
             {
@@ -60,7 +83,24 @@ public class ApiCommand : ICommand
 
             if (string.IsNullOrEmpty(typeName))
             {
-                // No type specified - list all types in the assembly
+                // No type specified - check if we need to force a choice
+                if (Directory.Exists(searchPath))
+                {
+                    var dlls = GetPackageDlls(searchPath);
+                    if (dlls.Count > 1)
+                    {
+                        Console.Error.WriteLine("Error: Multiple assemblies found. Please specify one:");
+                        foreach (var dll in dlls)
+                        {
+                            Console.Error.WriteLine($"  {Path.GetRelativePath(searchPath, dll)}");
+                        }
+                        Console.Error.WriteLine();
+                        Console.Error.WriteLine("Usage: dotnet-inspect api [type] --package <pkg> --assembly <path>");
+                        return 1;
+                    }
+                }
+
+                // List all types in the assembly
                 var api = ExtractFullApi(searchPath, logger);
                 if (api == null)
                 {
@@ -149,6 +189,28 @@ public class ApiCommand : ICommand
         return (null, null);
     }
 
+    private static List<string> GetPackageDlls(string extractPath)
+    {
+        var toolsDir = Path.Combine(extractPath, "tools");
+        var libDir = Path.Combine(extractPath, "lib");
+
+        string[] candidates;
+        if (Directory.Exists(toolsDir))
+        {
+            candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
+        }
+        else if (Directory.Exists(libDir))
+        {
+            candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
+        }
+        else
+        {
+            candidates = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+        }
+
+        return candidates.OrderBy(f => f).ToList();
+    }
+
     private static ApiSurface? ExtractFullApi(string searchPath, VerboseLogger logger)
     {
         // Determine if searchPath is a file or directory
@@ -201,20 +263,9 @@ public class ApiCommand : ICommand
         }
     }
 
-    private static readonly JsonSerializerOptions s_jsonOptions = new()
+    private static string SerializeJson<T>(T value, JsonTypeInfo<T> typeInfo)
     {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        TypeInfoResolver = JsonTypeInfoResolver.Combine(
-            ApiJsonContext.Default,
-            ApiTypeJsonContext.Default)
-    };
-
-    private static string SerializeJson<T>(T value, JsonTypeInfo<T> _)
-    {
-        return JsonSerializer.Serialize(value, s_jsonOptions);
+        return JsonSerializer.Serialize(value, typeInfo);
     }
 
     private static void WriteFullApiOutput(ApiSurface api, ApiOptions options)
@@ -267,7 +318,27 @@ public class ApiCommand : ICommand
     {
         if (options.JsonOutput)
         {
-            Console.WriteLine(SerializeJson(type, ApiTypeJsonContext.Default.ApiType));
+            var outputType = type;
+            if (options.MemberFilter?.Count > 0 && type.Members != null)
+            {
+                // Filter members for JSON output
+                var filteredMembers = type.Members
+                    .Where(m => options.MemberFilter.Contains(m.Name))
+                    .ToList();
+                outputType = new ApiType
+                {
+                    Namespace = type.Namespace,
+                    Name = type.Name,
+                    Kind = type.Kind,
+                    IsSealed = type.IsSealed,
+                    IsAbstract = type.IsAbstract,
+                    IsStatic = type.IsStatic,
+                    BaseType = type.BaseType,
+                    Interfaces = type.Interfaces,
+                    Members = filteredMembers
+                };
+            }
+            Console.WriteLine(SerializeJson(outputType, ApiTypeJsonContext.Default.ApiType));
         }
         else
         {
@@ -277,10 +348,13 @@ public class ApiCommand : ICommand
 
     private static string RenderTypeMarkdown(ApiType type, string? foundIn, ApiOptions options)
     {
-        return options.Verbosity switch
+        // When filtering by member, force full signatures (Normal verbosity)
+        var effectiveVerbosity = options.MemberFilter?.Count > 0 ? Verbosity.Normal : options.Verbosity;
+
+        return effectiveVerbosity switch
         {
-            Verbosity.Quiet => RenderTypeQuiet(type, foundIn),
-            Verbosity.Minimal => RenderTypeMinimal(type, foundIn),
+            Verbosity.Quiet => RenderTypeQuiet(type, foundIn, options),
+            Verbosity.Minimal => RenderTypeMinimal(type, foundIn, options),
             _ => RenderTypeNormalOrDetailed(type, foundIn, options)
         };
     }
@@ -328,11 +402,16 @@ public class ApiCommand : ICommand
         return sb.ToString();
     }
 
-    private static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type)
+    private static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null)
     {
         var members = type.Members?
             .Where(m => !IsCompilerGenerated(m.Name))
             .ToList() ?? [];
+
+        if (memberFilter?.Count > 0)
+        {
+            members = members.Where(m => memberFilter.Contains(m.Name)).ToList();
+        }
 
         return members
             .GroupBy(m => m.Kind)
@@ -388,12 +467,12 @@ public class ApiCommand : ICommand
         return typePart;
     }
 
-    private static string RenderTypeQuiet(ApiType type, string? foundIn)
+    private static string RenderTypeQuiet(ApiType type, string? foundIn, ApiOptions options)
     {
         var sb = new StringBuilder();
         sb.Append(RenderTypeHeader(type, foundIn));
 
-        var grouped = GroupMembersByKind(type);
+        var grouped = GroupMembersByKind(type, options.MemberFilter);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
         sb.AppendLine();
@@ -407,13 +486,13 @@ public class ApiCommand : ICommand
         return sb.ToString().TrimEnd();
     }
 
-    private static string RenderTypeMinimal(ApiType type, string? foundIn)
+    private static string RenderTypeMinimal(ApiType type, string? foundIn, ApiOptions options)
     {
         var sb = new StringBuilder();
         var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
         sb.Append(RenderTypeHeader(type, foundIn, allMembers.Count));
 
-        var grouped = GroupMembersByKind(type);
+        var grouped = GroupMembersByKind(type, options.MemberFilter);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
         sb.AppendLine();
@@ -476,6 +555,12 @@ public class ApiCommand : ICommand
                 .OrderBy(m => GetMemberSortOrder(m.Kind))
                 .ThenBy(m => m.Name)
                 .ToList();
+
+            // Apply member filter if specified
+            if (options.MemberFilter?.Count > 0)
+            {
+                members = members.Where(m => options.MemberFilter.Contains(m.Name)).ToList();
+            }
 
             var totalCount = members.Count;
             var displayMembers = members.AsEnumerable();
@@ -629,6 +714,7 @@ public class ApiCommand : ICommand
         string? typeName = null;
         int? limit = null;
         var verbosity = Verbosity.Minimal;
+        HashSet<string>? memberFilter = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -681,6 +767,14 @@ public class ApiCommand : ICommand
                 case "-v:d":
                     verbosity = Verbosity.Detailed;
                     break;
+                case "-m":
+                case "--member":
+                    if (i + 1 < args.Length)
+                    {
+                        memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        memberFilter.Add(args[++i]);
+                    }
+                    break;
                 default:
                     if (lower.StartsWith("--package="))
                     {
@@ -689,6 +783,16 @@ public class ApiCommand : ICommand
                     else if (lower.StartsWith("--assembly="))
                     {
                         assemblyPath = arg[11..];
+                    }
+                    else if (lower.StartsWith("--member="))
+                    {
+                        memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        memberFilter.Add(arg[9..]);
+                    }
+                    else if (lower.StartsWith("-m="))
+                    {
+                        memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        memberFilter.Add(arg[3..]);
                     }
                     else if (!arg.StartsWith("-") && typeName == null)
                     {
@@ -705,7 +809,8 @@ public class ApiCommand : ICommand
             JsonOutput = jsonOutput,
             Verbose = verbose,
             Limit = limit,
-            Verbosity = verbosity
+            Verbosity = verbosity,
+            MemberFilter = memberFilter
         };
 
         return (options, typeName, showHelp);
@@ -723,4 +828,5 @@ public record ApiOptions
     public bool Verbose { get; init; }
     public int? Limit { get; init; }
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+    public HashSet<string>? MemberFilter { get; init; }
 }
