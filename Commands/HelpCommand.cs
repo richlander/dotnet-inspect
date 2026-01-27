@@ -114,6 +114,7 @@ public class HelpCommand : ICommand
         Console.WriteLine("Options:");
         Console.WriteLine("  --audit        Include SourceLink and determinism audit");
         Console.WriteLine("  --package <p>  Extract assembly from package (file, name, or name@version)");
+        Console.WriteLine("  --tfm <tfm>    Select assembly by TFM (e.g., net8.0, netstandard2.0)");
         Console.WriteLine("  --json         Output as JSON");
         Console.WriteLine("  --markout      Output as Markout (default)");
         Console.WriteLine("  --verbose      Show progress messages on stderr");
@@ -127,6 +128,7 @@ public class HelpCommand : ICommand
         Console.WriteLine("  dotnet-inspect assembly MyLib.dll           # Local file");
         Console.WriteLine("  dotnet-inspect assembly MyLib.dll --audit   # With SourceLink audit");
         Console.WriteLine("  dotnet-inspect assembly --package dotnetsay # Auto-detect DLL in package");
+        Console.WriteLine("  dotnet-inspect assembly --package System.Text.Json --tfm net8.0");
         Console.WriteLine("  dotnet-inspect assembly lib/net8.0/System.Text.Json.dll --package System.Text.Json");
     }
 
@@ -142,6 +144,8 @@ public class HelpCommand : ICommand
         Console.WriteLine("Options:");
         Console.WriteLine("  --package <p>  Extract from package (file, name, or name@version)");
         Console.WriteLine("  --assembly <a> Assembly path (local file, or relative path within package)");
+        Console.WriteLine("  --tfm <tfm>    Select assembly by TFM (e.g., net8.0, netstandard2.0)");
+        Console.WriteLine("  --interfaces   Show implemented interfaces");
         Console.WriteLine("  -m, --member   Filter to specific member(s) (multiple allowed, requires type)");
         Console.WriteLine("  -n <count>     Limit output to N types or N members");
         Console.WriteLine("  --source-url   Show SourceLink URL for the type (requires embedded PDB)");
@@ -160,6 +164,8 @@ public class HelpCommand : ICommand
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  dotnet-inspect api --assembly MyLib.dll                 # List all types");
+        Console.WriteLine("  dotnet-inspect api --package Spectre.Console            # Auto-selects highest TFM");
+        Console.WriteLine("  dotnet-inspect api --package Spectre.Console --tfm net8.0  # Specific TFM");
         Console.WriteLine("  dotnet-inspect api --package System.Text.Json --assembly lib/net10.0/System.Text.Json.dll");
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json  # Search all assemblies");
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json -v:q  # Compact view");

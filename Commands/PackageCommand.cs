@@ -63,19 +63,29 @@ public class PackageCommand : ICommand
         }
         else
         {
-            packageName = packageArgs[0].ToLowerInvariant();
+            // Support format: PackageName or PackageName@version
+            string packageArg = packageArgs[0];
+            int atIndex = packageArg.IndexOf('@');
 
-            if (packageArgs.Length >= 2)
+            if (atIndex > 0)
             {
+                packageName = packageArg[..atIndex].ToLowerInvariant();
+                version = packageArg[(atIndex + 1)..].ToLowerInvariant();
+                logger.Log($"Using specified version: {version}");
+            }
+            else if (packageArgs.Length >= 2)
+            {
+                packageName = packageArg.ToLowerInvariant();
                 version = packageArgs[1].ToLowerInvariant();
             }
             else
             {
+                packageName = packageArg.ToLowerInvariant();
                 // Auto-discover latest version
                 string? latestVersion = await GetLatestVersionAsync(client, packageName, logger);
                 if (latestVersion == null)
                 {
-                    Console.Error.WriteLine($"Failed to get latest version for package: {packageName}");
+                    Console.Error.WriteLine($"Error: Package '{packageArg}' not found on nuget.org");
                     return 1;
                 }
                 version = latestVersion;
@@ -84,28 +94,51 @@ public class PackageCommand : ICommand
             tempDir = Path.Combine(Path.GetTempPath(), $"inspect-{packageName}-{version}-{Guid.NewGuid():N}");
         }
 
+        bool usingCache = false;
+        string? extractPath = null;
+
         try
         {
-            Directory.CreateDirectory(tempDir);
-            string extractPath = Path.Combine(tempDir, "extracted");
-
             if (isLocalFile)
             {
+                Directory.CreateDirectory(tempDir);
+                extractPath = Path.Combine(tempDir, "extracted");
                 string localPath = packageArgs[0];
                 logger.Log($"Processing local package: {Path.GetFileName(localPath)}");
                 ZipFile.ExtractToDirectory(localPath, extractPath);
             }
             else
             {
-                string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-                logger.Log($"Downloading: {nupkgUrl}");
+                // Check NuGet cache first
+                var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
+                if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+                {
+                    logger.Log($"Using cached package: {cachedPath}");
+                    extractPath = cachedPath;
+                    usingCache = true;
+                }
+                else
+                {
+                    Directory.CreateDirectory(tempDir);
+                    extractPath = Path.Combine(tempDir, "extracted");
 
-                byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
-                string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+                    string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
+                    logger.Log($"Downloading: {nupkgUrl}");
 
-                logger.Log("Package downloaded successfully.");
+                    byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
+                    string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+                    await File.WriteAllBytesAsync(nupkgPath, packageBytes);
+                    ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+
+                    logger.Log("Package downloaded successfully.");
+
+                    // Cache the package for future use
+                    var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
+                    if (newCachePath != null)
+                    {
+                        logger.Log($"Cached to: {newCachePath}");
+                    }
+                }
             }
 
             // Handle --files mode: list files and exit early
@@ -190,7 +223,8 @@ public class PackageCommand : ICommand
         }
         finally
         {
-            if (Directory.Exists(tempDir))
+            // Only clean up temp directory if we created one (not using cache)
+            if (!usingCache && Directory.Exists(tempDir))
             {
                 try
                 {

@@ -48,8 +48,31 @@ public class ApiCommand : ICommand
                 }
                 (searchPath, tempDir) = extracted.Value;
 
+                // If --tfm is specified, find assembly by TFM
+                if (!string.IsNullOrEmpty(options.Tfm))
+                {
+                    var tfmAssembly = FindAssemblyByTfm(searchPath, options.Tfm);
+                    if (tfmAssembly == null)
+                    {
+                        Console.Error.WriteLine($"Error: No assembly found for TFM '{options.Tfm}'.");
+                        Console.Error.WriteLine("Available TFMs:");
+                        var dlls = GetPackageDlls(searchPath);
+                        var tfms = dlls
+                            .Select(d => ExtractTfmFromPath(Path.GetRelativePath(searchPath, d).Replace('\\', '/')))
+                            .Where(t => t != null)
+                            .Distinct()
+                            .OrderByDescending(t => GetTfmPriority(t!));
+                        foreach (var tfm in tfms)
+                        {
+                            Console.Error.WriteLine($"  {tfm}");
+                        }
+                        return 1;
+                    }
+                    searchPath = tfmAssembly;
+                    logger.Log($"Using TFM: {options.Tfm}");
+                }
                 // If --assembly is also specified, use it to select a specific DLL within the package
-                if (!string.IsNullOrEmpty(options.AssemblyPath))
+                else if (!string.IsNullOrEmpty(options.AssemblyPath))
                 {
                     var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
                     if (!File.Exists(targetPath))
@@ -82,22 +105,35 @@ public class ApiCommand : ICommand
                 return 1;
             }
 
+            string? selectedTfm = null;
             if (string.IsNullOrEmpty(typeName))
             {
-                // No type specified - check if we need to force a choice
+                // No type specified - check if we need to auto-select TFM
                 if (Directory.Exists(searchPath))
                 {
                     var dlls = GetPackageDlls(searchPath);
                     if (dlls.Count > 1)
                     {
-                        Console.Error.WriteLine("Error: Multiple assemblies found. Please specify one:");
-                        foreach (var dll in dlls)
+                        // Auto-select highest TFM
+                        var (selectedPath, tfm) = SelectHighestTfmAssembly(dlls, searchPath);
+                        if (selectedPath != null)
                         {
-                            Console.Error.WriteLine($"  {Path.GetRelativePath(searchPath, dll)}");
+                            searchPath = selectedPath;
+                            selectedTfm = tfm;
+                            logger.Log($"Auto-selected TFM: {tfm}");
                         }
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Usage: dotnet-inspect api [type] --package <pkg> --assembly <path>");
-                        return 1;
+                        else
+                        {
+                            // No TFM pattern found - require explicit selection
+                            Console.Error.WriteLine("Error: Multiple assemblies found. Please specify one with --assembly or --tfm:");
+                            foreach (var dll in dlls)
+                            {
+                                Console.Error.WriteLine($"  {Path.GetRelativePath(searchPath, dll)}");
+                            }
+                            Console.Error.WriteLine();
+                            Console.Error.WriteLine("Usage: dotnet-inspect api [type] --package <pkg> --assembly <path>");
+                            return 1;
+                        }
                     }
                 }
 
@@ -108,7 +144,7 @@ public class ApiCommand : ICommand
                     Console.Error.WriteLine("Error: Could not extract API from assembly.");
                     return 1;
                 }
-                WriteFullApiOutput(api, options);
+                WriteFullApiOutput(api, options, selectedTfm);
             }
             else
             {
@@ -353,6 +389,137 @@ public class ApiCommand : ICommand
         return candidates.OrderBy(f => f).ToList();
     }
 
+    private static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath)
+    {
+        // Group DLLs by TFM extracted from path (e.g., lib/net8.0/Foo.dll -> net8.0)
+        var byTfm = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dll in dlls)
+        {
+            var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
+            var tfm = ExtractTfmFromPath(relativePath);
+            if (tfm != null)
+            {
+                if (!byTfm.TryGetValue(tfm, out var list))
+                {
+                    list = [];
+                    byTfm[tfm] = list;
+                }
+                list.Add(dll);
+            }
+        }
+
+        if (byTfm.Count == 0)
+            return (null, null);
+
+        // Sort TFMs by version (highest first)
+        var sortedTfms = byTfm.Keys
+            .Select(tfm => (tfm, priority: GetTfmPriority(tfm)))
+            .OrderByDescending(x => x.priority)
+            .ToList();
+
+        var highestTfm = sortedTfms[0].tfm;
+        var assemblies = byTfm[highestTfm];
+
+        // Return the first assembly (or the one matching the package name if multiple)
+        return (assemblies[0], highestTfm);
+    }
+
+    private static string? ExtractTfmFromPath(string relativePath)
+    {
+        // Patterns: lib/net8.0/Foo.dll, tools/net8.0/any/Foo.dll
+        var parts = relativePath.Split('/');
+        foreach (var part in parts)
+        {
+            if (IsTfmFolder(part))
+                return part;
+        }
+        return null;
+    }
+
+    private static bool IsTfmFolder(string folderName)
+    {
+        // Common TFM patterns: net8.0, net9.0, net10.0, netstandard2.0, netcoreapp3.1, net472, etc.
+        return folderName.StartsWith("net", StringComparison.OrdinalIgnoreCase) &&
+               (folderName.Contains('.') || char.IsDigit(folderName[3]));
+    }
+
+    private static int GetTfmPriority(string tfm)
+    {
+        // Higher number = higher priority (newer/preferred)
+        var lower = tfm.ToLowerInvariant();
+
+        // .NET (net5.0+) - highest priority
+        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework"))
+        {
+            // Extract version: net8.0 -> 8.0, net10.0 -> 10.0
+            var versionPart = lower[3..];
+            if (Version.TryParse(versionPart, out var version))
+            {
+                return 10000 + (version.Major * 100) + version.Minor;
+            }
+            // net472, net48, etc. (old .NET Framework)
+            if (int.TryParse(versionPart.Replace(".", ""), out var legacyVersion))
+            {
+                return 1000 + legacyVersion;
+            }
+        }
+
+        // .NET Core
+        if (lower.StartsWith("netcoreapp"))
+        {
+            var versionPart = lower[10..];
+            if (Version.TryParse(versionPart, out var version))
+            {
+                return 5000 + (version.Major * 100) + version.Minor;
+            }
+        }
+
+        // .NET Standard
+        if (lower.StartsWith("netstandard"))
+        {
+            var versionPart = lower[11..];
+            if (Version.TryParse(versionPart, out var version))
+            {
+                return 3000 + (version.Major * 100) + version.Minor;
+            }
+        }
+
+        return 0;
+    }
+
+    internal static string? FindAssemblyByTfm(string extractPath, string tfm)
+    {
+        var libDir = Path.Combine(extractPath, "lib");
+        var toolsDir = Path.Combine(extractPath, "tools");
+
+        // Try lib directory first
+        if (Directory.Exists(libDir))
+        {
+            var tfmDir = Path.Combine(libDir, tfm);
+            if (Directory.Exists(tfmDir))
+            {
+                var dlls = Directory.GetFiles(tfmDir, "*.dll");
+                if (dlls.Length > 0)
+                    return dlls[0];
+            }
+        }
+
+        // Try tools directory
+        if (Directory.Exists(toolsDir))
+        {
+            // tools/net8.0/any/Foo.dll pattern
+            var searchPattern = $"*{tfm}*";
+            var dlls = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories)
+                .Where(f => f.Replace('\\', '/').Contains($"/{tfm}/", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (dlls.Count > 0)
+                return dlls[0];
+        }
+
+        return null;
+    }
+
     private static ApiSurface? ExtractFullApi(string searchPath, VerboseLogger logger)
     {
         // Determine if searchPath is a file or directory
@@ -410,7 +577,7 @@ public class ApiCommand : ICommand
         return JsonSerializer.Serialize(value, typeInfo);
     }
 
-    private static void WriteFullApiOutput(ApiSurface api, ApiOptions options)
+    private static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         if (options.JsonOutput)
         {
@@ -418,15 +585,19 @@ public class ApiCommand : ICommand
         }
         else
         {
-            Console.WriteLine(RenderFullApiMarkdown(api, options));
+            Console.WriteLine(RenderFullApiMarkdown(api, options, selectedTfm));
         }
     }
 
-    private static string RenderFullApiMarkdown(ApiSurface api, ApiOptions options)
+    private static string RenderFullApiMarkdown(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         var sb = new StringBuilder();
 
         sb.AppendLine($"**{api.PublicTypeCount}** types, **{api.PublicMethodCount}** methods, **{api.PublicPropertyCount}** properties");
+        if (selectedTfm != null)
+        {
+            sb.AppendLine($"*using {selectedTfm} (auto-selected highest TFM)*");
+        }
         sb.AppendLine();
         sb.AppendLine("| Type | Kind | Members |");
         sb.AppendLine("|------|------|---------|");
@@ -852,12 +1023,8 @@ public class ApiCommand : ICommand
         _ => 5
     };
 
-    private static async Task<(string extractPath, string tempDir)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
+    private static async Task<(string extractPath, string? tempDir)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-api-{Guid.NewGuid():N}");
-        string extractPath = Path.Combine(tempDir, "extracted");
-        Directory.CreateDirectory(tempDir);
-
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
         if (isLocalFile)
@@ -865,19 +1032,24 @@ public class ApiCommand : ICommand
             if (!File.Exists(packageSource))
             {
                 Console.Error.WriteLine($"Error: Package not found: {packageSource}");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
                 return null;
             }
+
+            string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-api-{Guid.NewGuid():N}");
+            string extractPath = Path.Combine(tempDir, "extracted");
+            Directory.CreateDirectory(tempDir);
+
             logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
             ZipFile.ExtractToDirectory(packageSource, extractPath);
+            return (extractPath, tempDir);
         }
         else
         {
             using HttpClient client = new();
-            
+
             string packageName;
             string? version;
-            
+
             int atIndex = packageSource.IndexOf('@');
             if (atIndex > 0)
             {
@@ -892,10 +1064,21 @@ public class ApiCommand : ICommand
                 if (version == null)
                 {
                     Console.Error.WriteLine($"Error: Package '{packageSource}' not found on nuget.org");
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
                     return null;
                 }
             }
+
+            // Check NuGet cache first
+            var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
+            if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+            {
+                logger.Log($"Using cached package: {cachedPath}");
+                return (cachedPath, null); // null tempDir means don't delete
+            }
+
+            string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-api-{Guid.NewGuid():N}");
+            string extractPath = Path.Combine(tempDir, "extracted");
+            Directory.CreateDirectory(tempDir);
 
             string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
             logger.Log($"Downloading: {packageName} {version}");
@@ -907,6 +1090,13 @@ public class ApiCommand : ICommand
                 await File.WriteAllBytesAsync(nupkgPath, packageBytes);
                 ZipFile.ExtractToDirectory(nupkgPath, extractPath);
                 logger.Log("Package downloaded successfully.");
+
+                // Cache the package for future use
+                var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
+                if (newCachePath != null)
+                {
+                    logger.Log($"Cached to: {newCachePath}");
+                }
             }
             catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -921,9 +1111,9 @@ public class ApiCommand : ICommand
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
                 return null;
             }
-        }
 
-        return (extractPath, tempDir);
+            return (extractPath, tempDir);
+        }
     }
 
     private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
@@ -965,6 +1155,7 @@ public class ApiCommand : ICommand
         bool showHelp = false;
         string? packagePath = null;
         string? assemblyPath = null;
+        string? tfm = null;
         string? typeName = null;
         int? limit = null;
         var verbosity = Verbosity.Minimal;
@@ -1006,6 +1197,12 @@ public class ApiCommand : ICommand
                     if (i + 1 < args.Length)
                     {
                         assemblyPath = args[++i];
+                    }
+                    break;
+                case "--tfm":
+                    if (i + 1 < args.Length)
+                    {
+                        tfm = args[++i];
                     }
                     break;
                 case "-n":
@@ -1053,6 +1250,10 @@ public class ApiCommand : ICommand
                     {
                         assemblyPath = arg[11..];
                     }
+                    else if (lower.StartsWith("--tfm="))
+                    {
+                        tfm = arg[6..];
+                    }
                     else if (lower.StartsWith("--member="))
                     {
                         memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1075,6 +1276,7 @@ public class ApiCommand : ICommand
         {
             PackagePath = packagePath,
             AssemblyPath = assemblyPath,
+            Tfm = tfm,
             JsonOutput = jsonOutput,
             CompactJson = compactJson,
             Verbose = verbose,
@@ -1097,6 +1299,7 @@ public record ApiOptions
 {
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
+    public string? Tfm { get; init; }
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Verbose { get; init; }

@@ -17,6 +17,12 @@ public record AssemblyOptions
     public string? PackagePath { get; init; }
 
     /// <summary>
+    /// Target framework moniker to select assembly from package.
+    /// Alternative to specifying full assembly path.
+    /// </summary>
+    public string? Tfm { get; init; }
+
+    /// <summary>
     /// Output as JSON instead of MDF.
     /// </summary>
     public bool JsonOutput { get; init; }

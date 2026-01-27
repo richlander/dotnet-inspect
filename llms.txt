@@ -35,7 +35,10 @@ dotnet-inspect assembly MyLib.dll
 # Audit for SourceLink and determinism
 dotnet-inspect assembly MyLib.dll --audit
 
-# From a NuGet package (latest version)
+# From a NuGet package by TFM
+dotnet-inspect assembly --package System.Text.Json --tfm net8.0
+
+# From a NuGet package (latest version, full path)
 dotnet-inspect assembly lib/net8.0/Foo.dll --package Newtonsoft.Json
 
 # From a specific package version
@@ -47,6 +50,12 @@ dotnet-inspect assembly lib/net9.0/System.Text.Json.dll --package System.Text.Js
 ```bash
 # List all types in a local assembly
 dotnet-inspect api --assembly MyLib.dll
+
+# List all types from a package (auto-selects highest TFM)
+dotnet-inspect api --package Spectre.Console
+
+# List types from a specific TFM
+dotnet-inspect api --package Spectre.Console --tfm net8.0
 
 # List all types from a specific assembly in a package
 dotnet-inspect api --package System.Text.Json --assembly lib/net10.0/System.Text.Json.dll
@@ -145,8 +154,20 @@ dotnet-inspect package Foo -v:d -s:1 # Detailed metadata only
 
 - Package names support version suffix: `PackageName@1.2.3`
 - Assembly paths in packages use forward slashes: `lib/net8.0/Foo.dll`
+- Use `--tfm` to select by target framework (e.g., `--tfm net8.0`) instead of full assembly path
+- When multiple TFMs exist and no `--assembly` or `--tfm` specified, the highest TFM is auto-selected and disclosed in output
 - `-m`/`--member` filter is case-insensitive, shows all matching overloads; combine with `--docs` for member documentation
 - `--interfaces` shows what interfaces a type implements (hidden by default to reduce noise)
 - `--source-url` and `--docs` require embedded PDB with SourceLink (Spectre.Console has it, System.Text.Json does not)
-- Use `--verbose` to see progress messages on stderr
+- Reads from NuGet cache (~/.nuget/packages) and caches downloads to ~/.local/share/dotnet-inspect/packages; use `--verbose` to see cache activity
 - Invalid package versions show helpful error with suggestion to use `--versions`
+
+## Tool Package Paths
+
+Tool packages (like `dotnet-ef`) have nested directory structures. The main executables are in `tools/net8.0/any/`, but bundled tool assemblies may be at deeper paths like `tools/net8.0/any/tools/net8.0/any/ef.dll`. Use `--files --all` to see the full structure:
+
+```bash
+dotnet-inspect package dotnet-ef --files --all
+```
+
+This reflects how .NET tools package their dependencies - the outer path is the tool package structure, and inner paths may contain additional tool assemblies.

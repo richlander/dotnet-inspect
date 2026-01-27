@@ -38,14 +38,14 @@ public class AssemblyCommand : ICommand
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, logger);
+                var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, options.Tfm, logger);
                 if (extractResult == null)
                 {
                     return 1;
                 }
 
-                var (assemblyPaths, extractPath) = extractResult.Value;
-                tempDir = Path.GetDirectoryName(extractPath);
+                var (assemblyPaths, extractPath, extractTempDir) = extractResult.Value;
+                tempDir = extractTempDir;
 
                 // Inspect all assemblies
                 bool first = true;
@@ -111,23 +111,26 @@ public class AssemblyCommand : ICommand
         }
     }
 
-    private static async Task<(List<string> assemblyPaths, string extractPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, VerboseLogger logger)
+    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger)
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-assembly-{Guid.NewGuid():N}");
-        string extractPath = Path.Combine(tempDir, "extracted");
-        Directory.CreateDirectory(tempDir);
-
         // Check if it's a local file or a NuGet package name
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+
+        string tempDir;
+        string extractPath;
 
         if (isLocalFile)
         {
             if (!File.Exists(packageSource))
             {
                 Console.Error.WriteLine($"Error: Package not found: {packageSource}");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
                 return null;
             }
+
+            tempDir = Path.Combine(Path.GetTempPath(), $"inspect-assembly-{Guid.NewGuid():N}");
+            extractPath = Path.Combine(tempDir, "extracted");
+            Directory.CreateDirectory(tempDir);
+
             logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
             ZipFile.ExtractToDirectory(packageSource, extractPath);
         }
@@ -154,39 +157,84 @@ public class AssemblyCommand : ICommand
                 if (version == null)
                 {
                     Console.Error.WriteLine($"Error: Package '{packageSource}' not found on nuget.org");
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
                     return null;
                 }
             }
 
-            string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-            logger.Log($"Downloading: {packageName} {version}");
+            // Check NuGet cache first
+            var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
+            if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+            {
+                logger.Log($"Using cached package: {cachedPath}");
+                extractPath = cachedPath;
+                tempDir = null!; // Will be handled by caller
+            }
+            else
+            {
+                tempDir = Path.Combine(Path.GetTempPath(), $"inspect-assembly-{Guid.NewGuid():N}");
+                extractPath = Path.Combine(tempDir, "extracted");
+                Directory.CreateDirectory(tempDir);
 
-            try
-            {
-                byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
-                string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-                logger.Log("Package downloaded successfully.");
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
-                Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return null;
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return null;
+                string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
+                logger.Log($"Downloading: {packageName} {version}");
+
+                try
+                {
+                    byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
+                    string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+                    await File.WriteAllBytesAsync(nupkgPath, packageBytes);
+                    ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+                    logger.Log("Package downloaded successfully.");
+
+                    // Cache the package for future use
+                    var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
+                    if (newCachePath != null)
+                    {
+                        logger.Log($"Cached to: {newCachePath}");
+                    }
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
+                    Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
+                    try { Directory.Delete(tempDir, recursive: true); } catch { }
+                    return null;
+                }
+                catch (HttpRequestException ex)
+                {
+                    Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
+                    try { Directory.Delete(tempDir, recursive: true); } catch { }
+                    return null;
+                }
             }
         }
 
         // Find DLLs in the extracted package
         string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+
+        // If --tfm is specified, find assembly by TFM
+        if (!string.IsNullOrEmpty(tfm))
+        {
+            var tfmAssembly = ApiCommand.FindAssemblyByTfm(extractPath, tfm);
+            if (tfmAssembly == null)
+            {
+                Console.Error.WriteLine($"Error: No assembly found for TFM '{tfm}'.");
+                Console.Error.WriteLine("Available TFMs:");
+                var tfms = allDlls
+                    .Select(d => ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
+                    .Where(t => t != null)
+                    .Distinct()
+                    .OrderByDescending(t => GetTfmPriority(t!));
+                foreach (var t in tfms)
+                {
+                    Console.Error.WriteLine($"  {t}");
+                }
+                if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
+                return null;
+            }
+            logger.Log($"Using TFM: {tfm}");
+            return ([tfmAssembly], extractPath, tempDir);
+        }
 
         // If no assembly name specified, return all assemblies from tools or lib directory
         if (string.IsNullOrEmpty(assemblyName))
@@ -211,13 +259,13 @@ public class AssemblyCommand : ICommand
             if (candidates.Length == 0)
             {
                 Console.Error.WriteLine("Error: No DLLs found in package.");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
                 return null;
             }
 
             // Return all assemblies, sorted by path
             var assemblyPaths = candidates.OrderBy(f => f).ToList();
-            return (assemblyPaths, extractPath);
+            return (assemblyPaths, extractPath, tempDir);
         }
 
         // Normalize the assembly path for comparison
@@ -245,7 +293,7 @@ public class AssemblyCommand : ICommand
         {
             Console.Error.WriteLine($"Error: Assembly '{assemblyName}' not found in package.");
             Console.Error.WriteLine("Use 'dotnet-inspect package <name> --files' to list available assemblies.");
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
             return null;
         }
 
@@ -257,12 +305,12 @@ public class AssemblyCommand : ICommand
                 Console.Error.WriteLine($"  {Path.GetRelativePath(extractPath, f)}");
             }
             Console.Error.WriteLine("Specify the full relative path to disambiguate.");
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
             return null;
         }
 
         logger.Log($"Found: {Path.GetRelativePath(extractPath, matchingFiles[0])}");
-        return ([matchingFiles[0]], extractPath);
+        return ([matchingFiles[0]], extractPath, tempDir);
     }
 
     private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
@@ -561,6 +609,7 @@ public class AssemblyCommand : ICommand
         bool verbose = false;
         bool showHelp = false;
         string? packagePath = null;
+        string? tfm = null;
         var verbosity = Verbosity.Normal;
         HashSet<int>? includeSections = null;
         HashSet<int>? excludeSections = null;
@@ -607,10 +656,20 @@ public class AssemblyCommand : ICommand
                         packagePath = args[++i];
                     }
                     break;
+                case "--tfm":
+                    if (i + 1 < args.Length)
+                    {
+                        tfm = args[++i];
+                    }
+                    break;
                 default:
                     if (lower.StartsWith("--package="))
                     {
                         packagePath = arg[10..];
+                    }
+                    else if (lower.StartsWith("--tfm="))
+                    {
+                        tfm = arg[6..];
                     }
                     else if (lower.StartsWith("-s:") || lower.StartsWith("-s="))
                     {
@@ -632,6 +691,7 @@ public class AssemblyCommand : ICommand
         {
             IncludeAudit = includeAudit,
             PackagePath = packagePath,
+            Tfm = tfm,
             JsonOutput = jsonOutput,
             Verbose = verbose,
             Verbosity = verbosity,
@@ -653,5 +713,68 @@ public class AssemblyCommand : ICommand
             }
         }
         return sections;
+    }
+
+    private static string? ExtractTfmFromPath(string relativePath)
+    {
+        // Patterns: lib/net8.0/Foo.dll, tools/net8.0/any/Foo.dll
+        var parts = relativePath.Split('/');
+        foreach (var part in parts)
+        {
+            if (IsTfmFolder(part))
+                return part;
+        }
+        return null;
+    }
+
+    private static bool IsTfmFolder(string folderName)
+    {
+        // Common TFM patterns: net8.0, net9.0, net10.0, netstandard2.0, netcoreapp3.1, net472, etc.
+        return folderName.StartsWith("net", StringComparison.OrdinalIgnoreCase) &&
+               (folderName.Contains('.') || (folderName.Length > 3 && char.IsDigit(folderName[3])));
+    }
+
+    private static int GetTfmPriority(string tfm)
+    {
+        // Higher number = higher priority (newer/preferred)
+        var lower = tfm.ToLowerInvariant();
+
+        // .NET (net5.0+) - highest priority
+        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework"))
+        {
+            // Extract version: net8.0 -> 8.0, net10.0 -> 10.0
+            var versionPart = lower[3..];
+            if (Version.TryParse(versionPart, out var version))
+            {
+                return 10000 + (version.Major * 100) + version.Minor;
+            }
+            // net472, net48, etc. (old .NET Framework)
+            if (int.TryParse(versionPart.Replace(".", ""), out var legacyVersion))
+            {
+                return 1000 + legacyVersion;
+            }
+        }
+
+        // .NET Core
+        if (lower.StartsWith("netcoreapp"))
+        {
+            var versionPart = lower[10..];
+            if (Version.TryParse(versionPart, out var version))
+            {
+                return 5000 + (version.Major * 100) + version.Minor;
+            }
+        }
+
+        // .NET Standard
+        if (lower.StartsWith("netstandard"))
+        {
+            var versionPart = lower[11..];
+            if (Version.TryParse(versionPart, out var version))
+            {
+                return 3000 + (version.Major * 100) + version.Minor;
+            }
+        }
+
+        return 0;
     }
 }
