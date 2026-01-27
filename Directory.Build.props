@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <UseArtifactsOutput>true</UseArtifactsOutput>
-    <IncludeProjectNameInArtifactsPaths>false</IncludeProjectNameInArtifactsPaths>
+    <IncludeProjectNameInArtifactsPaths>true</IncludeProjectNameInArtifactsPaths>
   </PropertyGroup>
 
 </Project>
