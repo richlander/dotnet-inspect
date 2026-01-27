@@ -83,7 +83,8 @@ dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect
 
 ## Output Formats
 
-- **Markdown** (default): Human-readable tables
+- **Markdown** (default): Human-readable tables, powered by [Markout](https://github.com/richlander/markout)
+- **Signatures only** (`--signatures-only`): Plain method signatures, minimal tokens
 - **JSON** (`--json`): Machine-readable output
 - **Compact JSON** (`--json --compact`): Minified, omits defaults
 
