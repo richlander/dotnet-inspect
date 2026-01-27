@@ -5,13 +5,11 @@ A CLI tool for inspecting .NET assemblies and NuGet packages. Useful for underst
 ## Installation
 
 ```bash
-# Clone and build
-git clone https://github.com/yourusername/dotnet-inspect.git
-cd dotnet-inspect
-dotnet build src/dotnet-inspect
+# Install as a global tool
+dotnet tool install -g dotnet-inspect
 
-# Run
-dotnet run --project src/dotnet-inspect -- <command>
+# Or run without installing
+dnx dotnet-inspect
 ```
 
 ## Quick Start
@@ -24,7 +22,7 @@ dotnet-inspect package Newtonsoft.Json
 dotnet-inspect api JsonSerializer --package System.Text.Json
 
 # Compare APIs between versions
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12) \
      <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
 
 # Audit assembly for SourceLink/determinism

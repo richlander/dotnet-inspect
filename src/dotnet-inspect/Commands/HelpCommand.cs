@@ -177,7 +177,7 @@ public class HelpCommand : ICommand
         Console.WriteLine("  dotnet-inspect api JsonSerializer --package System.Text.Json --source-url --docs");
         Console.WriteLine();
         Console.WriteLine("Compare APIs between versions:");
-        Console.WriteLine("  diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \\");
+        Console.WriteLine("  diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12) \\");
         Console.WriteLine("       <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)");
     }
 }

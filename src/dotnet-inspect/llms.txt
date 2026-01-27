@@ -42,7 +42,7 @@ dotnet-inspect assembly --package System.Text.Json --tfm net8.0
 dotnet-inspect assembly lib/net8.0/Foo.dll --package Newtonsoft.Json
 
 # From a specific package version
-dotnet-inspect assembly lib/net9.0/System.Text.Json.dll --package System.Text.Json@9.0.2
+dotnet-inspect assembly lib/net9.0/System.Text.Json.dll --package System.Text.Json@9.0.12
 ```
 
 ### api - View public API surface
@@ -64,7 +64,7 @@ dotnet-inspect api --package System.Text.Json --assembly lib/net10.0/System.Text
 dotnet-inspect api JsonSerializer --package System.Text.Json
 
 # From a specific version
-dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2
+dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12
 
 # Filter to specific member(s) - shows all overloads with full signatures
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize
@@ -98,11 +98,11 @@ dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:q
 
 ```bash
 # Compare API between versions
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12) \
      <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
 
 # Compare specific method overloads between versions
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2 -m Deserialize) \
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12 -m Deserialize) \
      <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2 -m Deserialize)
 
 # Find assemblies in a package
