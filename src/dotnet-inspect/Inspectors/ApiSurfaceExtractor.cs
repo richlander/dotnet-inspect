@@ -9,7 +9,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 public static class ApiSurfaceExtractor
 {
-    public static ApiSurface Extract(PEReader peReader)
+    public static ApiSurface Extract(PEReader peReader, bool includeAll = false)
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
@@ -30,6 +30,10 @@ public static class ApiSurfaceExtractor
 
             // Skip compiler-generated types
             if (typeName.StartsWith("<") || typeName.StartsWith("__"))
+                continue;
+
+            // Skip EditorBrowsable(Never) and Obsolete types unless --all
+            if (!includeAll && HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
                 continue;
 
             var apiType = new ApiType
@@ -96,6 +100,10 @@ public static class ApiSurfaceExtractor
                     methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
                     continue;
 
+                // Skip EditorBrowsable(Never) and Obsolete methods unless --all
+                if (!includeAll && HasHiddenAttribute(reader, method.GetCustomAttributes()))
+                    continue;
+
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -132,6 +140,10 @@ public static class ApiSurfaceExtractor
                 if (!isPublicProp)
                     continue;
 
+                // Skip EditorBrowsable(Never) and Obsolete properties unless --all
+                if (!includeAll && HasHiddenAttribute(reader, prop.GetCustomAttributes()))
+                    continue;
+
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
@@ -153,6 +165,10 @@ public static class ApiSurfaceExtractor
                 string fieldName = reader.GetString(field.Name);
                 if (fieldName.StartsWith("<"))
                     continue; // Skip backing fields
+
+                // Skip EditorBrowsable(Never) and Obsolete fields unless --all
+                if (!includeAll && HasHiddenAttribute(reader, field.GetCustomAttributes()))
+                    continue;
 
                 var member = new ApiMember
                 {
@@ -179,6 +195,10 @@ public static class ApiSurfaceExtractor
                 if ((adder.Attributes & MethodAttributes.Public) == 0)
                     continue;
 
+                // Skip EditorBrowsable(Never) and Obsolete events unless --all
+                if (!includeAll && HasHiddenAttribute(reader, evt.GetCustomAttributes()))
+                    continue;
+
                 var member = new ApiMember
                 {
                     Name = reader.GetString(evt.Name),
@@ -195,6 +215,54 @@ public static class ApiSurfaceExtractor
         }
 
         return surface;
+    }
+
+    /// <summary>
+    /// Checks if the member has EditorBrowsable(Never) or Obsolete attribute.
+    /// </summary>
+    private static bool HasHiddenAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+
+            if (attrTypeName == "System.ComponentModel.EditorBrowsableAttribute")
+            {
+                // Check if the value is EditorBrowsableState.Never (value = 1)
+                var value = reader.GetBlobBytes(attr.Value);
+                // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32
+                if (value.Length >= 6)
+                {
+                    int enumValue = value[2] | (value[3] << 8) | (value[4] << 16) | (value[5] << 24);
+                    if (enumValue == 1) // EditorBrowsableState.Never
+                        return true;
+                }
+            }
+            else if (attrTypeName == "System.ObsoleteAttribute")
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
+    {
+        if (constructorHandle.Kind == HandleKind.MemberReference)
+        {
+            var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
+            return GetTypeName(reader, memberRef.Parent);
+        }
+        else if (constructorHandle.Kind == HandleKind.MethodDefinition)
+        {
+            var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
+            var typeDef = reader.GetTypeDefinition(methodDef.GetDeclaringType());
+            string ns = reader.GetString(typeDef.Namespace);
+            string name = reader.GetString(typeDef.Name);
+            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        }
+        return null;
     }
 
     private static string? GetTypeName(MetadataReader reader, EntityHandle handle)

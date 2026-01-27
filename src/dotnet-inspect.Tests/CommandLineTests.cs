@@ -241,4 +241,28 @@ public class CommandLineTests
         Assert.Contains(1, result);
         Assert.Contains(2, result);
     }
+
+    [Fact]
+    public void ApiCommand_WithAllFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--all"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ApiCommand_WithFilterOption_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "Spectre.Console", "--filter", "Progress*"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ApiCommand_WithAllFlagAndFilter_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json", "--all", "--filter", "*Serializer*"]);
+
+        Assert.Empty(result.Errors);
+    }
 }

@@ -131,7 +131,7 @@ public class ApiCommand
                 }
 
                 // List all types in the assembly
-                var api = ExtractFullApi(searchPath, logger);
+                var api = ExtractFullApi(searchPath, logger, options.IncludeAll);
                 if (api == null)
                 {
                     Console.Error.WriteLine("Error: Could not extract API from assembly.");
@@ -142,7 +142,7 @@ public class ApiCommand
             else
             {
                 // Find specific type
-                var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger);
+                var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger, options.IncludeAll);
                 if (apiType == null || dllPath == null)
                 {
                     Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
@@ -174,7 +174,7 @@ public class ApiCommand
         }
     }
 
-    private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger)
+    private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory
         string[] dllFiles;
@@ -201,7 +201,7 @@ public class ApiCommand
                 if (!peReader.HasMetadata)
                     continue;
 
-                var api = ApiSurfaceExtractor.Extract(peReader);
+                var api = ApiSurfaceExtractor.Extract(peReader, includeAll);
 
                 // Search for the type by full name or simple name
                 var match = api.Types.FirstOrDefault(t =>
@@ -384,6 +384,9 @@ public class ApiCommand
 
     private static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath)
     {
+        // Filter out resource DLLs
+        dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+
         // Group DLLs by TFM extracted from path (e.g., lib/net8.0/Foo.dll -> net8.0)
         var byTfm = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -414,8 +417,16 @@ public class ApiCommand
         var highestTfm = sortedTfms[0].tfm;
         var assemblies = byTfm[highestTfm];
 
-        // Return the first assembly (or the one matching the package name if multiple)
-        return (assemblies[0], highestTfm);
+        // Prefer DLLs directly in the TFM folder (not in locale subdirectories)
+        var directDll = assemblies.FirstOrDefault(d =>
+        {
+            var relativePath = Path.GetRelativePath(extractPath, d).Replace('\\', '/');
+            var parts = relativePath.Split('/');
+            // lib/net8.0/Foo.dll has 3 parts, lib/net8.0/cs/Foo.dll has 4
+            return parts.Length <= 3;
+        });
+
+        return (directDll ?? assemblies[0], highestTfm);
     }
 
     private static string? ExtractTfmFromPath(string relativePath)
@@ -513,7 +524,7 @@ public class ApiCommand
         return null;
     }
 
-    private static ApiSurface? ExtractFullApi(string searchPath, VerboseLogger logger)
+    private static ApiSurface? ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory
         string? dllFile;
@@ -527,14 +538,20 @@ public class ApiCommand
             var libDir = Path.Combine(searchPath, "lib");
             if (Directory.Exists(libDir))
             {
-                var dlls = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories)
-                    .OrderByDescending(f => f) // Higher TFMs sort later (net9.0 > net8.0)
-                    .ToList();
-                dllFile = dlls.FirstOrDefault();
+                var dlls = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories).ToList();
+                var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(dlls, searchPath);
+                dllFile = selectedPath;
+                if (selectedTfm != null)
+                {
+                    logger.Log($"Auto-selected TFM: {selectedTfm}");
+                }
             }
             else
             {
-                dllFile = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories).FirstOrDefault();
+                // Fall back to first DLL found if no lib directory
+                var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories).ToList();
+                var (selectedPath, _) = SelectHighestTfmAssembly(dlls, searchPath);
+                dllFile = selectedPath ?? dlls.FirstOrDefault();
             }
         }
         else
@@ -557,7 +574,7 @@ public class ApiCommand
             if (!peReader.HasMetadata)
                 return null;
 
-            return ApiSurfaceExtractor.Extract(peReader);
+            return ApiSurfaceExtractor.Extract(peReader, includeAll);
         }
         catch
         {
@@ -572,6 +589,18 @@ public class ApiCommand
 
     private static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
+        // Apply type filter if specified
+        if (!string.IsNullOrEmpty(options.TypeFilter))
+        {
+            api.Types = api.Types.Where(t =>
+            {
+                var fullName = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
+                return MatchesGlobPattern(fullName, options.TypeFilter) ||
+                       MatchesGlobPattern(t.Name, options.TypeFilter);
+            }).ToList();
+            api.PublicTypeCount = api.Types.Count;
+        }
+
         if (options.JsonOutput)
         {
             Console.WriteLine(SerializeJson(api, ApiJsonContext.Default.ApiSurface));
@@ -586,7 +615,10 @@ public class ApiCommand
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine($"**{api.PublicTypeCount}** types, **{api.PublicMethodCount}** methods, **{api.PublicPropertyCount}** properties");
+        var types = api.Types.AsEnumerable();
+        var totalCount = api.Types.Count;
+
+        sb.AppendLine($"**{totalCount}** types, **{api.PublicMethodCount}** methods, **{api.PublicPropertyCount}** properties");
         if (selectedTfm != null)
         {
             sb.AppendLine($"*using {selectedTfm} (auto-selected highest TFM)*");
@@ -594,9 +626,6 @@ public class ApiCommand
         sb.AppendLine();
         sb.AppendLine("| Type | Kind | Members |");
         sb.AppendLine("|------|------|---------|");
-
-        var types = api.Types.AsEnumerable();
-        var totalCount = api.Types.Count;
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
         {
@@ -618,6 +647,16 @@ public class ApiCommand
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    private static bool MatchesGlobPattern(string text, string pattern)
+    {
+        // Convert glob pattern to regex
+        // * matches any characters, ? matches single character
+        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+            .Replace("\\*", ".*")
+            .Replace("\\?", ".") + "$";
+        return System.Text.RegularExpressions.Regex.IsMatch(text, regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
     private static void WriteTypeOutput(ApiType type, string? foundIn, ApiOptions options)
@@ -1159,4 +1198,6 @@ public record ApiOptions
     public bool ShowSourceUrl { get; init; }
     public bool ShowDocs { get; init; }
     public bool ShowInterfaces { get; init; }
+    public bool IncludeAll { get; init; }
+    public string? TypeFilter { get; init; }
 }

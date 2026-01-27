@@ -56,8 +56,10 @@ View public API surface of assemblies or specific types.
 
 ```bash
 dotnet-inspect api --package Spectre.Console                    # List all types
+dotnet-inspect api --package Spectre.Console --filter "Progress*"  # Filter by glob pattern
 dotnet-inspect api JsonSerializer --package System.Text.Json    # Specific type
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
+dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete
 dotnet-inspect api AnsiConsole --package Spectre.Console --docs # With documentation
 ```
 
@@ -65,6 +67,8 @@ dotnet-inspect api AnsiConsole --package Spectre.Console --docs # With documenta
 
 - **Package inspection**: View metadata, dependencies, target frameworks, and file structure
 - **API surface extraction**: List types and members with full signatures
+- **Type filtering**: Filter types by glob pattern (e.g., `--filter "*Json*"`)
+- **Smart defaults**: Excludes `[EditorBrowsable(Never)]` and `[Obsolete]` members by default
 - **Version comparison**: Compare APIs between package versions using diff
 - **SourceLink support**: Fetch source URLs and documentation from embedded PDBs
 - **Multiple output formats**: Markdown (default) or JSON

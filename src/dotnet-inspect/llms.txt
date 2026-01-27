@@ -31,6 +31,8 @@ dotnet-inspect assembly --package dotnet-inspect             # dotnet-inspect in
 ```bash
 dotnet-inspect api --package System.CommandLine              # List all types (auto-selects highest TFM)
 dotnet-inspect api --package System.Text.Json --tfm net8.0   # Specific TFM
+dotnet-inspect api --package Spectre.Console --filter "Progress*"  # Filter types by glob pattern
+dotnet-inspect api --package System.Text.Json --filter "*Serializer*"  # Find serializer-related types
 dotnet-inspect api JsonSerializer --package System.Text.Json # Specific type
 dotnet-inspect api Command --package System.CommandLine@2.0.2  # Specific version
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
@@ -38,6 +40,7 @@ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Des
 dotnet-inspect api JsonDocument --package System.Text.Json --interfaces  # Show interfaces
 dotnet-inspect api Command --package System.CommandLine -m SetAction -v:q  # Quiet mode
 dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
+dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete members
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
@@ -81,5 +84,16 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - Assembly paths use forward slashes: `lib/net8.0/Foo.dll`
 - `--tfm net8.0` selects by target framework; without it, highest TFM is auto-selected
 - `-m`/`--member` filter is case-insensitive and shows all matching overloads
+- `--filter` uses glob patterns: `*` matches any characters, `?` matches single character
+- `--all` includes EditorBrowsable(Never) and Obsolete members (excluded by default)
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
+
+## Notes on Filtering
+
+By default, the API output excludes:
+- Members marked with `[EditorBrowsable(EditorBrowsableState.Never)]`
+- Members marked with `[Obsolete]`
+
+Use `--all` to include these members. Note that some libraries expose implementation-detail
+methods as public without these attributes; these will still appear in the output.

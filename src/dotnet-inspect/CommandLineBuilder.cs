@@ -204,6 +204,8 @@ public static class CommandLineBuilder
         var apiAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path (local file, or relative path within package)" };
         var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
         var interfacesOption = new Option<bool>("--interfaces") { Description = "Show implemented interfaces" };
+        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
+        var filterOption = new Option<string?>("--filter") { Description = "Filter type names by glob pattern (e.g., *Json*, Progress*)" };
         var memberOption = new Option<string[]>("-m")
         {
             Description = "Filter to specific member(s)",
@@ -219,6 +221,8 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(apiAssemblyOption);
         apiCommand.Options.Add(apiTfmOption);
         apiCommand.Options.Add(interfacesOption);
+        apiCommand.Options.Add(allOption);
+        apiCommand.Options.Add(filterOption);
         apiCommand.Options.Add(memberOption);
         apiCommand.Options.Add(limitOption);
         apiCommand.Options.Add(sourceUrlOption);
@@ -239,6 +243,8 @@ public static class CommandLineBuilder
                 AssemblyPath = parseResult.GetValue(apiAssemblyOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
                 ShowInterfaces = parseResult.GetValue(interfacesOption),
+                IncludeAll = parseResult.GetValue(allOption),
+                TypeFilter = parseResult.GetValue(filterOption),
                 MemberFilter = members?.Length > 0 ? new HashSet<string>(members, StringComparer.OrdinalIgnoreCase) : null,
                 Limit = parseResult.GetValue(limitOption),
                 ShowSourceUrl = parseResult.GetValue(sourceUrlOption),
