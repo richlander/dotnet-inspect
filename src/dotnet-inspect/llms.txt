@@ -7,91 +7,38 @@ A CLI tool for inspecting .NET assemblies and NuGet packages. Useful for underst
 ### package - Inspect NuGet packages
 
 ```bash
-# View package metadata
-dotnet-inspect package Newtonsoft.Json
-
-# List DLLs (tools/ for tool packages, lib/ for regular packages)
-dotnet-inspect package Newtonsoft.Json --files
-
-# List all files in package
-dotnet-inspect package Newtonsoft.Json --files --all
-
-# List available versions (stable only)
-dotnet-inspect package System.Text.Json --versions
-
-# Include prereleases
-dotnet-inspect package System.Text.Json --versions --preview
-
-# Limit results
-dotnet-inspect package System.Text.Json --versions -n 5
+dotnet-inspect package System.Text.Json                      # Package metadata
+dotnet-inspect package System.CommandLine --files            # List DLLs
+dotnet-inspect package System.Text.Json --files --all        # List all files
+dotnet-inspect package System.CommandLine --versions         # Available versions
+dotnet-inspect package System.CommandLine --versions --preview -n 5  # With prereleases, limited
+dotnet-inspect package System.Text.Json --deps               # Show dependencies
+dotnet-inspect package dotnet-inspect --files --all          # Inspect tool packages
 ```
 
 ### assembly - Inspect .NET assemblies
 
 ```bash
-# Basic assembly info
-dotnet-inspect assembly MyLib.dll
-
-# Audit for SourceLink and determinism
-dotnet-inspect assembly MyLib.dll --audit
-
-# From a NuGet package by TFM
-dotnet-inspect assembly --package System.Text.Json --tfm net8.0
-
-# From a NuGet package (latest version, full path)
-dotnet-inspect assembly lib/net8.0/Foo.dll --package Newtonsoft.Json
-
-# From a specific package version
-dotnet-inspect assembly lib/net9.0/System.Text.Json.dll --package System.Text.Json@9.0.12
+dotnet-inspect assembly MyLib.dll                            # Basic info
+dotnet-inspect assembly MyLib.dll --audit                    # SourceLink/determinism audit
+dotnet-inspect assembly --package System.Text.Json --tfm net8.0  # From package by TFM
+dotnet-inspect assembly --package System.CommandLine@2.0.2   # From specific version
+dotnet-inspect assembly --package dotnet-inspect             # dotnet-inspect inspecting itself
 ```
 
 ### api - View public API surface
 
 ```bash
-# List all types in a local assembly
-dotnet-inspect api --assembly MyLib.dll
-
-# List all types from a package (auto-selects highest TFM)
-dotnet-inspect api --package Spectre.Console
-
-# List types from a specific TFM
-dotnet-inspect api --package Spectre.Console --tfm net8.0
-
-# List all types from a specific assembly in a package
-dotnet-inspect api --package System.Text.Json --assembly lib/net10.0/System.Text.Json.dll
-
-# View a specific type's API (searches all assemblies in package)
-dotnet-inspect api JsonSerializer --package System.Text.Json
-
-# From a specific version
-dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12
-
-# Filter to specific member(s) - shows all overloads with full signatures
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize
-
-# Multiple members
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize
-
-# Show implemented interfaces
-dotnet-inspect api JsonDocument --package System.Text.Json --interfaces
-
-# SourceLink URL and/or docs (requires embedded PDB with SourceLink)
-dotnet-inspect api AnsiConsole --package Spectre.Console --source-url --docs
-
-# Docs for specific member (works in all verbosity modes)
-dotnet-inspect api Renderable --package Spectre.Console --docs -m Render
-
-# JSON output
-dotnet-inspect api JsonSerializer --package System.Text.Json --json
-
-# Compact JSON (minified, omits false/default values)
-dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact
-
-# Limit members in output (works with both markdown and JSON)
-dotnet-inspect api JsonSerializer --package System.Text.Json -n 5
-
-# Quiet mode with member filter (compact signature list)
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:q
+dotnet-inspect api --package System.CommandLine              # List all types (auto-selects highest TFM)
+dotnet-inspect api --package System.Text.Json --tfm net8.0   # Specific TFM
+dotnet-inspect api JsonSerializer --package System.Text.Json # Specific type
+dotnet-inspect api Command --package System.CommandLine@2.0.2  # Specific version
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize  # Multiple members
+dotnet-inspect api JsonDocument --package System.Text.Json --interfaces  # Show interfaces
+dotnet-inspect api Command --package System.CommandLine -m SetAction -v:q  # Quiet mode
+dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
+dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
 ## Common Workflows
@@ -102,72 +49,37 @@ diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12) \
      <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
 
 # Compare specific method overloads between versions
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12 -m Deserialize) \
-     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2 -m Deserialize)
-
-# Find assemblies in a package
-dotnet-inspect package Newtonsoft.Json --files
-
-# Check SourceLink/determinism
-dotnet-inspect assembly MyLib.dll --audit
-
-# Get package dependencies
-dotnet-inspect package System.Text.Json --deps
-
-# Find latest stable version
-dotnet-inspect package System.Text.Json --versions -n 1
+diff <(dotnet-inspect api Command --package System.CommandLine@2.0.1 -m SetAction) \
+     <(dotnet-inspect api Command --package System.CommandLine@2.0.2 -m SetAction)
 ```
 
 ## Output Formats
 
-- Default: Markdown tables (good for terminal display)
-- `--json`: JSON output (good for programmatic parsing)
+- Default: Markdown tables
+- `--json`: JSON output
 - `--json --compact`: Minified JSON, omits false/default values
-- `--markout`: Explicit markdown output (default)
 
 ## Verbosity Levels
-
-Control section detail with `-v:` option:
 
 - `-v:q` - Quiet: summary only
 - `-v:m` - Minimal: summary + compact metadata
 - `-v:n` - Normal: full sections (default)
 - `-v:d` - Detailed: all sections with full tables
 
-## Section Filtering (H2s)
+## Section Filtering
 
-Filter output by H2 section numbers (first H2 = 1, etc.). Content before first H2 is always included.
-
-**Section indices by command:**
-- `package`: 1=Metadata, 2=Package Dependencies
-- `assembly`: 1=Assembly Info, 2=Build Audit (with --audit)
-- `api` (type list): 1=Types
-- `api` (single type): 1=Members
+Filter by H2 section number (1-indexed). Use `-s:1,2` to include or `-x:3` to exclude.
 
 ```bash
-dotnet-inspect package Foo -s:1      # Metadata only
-dotnet-inspect package Foo -x:2      # Exclude dependencies
-dotnet-inspect package Foo -v:d -s:1 # Detailed metadata only
+dotnet-inspect package System.Text.Json -s:1       # Metadata only (exclude dependencies)
+dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 ```
 
 ## Tips
 
-- Package names support version suffix: `PackageName@1.2.3`
-- Assembly paths in packages use forward slashes: `lib/net8.0/Foo.dll`
-- Use `--tfm` to select by target framework (e.g., `--tfm net8.0`) instead of full assembly path
-- When multiple TFMs exist and no `--assembly` or `--tfm` specified, the highest TFM is auto-selected and disclosed in output
-- `-m`/`--member` filter is case-insensitive, shows all matching overloads; combine with `--docs` for member documentation
-- `--interfaces` shows what interfaces a type implements (hidden by default to reduce noise)
-- `--source-url` and `--docs` require embedded PDB with SourceLink (Spectre.Console has it, System.Text.Json does not)
-- Reads from NuGet cache (~/.nuget/packages) and caches downloads to ~/.local/share/dotnet-inspect/packages; use `--verbose` to see cache activity
-- Invalid package versions show helpful error with suggestion to use `--versions`
-
-## Tool Package Paths
-
-Tool packages (like `dotnet-ef`) have nested directory structures. The main executables are in `tools/net8.0/any/`, but bundled tool assemblies may be at deeper paths like `tools/net8.0/any/tools/net8.0/any/ef.dll`. Use `--files --all` to see the full structure:
-
-```bash
-dotnet-inspect package dotnet-ef --files --all
-```
-
-This reflects how .NET tools package their dependencies - the outer path is the tool package structure, and inner paths may contain additional tool assemblies.
+- Version suffix: `System.Text.Json@9.0.12`
+- Assembly paths use forward slashes: `lib/net8.0/Foo.dll`
+- `--tfm net8.0` selects by target framework; without it, highest TFM is auto-selected
+- `-m`/`--member` filter is case-insensitive and shows all matching overloads
+- Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
+- Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
