@@ -147,6 +147,7 @@ public class HelpCommand : ICommand
         Console.WriteLine("  --source-url   Show SourceLink URL for the type (requires embedded PDB)");
         Console.WriteLine("  --docs         Fetch and display XML doc comments from source");
         Console.WriteLine("  --json         Output as JSON");
+        Console.WriteLine("  --compact      Minified JSON, omits false/default values (use with --json)");
         Console.WriteLine("  --markout      Output as Markout (default)");
         Console.WriteLine("  --verbose      Show progress messages on stderr");
         Console.WriteLine("  --help         Show this help message");

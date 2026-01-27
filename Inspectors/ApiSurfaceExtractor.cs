@@ -103,7 +103,7 @@ public static class ApiSurfaceExtractor
                     IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
                     IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0,
                     IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
-                    Signature = GetMethodSignature(reader, method)
+                    Signature = GetMethodSignature(reader, typeDef, method)
                 };
 
                 apiType.Members.Add(member);
@@ -136,7 +136,7 @@ public static class ApiSurfaceExtractor
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
-                    Signature = GetPropertySignature(reader, prop)
+                    Signature = GetPropertySignature(reader, typeDef, prop)
                 };
 
                 apiType.Members.Add(member);
@@ -220,10 +220,11 @@ public static class ApiSurfaceExtractor
         return null;
     }
 
-    private static string GetMethodSignature(MetadataReader reader, MethodDefinition method)
+    private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         string name = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(new SignatureTypeProvider(), null);
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
 
         var parameters = signature.ParameterTypes.Select((p, i) => p).ToList();
         string paramStr = string.Join(", ", parameters);
@@ -231,10 +232,11 @@ public static class ApiSurfaceExtractor
         return $"{signature.ReturnType} {name}({paramStr})";
     }
 
-    private static string GetPropertySignature(MetadataReader reader, PropertyDefinition prop)
+    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop)
     {
         string name = reader.GetString(prop.Name);
-        var signature = prop.DecodeSignature(new SignatureTypeProvider(), null);
+        var context = GenericContext.ForType(reader, typeDef);
+        var signature = prop.DecodeSignature(new SignatureTypeProvider(), context);
         return $"{signature.ReturnType} {name}";
     }
 }

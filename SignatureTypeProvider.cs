@@ -57,8 +57,19 @@ public class SignatureTypeProvider : ISignatureTypeProvider<string, object?>
         var cleanName = backtickIndex >= 0 ? genericType[..backtickIndex] : genericType;
         return $"{cleanName}<{string.Join(", ", typeArguments)}>";
     }
-    public string GetGenericMethodParameter(object? genericContext, int index) => $"T{index}";
-    public string GetGenericTypeParameter(object? genericContext, int index) => $"T{index}";
+    public string GetGenericMethodParameter(object? genericContext, int index)
+    {
+        if (genericContext is GenericContext ctx && index < ctx.MethodParameters.Count)
+            return ctx.MethodParameters[index];
+        return $"T{index}";
+    }
+
+    public string GetGenericTypeParameter(object? genericContext, int index)
+    {
+        if (genericContext is GenericContext ctx && index < ctx.TypeParameters.Count)
+            return ctx.TypeParameters[index];
+        return $"T{index}";
+    }
     public string GetFunctionPointerType(MethodSignature<string> signature) => "delegate*";
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
     public string GetPinnedType(string elementType) => elementType;

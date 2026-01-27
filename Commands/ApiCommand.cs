@@ -461,12 +461,24 @@ public class ApiCommand : ICommand
         if (options.JsonOutput)
         {
             var outputType = type;
-            if (options.MemberFilter?.Count > 0 && type.Members != null)
+            var members = type.Members;
+
+            // Apply member filter
+            if (options.MemberFilter?.Count > 0 && members != null)
             {
-                // Filter members for JSON output
-                var filteredMembers = type.Members
+                members = members
                     .Where(m => options.MemberFilter.Contains(m.Name))
                     .ToList();
+            }
+
+            // Apply -n limit to JSON output
+            if (options.Limit.HasValue && members != null && members.Count > options.Limit.Value)
+            {
+                members = members.Take(options.Limit.Value).ToList();
+            }
+
+            if (members != type.Members)
+            {
                 outputType = new ApiType
                 {
                     Namespace = type.Namespace,
@@ -477,7 +489,7 @@ public class ApiCommand : ICommand
                     IsStatic = type.IsStatic,
                     BaseType = type.BaseType,
                     Interfaces = type.Interfaces,
-                    Members = filteredMembers,
+                    Members = members,
                     // Preserve source info
                     SourceFilePath = type.SourceFilePath,
                     SourceUrl = type.SourceUrl,
@@ -486,7 +498,15 @@ public class ApiCommand : ICommand
                     Documentation = type.Documentation
                 };
             }
-            Console.WriteLine(SerializeJson(outputType, ApiTypeJsonContext.Default.ApiType));
+
+            if (options.CompactJson)
+            {
+                Console.WriteLine(SerializeJson(outputType, ApiTypeCompactJsonContext.Default.ApiType));
+            }
+            else
+            {
+                Console.WriteLine(SerializeJson(outputType, ApiTypeJsonContext.Default.ApiType));
+            }
         }
         else
         {
@@ -496,10 +516,7 @@ public class ApiCommand : ICommand
 
     private static string RenderTypeMarkdown(ApiType type, string? foundIn, ApiOptions options)
     {
-        // When filtering by member, force full signatures (Normal verbosity)
-        var effectiveVerbosity = options.MemberFilter?.Count > 0 ? Verbosity.Normal : options.Verbosity;
-
-        return effectiveVerbosity switch
+        return options.Verbosity switch
         {
             Verbosity.Quiet => RenderTypeQuiet(type, foundIn, options),
             Verbosity.Minimal => RenderTypeMinimal(type, foundIn, options),
@@ -643,10 +660,24 @@ public class ApiCommand : ICommand
 
         sb.AppendLine();
 
-        foreach (var (kind, members) in grouped)
+        // When filtering by member, show compact signatures instead of just names
+        if (options.MemberFilter?.Count > 0)
         {
-            var names = members.Select(m => m.Name).Distinct().OrderBy(n => n);
-            sb.AppendLine($"**{PluralizeKind(kind)}:** {string.Join(", ", names)}");
+            foreach (var (kind, members) in grouped)
+            {
+                foreach (var member in members.OrderBy(m => m.Signature ?? m.Name))
+                {
+                    sb.AppendLine($"- `{member.Signature ?? member.Name}`");
+                }
+            }
+        }
+        else
+        {
+            foreach (var (kind, members) in grouped)
+            {
+                var names = members.Select(m => m.Name).Distinct().OrderBy(n => n);
+                sb.AppendLine($"**{PluralizeKind(kind)}:** {string.Join(", ", names)}");
+            }
         }
 
         return sb.ToString().TrimEnd();
@@ -883,6 +914,7 @@ public class ApiCommand : ICommand
     private static (ApiOptions options, string? typeName, bool showHelp) ParseOptions(string[] args)
     {
         bool jsonOutput = false;
+        bool compactJson = false;
         bool verbose = false;
         bool showHelp = false;
         string? packagePath = null;
@@ -903,6 +935,9 @@ public class ApiCommand : ICommand
             {
                 case "--json":
                     jsonOutput = true;
+                    break;
+                case "--compact":
+                    compactJson = true;
                     break;
                 case "--markout":
                     jsonOutput = false;
@@ -991,6 +1026,7 @@ public class ApiCommand : ICommand
             PackagePath = packagePath,
             AssemblyPath = assemblyPath,
             JsonOutput = jsonOutput,
+            CompactJson = compactJson,
             Verbose = verbose,
             Limit = limit,
             Verbosity = verbosity,
@@ -1011,6 +1047,7 @@ public record ApiOptions
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
     public bool JsonOutput { get; init; }
+    public bool CompactJson { get; init; }
     public bool Verbose { get; init; }
     public int? Limit { get; init; }
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;

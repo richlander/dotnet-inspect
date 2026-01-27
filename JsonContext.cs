@@ -32,3 +32,14 @@ public partial class ApiJsonContext : JsonSerializerContext
 public partial class ApiTypeJsonContext : JsonSerializerContext
 {
 }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault)]
+[JsonSerializable(typeof(ApiType))]
+[JsonSerializable(typeof(DocComment))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+public partial class ApiTypeCompactJsonContext : JsonSerializerContext
+{
+}
