@@ -16,17 +16,20 @@ dnx dotnet-inspect
 
 ```bash
 # Inspect a NuGet package
-dotnet-inspect package Newtonsoft.Json
+dotnet-inspect package System.Text.Json
 
 # View public API of a type
 dotnet-inspect api JsonSerializer --package System.Text.Json
 
 # Compare APIs between versions
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12) \
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0) \
      <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
 
 # Audit assembly for SourceLink/determinism
-dotnet-inspect assembly MyLib.dll --audit
+dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit
+
+# Inspect a tool package (dotnet-inspect inspecting itself)
+dotnet-inspect package dotnet-inspect --files --all
 ```
 
 ## Commands
@@ -36,9 +39,10 @@ dotnet-inspect assembly MyLib.dll --audit
 Inspect NuGet packages - view metadata, dependencies, and file structure.
 
 ```bash
-dotnet-inspect package Newtonsoft.Json           # Package metadata
-dotnet-inspect package Newtonsoft.Json --files   # List DLLs
-dotnet-inspect package System.Text.Json --versions   # List available versions
+dotnet-inspect package System.Text.Json              # Package metadata
+dotnet-inspect package System.CommandLine --files    # List DLLs
+dotnet-inspect package System.CommandLine --versions # List available versions
+dotnet-inspect package dotnet-inspect --files --all  # Inspect tool packages
 ```
 
 ### assembly
@@ -47,7 +51,8 @@ Inspect .NET assemblies - view assembly info and audit for SourceLink/determinis
 
 ```bash
 dotnet-inspect assembly MyLib.dll --audit
-dotnet-inspect assembly --package System.Text.Json --tfm net8.0
+dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit
+dotnet-inspect assembly --package dotnet-inspect     # dotnet-inspect inspecting itself
 ```
 
 ### api
@@ -55,10 +60,11 @@ dotnet-inspect assembly --package System.Text.Json --tfm net8.0
 View public API surface of assemblies or specific types.
 
 ```bash
-dotnet-inspect api --package Spectre.Console                    # List all types
+dotnet-inspect api --package System.CommandLine                 # List all types
 dotnet-inspect api JsonSerializer --package System.Text.Json    # Specific type
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
-dotnet-inspect api AnsiConsole --package Spectre.Console --docs # With documentation
+dotnet-inspect api Command --package System.CommandLine --docs  # With documentation
+dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
 ## Key Features
