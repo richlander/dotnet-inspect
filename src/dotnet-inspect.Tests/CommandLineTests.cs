@@ -95,6 +95,14 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ApiCommand_WithSignaturesOnly_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--signatures-only"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void AssemblyCommand_WithPackage_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "--package", "System.Text.Json"]);

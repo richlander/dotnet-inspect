@@ -64,32 +64,6 @@ When inspecting a type like `JsonSerializer`, suggest related types that are com
 
 This would help LLMs understand the ecosystem around a type without multiple exploratory queries.
 
-## Signatures-Only Output Mode
-
-A `--signatures-only` or `--terse` flag that outputs just method signatures as a plain list, without markdown table formatting:
-
-```bash
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize --signatures-only
-```
-
-Current output includes markdown tables with headers and separators:
-
-```
-| Member | Kind | Signature |
-|--------|------|-----------|
-| Serialize | method | `string Serialize(object, JsonTypeInfo)` |
-```
-
-Terse output would be minimal:
-
-```
-string Serialize(object, JsonTypeInfo)
-string Serialize(object, Type, JsonSerializerContext)
-void Serialize(Stream, TValue, JsonSerializerOptions)
-```
-
-This reduces token overhead for LLMs that just need signatures for code generation, and pairs well with `-v:q` for maximum efficiency.
-
 ## Output to File
 
 An `--out` flag to write results directly to a file:

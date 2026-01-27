@@ -980,13 +980,21 @@ public class ApiCommand
     private static string RenderTypeNormalOrDetailed(ApiType type, string? foundIn, ApiOptions options)
     {
         var sb = new StringBuilder();
-        sb.Append(RenderTypeHeader(type, foundIn, options));
+
+        // In signatures-only mode, skip the header entirely
+        if (!options.SignaturesOnly)
+        {
+            sb.Append(RenderTypeHeader(type, foundIn, options));
+        }
 
         if (type.Members is { Count: > 0 })
         {
-            sb.AppendLine();
-            sb.AppendLine("| Member | Kind | Signature |");
-            sb.AppendLine("|--------|------|-----------|");
+            if (!options.SignaturesOnly)
+            {
+                sb.AppendLine();
+                sb.AppendLine("| Member | Kind | Signature |");
+                sb.AppendLine("|--------|------|-----------|");
+            }
 
             // Filter out compiler-generated members and sort by kind for readability
             var members = type.Members
@@ -1012,20 +1020,29 @@ public class ApiCommand
             foreach (var member in displayMembers)
             {
                 string sig = member.Signature ?? member.ReturnType ?? "";
-                // Escape pipes in signatures
-                sig = sig.Replace("|", "\\|");
-                sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
 
-                // Show member documentation if available (when --docs is used with member filter)
-                if (member.Documentation?.Summary != null)
+                if (options.SignaturesOnly)
                 {
-                    sb.AppendLine();
-                    sb.AppendLine($"> {member.Documentation.Summary}");
-                    sb.AppendLine();
+                    // Plain signature output, one per line
+                    sb.AppendLine(sig);
+                }
+                else
+                {
+                    // Escape pipes in signatures for markdown table
+                    sig = sig.Replace("|", "\\|");
+                    sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
+
+                    // Show member documentation if available (when --docs is used with member filter)
+                    if (member.Documentation?.Summary != null)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine($"> {member.Documentation.Summary}");
+                        sb.AppendLine();
+                    }
                 }
             }
 
-            if (options.Limit.HasValue && options.Limit.Value < totalCount)
+            if (!options.SignaturesOnly && options.Limit.HasValue && options.Limit.Value < totalCount)
             {
                 var remaining = totalCount - options.Limit.Value;
                 sb.AppendLine();
@@ -1200,4 +1217,5 @@ public record ApiOptions
     public bool ShowInterfaces { get; init; }
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
+    public bool SignaturesOnly { get; init; }
 }

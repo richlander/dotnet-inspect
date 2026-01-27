@@ -215,6 +215,7 @@ public static class CommandLineBuilder
         var sourceUrlOption = new Option<bool>("--source-url") { Description = "Show SourceLink URL for the type" };
         var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
 
         apiCommand.Arguments.Add(typeNameArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -229,6 +230,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(docsOption);
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
+        apiCommand.Options.Add(signaturesOnlyOption);
         apiCommand.Options.Add(markoutOption);
         apiCommand.Options.Add(verboseOption);
         apiCommand.Options.Add(verbosityOption);
@@ -251,6 +253,7 @@ public static class CommandLineBuilder
                 ShowDocs = parseResult.GetValue(docsOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
+                SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption))
             };
