@@ -88,9 +88,22 @@ dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect
 - **JSON** (`--json`): Machine-readable output
 - **Compact JSON** (`--json --compact`): Minified, omits defaults
 
-## Verbosity Levels
+## Output Control
 
-Control output detail with `-v:`:
+Output verbosity follows a **height × width** model for progressive disclosure:
+
+- **Width** (verbosity) controls column density: `-v:q` (quiet) → `-v:d` (detailed)
+- **Height** (sections) controls which sections appear: `-s:1,2` (include) or `-x:3` (exclude)
+
+This lets you dial in exactly the information you need. Run a command once to see section numbers, then filter.
+
+```bash
+dotnet-inspect package System.Text.Json -v:d      # Detailed: all sections, full tables
+dotnet-inspect package System.Text.Json -s:1     # Section 1 only (metadata)
+dotnet-inspect package System.Text.Json -v:d -x:2  # Detailed, but skip dependencies
+```
+
+### Verbosity Levels
 
 | Flag | Level | Description |
 |------|-------|-------------|
