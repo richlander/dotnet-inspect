@@ -37,6 +37,7 @@ dotnet-inspect api JsonSerializer --package System.Text.Json # Specific type
 dotnet-inspect api Command --package System.CommandLine@2.0.2  # Specific version
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize  # Multiple members
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize --signatures-only  # Plain signatures
 dotnet-inspect api JsonDocument --package System.Text.Json --interfaces  # Show interfaces
 dotnet-inspect api Command --package System.CommandLine -m SetAction -v:q  # Quiet mode
 dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
@@ -58,7 +59,8 @@ diff <(dotnet-inspect api Command --package System.CommandLine@2.0.1 -m SetActio
 
 ## Output Formats
 
-- Default: Markdown tables
+- Default: Markdown tables with full method signatures including parameter names
+- `--signatures-only`: Plain signatures only (no table formatting, minimal tokens)
 - `--json`: JSON output
 - `--json --compact`: Minified JSON, omits false/default values
 
@@ -80,6 +82,7 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 
 ## Tips
 
+- Signatures include parameter names: `void Serialize(Stream utf8Json, TValue value, JsonSerializerOptions options)`
 - Version suffix: `System.Text.Json@9.0.12`
 - Assembly paths use forward slashes: `lib/net8.0/Foo.dll`
 - `--tfm net8.0` selects by target framework; without it, highest TFM is auto-selected
