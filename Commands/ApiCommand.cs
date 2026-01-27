@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 
 namespace DotnetInspector.Commands;
@@ -206,11 +207,11 @@ public class ApiCommand : ICommand
         }
         else
         {
-            Console.WriteLine(RenderFullApiMarkdown(api));
+            Console.WriteLine(RenderFullApiMarkdown(api, options));
         }
     }
 
-    private static string RenderFullApiMarkdown(ApiSurface api)
+    private static string RenderFullApiMarkdown(ApiSurface api, ApiOptions options)
     {
         var sb = new StringBuilder();
 
@@ -219,11 +220,26 @@ public class ApiCommand : ICommand
         sb.AppendLine("| Type | Kind | Members |");
         sb.AppendLine("|------|------|---------|");
 
-        foreach (var type in api.Types)
+        var types = api.Types.AsEnumerable();
+        var totalCount = api.Types.Count;
+
+        if (options.Limit.HasValue && options.Limit.Value < totalCount)
+        {
+            types = types.Take(options.Limit.Value);
+        }
+
+        foreach (var type in types)
         {
             var memberCount = type.Members?.Count ?? 0;
             var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
             sb.AppendLine($"| {fullName} | {type.Kind} | {memberCount} |");
+        }
+
+        if (options.Limit.HasValue && options.Limit.Value < totalCount)
+        {
+            var remaining = totalCount - options.Limit.Value;
+            sb.AppendLine();
+            sb.AppendLine($"*... and {remaining} more types*");
         }
 
         return sb.ToString().TrimEnd();
@@ -237,11 +253,21 @@ public class ApiCommand : ICommand
         }
         else
         {
-            Console.WriteLine(RenderTypeMarkdown(type, foundIn));
+            Console.WriteLine(RenderTypeMarkdown(type, foundIn, options));
         }
     }
 
-    private static string RenderTypeMarkdown(ApiType type, string? foundIn)
+    private static string RenderTypeMarkdown(ApiType type, string? foundIn, ApiOptions options)
+    {
+        return options.Verbosity switch
+        {
+            Verbosity.Quiet => RenderTypeQuiet(type, foundIn),
+            Verbosity.Minimal => RenderTypeMinimal(type, foundIn),
+            _ => RenderTypeNormalOrDetailed(type, foundIn, options)
+        };
+    }
+
+    private static string RenderTypeHeader(ApiType type, string? foundIn, int? memberCount = null)
     {
         var sb = new StringBuilder();
 
@@ -255,8 +281,15 @@ public class ApiCommand : ICommand
         if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
         modifiers.Add(type.Kind);
-        
-        sb.AppendLine($"*{string.Join(" ", modifiers)}*");
+
+        if (memberCount.HasValue)
+        {
+            sb.AppendLine($"*{string.Join(" ", modifiers)}, {memberCount} members*");
+        }
+        else
+        {
+            sb.AppendLine($"*{string.Join(" ", modifiers)}*");
+        }
 
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
         {
@@ -274,6 +307,145 @@ public class ApiCommand : ICommand
             sb.AppendLine($"*from {foundIn}*");
         }
 
+        return sb.ToString();
+    }
+
+    private static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type)
+    {
+        var members = type.Members?
+            .Where(m => !IsCompilerGenerated(m.Name))
+            .ToList() ?? [];
+
+        return members
+            .GroupBy(m => m.Kind)
+            .OrderBy(g => GetMemberSortOrder(g.Key))
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    private static string PluralizeKind(string kind) => kind switch
+    {
+        "property" => "Properties",
+        "method" => "Methods",
+        "field" => "Fields",
+        "event" => "Events",
+        "constructor" => "Constructors",
+        _ => char.ToUpper(kind[0]) + kind[1..] + "s"
+    };
+
+    private static string ExtractFirstParamType(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature)) return "";
+
+        // Find the opening parenthesis for parameters
+        var openParen = signature.IndexOf('(');
+        if (openParen < 0) return "";
+
+        var closeParen = signature.IndexOf(')', openParen);
+        if (closeParen <= openParen + 1) return ""; // Empty params
+
+        var paramsPart = signature.Substring(openParen + 1, closeParen - openParen - 1);
+        if (string.IsNullOrWhiteSpace(paramsPart)) return "";
+
+        // Get first parameter (before first comma)
+        var firstParam = paramsPart.Split(',')[0].Trim();
+
+        // Extract just the type name (last word, or handle generics)
+        var parts = firstParam.Split(' ');
+        var typePart = parts[0];
+
+        // Simplify type name: remove namespace, keep just the simple name
+        var dotIndex = typePart.LastIndexOf('.');
+        if (dotIndex >= 0)
+        {
+            typePart = typePart[(dotIndex + 1)..];
+        }
+
+        // Handle generic types - take just the base name
+        var genericIndex = typePart.IndexOf('<');
+        if (genericIndex >= 0)
+        {
+            typePart = typePart[..genericIndex];
+        }
+
+        return typePart;
+    }
+
+    private static string RenderTypeQuiet(ApiType type, string? foundIn)
+    {
+        var sb = new StringBuilder();
+        sb.Append(RenderTypeHeader(type, foundIn));
+
+        var grouped = GroupMembersByKind(type);
+        if (grouped.Count == 0) return sb.ToString().TrimEnd();
+
+        sb.AppendLine();
+
+        foreach (var (kind, members) in grouped)
+        {
+            var names = members.Select(m => m.Name).Distinct().OrderBy(n => n);
+            sb.AppendLine($"**{PluralizeKind(kind)}:** {string.Join(", ", names)}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string RenderTypeMinimal(ApiType type, string? foundIn)
+    {
+        var sb = new StringBuilder();
+        var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
+        sb.Append(RenderTypeHeader(type, foundIn, allMembers.Count));
+
+        var grouped = GroupMembersByKind(type);
+        if (grouped.Count == 0) return sb.ToString().TrimEnd();
+
+        sb.AppendLine();
+
+        foreach (var (kind, members) in grouped)
+        {
+            // Group by name to find overloads
+            var byName = members.GroupBy(m => m.Name).OrderBy(g => g.Key).ToList();
+
+            if (kind == "method" || kind == "constructor")
+            {
+                foreach (var nameGroup in byName)
+                {
+                    var overloads = nameGroup.ToList();
+                    if (overloads.Count > 1)
+                    {
+                        // Multiple overloads - show count and parameter hints
+                        var paramHints = overloads
+                            .Select(m => ExtractFirstParamType(m.Signature))
+                            .Where(p => !string.IsNullOrEmpty(p))
+                            .Distinct()
+                            .Take(4)
+                            .ToList();
+
+                        var hintText = paramHints.Count > 0 ? $" ({string.Join(", ", paramHints)}, ...)" : "";
+                        sb.AppendLine($"- **{nameGroup.Key}**: {overloads.Count} overloads{hintText}");
+                    }
+                    else
+                    {
+                        // Single method
+                        sb.AppendLine($"- **{nameGroup.Key}**");
+                    }
+                }
+            }
+            else
+            {
+                // Properties, fields, events - just list names
+                var names = byName.Select(g => g.Key);
+                sb.AppendLine($"**{PluralizeKind(kind)}:** {string.Join(", ", names)}");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string RenderTypeNormalOrDetailed(ApiType type, string? foundIn, ApiOptions options)
+    {
+        var sb = new StringBuilder();
+        sb.Append(RenderTypeHeader(type, foundIn));
+
         if (type.Members is { Count: > 0 })
         {
             sb.AppendLine();
@@ -281,17 +453,33 @@ public class ApiCommand : ICommand
             sb.AppendLine("|--------|------|-----------|");
 
             // Filter out compiler-generated members and sort by kind for readability
-            var grouped = type.Members
+            var members = type.Members
                 .Where(m => !IsCompilerGenerated(m.Name))
                 .OrderBy(m => GetMemberSortOrder(m.Kind))
-                .ThenBy(m => m.Name);
+                .ThenBy(m => m.Name)
+                .ToList();
 
-            foreach (var member in grouped)
+            var totalCount = members.Count;
+            var displayMembers = members.AsEnumerable();
+
+            if (options.Limit.HasValue && options.Limit.Value < totalCount)
+            {
+                displayMembers = displayMembers.Take(options.Limit.Value);
+            }
+
+            foreach (var member in displayMembers)
             {
                 string sig = member.Signature ?? member.ReturnType ?? "";
                 // Escape pipes in signatures
                 sig = sig.Replace("|", "\\|");
                 sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
+            }
+
+            if (options.Limit.HasValue && options.Limit.Value < totalCount)
+            {
+                var remaining = totalCount - options.Limit.Value;
+                sb.AppendLine();
+                sb.AppendLine($"*... and {remaining} more members*");
             }
         }
 
@@ -421,6 +609,8 @@ public class ApiCommand : ICommand
         string? packagePath = null;
         string? assemblyPath = null;
         string? typeName = null;
+        int? limit = null;
+        var verbosity = Verbosity.Minimal;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -454,6 +644,25 @@ public class ApiCommand : ICommand
                         assemblyPath = args[++i];
                     }
                     break;
+                case "-n":
+                    if (i + 1 < args.Length && int.TryParse(args[i + 1], out var n))
+                    {
+                        limit = n;
+                        i++;
+                    }
+                    break;
+                case "-v:q":
+                    verbosity = Verbosity.Quiet;
+                    break;
+                case "-v:m":
+                    verbosity = Verbosity.Minimal;
+                    break;
+                case "-v:n":
+                    verbosity = Verbosity.Normal;
+                    break;
+                case "-v:d":
+                    verbosity = Verbosity.Detailed;
+                    break;
                 default:
                     if (lower.StartsWith("--package="))
                     {
@@ -476,7 +685,9 @@ public class ApiCommand : ICommand
             PackagePath = packagePath,
             AssemblyPath = assemblyPath,
             JsonOutput = jsonOutput,
-            Verbose = verbose
+            Verbose = verbose,
+            Limit = limit,
+            Verbosity = verbosity
         };
 
         return (options, typeName, showHelp);
@@ -492,4 +703,6 @@ public record ApiOptions
     public string? AssemblyPath { get; init; }
     public bool JsonOutput { get; init; }
     public bool Verbose { get; init; }
+    public int? Limit { get; init; }
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 }
