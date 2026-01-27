@@ -103,6 +103,31 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void TypeCommand_WithPackage_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("type", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void TypeCommand_WithTfm_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json", "--tfm", "net8.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TypeCommand_WithJson_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json", "--json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void AssemblyCommand_WithPackage_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "--package", "System.Text.Json"]);

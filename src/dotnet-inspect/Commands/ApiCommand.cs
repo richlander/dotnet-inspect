@@ -174,6 +174,58 @@ public class ApiCommand
         }
     }
 
+    /// <summary>
+    /// Extracts a specific type from a package or assembly. Used by TypeCommand.
+    /// </summary>
+    internal static async Task<(ApiType? type, string? foundIn)> ExtractTypeAsync(string typeName, ApiOptions options, VerboseLogger logger)
+    {
+        string? tempDir = null;
+        try
+        {
+            string searchPath;
+
+            if (!string.IsNullOrEmpty(options.PackagePath))
+            {
+                var extracted = await ExtractPackageAsync(options.PackagePath, logger);
+                if (extracted == null)
+                    return (null, null);
+                
+                (searchPath, tempDir) = extracted.Value;
+
+                if (!string.IsNullOrEmpty(options.Tfm))
+                {
+                    var tfmAssembly = FindAssemblyByTfm(searchPath, options.Tfm);
+                    if (tfmAssembly != null)
+                        searchPath = tfmAssembly;
+                }
+                else
+                {
+                    var (highestPath, _) = SelectHighestTfmAssembly(GetPackageDlls(searchPath), searchPath);
+                    if (highestPath != null)
+                        searchPath = highestPath;
+                }
+            }
+            else if (!string.IsNullOrEmpty(options.AssemblyPath))
+            {
+                searchPath = options.AssemblyPath;
+            }
+            else
+            {
+                return (null, null);
+            }
+
+            var (apiType, foundIn, _) = FindType(typeName, searchPath, logger, options.IncludeAll);
+            return (apiType, foundIn);
+        }
+        finally
+        {
+            if (tempDir != null && Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+    }
+
     private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory

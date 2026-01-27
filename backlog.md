@@ -19,25 +19,6 @@ dotnet-inspect diff api JsonSerializer --package System.Text.Json@9.0.0..10.0.2
 
 This could also provide richer output than plain diff—highlighting added/removed/changed members with semantic awareness rather than line-by-line comparison.
 
-## Type Hierarchy Display
-
-When inspecting a type, showing its inheritance chain and implemented interfaces inline would help LLMs understand type relationships without a separate query.
-
-Current:
-```
-## Spectre.Console.ProgressContext
-*sealed class*
-```
-
-Enhanced:
-```
-## Spectre.Console.ProgressContext
-*sealed class : IDisposable*
-*inherits: Object*
-```
-
-The `--interfaces` flag exists but requires a separate invocation. Consider making this the default or adding a `--hierarchy` flag for full inheritance chain.
-
 ## Example Snippets
 
 A `--examples` flag could show basic usage patterns for types and methods:

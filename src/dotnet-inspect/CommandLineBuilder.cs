@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "llmstxt", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -58,12 +58,62 @@ public static class CommandLineBuilder
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption);
         rootCommand.Subcommands.Add(apiCommand);
 
+        // Type command
+        var typeCommand = CreateTypeCommand(jsonOption, verboseOption);
+        rootCommand.Subcommands.Add(typeCommand);
+
         // LLMs.txt command
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
 
         return rootCommand;
+    }
+
+    private static Command CreateTypeCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption)
+    {
+        var typeCommand = new Command("type", "Show type shape with hierarchy and members (tree view)");
+
+        var typeNameArg = new Argument<string>("type")
+        {
+            Description = "Type name to inspect"
+        };
+
+        var typePackageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
+        var typeAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
+        var typeTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
+        var typeAllOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        typeCommand.Arguments.Add(typeNameArg);
+        typeCommand.Options.Add(typePackageOption);
+        typeCommand.Options.Add(typeAssemblyOption);
+        typeCommand.Options.Add(typeTfmOption);
+        typeCommand.Options.Add(typeAllOption);
+        typeCommand.Options.Add(jsonOption);
+        typeCommand.Options.Add(compactOption);
+        typeCommand.Options.Add(verboseOption);
+
+        typeCommand.SetAction(async (parseResult, ct) =>
+        {
+            var typeName = parseResult.GetValue(typeNameArg);
+            var options = new TypeOptions
+            {
+                PackagePath = parseResult.GetValue(typePackageOption),
+                AssemblyPath = parseResult.GetValue(typeAssemblyOption),
+                Tfm = parseResult.GetValue(typeTfmOption),
+                IncludeAll = parseResult.GetValue(typeAllOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await TypeCommand.ExecuteAsync(typeName!, options);
+        });
+
+        return typeCommand;
     }
 
     private static Command CreatePackageCommand(

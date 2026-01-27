@@ -69,15 +69,26 @@ dotnet-inspect api Command --package System.CommandLine --docs  # With documenta
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
+### type
+
+View type shape with hierarchy, interfaces, and members in tree format.
+
+```bash
+dotnet-inspect type JsonSerializer --package System.Text.Json  # Inheritance, interfaces, members
+dotnet-inspect type Command --package System.CommandLine       # Shows base class and interfaces
+dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
+```
+
 ## Key Features
 
 - **Package inspection**: View metadata, dependencies, target frameworks, and file structure
-- **API surface extraction**: List types and members with full signatures
+- **API surface extraction**: List types and members with full signatures including parameter names
+- **Type hierarchy**: View inheritance chains and implemented interfaces in tree format
 - **Type filtering**: Filter types by glob pattern (e.g., `--filter "*Json*"`)
 - **Smart defaults**: Excludes `[EditorBrowsable(Never)]` and `[Obsolete]` members by default
 - **Version comparison**: Compare APIs between package versions using diff
 - **SourceLink support**: Fetch source URLs and documentation from embedded PDBs
-- **Multiple output formats**: Markdown (default) or JSON
+- **Multiple output formats**: Markdown tables, tree view, signatures-only, or JSON
 - **Smart TFM selection**: Auto-selects highest target framework when multiple exist
 - **Caching**: Reads from NuGet cache and caches downloads for fast repeated access
 

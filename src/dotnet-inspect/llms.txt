@@ -45,6 +45,14 @@ dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hi
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
+### type - View type shape with hierarchy (tree view)
+
+```bash
+dotnet-inspect type JsonSerializer --package System.Text.Json  # Type shape with inheritance, interfaces, members
+dotnet-inspect type Command --package System.CommandLine       # Shows base class and implemented interfaces
+dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
+```
+
 ## Common Workflows
 
 ```bash
