@@ -294,10 +294,33 @@ public static class ApiSurfaceExtractor
         var context = GenericContext.ForMethod(reader, typeDef, method);
         var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
 
-        var parameters = signature.ParameterTypes.Select((p, i) => p).ToList();
-        string paramStr = string.Join(", ", parameters);
+        // Get parameter names from metadata
+        var paramHandles = method.GetParameters().ToList();
+        var paramTypes = signature.ParameterTypes;
 
+        var parameters = new List<string>();
+        for (int i = 0; i < paramTypes.Length; i++)
+        {
+            string type = paramTypes[i];
+            // Parameter handles may include return parameter at SequenceNumber 0
+            // Actual parameters have SequenceNumber 1, 2, 3...
+            string paramName = GetParameterName(reader, paramHandles, i + 1) ?? $"arg{i}";
+            parameters.Add($"{type} {paramName}");
+        }
+
+        string paramStr = string.Join(", ", parameters);
         return $"{signature.ReturnType} {name}({paramStr})";
+    }
+
+    private static string? GetParameterName(MetadataReader reader, List<ParameterHandle> handles, int sequenceNumber)
+    {
+        foreach (var handle in handles)
+        {
+            var param = reader.GetParameter(handle);
+            if (param.SequenceNumber == sequenceNumber)
+                return reader.GetString(param.Name);
+        }
+        return null;
     }
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop)

@@ -19,22 +19,6 @@ dotnet-inspect diff api JsonSerializer --package System.Text.Json@9.0.0..10.0.2
 
 This could also provide richer output than plain diff—highlighting added/removed/changed members with semantic awareness rather than line-by-line comparison.
 
-## Parameter Names in Signatures
-
-Current output shows types but omits parameter names:
-
-```
-| Serialize | method | `void Serialize(Stream, TValue, JsonSerializerOptions)` |
-```
-
-For LLMs generating code, parameter names are crucial for readability and understanding intent:
-
-```
-| Serialize | method | `void Serialize(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)` |
-```
-
-This would help LLMs generate more idiomatic code without guessing parameter names or consulting documentation.
-
 ## Type Hierarchy Display
 
 When inspecting a type, showing its inheritance chain and implemented interfaces inline would help LLMs understand type relationships without a separate query.
