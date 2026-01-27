@@ -50,9 +50,10 @@ public class HelpCommand : ICommand
         Console.WriteLine("If no command is specified, 'package' is assumed.");
         Console.WriteLine();
         Console.WriteLine("Examples:");
-        Console.WriteLine("  dotnet-inspect dotnet-ef                    Inspect latest dotnet-ef");
-        Console.WriteLine("  dotnet-inspect package foo.nupkg --files    List .dll files in package");
-        Console.WriteLine("  dotnet-inspect api Foo.dll --package bar.nupkg");
+        Console.WriteLine("  dotnet-inspect System.Text.Json                    Inspect latest System.Text.Json");
+        Console.WriteLine("  dotnet-inspect MyTool.1.0.0.nupkg --files --all    List all files in local package");
+        Console.WriteLine("  dotnet-inspect package System.Text.Json --files    List .dll files in package");
+        Console.WriteLine("  dotnet-inspect api --package System.Text.Json      Display public API of the package");
         Console.WriteLine();
         Console.WriteLine("Run 'dotnet-inspect help <command>' for command-specific options.");
     }
@@ -91,11 +92,11 @@ public class HelpCommand : ICommand
         Console.WriteLine("  -x:4           Exclude section 4");
         Console.WriteLine();
         Console.WriteLine("Examples:");
-        Console.WriteLine("  dotnet-inspect dotnet-ef                    # Package metadata");
-        Console.WriteLine("  dotnet-inspect dotnet-ef --files            # List DLLs");
-        Console.WriteLine("  dotnet-inspect dotnet-ef --files --all      # List all files");
-        Console.WriteLine("  dotnet-inspect dotnet-ef --versions         # List available versions");
-        Console.WriteLine("  dotnet-inspect dotnet-ef --deps             # Include dependencies");
+        Console.WriteLine("  dotnet-inspect System.Text.Json                    # Package metadata");
+        Console.WriteLine("  dotnet-inspect System.Text.Json --files            # List DLLs");
+        Console.WriteLine("  dotnet-inspect System.Text.Json --files --all      # List all files");
+        Console.WriteLine("  dotnet-inspect System.Text.Json --versions         # List available versions");
+        Console.WriteLine("  dotnet-inspect System.Text.Json --deps             # Include dependencies");
         Console.WriteLine("  dotnet-inspect ./MyTool.1.0.0.nupkg --files");
         Console.WriteLine();
         Console.WriteLine("To inspect assemblies within a package, use the 'assembly' command:");
