@@ -6,19 +6,39 @@ namespace DotnetInspector.Options;
 public record InspectionOptions
 {
     /// <summary>
-    /// Include SourceLink and determinism audit.
-    /// </summary>
-    public bool IncludeAudit { get; init; }
-
-    /// <summary>
-    /// Include public API surface extraction.
-    /// </summary>
-    public bool IncludeApi { get; init; }
-
-    /// <summary>
     /// Include dependency analysis.
     /// </summary>
     public bool IncludeDeps { get; init; }
+
+    /// <summary>
+    /// List files in the package instead of showing metadata.
+    /// </summary>
+    public bool ListFiles { get; init; }
+
+    /// <summary>
+    /// When listing files, include all files (not just .dll files).
+    /// </summary>
+    public bool ListAllFiles { get; init; }
+
+    /// <summary>
+    /// Display files as a tree view instead of flat list.
+    /// </summary>
+    public bool TreeView { get; init; }
+
+    /// <summary>
+    /// List available versions of the package from nuget.org.
+    /// </summary>
+    public bool ListVersions { get; init; }
+
+    /// <summary>
+    /// Include prerelease/preview versions when listing versions.
+    /// </summary>
+    public bool IncludePrerelease { get; init; }
+
+    /// <summary>
+    /// Limit the number of results (for --versions, --files).
+    /// </summary>
+    public int? Limit { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.
@@ -31,7 +51,22 @@ public record InspectionOptions
     public bool Verbose { get; init; }
 
     /// <summary>
-    /// Default options: metadata and tool info only.
+    /// Output verbosity level.
+    /// </summary>
+    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
+
+    /// <summary>
+    /// Sections to include (1-indexed). If empty, all sections are included.
+    /// </summary>
+    public HashSet<int>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// Sections to exclude (1-indexed).
+    /// </summary>
+    public HashSet<int>? ExcludeSections { get; init; }
+
+    /// <summary>
+    /// Default options: metadata only.
     /// </summary>
     public static InspectionOptions Default => new();
 
@@ -40,8 +75,6 @@ public record InspectionOptions
     /// </summary>
     public static InspectionOptions All => new()
     {
-        IncludeAudit = true,
-        IncludeApi = true,
         IncludeDeps = true
     };
 }

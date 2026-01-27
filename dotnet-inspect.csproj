@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="llms.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\markout\src\MarkOut\MarkOut.csproj" />
     <ProjectReference Include="..\markout\src\MarkOut.SourceGeneration\MarkOut.SourceGeneration.csproj"
                       OutputItemType="Analyzer"

@@ -1,0 +1,56 @@
+namespace DotnetInspector.Options;
+
+/// <summary>
+/// Configuration options for assembly inspection.
+/// </summary>
+public record AssemblyOptions
+{
+    /// <summary>
+    /// Include SourceLink and determinism audit.
+    /// </summary>
+    public bool IncludeAudit { get; init; }
+
+    /// <summary>
+    /// Path to a NuGet package to extract the assembly from.
+    /// If null, the assembly is loaded from the local filesystem.
+    /// </summary>
+    public string? PackagePath { get; init; }
+
+    /// <summary>
+    /// Output as JSON instead of MDF.
+    /// </summary>
+    public bool JsonOutput { get; init; }
+
+    /// <summary>
+    /// Show progress messages on stderr.
+    /// </summary>
+    public bool Verbose { get; init; }
+
+    /// <summary>
+    /// Output verbosity level.
+    /// </summary>
+    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
+
+    /// <summary>
+    /// Sections to include (1-indexed). If empty, all sections are included.
+    /// </summary>
+    public HashSet<int>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// Sections to exclude (1-indexed).
+    /// </summary>
+    public HashSet<int>? ExcludeSections { get; init; }
+
+    /// <summary>
+    /// Default options: basic assembly info only.
+    /// </summary>
+    public static AssemblyOptions Default => new();
+
+    /// <summary>
+    /// All inspection features enabled.
+    /// </summary>
+    public static AssemblyOptions All => new()
+    {
+        IncludeAudit = true
+    };
+}

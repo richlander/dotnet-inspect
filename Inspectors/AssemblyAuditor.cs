@@ -4,7 +4,6 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using DotnetInspector.Options;
 
 namespace DotnetInspector.Inspectors;
 
@@ -16,7 +15,7 @@ public static class AssemblyAuditor
     // SourceLink GUID: CC110556-A091-4D38-9FEC-25AB9A351A6A
     private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
 
-    public static void AuditAssemblies(string extractPath, InspectionResult result, InspectionOptions options)
+    public static void AuditAssemblies(string extractPath, InspectionResult result, bool includeApi = false)
     {
         // Find all DLL files
         string[] dllFiles = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
@@ -28,7 +27,7 @@ public static class AssemblyAuditor
         {
             try
             {
-                var audit = AuditDll(dllFile, extractPath, options);
+                var audit = AuditDll(dllFile, extractPath, includeApi);
                 if (audit != null)
                 {
                     result.AssemblyAudits ??= [];
@@ -79,7 +78,7 @@ public static class AssemblyAuditor
         }
     }
 
-    private static AssemblyAudit? AuditDll(string dllPath, string extractPath, InspectionOptions options)
+    private static AssemblyAudit? AuditDll(string dllPath, string extractPath, bool includeApi)
     {
         using FileStream stream = File.OpenRead(dllPath);
         using PEReader peReader = new(stream);
@@ -161,7 +160,7 @@ public static class AssemblyAuditor
         audit.AssemblyInfo = ExtractAssemblyInfo(peReader);
 
         // Extract API surface only if requested
-        if (options.IncludeApi)
+        if (includeApi)
         {
             audit.ApiSurface = ApiSurfaceExtractor.Extract(peReader);
         }

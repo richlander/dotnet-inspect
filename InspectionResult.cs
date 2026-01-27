@@ -93,13 +93,32 @@ public class InspectionResult
     [MarkOutSection(Name = "Package Dependencies")]
     [JsonIgnore]
     public List<FlatDependency>? FlatDependencies => DependencyGroups?
-        .SelectMany(g => g.Dependencies.Select(d => new FlatDependency
-        {
-            TargetFramework = g.TargetFramework,
-            Id = d.Id,
-            Version = d.Version
-        }))
+        .OrderBy(g => GetTfmSortOrder(g.TargetFramework))
+        .ThenBy(g => g.TargetFramework)
+        .SelectMany(g => g.Dependencies
+            .OrderBy(d => d.Id)
+            .Select(d => new FlatDependency
+            {
+                TargetFramework = g.TargetFramework,
+                Id = d.Id,
+                Version = d.Version
+            }))
         .ToList();
+
+    private static int GetTfmSortOrder(string tfm)
+    {
+        // Sort order: netstandard → netframework → netcoreapp → net (modern)
+        if (tfm.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) ||
+            tfm.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase))
+            return 0;
+        if (tfm.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) ||
+            tfm.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+            return 1;
+        if (tfm.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase))
+            return 2;
+        // Modern .NET (net5.0+)
+        return 3;
+    }
 
     [MarkOutSection(Name = "Runtime Dependencies")]
     public List<PackageDependency>? RuntimeDependencies { get; set; }

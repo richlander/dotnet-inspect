@@ -1,0 +1,141 @@
+# dotnet-inspect
+
+A CLI tool for inspecting .NET assemblies and NuGet packages. Useful for understanding package contents, comparing API surfaces between versions, and auditing assemblies for SourceLink/determinism.
+
+## Commands
+
+### package - Inspect NuGet packages
+
+```bash
+# View package metadata
+dotnet-inspect package Newtonsoft.Json
+
+# List DLLs in the lib directory
+dotnet-inspect package Newtonsoft.Json --files
+
+# List all files in package
+dotnet-inspect package Newtonsoft.Json --files --all
+
+# List available versions (stable only)
+dotnet-inspect package System.Text.Json --versions
+
+# Include prereleases
+dotnet-inspect package System.Text.Json --versions --preview
+
+# Limit results
+dotnet-inspect package System.Text.Json --versions -n 5
+```
+
+### assembly - Inspect .NET assemblies
+
+```bash
+# Basic assembly info
+dotnet-inspect assembly MyLib.dll
+
+# Audit for SourceLink and determinism
+dotnet-inspect assembly MyLib.dll --audit
+
+# From a NuGet package (latest version)
+dotnet-inspect assembly lib/net8.0/Foo.dll --package Newtonsoft.Json
+
+# From a specific package version
+dotnet-inspect assembly lib/net9.0/System.Text.Json.dll --package System.Text.Json@9.0.2
+```
+
+### api - View public API surface
+
+```bash
+# List all types in a package
+dotnet-inspect api --package System.Text.Json
+
+# List all types in a local assembly
+dotnet-inspect api --assembly MyLib.dll
+
+# View a specific type's API
+dotnet-inspect api JsonSerializer --package System.Text.Json
+
+# From a specific version
+dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2
+
+# JSON output
+dotnet-inspect api --package System.Text.Json --json
+```
+
+## Common Workflows
+
+### Compare API between package versions
+
+```bash
+diff <(dotnet-inspect api --package System.Text.Json@9.0.2) \
+     <(dotnet-inspect api --package System.Text.Json@10.0.2)
+```
+
+### Compare a specific type between versions
+
+```bash
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.2) \
+     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
+```
+
+### Find what assemblies are in a package
+
+```bash
+dotnet-inspect package Newtonsoft.Json --files
+```
+
+### Check if an assembly has SourceLink
+
+```bash
+dotnet-inspect assembly MyLib.dll --audit
+```
+
+### Get package dependency information
+
+```bash
+dotnet-inspect package System.Text.Json --deps
+```
+
+### Find latest stable version of a package
+
+```bash
+dotnet-inspect package System.Text.Json --versions -n 1
+```
+
+## Output Formats
+
+- Default: Markdown tables (good for terminal display)
+- `--json`: JSON output (good for programmatic parsing)
+- `--markout`: Explicit markdown output (default)
+
+## Verbosity Levels
+
+Control section detail with `-v:` option:
+
+- `-v:q` - Quiet: summary only
+- `-v:m` - Minimal: summary + compact metadata
+- `-v:n` - Normal: full sections (default)
+- `-v:d` - Detailed: all sections with full tables
+
+## Section Filtering (H2s)
+
+Filter output by H2 section numbers:
+
+```bash
+# Include only sections 1 and 3
+dotnet-inspect package Foo -s:1,3
+
+# Exclude section 2
+dotnet-inspect package Foo -x:2
+
+# Combine with verbosity
+dotnet-inspect package Foo -v:d -x:2
+```
+
+Sections are numbered by H2 headings in order (first H2 = 1, second H2 = 2, etc.). Content before the first H2 (title/description) is always included.
+
+## Tips
+
+- Use `--verbose` to see progress messages on stderr
+- Package names support version suffix: `PackageName@1.2.3`
+- Assembly paths in packages use forward slashes: `lib/net8.0/Foo.dll`
+- Use process substitution for diffs: `diff <(cmd1) <(cmd2)`

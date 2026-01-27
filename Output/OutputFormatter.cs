@@ -1,5 +1,6 @@
+using System.Text;
 using System.Text.Json;
-using MarkOut;
+using DotnetInspector.Options;
 
 namespace DotnetInspector.Output;
 
@@ -8,15 +9,96 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class OutputFormatter
 {
-    public static void WriteResult(InspectionResult result, bool jsonOutput)
+    public static void WriteResult(InspectionResult result, InspectionOptions options)
     {
-        if (jsonOutput)
+        if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult));
         }
         else
         {
-            Console.WriteLine(MarkOutSerializer.Serialize(result, new MarkOutContext { BoldFieldNames = true }));
+            var formatter = new MarkOutViewFormatter(result, options);
+            Console.WriteLine(formatter.Render());
         }
+    }
+
+    public static void WriteAssemblyResult(AssemblyAudit audit, AssemblyOptions options)
+    {
+        if (options.JsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(audit, JsonContext.Default.AssemblyAudit));
+        }
+        else
+        {
+            Console.WriteLine(RenderAssemblyMarkdown(audit, options));
+        }
+    }
+
+    private static string RenderAssemblyMarkdown(AssemblyAudit audit, AssemblyOptions options)
+    {
+        var sb = new StringBuilder();
+
+        // Header
+        sb.AppendLine($"# {audit.FileName}");
+
+        // Assembly Info
+        if (audit.AssemblyInfo != null)
+        {
+            var info = audit.AssemblyInfo;
+            sb.AppendLine();
+            sb.AppendLine("## Assembly Info");
+            sb.AppendLine();
+            sb.AppendLine("| Property | Value |");
+            sb.AppendLine("|----------|-------|");
+
+            if (!string.IsNullOrEmpty(info.AssemblyName))
+                sb.AppendLine($"| Name | {info.AssemblyName} |");
+            if (!string.IsNullOrEmpty(info.AssemblyVersion))
+                sb.AppendLine($"| Version | {info.AssemblyVersion} |");
+            if (!string.IsNullOrEmpty(info.TargetFramework))
+                sb.AppendLine($"| Target Framework | {info.TargetFramework} |");
+            if (!string.IsNullOrEmpty(info.Architecture))
+                sb.AppendLine($"| Architecture | {info.Architecture} |");
+            if (!string.IsNullOrEmpty(info.CompilationType))
+                sb.AppendLine($"| Compilation | {info.CompilationType} |");
+            if (!string.IsNullOrEmpty(info.InformationalVersion))
+                sb.AppendLine($"| Informational Version | {info.InformationalVersion} |");
+            if (info.IsSigned)
+                sb.AppendLine($"| Signed | Yes |");
+            if (!string.IsNullOrEmpty(info.PublicKeyToken))
+                sb.AppendLine($"| Public Key Token | {info.PublicKeyToken} |");
+        }
+
+        // Audit section (if --audit was specified)
+        if (options.IncludeAudit)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Build Audit");
+            sb.AppendLine();
+            sb.AppendLine("| Check | Status |");
+            sb.AppendLine("|-------|--------|");
+            sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
+            sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
+            sb.AppendLine($"| SourceLink | {(audit.HasSourceLink ? "✓" : "✗")} |");
+            sb.AppendLine($"| Embedded PDB | {(audit.HasEmbeddedPdb ? "✓" : "✗")} |");
+
+            if (!string.IsNullOrEmpty(audit.RepositoryUrl))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"**Repository:** {audit.RepositoryUrl}");
+            }
+
+            if (audit.NonNormalizedPaths is { Count: > 0 })
+            {
+                sb.AppendLine();
+                sb.AppendLine("**Non-normalized paths:**");
+                foreach (var path in audit.NonNormalizedPaths)
+                {
+                    sb.AppendLine($"- {path}");
+                }
+            }
+        }
+
+        return sb.ToString().TrimEnd();
     }
 }

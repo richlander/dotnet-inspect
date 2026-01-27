@@ -22,6 +22,9 @@ public static class CommandRouter
         {
             // Explicit commands
             "package" => (new PackageCommand(), args[1..]),
+            "assembly" => (new AssemblyCommand(), args[1..]),
+            "api" => (new ApiCommand(), args[1..]),
+            "llmstxt" => (new LlmsTxtCommand(), args[1..]),
             "help" => (new HelpCommand(), args[1..]),
             "--help" => (new HelpCommand(), args[1..]),
 
