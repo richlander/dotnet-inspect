@@ -13,17 +13,10 @@ namespace DotnetInspector.Commands;
 /// <summary>
 /// Displays the public API shape of a specific type.
 /// </summary>
-public class ApiCommand : ICommand
+public class ApiCommand
 {
-    public async Task<int> ExecuteAsync(string[] args)
+    public static async Task<int> ExecuteAsync(string? typeName, ApiOptions options)
     {
-        var (options, typeName, showHelp) = ParseOptions(args);
-
-        if (showHelp)
-        {
-            return await new HelpCommand("api").ExecuteAsync([]);
-        }
-
         if (options.MemberFilter?.Count > 0 && string.IsNullOrEmpty(typeName))
         {
             Console.Error.WriteLine("Error: --member requires a type argument.");
@@ -1147,149 +1140,6 @@ public class ApiCommand : ICommand
         return null;
     }
 
-    private static (ApiOptions options, string? typeName, bool showHelp) ParseOptions(string[] args)
-    {
-        bool jsonOutput = false;
-        bool compactJson = false;
-        bool verbose = false;
-        bool showHelp = false;
-        string? packagePath = null;
-        string? assemblyPath = null;
-        string? tfm = null;
-        string? typeName = null;
-        int? limit = null;
-        var verbosity = Verbosity.Minimal;
-        HashSet<string>? memberFilter = null;
-        bool showSourceUrl = false;
-        bool showDocs = false;
-        bool showInterfaces = false;
-
-        for (int i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            var lower = arg.ToLowerInvariant();
-
-            switch (lower)
-            {
-                case "--json":
-                    jsonOutput = true;
-                    break;
-                case "--compact":
-                    compactJson = true;
-                    break;
-                case "--markout":
-                    jsonOutput = false;
-                    break;
-                case "--verbose":
-                    verbose = true;
-                    break;
-                case "--help":
-                case "help":
-                    showHelp = true;
-                    break;
-                case "--package":
-                    if (i + 1 < args.Length)
-                    {
-                        packagePath = args[++i];
-                    }
-                    break;
-                case "--assembly":
-                    if (i + 1 < args.Length)
-                    {
-                        assemblyPath = args[++i];
-                    }
-                    break;
-                case "--tfm":
-                    if (i + 1 < args.Length)
-                    {
-                        tfm = args[++i];
-                    }
-                    break;
-                case "-n":
-                    if (i + 1 < args.Length && int.TryParse(args[i + 1], out var n))
-                    {
-                        limit = n;
-                        i++;
-                    }
-                    break;
-                case "-v:q":
-                    verbosity = Verbosity.Quiet;
-                    break;
-                case "-v:m":
-                    verbosity = Verbosity.Minimal;
-                    break;
-                case "-v:n":
-                    verbosity = Verbosity.Normal;
-                    break;
-                case "-v:d":
-                    verbosity = Verbosity.Detailed;
-                    break;
-                case "-m":
-                case "--member":
-                    if (i + 1 < args.Length)
-                    {
-                        memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        memberFilter.Add(args[++i]);
-                    }
-                    break;
-                case "--source-url":
-                    showSourceUrl = true;
-                    break;
-                case "--docs":
-                    showDocs = true;
-                    break;
-                case "--interfaces":
-                    showInterfaces = true;
-                    break;
-                default:
-                    if (lower.StartsWith("--package="))
-                    {
-                        packagePath = arg[10..];
-                    }
-                    else if (lower.StartsWith("--assembly="))
-                    {
-                        assemblyPath = arg[11..];
-                    }
-                    else if (lower.StartsWith("--tfm="))
-                    {
-                        tfm = arg[6..];
-                    }
-                    else if (lower.StartsWith("--member="))
-                    {
-                        memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        memberFilter.Add(arg[9..]);
-                    }
-                    else if (lower.StartsWith("-m="))
-                    {
-                        memberFilter ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        memberFilter.Add(arg[3..]);
-                    }
-                    else if (!arg.StartsWith("-") && typeName == null)
-                    {
-                        typeName = arg;
-                    }
-                    break;
-            }
-        }
-
-        var options = new ApiOptions
-        {
-            PackagePath = packagePath,
-            AssemblyPath = assemblyPath,
-            Tfm = tfm,
-            JsonOutput = jsonOutput,
-            CompactJson = compactJson,
-            Verbose = verbose,
-            Limit = limit,
-            Verbosity = verbosity,
-            MemberFilter = memberFilter,
-            ShowSourceUrl = showSourceUrl,
-            ShowDocs = showDocs,
-            ShowInterfaces = showInterfaces
-        };
-
-        return (options, typeName, showHelp);
-    }
 }
 
 /// <summary>

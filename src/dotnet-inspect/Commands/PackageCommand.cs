@@ -10,18 +10,10 @@ namespace DotnetInspector.Commands;
 /// <summary>
 /// Inspects a NuGet package.
 /// </summary>
-public class PackageCommand : ICommand
+public class PackageCommand
 {
-    public async Task<int> ExecuteAsync(string[] args)
+    public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options)
     {
-        // Parse options from args
-        var (options, packageArgs, showHelp) = ParseOptions(args);
-
-        if (showHelp)
-        {
-            return await new HelpCommand("package").ExecuteAsync([]);
-        }
-
         if (packageArgs.Length < 1)
         {
             Console.Error.WriteLine("Error: Package name or path required.");
@@ -236,130 +228,6 @@ public class PackageCommand : ICommand
                 }
             }
         }
-    }
-
-    private static (InspectionOptions options, string[] packageArgs, bool showHelp) ParseOptions(string[] args)
-    {
-        bool includeDeps = false;
-        bool listFiles = false;
-        bool listAllFiles = false;
-        bool treeView = false;
-        bool listVersions = false;
-        bool includePrerelease = false;
-        int? limit = null;
-        bool jsonOutput = false;
-        bool verbose = false;
-        bool showHelp = false;
-        var verbosity = Verbosity.Normal;
-        HashSet<int>? includeSections = null;
-        HashSet<int>? excludeSections = null;
-
-        var packageArgs = new List<string>();
-
-        for (int i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            var lower = arg.ToLowerInvariant();
-            switch (lower)
-            {
-                case "--deps":
-                    includeDeps = true;
-                    break;
-                case "--files":
-                    listFiles = true;
-                    break;
-                case "--all":
-                    listAllFiles = true;
-                    break;
-                case "--tree":
-                    treeView = true;
-                    break;
-                case "--versions":
-                    listVersions = true;
-                    break;
-                case "--preview":
-                case "--prerelease":
-                    includePrerelease = true;
-                    break;
-                case "-n":
-                    if (i + 1 < args.Length && int.TryParse(args[i + 1], out int n) && n > 0)
-                    {
-                        limit = n;
-                        i++;
-                    }
-                    break;
-                case "--json":
-                    jsonOutput = true;
-                    break;
-                case "--markout":
-                    jsonOutput = false;
-                    break;
-                case "--verbose":
-                    verbose = true;
-                    break;
-                case "-v:q":
-                    verbosity = Verbosity.Quiet;
-                    break;
-                case "-v:m":
-                    verbosity = Verbosity.Minimal;
-                    break;
-                case "-v:n":
-                    verbosity = Verbosity.Normal;
-                    break;
-                case "-v:d":
-                    verbosity = Verbosity.Detailed;
-                    break;
-                case "--help":
-                case "help":
-                    showHelp = true;
-                    break;
-                default:
-                    if (lower.StartsWith("-s:") || lower.StartsWith("-s="))
-                    {
-                        includeSections = ParseSectionList(arg[3..]);
-                    }
-                    else if (lower.StartsWith("-x:") || lower.StartsWith("-x="))
-                    {
-                        excludeSections = ParseSectionList(arg[3..]);
-                    }
-                    else if (!arg.StartsWith("-"))
-                    {
-                        packageArgs.Add(arg);
-                    }
-                    break;
-            }
-        }
-
-        var options = new InspectionOptions
-        {
-            IncludeDeps = includeDeps,
-            ListFiles = listFiles,
-            ListAllFiles = listAllFiles,
-            TreeView = treeView,
-            ListVersions = listVersions,
-            IncludePrerelease = includePrerelease,
-            Limit = limit,
-            JsonOutput = jsonOutput,
-            Verbose = verbose,
-            Verbosity = verbosity,
-            IncludeSections = includeSections,
-            ExcludeSections = excludeSections
-        };
-
-        return (options, packageArgs.ToArray(), showHelp);
-    }
-
-    private static HashSet<int> ParseSectionList(string value)
-    {
-        var sections = new HashSet<int>();
-        foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (int.TryParse(part.Trim(), out int section) && section > 0)
-            {
-                sections.Add(section);
-            }
-        }
-        return sections;
     }
 
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)

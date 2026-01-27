@@ -11,17 +11,10 @@ namespace DotnetInspector.Commands;
 /// <summary>
 /// Inspects a single .NET assembly.
 /// </summary>
-public class AssemblyCommand : ICommand
+public class AssemblyCommand
 {
-    public async Task<int> ExecuteAsync(string[] args)
+    public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
     {
-        var (options, assemblyPath, showHelp) = ParseOptions(args);
-
-        if (showHelp)
-        {
-            return await new HelpCommand("assembly").ExecuteAsync([]);
-        }
-
         // If --package is specified without assembly path, we'll auto-detect
         if (string.IsNullOrEmpty(assemblyPath) && string.IsNullOrEmpty(options.PackagePath))
         {
@@ -600,119 +593,6 @@ public class AssemblyCommand : ICommand
         {
             return null;
         }
-    }
-
-    private static (AssemblyOptions options, string? assemblyPath, bool showHelp) ParseOptions(string[] args)
-    {
-        bool includeAudit = false;
-        bool jsonOutput = false;
-        bool verbose = false;
-        bool showHelp = false;
-        string? packagePath = null;
-        string? tfm = null;
-        var verbosity = Verbosity.Normal;
-        HashSet<int>? includeSections = null;
-        HashSet<int>? excludeSections = null;
-        string? assemblyPath = null;
-
-        for (int i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            var lower = arg.ToLowerInvariant();
-
-            switch (lower)
-            {
-                case "--audit":
-                    includeAudit = true;
-                    break;
-                case "--json":
-                    jsonOutput = true;
-                    break;
-                case "--markout":
-                    jsonOutput = false;
-                    break;
-                case "--verbose":
-                    verbose = true;
-                    break;
-                case "-v:q":
-                    verbosity = Verbosity.Quiet;
-                    break;
-                case "-v:m":
-                    verbosity = Verbosity.Minimal;
-                    break;
-                case "-v:n":
-                    verbosity = Verbosity.Normal;
-                    break;
-                case "-v:d":
-                    verbosity = Verbosity.Detailed;
-                    break;
-                case "--help":
-                case "help":
-                    showHelp = true;
-                    break;
-                case "--package":
-                    if (i + 1 < args.Length)
-                    {
-                        packagePath = args[++i];
-                    }
-                    break;
-                case "--tfm":
-                    if (i + 1 < args.Length)
-                    {
-                        tfm = args[++i];
-                    }
-                    break;
-                default:
-                    if (lower.StartsWith("--package="))
-                    {
-                        packagePath = arg[10..];
-                    }
-                    else if (lower.StartsWith("--tfm="))
-                    {
-                        tfm = arg[6..];
-                    }
-                    else if (lower.StartsWith("-s:") || lower.StartsWith("-s="))
-                    {
-                        includeSections = ParseSectionList(arg[3..]);
-                    }
-                    else if (lower.StartsWith("-x:") || lower.StartsWith("-x="))
-                    {
-                        excludeSections = ParseSectionList(arg[3..]);
-                    }
-                    else if (!arg.StartsWith("-") && assemblyPath == null)
-                    {
-                        assemblyPath = arg;
-                    }
-                    break;
-            }
-        }
-
-        var options = new AssemblyOptions
-        {
-            IncludeAudit = includeAudit,
-            PackagePath = packagePath,
-            Tfm = tfm,
-            JsonOutput = jsonOutput,
-            Verbose = verbose,
-            Verbosity = verbosity,
-            IncludeSections = includeSections,
-            ExcludeSections = excludeSections
-        };
-
-        return (options, assemblyPath, showHelp);
-    }
-
-    private static HashSet<int> ParseSectionList(string value)
-    {
-        var sections = new HashSet<int>();
-        foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (int.TryParse(part.Trim(), out int section) && section > 0)
-            {
-                sections.Add(section);
-            }
-        }
-        return sections;
     }
 
     private static string? ExtractTfmFromPath(string relativePath)
