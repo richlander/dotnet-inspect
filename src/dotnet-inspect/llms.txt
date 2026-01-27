@@ -64,7 +64,13 @@ diff <(dotnet-inspect api Command --package System.CommandLine@2.0.1 -m SetActio
 - `--json`: JSON output
 - `--json --compact`: Minified JSON, omits false/default values
 
-## Verbosity Levels
+## Output Control (Height × Width)
+
+Output follows a 2D progressive disclosure model:
+- **Width** (verbosity): `-v:q` → `-v:d` controls column density
+- **Height** (sections): `-s:1,2` (include) or `-x:3` (exclude) controls which sections appear
+
+Verbosity levels:
 
 - `-v:q` - Quiet: summary only
 - `-v:m` - Minimal: summary + compact metadata
