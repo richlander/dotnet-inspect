@@ -14,7 +14,7 @@
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.1.5</VersionPrefix>
+    <VersionPrefix>0.1.6</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
   </PropertyGroup>
@@ -37,11 +37,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../markout/src/Markout/Markout.csproj" />
-    <ProjectReference Include="../../../markout/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj"
-                      PrivateAssets="all"
-                      ReferenceOutputAssembly="false"
-                      OutputItemType="Analyzer" />
+    <PackageReference Include="Markout" Version="0.1.1" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />
   </ItemGroup>
 

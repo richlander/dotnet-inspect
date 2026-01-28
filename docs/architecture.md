@@ -131,7 +131,7 @@ Two levels of unsafe detection:
 
 1. **Assembly-level**: Checks for `System.Security.UnverifiableCodeAttribute` (indicates `AllowUnsafeBlocks` was enabled)
 
-2. **Method-level**: Checks if decoded signature contains pointer types (`*` character):
+2. **Method-level** (`--unsafe` filter): Checks if decoded signature contains pointer types (`*` character). This identifies methods that **require unsafe context to call** (pointer parameters/return types), not methods that merely use unsafe internally:
 
 ```csharp
 private static bool HasUnsafeSignature(string? signature)
@@ -139,6 +139,8 @@ private static bool HasUnsafeSignature(string? signature)
     return signature?.Contains('*') ?? false;
 }
 ```
+
+Note: Methods marked with the `unsafe` keyword but without pointers in their signature (e.g., using `stackalloc` internally) are not detected by `--unsafe`. This is intentional - the filter surfaces methods whose *public API* requires unsafe context.
 
 ### SourceLink Resolution
 
@@ -173,7 +175,9 @@ isDeterministic = (debuggingModes & 0x100) != 0;
 
 ### Markout Integration
 
-The tool uses [Markout](https://github.com/richlander/markout) for Markdown serialization. Types are annotated with `[MarkoutSerializable]` and registered in `MarkoutContext`:
+The tool uses [Markout](https://github.com/richlander/markout) for Markdown serialization. Markout provides a structured format for human-readable, machine-parseable output. See the [Markout specification](https://github.com/richlander/markout/blob/main/docs/specification.md) for format details.
+
+Types are annotated with `[MarkoutSerializable]` and registered in `MarkoutContext`:
 
 ```csharp
 [MarkoutContext(typeof(InspectionResult))]

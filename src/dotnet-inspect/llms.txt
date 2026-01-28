@@ -104,7 +104,7 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - `-m`/`--member` filter is case-insensitive and shows all matching overloads
 - `--filter` uses glob patterns: `*` matches any characters, `?` matches single character
 - `--all` includes EditorBrowsable(Never) and Obsolete members (excluded by default)
-- `--unsafe` filters to methods with unsafe signatures (pointers like `void*`, `int*`)
+- `--unsafe` filters to methods with pointer signatures (methods requiring unsafe context to call)
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
 
