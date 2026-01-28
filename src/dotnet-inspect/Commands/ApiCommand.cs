@@ -141,6 +141,9 @@ public class ApiCommand
             }
             else
             {
+                // Convert C#-style generic syntax to CLR backtick notation
+                typeName = ConvertGenericTypeName(typeName);
+
                 // Find specific type
                 var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger, options.IncludeAll);
                 if (apiType == null || dllPath == null)
@@ -1070,13 +1073,6 @@ public class ApiCommand
 
         if (type.Members is { Count: > 0 })
         {
-            if (!options.SignaturesOnly)
-            {
-                sb.AppendLine();
-                sb.AppendLine("| Member | Kind | Signature |");
-                sb.AppendLine("|--------|------|-----------|");
-            }
-
             // Filter out compiler-generated members and sort by kind for readability
             var members = type.Members
                 .Where(m => !IsCompilerGenerated(m.Name))
@@ -1094,6 +1090,20 @@ public class ApiCommand
             if (options.UnsafeOnly)
             {
                 members = members.Where(m => m.IsUnsafe).ToList();
+            }
+
+            // Use enhanced constructor output when --ctor is specified
+            if (options.CtorOnly && members.Any(m => m.Kind == "constructor"))
+            {
+                sb.Append(RenderConstructorEmphasis(type, members.Where(m => m.Kind == "constructor").ToList()));
+                return sb.ToString().TrimEnd();
+            }
+
+            if (!options.SignaturesOnly)
+            {
+                sb.AppendLine();
+                sb.AppendLine("| Member | Kind | Signature |");
+                sb.AppendLine("|--------|------|-----------|");
             }
 
             var totalCount = members.Count;
@@ -1158,6 +1168,155 @@ public class ApiCommand
         "event" => 4,
         _ => 5
     };
+
+    /// <summary>
+    /// Renders enhanced constructor output for --ctor mode.
+    /// Shows all overloads prominently with parameter details.
+    /// </summary>
+    private static string RenderConstructorEmphasis(ApiType type, List<ApiMember> constructors)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine($"## Constructors ({constructors.Count} overload{(constructors.Count != 1 ? "s" : "")})");
+        sb.AppendLine();
+
+        // Sort by parameter count for logical ordering
+        var sorted = constructors
+            .OrderBy(c => CountParameters(c.Signature))
+            .ToList();
+
+        for (int i = 0; i < sorted.Count; i++)
+        {
+            var ctor = sorted[i];
+            var paramCount = CountParameters(ctor.Signature);
+            var paramInfo = ExtractParameterInfo(ctor.Signature);
+
+            sb.AppendLine($"### Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}");
+            sb.AppendLine();
+            sb.AppendLine("```csharp");
+            sb.AppendLine($"new {type.Name}{FormatConstructorCall(ctor.Signature)}");
+            sb.AppendLine("```");
+
+            if (paramInfo.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("| Parameter | Type | Notes |");
+                sb.AppendLine("|-----------|------|-------|");
+                foreach (var (paramName, paramType, hasDefault) in paramInfo)
+                {
+                    string notes = hasDefault ? "optional" : "required";
+                    sb.AppendLine($"| {paramName} | `{paramType}` | {notes} |");
+                }
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Counts parameters in a method signature.
+    /// </summary>
+    private static int CountParameters(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return 0;
+
+        int parenStart = signature.IndexOf('(');
+        int parenEnd = signature.LastIndexOf(')');
+        if (parenStart < 0 || parenEnd <= parenStart + 1)
+            return 0;
+
+        string paramSection = signature[(parenStart + 1)..parenEnd].Trim();
+        if (string.IsNullOrEmpty(paramSection))
+            return 0;
+
+        // Count commas at depth 0 (handling nested generics)
+        int count = 1;
+        int depth = 0;
+        foreach (char c in paramSection)
+        {
+            if (c == '<' || c == '(')
+                depth++;
+            else if (c == '>' || c == ')')
+                depth--;
+            else if (c == ',' && depth == 0)
+                count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Extracts parameter information from a method signature.
+    /// Returns list of (name, type, hasDefaultValue).
+    /// </summary>
+    private static List<(string name, string type, bool hasDefault)> ExtractParameterInfo(string? signature)
+    {
+        var result = new List<(string, string, bool)>();
+        if (string.IsNullOrEmpty(signature))
+            return result;
+
+        int parenStart = signature.IndexOf('(');
+        int parenEnd = signature.LastIndexOf(')');
+        if (parenStart < 0 || parenEnd <= parenStart + 1)
+            return result;
+
+        string paramSection = signature[(parenStart + 1)..parenEnd].Trim();
+        if (string.IsNullOrEmpty(paramSection))
+            return result;
+
+        // Split by comma at depth 0
+        var params_ = new List<string>();
+        int depth = 0;
+        int lastSplit = 0;
+        for (int i = 0; i < paramSection.Length; i++)
+        {
+            char c = paramSection[i];
+            if (c == '<' || c == '(')
+                depth++;
+            else if (c == '>' || c == ')')
+                depth--;
+            else if (c == ',' && depth == 0)
+            {
+                params_.Add(paramSection[lastSplit..i].Trim());
+                lastSplit = i + 1;
+            }
+        }
+        params_.Add(paramSection[lastSplit..].Trim());
+
+        foreach (var p in params_)
+        {
+            // Check for default value (contains '=')
+            bool hasDefault = p.Contains('=');
+            string clean = hasDefault ? p[..p.IndexOf('=')].Trim() : p;
+
+            // Last word is parameter name, rest is type
+            int lastSpace = clean.LastIndexOf(' ');
+            if (lastSpace > 0)
+            {
+                string type = clean[..lastSpace].Trim();
+                string name = clean[(lastSpace + 1)..].Trim();
+                result.Add((name, type, hasDefault));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Formats the constructor signature for display as a call pattern.
+    /// </summary>
+    private static string FormatConstructorCall(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return "()";
+
+        int parenStart = signature.IndexOf('(');
+        if (parenStart < 0)
+            return "()";
+
+        return signature[parenStart..];
+    }
 
     private static async Task<(string extractPath, string? tempDir)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
     {
@@ -1283,6 +1442,55 @@ public class ApiCommand
         return null;
     }
 
+    /// <summary>
+    /// Converts C#-style generic type names to CLR backtick notation.
+    /// e.g., "Dictionary&lt;TKey,TValue&gt;" → "Dictionary`2", "Argument&lt;T&gt;" → "Argument`1"
+    /// </summary>
+    internal static string ConvertGenericTypeName(string typeName)
+    {
+        // Check if this looks like C#-style generic syntax
+        int angleBracketStart = typeName.IndexOf('<');
+        if (angleBracketStart < 0)
+            return typeName;
+
+        int angleBracketEnd = typeName.LastIndexOf('>');
+        if (angleBracketEnd < angleBracketStart)
+            return typeName; // Malformed, return as-is
+
+        // Extract the base name
+        string baseName = typeName[..angleBracketStart];
+
+        // Count type parameters by counting commas + 1 at the top level
+        string typeParamSection = typeName[(angleBracketStart + 1)..angleBracketEnd];
+        int arity = CountTypeParameters(typeParamSection);
+
+        return $"{baseName}`{arity}";
+    }
+
+    /// <summary>
+    /// Counts type parameters, handling nested generics correctly.
+    /// </summary>
+    private static int CountTypeParameters(string typeParams)
+    {
+        if (string.IsNullOrWhiteSpace(typeParams))
+            return 0;
+
+        int count = 1;
+        int depth = 0;
+
+        foreach (char c in typeParams)
+        {
+            if (c == '<')
+                depth++;
+            else if (c == '>')
+                depth--;
+            else if (c == ',' && depth == 0)
+                count++;
+        }
+
+        return count;
+    }
+
 }
 
 /// <summary>
@@ -1306,4 +1514,5 @@ public record ApiOptions
     public string? TypeFilter { get; init; }
     public bool SignaturesOnly { get; init; }
     public bool UnsafeOnly { get; init; }
+    public bool CtorOnly { get; init; }
 }

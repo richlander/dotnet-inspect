@@ -267,6 +267,7 @@ public static class CommandLineBuilder
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
+        var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
 
         apiCommand.Arguments.Add(typeNameArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -276,6 +277,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(allOption);
         apiCommand.Options.Add(filterOption);
         apiCommand.Options.Add(memberOption);
+        apiCommand.Options.Add(ctorOption);
         apiCommand.Options.Add(limitOption);
         apiCommand.Options.Add(sourceUrlOption);
         apiCommand.Options.Add(docsOption);
@@ -291,6 +293,19 @@ public static class CommandLineBuilder
         {
             var typeName = parseResult.GetValue(typeNameArg);
             var members = parseResult.GetValue(memberOption);
+            var ctorOnly = parseResult.GetValue(ctorOption);
+
+            // If --ctor is specified, add .ctor to member filter
+            HashSet<string>? memberFilter = null;
+            if (ctorOnly)
+            {
+                memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
+            }
+            else if (members?.Length > 0)
+            {
+                memberFilter = new HashSet<string>(members, StringComparer.OrdinalIgnoreCase);
+            }
+
             var options = new ApiOptions
             {
                 PackagePath = parseResult.GetValue(apiPackageOption),
@@ -299,7 +314,7 @@ public static class CommandLineBuilder
                 ShowInterfaces = parseResult.GetValue(interfacesOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 TypeFilter = parseResult.GetValue(filterOption),
-                MemberFilter = members?.Length > 0 ? new HashSet<string>(members, StringComparer.OrdinalIgnoreCase) : null,
+                MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
                 ShowSourceUrl = parseResult.GetValue(sourceUrlOption),
                 ShowDocs = parseResult.GetValue(docsOption),
@@ -307,6 +322,7 @@ public static class CommandLineBuilder
                 CompactJson = parseResult.GetValue(compactOption),
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
+                CtorOnly = ctorOnly,
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption))
             };

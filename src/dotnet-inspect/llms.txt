@@ -40,6 +40,7 @@ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Des
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize --signatures-only  # Plain signatures
 dotnet-inspect api JsonDocument --package System.Text.Json --interfaces  # Show interfaces
 dotnet-inspect api Command --package System.CommandLine -m SetAction -v:q  # Quiet mode
+dotnet-inspect api Command --package System.CommandLine --ctor  # Show constructors with enhanced details
 dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete members
 dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Filter to unsafe methods
@@ -105,8 +106,25 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - `--filter` uses glob patterns: `*` matches any characters, `?` matches single character
 - `--all` includes EditorBrowsable(Never) and Obsolete members (excluded by default)
 - `--unsafe` filters to methods with pointer signatures (methods requiring unsafe context to call)
+- `--ctor` shows constructors with enhanced output (parameter details, required vs optional)
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
+
+## Generic Types
+
+Generic types use CLR backtick notation internally. Both syntaxes are supported:
+
+```bash
+# C#-style syntax (automatically converted):
+dotnet-inspect api 'Argument<T>' --package System.CommandLine
+dotnet-inspect api 'Dictionary<TKey,TValue>' --package System.Collections
+
+# CLR backtick notation (also works):
+dotnet-inspect api 'Argument`1' --package System.CommandLine
+dotnet-inspect api 'Dictionary`2' --package System.Collections
+```
+
+The backtick number indicates the arity (number of type parameters). Quotes are needed to escape special characters in most shells.
 
 ## Notes on Filtering
 
