@@ -3,12 +3,14 @@ using Markout;
 
 namespace DotnetInspector;
 
-[MarkoutSerializable(TitleProperty = nameof(PackageName), DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(TitleProperty = nameof(PackageName), TitleContextProperty = nameof(Version), DescriptionProperty = nameof(Description))]
 public class InspectionResult
 {
     [MarkoutPropertyName("Package")]
+    [MarkoutIgnore] // Rendered as title
     public string PackageName { get; set; } = "";
 
+    [MarkoutIgnore] // Rendered as title context
     public string Version { get; set; } = "";
 
     [MarkoutIgnore] // Rendered as paragraph via DescriptionProperty

@@ -174,6 +174,8 @@ public class MarkoutViewFormatter
 
         foreach (var audit in _result.AssemblyAudits)
         {
+            // BoolFormat attributes on the model provide ✓/✗, but we manually format here
+            // to control which columns appear in the table
             writer.WriteTableRow(
                 audit.FileName,
                 audit.FileType,

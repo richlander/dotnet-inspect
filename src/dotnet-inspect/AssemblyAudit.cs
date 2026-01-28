@@ -21,17 +21,21 @@ public class AssemblyAudit
     public string? PdbPath { get; set; }
 
     [MarkoutPropertyName("Embedded PDB")]
+    [MarkoutBoolFormat("✓", "✗")]
     public bool HasEmbeddedPdb { get; set; }
 
     [MarkoutPropertyName("Reproducible Flag")]
+    [MarkoutBoolFormat("✓", "✗")]
     public bool HasReproducibleFlag { get; set; }
 
     [MarkoutIgnore]
     public bool? HasNormalizedPaths { get; set; }
 
     [MarkoutPropertyName("SourceLink")]
+    [MarkoutBoolFormat("✓", "✗")]
     public bool HasSourceLink { get; set; }
 
+    [MarkoutBoolFormat("✓", "✗")]
     public bool IsDeterministic { get; set; }
 
     [MarkoutPropertyName("Repository URL")]

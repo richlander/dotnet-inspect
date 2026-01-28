@@ -37,7 +37,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Markout" Version="0.1.0" />
+    <ProjectReference Include="../../../markout/src/Markout/Markout.csproj" />
+    <ProjectReference Include="../../../markout/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />
   </ItemGroup>
 
