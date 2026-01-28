@@ -653,6 +653,24 @@ public class ApiCommand
             api.PublicTypeCount = api.Types.Count;
         }
 
+        // Apply unsafe filter - filter members and only show types with unsafe members
+        if (options.UnsafeOnly)
+        {
+            foreach (var type in api.Types)
+            {
+                if (type.Members != null)
+                {
+                    type.Members = type.Members.Where(m => m.IsUnsafe).ToList();
+                }
+            }
+            api.Types = api.Types.Where(t => t.Members?.Count > 0).ToList();
+            api.PublicTypeCount = api.Types.Count;
+            api.PublicMethodCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind is "method" or "constructor") ?? 0);
+            api.PublicPropertyCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "property") ?? 0);
+            api.PublicFieldCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "field") ?? 0);
+            api.PublicEventCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "event") ?? 0);
+        }
+
         if (options.JsonOutput)
         {
             Console.WriteLine(SerializeJson(api, ApiJsonContext.Default.ApiSurface));
@@ -737,6 +755,12 @@ public class ApiCommand
                 members = members
                     .Where(m => options.MemberFilter.Contains(m.Name))
                     .ToList();
+            }
+
+            // Apply unsafe filter
+            if (options.UnsafeOnly && members != null)
+            {
+                members = members.Where(m => m.IsUnsafe).ToList();
             }
 
             // Apply -n limit to JSON output
@@ -853,7 +877,7 @@ public class ApiCommand
         return sb.ToString();
     }
 
-    private static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null)
+    private static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false)
     {
         var members = type.Members?
             .Where(m => !IsCompilerGenerated(m.Name))
@@ -862,6 +886,11 @@ public class ApiCommand
         if (memberFilter?.Count > 0)
         {
             members = members.Where(m => memberFilter.Contains(m.Name)).ToList();
+        }
+
+        if (unsafeOnly)
+        {
+            members = members.Where(m => m.IsUnsafe).ToList();
         }
 
         return members
@@ -923,7 +952,7 @@ public class ApiCommand
         var sb = new StringBuilder();
         sb.Append(RenderTypeHeader(type, foundIn, options));
 
-        var grouped = GroupMembersByKind(type, options.MemberFilter);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
         sb.AppendLine();
@@ -963,7 +992,7 @@ public class ApiCommand
         var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
         sb.Append(RenderTypeHeader(type, foundIn, options, allMembers.Count));
 
-        var grouped = GroupMembersByKind(type, options.MemberFilter);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
         sb.AppendLine();
@@ -1059,6 +1088,12 @@ public class ApiCommand
             if (options.MemberFilter?.Count > 0)
             {
                 members = members.Where(m => options.MemberFilter.Contains(m.Name)).ToList();
+            }
+
+            // Apply unsafe filter if specified
+            if (options.UnsafeOnly)
+            {
+                members = members.Where(m => m.IsUnsafe).ToList();
             }
 
             var totalCount = members.Count;
@@ -1270,4 +1305,5 @@ public record ApiOptions
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
     public bool SignaturesOnly { get; init; }
+    public bool UnsafeOnly { get; init; }
 }

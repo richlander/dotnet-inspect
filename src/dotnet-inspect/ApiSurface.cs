@@ -112,6 +112,9 @@ public class ApiMember
     [MarkoutPropertyName("Abstract")]
     public bool IsAbstract { get; set; }
 
+    [MarkoutPropertyName("Unsafe")]
+    public bool IsUnsafe { get; set; }
+
     // Source information (populated with --source-url)
     [MarkoutIgnore]
     [JsonPropertyName("source_line_number")]

@@ -42,6 +42,7 @@ dotnet-inspect api JsonDocument --package System.Text.Json --interfaces  # Show 
 dotnet-inspect api Command --package System.CommandLine -m SetAction -v:q  # Quiet mode
 dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete members
+dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Filter to unsafe methods
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
@@ -103,6 +104,7 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - `-m`/`--member` filter is case-insensitive and shows all matching overloads
 - `--filter` uses glob patterns: `*` matches any characters, `?` matches single character
 - `--all` includes EditorBrowsable(Never) and Obsolete members (excluded by default)
+- `--unsafe` filters to methods with unsafe signatures (pointers like `void*`, `int*`)
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
 

@@ -65,6 +65,7 @@ dotnet-inspect api --package System.CommandLine --filter "Command*"  # Filter by
 dotnet-inspect api JsonSerializer --package System.Text.Json    # Specific type
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete
+dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Unsafe methods only
 dotnet-inspect api Command --package System.CommandLine --docs  # With documentation
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
@@ -86,6 +87,7 @@ dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON out
 - **Type hierarchy**: View inheritance chains and implemented interfaces in tree format
 - **Type filtering**: Filter types by glob pattern (e.g., `--filter "*Json*"`)
 - **Smart defaults**: Excludes `[EditorBrowsable(Never)]` and `[Obsolete]` members by default
+- **Unsafe code filtering**: Filter to methods with pointer signatures using `--unsafe`
 - **Version comparison**: Compare APIs between package versions using diff
 - **SourceLink support**: Fetch source URLs and documentation from embedded PDBs
 - **Multiple output formats**: Markdown tables, tree view, signatures-only, or JSON

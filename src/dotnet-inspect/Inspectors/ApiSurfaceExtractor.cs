@@ -104,6 +104,7 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && HasHiddenAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
+                var signature = GetMethodSignature(reader, typeDef, method);
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -111,7 +112,8 @@ public static class ApiSurfaceExtractor
                     IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
                     IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0,
                     IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
-                    Signature = GetMethodSignature(reader, typeDef, method)
+                    Signature = signature,
+                    IsUnsafe = HasUnsafeSignature(signature)
                 };
 
                 apiType.Members.Add(member);
@@ -329,5 +331,18 @@ public static class ApiSurfaceExtractor
         var context = GenericContext.ForType(reader, typeDef);
         var signature = prop.DecodeSignature(new SignatureTypeProvider(), context);
         return $"{signature.ReturnType} {name}";
+    }
+
+    /// <summary>
+    /// Checks if a method signature contains unsafe constructs (pointers).
+    /// </summary>
+    private static bool HasUnsafeSignature(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return false;
+
+        // Check for pointer types (e.g., int*, void*, byte*)
+        // and function pointers (delegate*)
+        return signature.Contains('*');
     }
 }
