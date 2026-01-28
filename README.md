@@ -63,7 +63,9 @@ View public API surface of assemblies or specific types.
 dotnet-inspect api --package System.CommandLine                 # List all types
 dotnet-inspect api --package System.CommandLine --filter "Command*"  # Filter by glob pattern
 dotnet-inspect api JsonSerializer --package System.Text.Json    # Specific type
+dotnet-inspect api 'Option<T>' --package System.CommandLine     # Generic types (C#-style syntax)
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
+dotnet-inspect api Command --package System.CommandLine --ctor  # Show constructors with details
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete
 dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Unsafe methods only
 dotnet-inspect api Command --package System.CommandLine --docs  # With documentation
@@ -84,6 +86,8 @@ dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON out
 
 - **Package inspection**: View metadata, dependencies, target frameworks, and file structure
 - **API surface extraction**: List types and members with full signatures including parameter names
+- **Generic type support**: Use C#-style syntax (`Option<T>`) or CLR backtick notation (`Option`1`)
+- **Constructor emphasis**: `--ctor` shows constructors with parameter details (required vs optional)
 - **Type hierarchy**: View inheritance chains and implemented interfaces in tree format
 - **Type filtering**: Filter types by glob pattern (e.g., `--filter "*Json*"`)
 - **Smart defaults**: Excludes `[EditorBrowsable(Never)]` and `[Obsolete]` members by default
