@@ -2,26 +2,6 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
-## Document Generic Type Syntax in llms.txt
-
-Querying generic types requires the CLR-style backtick notation:
-
-```bash
-dotnet-inspect api 'Argument`1' --package System.CommandLine
-dotnet-inspect api 'Option`1' --package System.CommandLine
-dotnet-inspect api 'Dictionary`2' --package System.Collections
-```
-
-This is non-obvious and easy to get wrong. The llms.txt file should explicitly document:
-1. The backtick-arity syntax (`Argument\`1` for `Argument<T>`)
-2. That quotes are needed to escape the backtick in most shells
-3. Examples for common generic types
-
-Alternatively, consider supporting C#-style syntax as an alias:
-```bash
-dotnet-inspect api 'Argument<T>' --package System.CommandLine  # More intuitive
-```
-
 ## Property Mutability Indicator
 
 When showing properties, indicate whether they are settable:
@@ -44,21 +24,6 @@ dotnet-inspect api Command --package System.CommandLine --inherited
 ```
 
 Currently you have to separately query base classes (`Symbol`) to find inherited members like `Description` and `Name`. Flattening the inheritance chain would give a complete picture in one query.
-
-## Constructor Emphasis Mode
-
-When using `-m .ctor`, show constructors with parameter descriptions and common instantiation patterns:
-
-```bash
-dotnet-inspect api Command --package System.CommandLine -m .ctor --verbose
-```
-
-Could show:
-- All constructor overloads prominently
-- Which parameters are required vs optional
-- A minimal instantiation example
-
-This is the most common "how do I create this?" query pattern.
 
 ## Built-in Diff Command
 
