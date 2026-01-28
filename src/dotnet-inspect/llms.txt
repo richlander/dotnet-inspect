@@ -55,16 +55,22 @@ dotnet-inspect type Command --package System.CommandLine       # Shows base clas
 dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
 ```
 
+### diff - Compare API surfaces between versions
+
+```bash
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0  # Compare type between versions
+dotnet-inspect diff Command --package System.CommandLine@2.0.1..2.0.2        # See what changed
+```
+
 ## Common Workflows
 
 ```bash
-# Compare API between versions
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.12) \
-     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
+# Compare API between versions (built-in diff)
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 
-# Compare specific method overloads between versions
-diff <(dotnet-inspect api Command --package System.CommandLine@2.0.1 -m SetAction) \
-     <(dotnet-inspect api Command --package System.CommandLine@2.0.2 -m SetAction)
+# Or use shell diff for line-by-line comparison
+diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0) \
+     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0)
 ```
 
 ## Output Formats

@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "llmstxt", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -61,6 +61,10 @@ public static class CommandLineBuilder
         // Type command
         var typeCommand = CreateTypeCommand(jsonOption, verboseOption);
         rootCommand.Subcommands.Add(typeCommand);
+
+        // Diff command
+        var diffCommand = CreateDiffCommand(verboseOption);
+        rootCommand.Subcommands.Add(diffCommand);
 
         // LLMs.txt command
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
@@ -114,6 +118,47 @@ public static class CommandLineBuilder
         });
 
         return typeCommand;
+    }
+
+    private static Command CreateDiffCommand(Option<bool> verboseOption)
+    {
+        var diffCommand = new Command("diff", "Compare API surfaces between package versions");
+
+        var typeNameArg = new Argument<string?>("type")
+        {
+            Description = "Type name to compare",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        typeNameArg.DefaultValueFactory = _ => null;
+
+        var packageOption = new Option<string?>("--package")
+        {
+            Description = "Package with version range (e.g., System.Text.Json@9.0.0..10.0.2)"
+        };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
+
+        diffCommand.Arguments.Add(typeNameArg);
+        diffCommand.Options.Add(packageOption);
+        diffCommand.Options.Add(tfmOption);
+        diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(verboseOption);
+
+        diffCommand.SetAction(async (parseResult, ct) =>
+        {
+            var typeName = parseResult.GetValue(typeNameArg);
+            var options = new DiffOptions
+            {
+                PackageVersionRange = parseResult.GetValue(packageOption),
+                Tfm = parseResult.GetValue(tfmOption),
+                IncludeAll = parseResult.GetValue(allOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await DiffCommand.ExecuteAsync(typeName, options);
+        });
+
+        return diffCommand;
     }
 
     private static Command CreatePackageCommand(

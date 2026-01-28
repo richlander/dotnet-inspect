@@ -82,12 +82,22 @@ dotnet-inspect type Command --package System.CommandLine       # Shows base clas
 dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
 ```
 
+### diff
+
+Compare API surfaces between package versions with semantic awareness.
+
+```bash
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0  # Compare type between versions
+dotnet-inspect diff Command --package System.CommandLine@2.0.1..2.0.2        # See what changed
+```
+
 ## Key Features
 
 - **Package inspection**: View metadata, dependencies, target frameworks, and file structure
 - **API surface extraction**: List types and members with full signatures including parameter names
 - **Generic type support**: Use C#-style syntax (`Option<T>`) or CLR backtick notation (`Option`1`)
 - **Constructor emphasis**: `--ctor` shows constructors with parameter details (required vs optional)
+- **API diff**: Compare type APIs between package versions with semantic awareness
 - **Type hierarchy**: View inheritance chains and implemented interfaces in tree format
 - **Type filtering**: Filter types by glob pattern (e.g., `--filter "*Json*"`)
 - **Smart defaults**: Excludes `[EditorBrowsable(Never)]` and `[Obsolete]` members by default

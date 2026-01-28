@@ -12,23 +12,6 @@ dotnet-inspect api Command --package System.CommandLine --inherited
 
 Currently you have to separately query base classes (`Symbol`) to find inherited members like `Description` and `Name`. Flattening the inheritance chain would give a complete picture in one query.
 
-## Built-in Diff Command
-
-Currently, comparing API surfaces between versions requires shell gymnastics:
-
-```bash
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0) \
-     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.2)
-```
-
-A built-in diff command would be more ergonomic:
-
-```bash
-dotnet-inspect diff api JsonSerializer --package System.Text.Json@9.0.0..10.0.2
-```
-
-This could also provide richer output than plain diff—highlighting added/removed/changed members with semantic awareness rather than line-by-line comparison.
-
 ## Example Snippets
 
 A `--examples` flag could show basic usage patterns for types and methods:
