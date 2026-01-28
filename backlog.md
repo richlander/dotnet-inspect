@@ -2,19 +2,6 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
-## Property Mutability Indicator
-
-When showing properties, indicate whether they are settable:
-
-```
-| Property | Kind | Signature |
-|----------|------|-----------|
-| Description | property | `string Description { get; set; }` |
-| Name | property | `string Name { get; }` |
-```
-
-Currently properties just show the type (`string Description`), but knowing if it's settable is critical for understanding initialization patterns. This caused confusion during a System.CommandLine conversion—I didn't realize `Description` was a settable property rather than a constructor parameter.
-
 ## Inherited Members Option
 
 A `--inherited` flag to show members from base classes inline:

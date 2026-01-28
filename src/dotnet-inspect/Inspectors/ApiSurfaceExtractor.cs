@@ -150,7 +150,7 @@ public static class ApiSurfaceExtractor
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
-                    Signature = GetPropertySignature(reader, typeDef, prop)
+                    Signature = GetPropertySignature(reader, typeDef, prop, accessors)
                 };
 
                 apiType.Members.Add(member);
@@ -325,12 +325,44 @@ public static class ApiSurfaceExtractor
         return null;
     }
 
-    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop)
+    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
         var signature = prop.DecodeSignature(new SignatureTypeProvider(), context);
-        return $"{signature.ReturnType} {name}";
+
+        // Determine accessor visibility
+        bool hasPublicGetter = false;
+        bool hasPublicSetter = false;
+        bool hasPrivateSetter = false;
+
+        if (!accessors.Getter.IsNil)
+        {
+            var getter = reader.GetMethodDefinition(accessors.Getter);
+            hasPublicGetter = (getter.Attributes & MethodAttributes.Public) != 0;
+        }
+
+        if (!accessors.Setter.IsNil)
+        {
+            var setter = reader.GetMethodDefinition(accessors.Setter);
+            hasPublicSetter = (setter.Attributes & MethodAttributes.Public) != 0;
+            hasPrivateSetter = !hasPublicSetter;
+        }
+
+        // Build accessor string
+        string accessorStr;
+        if (hasPublicGetter && hasPublicSetter)
+            accessorStr = "{ get; set; }";
+        else if (hasPublicGetter && hasPrivateSetter)
+            accessorStr = "{ get; private set; }";
+        else if (hasPublicGetter)
+            accessorStr = "{ get; }";
+        else if (hasPublicSetter)
+            accessorStr = "{ set; }";
+        else
+            accessorStr = "{ get; }"; // Fallback
+
+        return $"{signature.ReturnType} {name} {accessorStr}";
     }
 
     /// <summary>
