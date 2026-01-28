@@ -127,11 +127,29 @@ Parameter names are extracted from the `Parameter` table in metadata, matching b
 
 ### Unsafe Code Detection
 
-Two levels of unsafe detection:
+Unsafe code detection operates at two levels:
 
-1. **Assembly-level**: Checks for `System.Security.UnverifiableCodeAttribute` (indicates `AllowUnsafeBlocks` was enabled)
+#### Assembly-Level Detection
 
-2. **Method-level** (`--unsafe` filter): Checks if decoded signature contains pointer types (`*` character). This identifies methods that **require unsafe context to call** (pointer parameters/return types), not methods that merely use unsafe internally:
+Checks for `System.Security.UnverifiableCodeAttribute` on the assembly. This attribute is emitted by the C# compiler when `AllowUnsafeBlocks` is enabled, indicating the assembly contains unverifiable code.
+
+```csharp
+private static bool CheckForUnsafeCode(MetadataReader reader)
+{
+    foreach (var attrHandle in reader.CustomAttributes)
+    {
+        var attr = reader.GetCustomAttribute(attrHandle);
+        string? attrName = GetAttributeName(reader, attr);
+        if (attrName == "System.Security.UnverifiableCodeAttribute")
+            return true;
+    }
+    return false;
+}
+```
+
+#### Method-Level Detection (`--unsafe` filter)
+
+The `--unsafe` filter identifies methods with **pointer types in their signature**:
 
 ```csharp
 private static bool HasUnsafeSignature(string? signature)
@@ -140,7 +158,55 @@ private static bool HasUnsafeSignature(string? signature)
 }
 ```
 
-Note: Methods marked with the `unsafe` keyword but without pointers in their signature (e.g., using `stackalloc` internally) are not detected by `--unsafe`. This is intentional - the filter surfaces methods whose *public API* requires unsafe context.
+This detects:
+- Pointer parameters: `void Process(byte* buffer)`
+- Pointer return types: `int* GetPointer()`
+- Function pointers: `delegate*<int, void>`
+
+This approach is intentionally **API-focused** - it surfaces methods that require the caller to use an unsafe context. Methods that use unsafe internally but expose a safe API are not included.
+
+#### What's Not Detected
+
+Methods marked with the `unsafe` keyword but without pointers in their signature are not detected. For example:
+
+```csharp
+public unsafe int StackAlloc()
+{
+    Span<int> span = stackalloc int[10];  // unsafe internally
+    return span[0];
+}
+```
+
+This method is `unsafe` but has a safe signature (`int StackAlloc()`), so `--unsafe` won't include it.
+
+#### Fully Accurate Implementation
+
+A complete implementation would require IL analysis to detect all unsafe constructs:
+
+1. **Scan method bodies for unsafe IL opcodes:**
+   - `localloc` (0xFE 0x0F) - used by `stackalloc`
+   - `ldind.*` / `stind.*` - pointer indirection
+   - `cpblk` / `initblk` - block memory operations
+   - `sizeof` on unmanaged types
+
+2. **Check for pointer local variables** in the method's `LocalVariableSignature`
+
+3. **Detect `fixed` statements** by looking for pinned local variables (the `ELEMENT_TYPE_PINNED` modifier in signatures)
+
+Example IL scan:
+```csharp
+var body = pe.GetMethodBody(method.RelativeVirtualAddress);
+var ilBytes = body.GetILBytes();
+
+// Check for localloc opcode
+for (int i = 0; i < ilBytes.Length - 1; i++)
+{
+    if (ilBytes[i] == 0xFE && ilBytes[i + 1] == 0x0F)
+        return true;  // Has stackalloc
+}
+```
+
+This approach is significantly more expensive (requires reading IL for every method) and would slow down API extraction. The current signature-based approach is a pragmatic choice that covers the most common use case: finding methods that expose pointers in their public API.
 
 ### SourceLink Resolution
 
