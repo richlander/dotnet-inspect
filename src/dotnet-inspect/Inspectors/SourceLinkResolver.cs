@@ -15,11 +15,20 @@ public class SourceLinkResolver
 
     private readonly Dictionary<string, string> _documentMappings;
 
+    public enum SourceResolutionMethod
+    {
+        /// <summary>Source resolved from method debug info (sequence points).</summary>
+        SourceLink,
+        /// <summary>Source inferred from PDB document name matching type name.</summary>
+        Inferred
+    }
+
     public record TypeSourceInfo(
         string? SourceFilePath,
         string? SourceUrl,
         int? LineNumber,
-        string? GitHubBrowseUrl
+        string? GitHubBrowseUrl,
+        SourceResolutionMethod ResolutionMethod = SourceResolutionMethod.SourceLink
     );
 
     private SourceLinkResolver(Dictionary<string, string> documentMappings)
@@ -46,17 +55,53 @@ public class SourceLinkResolver
 
     /// <summary>
     /// Resolves source information for a type by finding a method with debug info.
+    /// Falls back to document name matching for interfaces/abstract types without implementations.
     /// </summary>
     public TypeSourceInfo? ResolveTypeSource(MetadataReader metadata, MetadataReader pdb, TypeDefinitionHandle typeHandle)
     {
         var typeDef = metadata.GetTypeDefinition(typeHandle);
+        var typeName = metadata.GetString(typeDef.Name);
 
-        // Iterate through methods to find one with debug info
+        // First, try to find a method with debug info (works for classes with implementations)
+        // Only consider methods that have actual bodies (RVA != 0)
         foreach (var methodHandle in typeDef.GetMethods())
         {
+            var method = metadata.GetMethodDefinition(methodHandle);
+            // Skip methods without bodies (interface methods, abstract methods)
+            if (method.RelativeVirtualAddress == 0)
+                continue;
+                
             var sourceInfo = ResolveMethodSource(pdb, methodHandle);
             if (sourceInfo != null)
                 return sourceInfo;
+        }
+
+        // Fallback: search all documents for a file that matches the type name
+        // This works for interfaces and abstract types that have no method implementations
+        return ResolveTypeSourceByDocumentName(pdb, typeName);
+    }
+
+    /// <summary>
+    /// Attempts to resolve source info by searching PDB documents for a matching file name.
+    /// Used for interfaces and types without method implementations.
+    /// </summary>
+    private TypeSourceInfo? ResolveTypeSourceByDocumentName(MetadataReader pdb, string typeName)
+    {
+        // Look for documents that match the type name pattern
+        // e.g., for "IContractResolver", look for "*IContractResolver.cs" or similar
+        foreach (var docHandle in pdb.Documents)
+        {
+            var document = pdb.GetDocument(docHandle);
+            string filePath = pdb.GetString(document.Name);
+            
+            // Check if the file name matches the type name
+            string fileName = Path.GetFileNameWithoutExtension(filePath);
+            if (fileName.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                string? sourceUrl = ApplySourceLinkMapping(filePath);
+                string? browseUrl = ConvertToGitHubRawUrl(sourceUrl);
+                return new TypeSourceInfo(filePath, sourceUrl, null, browseUrl, SourceResolutionMethod.Inferred);
+            }
         }
 
         return null;

@@ -146,6 +146,13 @@ public class ApiType
     [JsonPropertyName("source_line_number")]
     public int? SourceLineNumber { get; set; }
 
+    /// <summary>
+    /// How the source URL was resolved: "SourceLink" (from method debug info) or "Inferred" (from document name).
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("source_resolution")]
+    public string? SourceResolution { get; set; }
+
     // Documentation (populated with --docs)
     [MarkoutIgnore]
     public DocComment? Documentation { get; set; }

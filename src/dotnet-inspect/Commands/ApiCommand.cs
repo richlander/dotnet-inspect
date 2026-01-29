@@ -396,7 +396,8 @@ public class ApiCommand
                 apiType.SourceUrl = sourceInfo.SourceUrl;
                 apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
                 apiType.SourceLineNumber = sourceInfo.LineNumber;
-                logger.Log($"Source: {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
+                apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
+                logger.Log($"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
             }
 
             // Fetch docs if requested
@@ -1074,6 +1075,10 @@ public class ApiCommand
         {
             var sourceUrl = options.BrowsableUrls ? ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl;
             sb.AppendLine($"**Source:** {sourceUrl}");
+            if (type.SourceResolution != null)
+            {
+                sb.AppendLine($"**Source Resolution:** {type.SourceResolution}");
+            }
         }
 
         // Samples count

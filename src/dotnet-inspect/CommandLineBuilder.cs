@@ -178,24 +178,47 @@ public static class CommandLineBuilder
         var assemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs" };
+        var printOption = new Option<int?>("--print") { Description = "Fetch and print sample content. No value = all samples, N = specific sample number", Arity = ArgumentArity.ZeroOrOne };
 
         samplesCommand.Arguments.Add(typeNameArg);
         samplesCommand.Options.Add(packageOption);
         samplesCommand.Options.Add(assemblyOption);
         samplesCommand.Options.Add(tfmOption);
         samplesCommand.Options.Add(browsableUrlsOption);
+        samplesCommand.Options.Add(printOption);
         samplesCommand.Options.Add(verboseOption);
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
             var typeName = parseResult.GetValue(typeNameArg);
+            
+            // Handle --print option: if flag present with no value, use -1 (all samples)
+            int? printValue = null;
+            var printResult = parseResult.GetResult(printOption);
+            if (printResult != null)
+            {
+                // Flag was provided
+                var tokenCount = printResult.Tokens.Count;
+                if (tokenCount == 0)
+                {
+                    // --print with no value means "all"
+                    printValue = -1;
+                }
+                else
+                {
+                    // --print N
+                    printValue = parseResult.GetValue(printOption);
+                }
+            }
+            
             var options = new SamplesOptions
             {
                 PackagePath = parseResult.GetValue(packageOption),
                 AssemblyPath = parseResult.GetValue(assemblyOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                Print = printValue
             };
 
             return await SamplesCommand.ExecuteAsync(typeName!, options);
