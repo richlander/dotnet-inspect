@@ -73,3 +73,7 @@ Useful for:
 - Generating documentation artifacts
 - Caching expensive queries locally
 - Piping to other tools that prefer file input over stdin
+
+## Skill Plugin
+
+Add a skill plugin to this repo. (User-requested feature - needs investigation to understand what this means in context. Possibly related to Copilot Extensions, Semantic Kernel skills, or another plugin system.)
