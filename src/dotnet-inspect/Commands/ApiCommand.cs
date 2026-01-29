@@ -194,9 +194,9 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Extracts a specific type from a package or assembly. Used by TypeCommand.
+    /// Extracts a specific type from a package or assembly. Used by TypeCommand and SamplesCommand.
     /// </summary>
-    internal static async Task<(ApiType? type, string? foundIn)> ExtractTypeAsync(string typeName, ApiOptions options, VerboseLogger logger)
+    internal static async Task<(ApiType? type, string? foundIn, string? dllPath)> ExtractTypeWithPathAsync(string typeName, ApiOptions options, VerboseLogger logger)
     {
         string? tempDir = null;
         try
@@ -207,7 +207,7 @@ public class ApiCommand
             {
                 var extracted = await ExtractPackageAsync(options.PackagePath, logger);
                 if (extracted == null)
-                    return (null, null);
+                    return (null, null, null);
                 
                 (searchPath, tempDir) = extracted.Value;
 
@@ -230,11 +230,18 @@ public class ApiCommand
             }
             else
             {
-                return (null, null);
+                return (null, null, null);
             }
 
-            var (apiType, foundIn, _) = FindType(typeName, searchPath, logger, options.IncludeAll);
-            return (apiType, foundIn);
+            var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger, options.IncludeAll);
+            
+            // Enrich with source info and docs if requested
+            if (apiType != null && dllPath != null && options.ShowDocs)
+            {
+                await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
+            }
+            
+            return (apiType, foundIn, dllPath);
         }
         finally
         {
@@ -243,6 +250,15 @@ public class ApiCommand
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+    }
+
+    /// <summary>
+    /// Extracts a specific type from a package or assembly. Used by TypeCommand.
+    /// </summary>
+    internal static async Task<(ApiType? type, string? foundIn)> ExtractTypeAsync(string typeName, ApiOptions options, VerboseLogger logger)
+    {
+        var (type, foundIn, _) = await ExtractTypeWithPathAsync(typeName, options, logger);
+        return (type, foundIn);
     }
 
     private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
@@ -1047,23 +1063,7 @@ public class ApiCommand
         // Show sample references if available (raw URLs by default for LLM consumption, blob if --browsable-urls)
         if (options.ShowDocs && type.Documentation?.Samples?.Count > 0)
         {
-            sb.AppendLine();
-            sb.AppendLine("**Samples:**");
-            foreach (var sample in type.Documentation.Samples)
-            {
-                var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
-                var url = sample.ResolvedUrl != null 
-                    ? ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
-                    : sample.RelativePath;
-                
-                if (options.BrowsableUrls && url != sample.RelativePath)
-                {
-                    url = ConvertRawToBlobUrl(url);
-                }
-                
-                var regionInfo = sample.Region != null ? $" (region: `{sample.Region}`)" : "";
-                sb.AppendLine($"- {description}: {url}{regionInfo}");
-            }
+            sb.AppendLine($"**Samples:** {type.Documentation.Samples.Count} available");
         }
 
         return sb.ToString();

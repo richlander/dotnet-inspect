@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "samples", "llmstxt", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -65,6 +65,10 @@ public static class CommandLineBuilder
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption);
         rootCommand.Subcommands.Add(diffCommand);
+
+        // Samples command
+        var samplesCommand = CreateSamplesCommand(verboseOption);
+        rootCommand.Subcommands.Add(samplesCommand);
 
         // LLMs.txt command
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
@@ -159,6 +163,45 @@ public static class CommandLineBuilder
         });
 
         return diffCommand;
+    }
+
+    private static Command CreateSamplesCommand(Option<bool> verboseOption)
+    {
+        var samplesCommand = new Command("samples", "Show sample code references for a type");
+
+        var typeNameArg = new Argument<string>("type")
+        {
+            Description = "Type name to get samples for"
+        };
+
+        var packageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
+        var assemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
+        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs" };
+
+        samplesCommand.Arguments.Add(typeNameArg);
+        samplesCommand.Options.Add(packageOption);
+        samplesCommand.Options.Add(assemblyOption);
+        samplesCommand.Options.Add(tfmOption);
+        samplesCommand.Options.Add(browsableUrlsOption);
+        samplesCommand.Options.Add(verboseOption);
+
+        samplesCommand.SetAction(async (parseResult, ct) =>
+        {
+            var typeName = parseResult.GetValue(typeNameArg);
+            var options = new SamplesOptions
+            {
+                PackagePath = parseResult.GetValue(packageOption),
+                AssemblyPath = parseResult.GetValue(assemblyOption),
+                Tfm = parseResult.GetValue(tfmOption),
+                BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await SamplesCommand.ExecuteAsync(typeName!, options);
+        });
+
+        return samplesCommand;
     }
 
     private static Command CreatePackageCommand(

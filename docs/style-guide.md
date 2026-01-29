@@ -50,15 +50,23 @@ Structured metadata as `**Label:** value` pairs, one per line. These fields form
 - `**Modifiers:** static, sealed` (only if modifiers exist)
 - `**Assembly:** Markout.dll`
 - `**Source:** https://...`
+- `**Samples:** N available` (only with `--docs`, indicates samples exist)
 
 ```markdown
 **Kind:** class
 **Modifiers:** sealed
 **Assembly:** System.Text.Json.dll
 **Source:** https://github.com/.../JsonSerializer.cs
+**Samples:** 2 available
 ```
 
 Fields always appear in a consistent order. Empty/null fields are omitted.
+
+The `**Samples:**` field is a count indicator. To view full sample details including URLs and region hints, use the `samples` command:
+
+```bash
+dotnet-inspect samples TreeNode --package Markout
+```
 
 ### 4. H2 Sections
 
@@ -73,10 +81,6 @@ Tables and structured content appear under H2 headings. Section visibility is co
 ```
 
 When there is only a single table, the H2 heading may be omitted for brevity.
-
-### Special Cases
-
-**Samples:** The samples feature doesn't fit cleanly into the field or section model. Its formatting is deferred for future design work.
 
 ## Verbosity Levels
 

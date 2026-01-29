@@ -15,41 +15,6 @@ Challenges:
 - Requires resolving line numbers for each member from PDB
 - May need to be opt-in (`--member-source-urls` or similar)
 
-## Samples Command
-
-Consider extracting samples functionality into a dedicated `samples` verb alongside `api`. This mirrors how `api` evolved from a flag on `assembly` into its own top-level command.
-
-Current state:
-- `--docs` fetches type/member documentation AND sample references
-- Samples are rendered inline in the output
-
-Proposed:
-- `api` command shows basic API info (optionally with `--docs` for summaries)
-- `samples` command fetches and displays sample content for a type
-- Possibly add `--has-samples` flag to `api` to check if samples exist without fetching
-
-This would enable a workflow:
-1. `api JsonSerializer --package Newtonsoft.Json` → basic API info
-2. `api JsonSerializer --package Newtonsoft.Json --docs` → with summaries
-3. `samples JsonSerializer --package Newtonsoft.Json` → fetch sample content
-
-## Docs Availability Check
-
-Add a lightweight `--check-for-docs` (or `--has-docs`) flag to check if documentation/samples exist without fetching them. This enables a two-phase workflow:
-
-```bash
-# Phase 1: Get basic API info and check if docs are worth fetching
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --check-for-docs
-# Output includes: has_docs: true, has_samples: true
-
-# Phase 2: Only fetch docs if they exist
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs
-```
-
-This avoids the latency of fetching source when docs don't exist, and lets users/LLMs make informed decisions about whether `--docs` or a future `samples` command is worth calling.
-
-Alternative: Always include `has_docs`/`has_samples` fields in default output (requires checking PDB for SourceLink presence).
-
 ## NuGet.config Support
 
 Add support for reading `NuGet.config` files when resolving packages. Currently package resolution only uses the default NuGet cache and nuget.org. This would enable:
