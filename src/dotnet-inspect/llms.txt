@@ -44,9 +44,8 @@ dotnet-inspect api Command --package System.CommandLine --ctor  # Show construct
 dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete members
 dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Filter to unsafe methods
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --source-url  # Show SourceLink URL
 dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # Fetch documentation from source
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --source-url --fields-only  # Source URL only, no members
+dotnet-inspect api JsonSerializer --package Newtonsoft.Json --fields-only  # Source URL only, no members
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
 
@@ -116,9 +115,9 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - `--all` includes EditorBrowsable(Never) and Obsolete members (excluded by default)
 - `--unsafe` filters to methods with pointer signatures (methods requiring unsafe context to call)
 - `--ctor` shows constructors with enhanced output (parameter details, required vs optional)
-- `--source-url` shows SourceLink URL for the type (requires Portable PDB with SourceLink)
 - `--docs` fetches XML documentation comments from source via SourceLink
 - `--fields-only` shows only type info (source URL, docs) without member tables
+- SourceLink URL is automatically shown for types when PDB with SourceLink is available
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
 

@@ -307,7 +307,6 @@ public static class CommandLineBuilder
             AllowMultipleArgumentsPerToken = true
         };
         memberOption.Aliases.Add("--member");
-        var sourceUrlOption = new Option<bool>("--source-url") { Description = "Show SourceLink URL for the type" };
         var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
@@ -325,7 +324,6 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(memberOption);
         apiCommand.Options.Add(ctorOption);
         apiCommand.Options.Add(limitOption);
-        apiCommand.Options.Add(sourceUrlOption);
         apiCommand.Options.Add(docsOption);
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
@@ -363,7 +361,6 @@ public static class CommandLineBuilder
                 TypeFilter = parseResult.GetValue(filterOption),
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
-                ShowSourceUrl = parseResult.GetValue(sourceUrlOption),
                 ShowDocs = parseResult.GetValue(docsOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),

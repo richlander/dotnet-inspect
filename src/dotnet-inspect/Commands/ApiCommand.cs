@@ -131,12 +131,31 @@ public class ApiCommand
                 }
 
                 // List all types in the assembly
-                var api = ExtractFullApi(searchPath, logger, options.IncludeAll);
+                var (api, apiDllPath) = ExtractFullApi(searchPath, logger, options.IncludeAll);
                 if (api == null)
                 {
                     Console.Error.WriteLine("Error: Could not extract API from assembly.");
                     return 1;
                 }
+
+                // Set package/assembly name
+                if (!string.IsNullOrEmpty(options.PackagePath))
+                {
+                    var (pkgName, _) = ParsePackageReference(options.PackagePath);
+                    api.Name = pkgName;
+                }
+                else if (apiDllPath != null)
+                {
+                    api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
+                }
+
+                // Extract SourceLink repository URL
+                if (apiDllPath != null)
+                {
+                    api.RepositoryUrl = await ExtractRepositoryUrlAsync(apiDllPath, options, logger);
+                }
+                api.Tfm = selectedTfm;
+
                 WriteFullApiOutput(api, options, selectedTfm);
             }
             else
@@ -152,11 +171,8 @@ public class ApiCommand
                     return 1;
                 }
 
-                // Enrich with source info if requested
-                if (options.ShowSourceUrl || options.ShowDocs)
-                {
-                    await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
-                }
+                // Enrich with source info (SourceLink URL, docs)
+                await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
 
                 WriteTypeOutput(apiType, foundIn, options);
             }
@@ -368,12 +384,19 @@ public class ApiCommand
             // Fetch docs if requested
             if (options.ShowDocs && sourceInfo?.SourceUrl != null)
             {
+                logger.Log($"Fetching source from: {sourceInfo.SourceUrl}");
                 var fetcher = new SourceFetcher();
                 string? sourceContent = await fetcher.FetchSourceAsync(sourceInfo.SourceUrl);
 
                 if (sourceContent != null)
                 {
+                    logger.Log($"Fetched {sourceContent.Length} bytes of source");
                     var parser = new DocCommentParser();
+
+                    // Check if this is a partial class (may not have class-level docs in this file)
+                    bool isPartialClass = sourceContent.Contains("partial class") || 
+                                          sourceContent.Contains("partial struct") ||
+                                          sourceContent.Contains("partial interface");
 
                     // Parse type documentation
                     var typeDoc = parser.ExtractTypeDocComment(sourceContent, apiType.Name);
@@ -387,6 +410,10 @@ public class ApiCommand
                             Returns = typeDoc.Returns
                         };
                         logger.Log("Extracted type documentation.");
+                    }
+                    else if (isPartialClass)
+                    {
+                        logger.Log("No type documentation found (partial class - docs may be in another file).");
                     }
 
                     // Parse member documentation if filtering by member
@@ -418,6 +445,86 @@ public class ApiCommand
         {
             logger.Log($"Error enriching source info: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Extracts the repository URL from SourceLink information in the assembly's PDB.
+    /// </summary>
+    private static async Task<string?> ExtractRepositoryUrlAsync(string dllPath, ApiOptions options, VerboseLogger logger)
+    {
+        try
+        {
+            using FileStream stream = File.OpenRead(dllPath);
+            using PEReader peReader = new(stream);
+
+            if (!peReader.HasMetadata)
+                return null;
+
+            // Parse package name and version for symbol package download
+            string? packageName = null;
+            string? packageVersion = null;
+            if (!string.IsNullOrEmpty(options.PackagePath))
+            {
+                (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+                if (packageVersion == null && !string.IsNullOrEmpty(packageName))
+                {
+                    packageVersion = ExtractVersionFromPath(dllPath, packageName);
+                }
+            }
+
+            // Try to get PDB reader
+            var symbolDownloader = new SymbolPackageDownloader();
+            var pdbResult = await symbolDownloader.GetPdbReaderAsync(
+                peReader, dllPath, packageName, packageVersion, logger.Log);
+
+            if (pdbResult.Reader == null || pdbResult.Provider == null)
+                return null;
+
+            using var _ = pdbResult.Provider;
+
+            // Extract SourceLink JSON
+            string? sourceLinkJson = null;
+            foreach (var handle in pdbResult.Reader.CustomDebugInformation)
+            {
+                var info = pdbResult.Reader.GetCustomDebugInformation(handle);
+                var guid = pdbResult.Reader.GetGuid(info.Kind);
+                if (guid == new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A"))
+                {
+                    var bytes = pdbResult.Reader.GetBlobBytes(info.Value);
+                    sourceLinkJson = System.Text.Encoding.UTF8.GetString(bytes);
+                    break;
+                }
+            }
+
+            if (sourceLinkJson == null)
+                return null;
+
+            // Parse to extract repository URL
+            using var doc = JsonDocument.Parse(sourceLinkJson);
+            if (doc.RootElement.TryGetProperty("documents", out var documents))
+            {
+                foreach (var prop in documents.EnumerateObject())
+                {
+                    string url = prop.Value.GetString() ?? "";
+                    // SourceLink URLs use raw.githubusercontent.com, not github.com
+                    if (url.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(url,
+                            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/");
+                        if (match.Success)
+                        {
+                            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Error extracting repository URL: {ex.Message}");
+        }
+        return null;
     }
 
     private static TypeDefinitionHandle? FindTypeDefinitionHandle(MetadataReader reader, string typeName)
@@ -602,7 +709,7 @@ public class ApiCommand
         return null;
     }
 
-    private static ApiSurface? ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
+    private static (ApiSurface? api, string? dllPath) ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory
         string? dllFile;
@@ -634,12 +741,12 @@ public class ApiCommand
         }
         else
         {
-            return null;
+            return (null, null);
         }
 
         if (dllFile == null)
         {
-            return null;
+            return (null, null);
         }
 
         logger.Log($"Extracting API from: {Path.GetFileName(dllFile)}");
@@ -650,13 +757,13 @@ public class ApiCommand
             using PEReader peReader = new(stream);
 
             if (!peReader.HasMetadata)
-                return null;
+                return (null, null);
 
-            return ApiSurfaceExtractor.Extract(peReader, includeAll);
+            return (ApiSurfaceExtractor.Extract(peReader, includeAll), dllFile);
         }
         catch
         {
-            return null;
+            return (null, null);
         }
     }
 
@@ -711,15 +818,37 @@ public class ApiCommand
     {
         var sb = new StringBuilder();
 
+        // H1 header
+        if (!string.IsNullOrEmpty(api.Name))
+        {
+            sb.AppendLine($"# {api.Name}");
+            sb.AppendLine();
+        }
+
         var types = api.Types.AsEnumerable();
         var totalCount = api.Types.Count;
 
-        sb.AppendLine($"**{totalCount}** types, **{api.PublicMethodCount}** methods, **{api.PublicPropertyCount}** properties");
-        if (selectedTfm != null)
+        // Summary fields
+        sb.AppendLine($"**Types:** {totalCount}  ");
+        sb.AppendLine($"**Methods:** {api.PublicMethodCount}  ");
+        sb.AppendLine($"**Properties:** {api.PublicPropertyCount}  ");
+        if (selectedTfm != null || api.Tfm != null)
         {
-            sb.AppendLine($"*using {selectedTfm} (auto-selected highest TFM)*");
+            sb.AppendLine($"**TFM:** {selectedTfm ?? api.Tfm}  ");
         }
+        if (!string.IsNullOrEmpty(api.RepositoryUrl))
+        {
+            sb.AppendLine($"**Repository:** {api.RepositoryUrl}  ");
+        }
+
+        // In fields-only mode, stop here
+        if (options.FieldsOnly)
+        {
+            return sb.ToString().TrimEnd();
+        }
+
         sb.AppendLine();
+
         sb.AppendLine("| Type | Kind | Members |");
         sb.AppendLine("|------|------|---------|");
 
@@ -883,7 +1012,7 @@ public class ApiCommand
         }
 
         // Show source link if available
-        if (options.ShowSourceUrl && type.GitHubBrowseUrl != null)
+        if (type.GitHubBrowseUrl != null)
         {
             sb.AppendLine();
             string fileName = Path.GetFileName(type.SourceFilePath ?? "source");
@@ -1627,7 +1756,6 @@ public record ApiOptions
     public int? Limit { get; init; }
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string>? MemberFilter { get; init; }
-    public bool ShowSourceUrl { get; init; }
     public bool ShowDocs { get; init; }
     public bool ShowInterfaces { get; init; }
     public bool IncludeAll { get; init; }

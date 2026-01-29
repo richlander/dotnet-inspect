@@ -20,6 +20,12 @@ public class DocComment
 [MarkoutSerializable]
 public class ApiSurface
 {
+    /// <summary>
+    /// Package or assembly name.
+    /// </summary>
+    [MarkoutPropertyName("Name")]
+    public string? Name { get; set; }
+
     [MarkoutIgnore]
     public List<ApiType> Types { get; set; } = [];
 
@@ -37,6 +43,18 @@ public class ApiSurface
 
     [MarkoutPropertyName("Public Fields")]
     public int PublicFieldCount { get; set; }
+
+    /// <summary>
+    /// Target framework moniker for the API surface.
+    /// </summary>
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; set; }
+
+    /// <summary>
+    /// Repository URL extracted from SourceLink (if available).
+    /// </summary>
+    [MarkoutPropertyName("Repository")]
+    public string? RepositoryUrl { get; set; }
 }
 
 [MarkoutSerializable]

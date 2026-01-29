@@ -298,4 +298,37 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
     }
+
+    [Fact]
+    public void ApiCommand_WithFieldsOnly_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--fields-only"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ApiCommand_PackageWideWithFieldsOnly_ParsesCorrectly()
+    {
+        // --fields-only without a type name should still parse (even if behavior is limited)
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json", "--fields-only"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ApiCommand_WithDocs_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "Newtonsoft.Json", "--docs"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ApiCommand_WithDocsAndMember_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonConvert", "--package", "Newtonsoft.Json", "--docs", "-m", "SerializeObject"]);
+
+        Assert.Empty(result.Errors);
+    }
 }
