@@ -69,6 +69,7 @@ dotnet-inspect api Command --package System.CommandLine --ctor  # Show construct
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete
 dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Unsafe methods only
 dotnet-inspect api Command --package System.CommandLine --docs  # With documentation
+dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs --browsable-urls  # Docs with browser-friendly URLs
 dotnet-inspect api JsonSerializer --package Newtonsoft.Json --source-url --fields-only  # Source URL only, no members
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
@@ -105,6 +106,7 @@ dotnet-inspect diff Command --package System.CommandLine@2.0.1..2.0.2        # S
 - **Unsafe code filtering**: Filter to methods with pointer signatures using `--unsafe`
 - **Version comparison**: Compare APIs between package versions using diff
 - **SourceLink support**: Fetch source URLs and documentation from Portable PDBs (embedded or .snupkg)
+- **LLM-friendly URLs**: Source links use `/raw/` format (302 redirect) by default; use `--browsable-urls` for `/blob/`
 - **Fields-only mode**: Show only type info (source URL, docs) without member tables via `--fields-only`
 - **Multiple output formats**: Markdown tables, tree view, signatures-only, or JSON
 - **Smart TFM selection**: Auto-selects highest target framework when multiple exist

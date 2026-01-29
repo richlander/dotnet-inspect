@@ -308,6 +308,7 @@ public static class CommandLineBuilder
         };
         memberOption.Aliases.Add("--member");
         var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
+        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
@@ -325,6 +326,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(ctorOption);
         apiCommand.Options.Add(limitOption);
         apiCommand.Options.Add(docsOption);
+        apiCommand.Options.Add(browsableUrlsOption);
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
         apiCommand.Options.Add(signaturesOnlyOption);
@@ -362,6 +364,7 @@ public static class CommandLineBuilder
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
                 ShowDocs = parseResult.GetValue(docsOption),
+                BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),

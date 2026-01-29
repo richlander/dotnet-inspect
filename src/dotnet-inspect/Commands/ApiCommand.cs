@@ -423,10 +423,14 @@ public class ApiCommand
                         logger.Log("No type documentation found (partial class - docs may be in another file).");
                     }
 
-                    // Parse member documentation if filtering by member
-                    if (options.MemberFilter?.Count > 0 && apiType.Members != null)
+                    // Parse member documentation for all members when --docs is specified
+                    if (apiType.Members != null)
                     {
-                        foreach (var member in apiType.Members.Where(m => options.MemberFilter.Contains(m.Name)))
+                        var membersToDocument = options.MemberFilter?.Count > 0
+                            ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
+                            : apiType.Members;
+
+                        foreach (var member in membersToDocument)
                         {
                             var memberDoc = parser.ExtractMemberDocComment(sourceContent, apiType.Name, member.Name);
                             if (memberDoc != null)
@@ -1025,15 +1029,12 @@ public class ApiCommand
             sb.AppendLine($"*from {foundIn}*");
         }
 
-        // Show source link if available
+        // Show source link if available (raw URL by default for LLM consumption, blob if --browsable-urls)
         if (type.GitHubBrowseUrl != null)
         {
             sb.AppendLine();
-            string fileName = Path.GetFileName(type.SourceFilePath ?? "source");
-            string linkText = type.SourceLineNumber.HasValue
-                ? $"{fileName}:{type.SourceLineNumber}"
-                : fileName;
-            sb.AppendLine($"**Source:** [{linkText}]({type.GitHubBrowseUrl})");
+            var sourceUrl = options.BrowsableUrls ? ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl;
+            sb.AppendLine($"**Source:** {sourceUrl}");
         }
 
         // Show documentation summary if available
@@ -1043,7 +1044,7 @@ public class ApiCommand
             sb.AppendLine($"> {type.Documentation.Summary}");
         }
 
-        // Show sample references if available
+        // Show sample references if available (raw URLs by default for LLM consumption, blob if --browsable-urls)
         if (options.ShowDocs && type.Documentation?.Samples?.Count > 0)
         {
             sb.AppendLine();
@@ -1052,11 +1053,16 @@ public class ApiCommand
             {
                 var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
                 var url = sample.ResolvedUrl != null 
-                    ? ConvertToGitHubBrowseUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
+                    ? ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
                     : sample.RelativePath;
                 
+                if (options.BrowsableUrls && url != sample.RelativePath)
+                {
+                    url = ConvertRawToBlobUrl(url);
+                }
+                
                 var regionInfo = sample.Region != null ? $" (region: `{sample.Region}`)" : "";
-                sb.AppendLine($"- [{description}]({url}){regionInfo}");
+                sb.AppendLine($"- {description}: {url}{regionInfo}");
             }
         }
 
@@ -1845,19 +1851,29 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Converts a raw GitHub URL to a browsable GitHub URL.
+    /// Converts a raw GitHub URL to a github.com/raw URL.
+    /// Uses /raw/ format which redirects (302) to raw content but is easy to convert to /blob/ for browsing.
     /// </summary>
-    private static string? ConvertToGitHubBrowseUrl(string rawUrl)
+    private static string? ConvertToGitHubRawUrl(string rawUrl)
     {
         // https://raw.githubusercontent.com/user/repo/commit/path
-        // -> https://github.com/user/repo/blob/commit/path
+        // -> https://github.com/user/repo/raw/commit/path
         if (rawUrl.StartsWith("https://raw.githubusercontent.com/"))
         {
             return rawUrl
                 .Replace("https://raw.githubusercontent.com/", "https://github.com/")
-                .Replace($"/{GetCommitFromUrl(rawUrl)}/", $"/blob/{GetCommitFromUrl(rawUrl)}/");
+                .Replace($"/{GetCommitFromUrl(rawUrl)}/", $"/raw/{GetCommitFromUrl(rawUrl)}/");
         }
         return rawUrl;
+    }
+
+    /// <summary>
+    /// Converts a github.com/raw URL to a github.com/blob URL for browser viewing.
+    /// </summary>
+    private static string ConvertRawToBlobUrl(string url)
+    {
+        // https://github.com/user/repo/raw/commit/path -> https://github.com/user/repo/blob/commit/path
+        return url.Replace("/raw/", "/blob/");
     }
 
     private static string? GetCommitFromUrl(string url)
@@ -1884,6 +1900,7 @@ public record ApiOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string>? MemberFilter { get; init; }
     public bool ShowDocs { get; init; }
+    public bool BrowsableUrls { get; init; }
     public bool ShowInterfaces { get; init; }
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }

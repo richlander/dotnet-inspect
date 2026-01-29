@@ -213,4 +213,110 @@ public class DocCommentParserTests
         Assert.Equal("../samples/Demo.fs", result.Samples[0].RelativePath);
         Assert.Equal("../samples/Script.fsx", result.Samples[1].RelativePath);
     }
+
+    [Fact]
+    public void ExtractMemberDocComment_ParsesPropertyDoc()
+    {
+        var source = """
+            public class TreeNode
+            {
+                /// <summary>
+                /// The display text for this node.
+                /// </summary>
+                public string Label { get; set; }
+            }
+            """;
+
+        var result = _parser.ExtractMemberDocComment(source, "TreeNode", "Label");
+
+        Assert.NotNull(result);
+        Assert.Equal("The display text for this node.", result.Summary);
+    }
+
+    [Fact]
+    public void ExtractMemberDocComment_ParsesConstructorDoc()
+    {
+        var source = """
+            public class TreeNode
+            {
+                /// <summary>
+                /// Creates a tree node with an optional list of children.
+                /// </summary>
+                public TreeNode(string label, IEnumerable<TreeNode>? children = null)
+                {
+                    Label = label;
+                }
+            }
+            """;
+
+        var result = _parser.ExtractMemberDocComment(source, "TreeNode", ".ctor");
+
+        Assert.NotNull(result);
+        Assert.Equal("Creates a tree node with an optional list of children.", result.Summary);
+    }
+
+    [Fact]
+    public void ExtractMemberDocComment_ParsesMethodDoc()
+    {
+        var source = """
+            public class JsonSerializer
+            {
+                /// <summary>
+                /// Serializes the specified object to a JSON string.
+                /// </summary>
+                /// <param name="value">The object to serialize.</param>
+                /// <returns>A JSON string representation of the object.</returns>
+                public string Serialize(object value) => "";
+            }
+            """;
+
+        var result = _parser.ExtractMemberDocComment(source, "JsonSerializer", "Serialize");
+
+        Assert.NotNull(result);
+        Assert.Equal("Serializes the specified object to a JSON string.", result.Summary);
+        Assert.NotNull(result.Parameters);
+        Assert.Equal("The object to serialize.", result.Parameters["value"]);
+        Assert.Equal("A JSON string representation of the object.", result.Returns);
+    }
+
+    [Fact]
+    public void ExtractMemberDocComment_ParsesMemberWithSamples()
+    {
+        var source = """
+            public class Writer
+            {
+                /// <summary>
+                /// Writes a tree structure.
+                /// </summary>
+                /// <example>
+                ///   <code lang="cs" source="../../samples/Demo.cs" region="WriteTree" title="Tree example" />
+                /// </example>
+                public void WriteTree(TreeNode root) { }
+            }
+            """;
+
+        var result = _parser.ExtractMemberDocComment(source, "Writer", "WriteTree");
+
+        Assert.NotNull(result);
+        Assert.Equal("Writes a tree structure.", result.Summary);
+        Assert.NotNull(result.Samples);
+        Assert.Single(result.Samples);
+        Assert.Equal("../../samples/Demo.cs", result.Samples[0].RelativePath);
+        Assert.Equal("WriteTree", result.Samples[0].Region);
+    }
+
+    [Fact]
+    public void ExtractMemberDocComment_ReturnsNullForUndocumentedMember()
+    {
+        var source = """
+            public class Simple
+            {
+                public int Value { get; set; }
+            }
+            """;
+
+        var result = _parser.ExtractMemberDocComment(source, "Simple", "Value");
+
+        Assert.Null(result);
+    }
 }

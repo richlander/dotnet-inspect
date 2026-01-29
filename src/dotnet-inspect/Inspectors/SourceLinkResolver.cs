@@ -91,9 +91,9 @@ public class SourceLinkResolver
                 }
             }
 
-            // Apply SourceLink mapping
+            // Apply SourceLink mapping (no line number for type-level URLs - they're not useful)
             string? sourceUrl = ApplySourceLinkMapping(filePath);
-            string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl, lineNumber);
+            string? browseUrl = ConvertToGitHubRawUrl(sourceUrl);
 
             return new TypeSourceInfo(filePath, sourceUrl, lineNumber, browseUrl);
         }
@@ -138,15 +138,17 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// Converts a raw.githubusercontent.com URL to a github.com browse URL with line number.
+    /// Converts a raw.githubusercontent.com URL to a github.com/raw URL.
+    /// Uses /raw/ format which redirects to raw content but is easy to convert to /blob/ for browsing.
+    /// Line numbers are not included for type-level URLs since they point to arbitrary members.
     /// </summary>
-    private static string? ConvertToGitHubBrowseUrl(string? rawUrl, int? lineNumber)
+    private static string? ConvertToGitHubRawUrl(string? rawUrl)
     {
         if (rawUrl == null)
             return null;
 
         // Convert raw.githubusercontent.com/owner/repo/commit/path
-        // to github.com/owner/repo/blob/commit/path#L123
+        // to github.com/owner/repo/raw/commit/path
         var match = Regex.Match(rawUrl,
             @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
 
@@ -157,18 +159,7 @@ public class SourceLinkResolver
             string commit = match.Groups[3].Value;
             string path = match.Groups[4].Value;
 
-            string browseUrl = $"https://github.com/{owner}/{repo}/blob/{commit}/{path}";
-            if (lineNumber.HasValue)
-            {
-                browseUrl += $"#L{lineNumber}";
-            }
-            return browseUrl;
-        }
-
-        // For Azure DevOps or other providers, just append line number if present
-        if (lineNumber.HasValue && !rawUrl.Contains('#'))
-        {
-            return rawUrl + $"#L{lineNumber}";
+            return $"https://github.com/{owner}/{repo}/raw/{commit}/{path}";
         }
 
         return rawUrl;

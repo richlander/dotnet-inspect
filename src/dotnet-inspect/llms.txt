@@ -45,6 +45,7 @@ dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  #
 dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete members
 dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Filter to unsafe methods
 dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # Fetch documentation from source
+dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs --browsable-urls  # Docs with /blob/ URLs for browsers
 dotnet-inspect api JsonSerializer --package Newtonsoft.Json --fields-only  # Source URL only, no members
 dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
 ```
@@ -116,8 +117,9 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - `--unsafe` filters to methods with pointer signatures (methods requiring unsafe context to call)
 - `--ctor` shows constructors with enhanced output (parameter details, required vs optional)
 - `--docs` fetches XML documentation comments from source via SourceLink
+- `--browsable-urls` switches URLs from `/raw/` (302 redirect, LLM-friendly) to `/blob/` (browser-friendly)
 - `--fields-only` shows only type info (source URL, docs) without member tables
-- SourceLink URL is automatically shown for types when PDB with SourceLink is available
+- Source URLs use `/raw/` format by default, which returns raw file content via 302 redirect
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
 
