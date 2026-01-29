@@ -131,6 +131,11 @@ public class SamplesCommand
         string? assemblyName,
         VerboseLogger logger)
     {
+        // Sort samples by URL for consistent ordering between --list and full output
+        samples = samples
+            .OrderBy(s => s.Sample.ResolvedUrl ?? s.Sample.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         // Handle --print N: print specific sample as raw code
         if (options.PrintSample.HasValue)
         {
@@ -171,6 +176,9 @@ public class SamplesCommand
         return 0;
     }
 
+    private const int BatchSize = 10;
+    private const int InterBatchDelayMs = 50;
+
     private static async Task<int> PrintAllSamplesAsync(
         List<TypedSample> samples, 
         string? packageName, 
@@ -179,44 +187,65 @@ public class SamplesCommand
         VerboseLogger logger)
     {
         var fetcher = new SourceFetcher();
-        var sb = new StringBuilder();
 
-        // H1 title
+        // H1 title - output immediately
         var title = assemblyName ?? packageName ?? "Samples";
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
             : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
-        sb.AppendLine($"# Samples: {title}{packageInfo}");
-        sb.AppendLine();
+        Console.WriteLine($"# Samples: {title}{packageInfo}");
+        Console.WriteLine();
 
-        for (int i = 0; i < samples.Count; i++)
+        // Process samples in batches for parallel fetching with progressive output
+        for (int batchStart = 0; batchStart < samples.Count; batchStart += BatchSize)
         {
-            var typedSample = samples[i];
-            var sample = typedSample.Sample;
-            var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
-            var regionInfo = sample.Region != null ? $" (region: {sample.Region})" : "";
-            var typeInfo = typedSample.TypeName;
+            var batchEnd = Math.Min(batchStart + BatchSize, samples.Count);
+            var batch = samples.Skip(batchStart).Take(batchEnd - batchStart).ToList();
 
-            // Numbered section header with type info
-            sb.AppendLine($"## {i + 1}. {description} [{typeInfo}]{regionInfo}");
-            sb.AppendLine();
+            logger.Log($"Fetching batch {batchStart / BatchSize + 1}: samples {batchStart + 1}-{batchEnd}");
 
-            var content = await FetchSampleContentAsync(fetcher, sample, logger);
-            if (content != null)
+            // Fetch all samples in this batch in parallel
+            var fetchTasks = batch.Select(async (typedSample, batchIndex) =>
             {
-                var lang = GetLanguageFromPath(sample.RelativePath);
-                sb.AppendLine($"```{lang}");
-                sb.AppendLine(content);
-                sb.AppendLine("```");
-            }
-            else
+                var content = await FetchSampleContentAsync(fetcher, typedSample.Sample, logger);
+                return (Index: batchStart + batchIndex, TypedSample: typedSample, Content: content);
+            }).ToList();
+
+            var results = await Task.WhenAll(fetchTasks);
+
+            // Output results in order (already sorted by index)
+            foreach (var result in results.OrderBy(r => r.Index))
             {
-                sb.AppendLine("*Failed to fetch sample content*");
+                var sample = result.TypedSample.Sample;
+                var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
+                var regionInfo = sample.Region != null ? $" (region: {sample.Region})" : "";
+                var typeInfo = result.TypedSample.TypeName;
+
+                // Numbered section header with type info
+                Console.WriteLine($"## {result.Index + 1}. {description} [{typeInfo}]{regionInfo}");
+                Console.WriteLine();
+
+                if (result.Content != null)
+                {
+                    var lang = GetLanguageFromPath(sample.RelativePath);
+                    Console.WriteLine($"```{lang}");
+                    Console.WriteLine(result.Content);
+                    Console.WriteLine("```");
+                }
+                else
+                {
+                    Console.WriteLine("*Failed to fetch sample content*");
+                }
+                Console.WriteLine();
             }
-            sb.AppendLine();
+
+            // Small delay between batches to reduce contention
+            if (batchEnd < samples.Count)
+            {
+                await Task.Delay(InterBatchDelayMs);
+            }
         }
 
-        Console.WriteLine(sb.ToString().TrimEnd());
         return 0;
     }
 
