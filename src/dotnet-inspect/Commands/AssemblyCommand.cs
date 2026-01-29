@@ -28,6 +28,14 @@ public class AssemblyCommand
 
         try
         {
+            // Parse package name and version for symbol package download
+            string? packageName = null;
+            string? packageVersion = null;
+            if (!string.IsNullOrEmpty(options.PackagePath))
+            {
+                (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+            }
+
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
@@ -44,7 +52,10 @@ public class AssemblyCommand
                 bool first = true;
                 foreach (var targetPath in assemblyPaths)
                 {
-                    var audit = InspectAssembly(targetPath, options, logger);
+                    // Extract version from path if not already known
+                    var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
+
+                    var audit = await InspectAssemblyAsync(targetPath, options, logger, packageName, version);
                     if (audit == null)
                     {
                         logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
@@ -71,7 +82,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                var audit = InspectAssembly(assemblyPath!, options, logger);
+                var audit = await InspectAssemblyAsync(assemblyPath!, options, logger, null, null);
                 if (audit == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read assembly: {assemblyPath}");
@@ -337,7 +348,12 @@ public class AssemblyCommand
         return null;
     }
 
-    private static AssemblyAudit? InspectAssembly(string path, AssemblyOptions options, VerboseLogger logger)
+    private static async Task<AssemblyAudit?> InspectAssemblyAsync(
+        string path,
+        AssemblyOptions options,
+        VerboseLogger logger,
+        string? packageName,
+        string? packageVersion)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -364,7 +380,7 @@ public class AssemblyCommand
             // Audit if requested
             if (options.IncludeAudit)
             {
-                AuditAssembly(peReader, audit, path);
+                await AuditAssemblyAsync(peReader, audit, path, packageName, packageVersion, logger);
             }
 
             return audit;
@@ -407,7 +423,13 @@ public class AssemblyCommand
         return audit;
     }
 
-    private static void AuditAssembly(PEReader peReader, AssemblyAudit audit, string assemblyPath)
+    private static async Task AuditAssemblyAsync(
+        PEReader peReader,
+        AssemblyAudit audit,
+        string assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        VerboseLogger logger)
     {
         foreach (var entry in peReader.ReadDebugDirectory())
         {
@@ -467,10 +489,39 @@ public class AssemblyCommand
                 {
                     audit.PdbFormat = "Portable";
                     audit.PdbLocation = "Standalone";
+                    // Try to extract SourceLink from standalone PDB
+                    audit.SourceLinkJson = ExtractSourceLinkFromFile(pdbPath);
+                    audit.HasSourceLink = audit.SourceLinkJson != null;
                 }
             }
-            // If no embedded or standalone PDB, location is unknown
-            // (PdbPath from CodeView entry tells us what the build expected, not where it actually is)
+            else
+            {
+                // No local PDB - try to fetch from symbol package or symbol server
+                var symbolDownloader = new SymbolPackageDownloader();
+                var pdbResult = await symbolDownloader.GetPdbReaderAsync(
+                    peReader, assemblyPath, packageName, packageVersion, logger.Log);
+
+                if (pdbResult.Reader != null && pdbResult.Provider != null)
+                {
+                    using var _ = pdbResult.Provider;
+                    audit.PdbFormat = "Portable";
+                    audit.PdbLocation = "Symbol Package";
+
+                    string? sourceLink = ExtractSourceLink(pdbResult.Reader);
+                    if (sourceLink != null)
+                    {
+                        audit.HasSourceLink = true;
+                        audit.SourceLinkJson = sourceLink;
+                    }
+                }
+                else if (pdbResult.WindowsPdbDetected)
+                {
+                    audit.WindowsPdbDetected = true;
+                    audit.PdbFormat = "Windows";
+                    // Location unknown - we found it but can't read it
+                }
+                // else: no PDB found, leave Format and Location as null (Unknown)
+            }
         }
 
         audit.IsDeterministic = audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
@@ -492,6 +543,24 @@ public class AssemblyCommand
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Extracts SourceLink JSON from a standalone Portable PDB file.
+    /// </summary>
+    private static string? ExtractSourceLinkFromFile(string pdbPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(pdbPath);
+            using var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
+            var reader = provider.GetMetadataReader();
+            return ExtractSourceLink(reader);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -722,5 +791,78 @@ public class AssemblyCommand
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Parses a package reference like "PackageName@1.0.0" or "PackageName" or "path/to/package.nupkg"
+    /// </summary>
+    private static (string? name, string? version) ParsePackageReference(string packageSource)
+    {
+        // Local file - try to extract from filename
+        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+        {
+            var fileName = Path.GetFileNameWithoutExtension(packageSource);
+            return ParsePackageFileName(fileName);
+        }
+
+        // Package name with optional version: "PackageName@1.0.0" or "PackageName"
+        int atIndex = packageSource.IndexOf('@');
+        if (atIndex > 0)
+        {
+            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
+        }
+
+        // Just package name - version will need to be resolved
+        return (packageSource, null);
+    }
+
+    /// <summary>
+    /// Attempts to parse a package file name like "Microsoft.Extensions.Logging.8.0.0"
+    /// </summary>
+    private static (string? name, string? version) ParsePackageFileName(string fileName)
+    {
+        // Find the version part (first segment that starts with a digit)
+        var parts = fileName.Split('.');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
+            {
+                var name = string.Join(".", parts.Take(i));
+                var version = string.Join(".", parts.Skip(i));
+                return (name, version);
+            }
+        }
+        return (fileName, null);
+    }
+
+    /// <summary>
+    /// Extracts version from a cached package path.
+    /// Path format: .../packages/packagename/version/lib/tfm/assembly.dll
+    /// </summary>
+    private static string? ExtractVersionFromPath(string dllPath, string packageName)
+    {
+        var normalizedPath = dllPath.Replace('\\', '/');
+        var normalizedPackageName = packageName.ToLowerInvariant();
+
+        // Look for pattern: /packagename/version/
+        var searchPattern = $"/{normalizedPackageName}/";
+        var index = normalizedPath.ToLowerInvariant().IndexOf(searchPattern, StringComparison.Ordinal);
+        if (index < 0)
+            return null;
+
+        // Extract what comes after the package name
+        var afterPackage = normalizedPath[(index + searchPattern.Length)..];
+        var nextSlash = afterPackage.IndexOf('/');
+        if (nextSlash > 0)
+        {
+            var possibleVersion = afterPackage[..nextSlash];
+            // Verify it looks like a version (starts with digit)
+            if (possibleVersion.Length > 0 && char.IsDigit(possibleVersion[0]))
+            {
+                return possibleVersion;
+            }
+        }
+
+        return null;
     }
 }
