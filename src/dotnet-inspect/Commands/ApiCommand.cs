@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -397,90 +398,228 @@ public class ApiCommand
                 apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
                 apiType.SourceLineNumber = sourceInfo.LineNumber;
                 apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
+                
+                // Copy additional source files for partial types
+                if (sourceInfo.AdditionalSourceFiles?.Count > 0)
+                {
+                    apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
+                        .Select(f => new PartialSourceFileInfo
+                        {
+                            FilePath = f.FilePath,
+                            SourceUrl = f.SourceUrl,
+                            GitHubBrowseUrl = f.GitHubBrowseUrl
+                        })
+                        .ToList();
+                    logger.Log($"Found partial type with {sourceInfo.AdditionalSourceFiles.Count + 1} source files");
+                }
+                
                 logger.Log($"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
             }
 
             // Fetch docs if requested
             if (options.ShowDocs && sourceInfo?.SourceUrl != null)
             {
-                logger.Log($"Fetching source from: {sourceInfo.SourceUrl}");
                 var fetcher = new SourceFetcher();
-                string? sourceContent = await fetcher.FetchSourceAsync(sourceInfo.SourceUrl);
-
-                if (sourceContent != null)
+                var parser = new DocCommentParser();
+                
+                // Collect all source files to fetch (primary + additional for partial types)
+                var sourceFilesToFetch = new List<(string Url, string FilePath)>
                 {
-                    logger.Log($"Fetched {sourceContent.Length} bytes of source");
-                    var parser = new DocCommentParser();
-
-                    // Check if this is a partial class (may not have class-level docs in this file)
-                    bool isPartialClass = sourceContent.Contains("partial class") || 
-                                          sourceContent.Contains("partial struct") ||
-                                          sourceContent.Contains("partial interface");
-
-                    // Parse type documentation
-                    var typeDoc = parser.ExtractTypeDocComment(sourceContent, apiType.Name);
-                    if (typeDoc != null)
+                    (sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? "")
+                };
+                
+                if (sourceInfo.AdditionalSourceFiles != null)
+                {
+                    foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
                     {
-                        apiType.Documentation = new DocComment
+                        if (additionalFile.SourceUrl != null)
                         {
-                            Summary = typeDoc.Summary,
-                            Remarks = typeDoc.Remarks,
-                            Parameters = typeDoc.Parameters,
-                            Returns = typeDoc.Returns,
-                            Samples = typeDoc.Samples?.Select(s => new SampleReference
-                            {
-                                RelativePath = s.RelativePath,
-                                Description = s.Description,
-                                Region = s.Region,
-                                ResolvedUrl = ResolveSampleUrl(sourceInfo.SourceUrl, s.RelativePath)
-                            }).ToList()
-                        };
-                        logger.Log("Extracted type documentation.");
-                    }
-                    else if (isPartialClass)
-                    {
-                        logger.Log("No type documentation found (partial class - docs may be in another file).");
-                    }
-
-                    // Parse member documentation for all members when --docs is specified
-                    if (apiType.Members != null)
-                    {
-                        var membersToDocument = options.MemberFilter?.Count > 0
-                            ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
-                            : apiType.Members;
-
-                        foreach (var member in membersToDocument)
-                        {
-                            var memberDoc = parser.ExtractMemberDocComment(sourceContent, apiType.Name, member.Name);
-                            if (memberDoc != null)
-                            {
-                                member.Documentation = new DocComment
-                                {
-                                    Summary = memberDoc.Summary,
-                                    Remarks = memberDoc.Remarks,
-                                    Parameters = memberDoc.Parameters,
-                                    Returns = memberDoc.Returns,
-                                    Samples = memberDoc.Samples?.Select(s => new SampleReference
-                                    {
-                                        RelativePath = s.RelativePath,
-                                        Description = s.Description,
-                                        Region = s.Region,
-                                        ResolvedUrl = ResolveSampleUrl(sourceInfo.SourceUrl, s.RelativePath)
-                                    }).ToList()
-                                };
-                            }
+                            sourceFilesToFetch.Add((additionalFile.SourceUrl, additionalFile.FilePath));
                         }
                     }
                 }
-                else
+                
+                // Fetch and parse all source files
+                var allSourceContents = new List<(string Content, string Url, string FilePath)>();
+                string? primaryNamespace = null;
+                bool isPrimaryPartial = false;
+                
+                foreach (var (url, filePath) in sourceFilesToFetch)
                 {
-                    logger.Log($"Could not fetch source from: {sourceInfo.SourceUrl}");
+                    logger.Log($"Fetching source from: {url}");
+                    string? content = await fetcher.FetchSourceAsync(url);
+                    
+                    if (content != null)
+                    {
+                        logger.Log($"Fetched {content.Length} bytes from {Path.GetFileName(filePath)}");
+                        
+                        // For the first file (primary), check if it's partial and get namespace
+                        if (allSourceContents.Count == 0)
+                        {
+                            isPrimaryPartial = IsPartialTypeDeclaration(content, apiType.Name);
+                            primaryNamespace = ExtractNamespace(content);
+                            allSourceContents.Add((content, url, filePath));
+                        }
+                        else if (isPrimaryPartial)
+                        {
+                            // For additional files, validate they match the same partial type
+                            bool isMatchingPartial = IsPartialTypeDeclaration(content, apiType.Name);
+                            string? fileNamespace = ExtractNamespace(content);
+                            
+                            if (isMatchingPartial && fileNamespace == primaryNamespace)
+                            {
+                                allSourceContents.Add((content, url, filePath));
+                                logger.Log($"Validated matching partial in {Path.GetFileName(filePath)}");
+                            }
+                            else
+                            {
+                                logger.Log($"Skipping {Path.GetFileName(filePath)} - not a matching partial type");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        logger.Log($"Could not fetch source from: {url}");
+                    }
+                }
+                
+                if (allSourceContents.Count > 0)
+                {
+                    // Parse and merge documentation from all source files
+                    await MergePartialTypeDocumentation(apiType, allSourceContents, parser, options, logger);
                 }
             }
         }
         catch (Exception ex)
         {
             logger.Log($"Error enriching source info: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// Checks if the source content contains a partial type declaration for the given type name.
+    /// </summary>
+    private static bool IsPartialTypeDeclaration(string sourceContent, string typeName)
+    {
+        // Match patterns like "partial class JObject", "partial struct Foo", "partial interface IBar"
+        var pattern = $@"\bpartial\s+(?:class|struct|interface|record)\s+{Regex.Escape(typeName)}\b";
+        return Regex.IsMatch(sourceContent, pattern);
+    }
+    
+    /// <summary>
+    /// Extracts the namespace from source content.
+    /// </summary>
+    private static string? ExtractNamespace(string sourceContent)
+    {
+        // Match "namespace Foo.Bar" or "namespace Foo.Bar;" (file-scoped)
+        var match = Regex.Match(sourceContent, @"^\s*namespace\s+([\w.]+)", RegexOptions.Multiline);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+    
+    /// <summary>
+    /// Merges documentation from multiple partial type source files.
+    /// </summary>
+    private static async Task MergePartialTypeDocumentation(
+        ApiType apiType,
+        List<(string Content, string Url, string FilePath)> sourceContents,
+        DocCommentParser parser,
+        ApiOptions options,
+        VerboseLogger logger)
+    {
+        await Task.CompletedTask; // Make async for future enhancements
+        
+        DocComment? mergedTypeDoc = null;
+        var allSamples = new List<SampleReference>();
+        
+        // Process each source file
+        foreach (var (content, url, filePath) in sourceContents)
+        {
+            // Try to extract type documentation
+            var typeDoc = parser.ExtractTypeDocComment(content, apiType.Name);
+            if (typeDoc != null)
+            {
+                // First type doc found becomes the base, or merge if we already have one
+                if (mergedTypeDoc == null)
+                {
+                    mergedTypeDoc = new DocComment
+                    {
+                        Summary = typeDoc.Summary,
+                        Remarks = typeDoc.Remarks,
+                        Parameters = typeDoc.Parameters,
+                        Returns = typeDoc.Returns
+                    };
+                    logger.Log($"Found type docs in {Path.GetFileName(filePath)}");
+                }
+                else
+                {
+                    // Merge: prefer existing values, but fill in blanks
+                    mergedTypeDoc.Summary ??= typeDoc.Summary;
+                    mergedTypeDoc.Remarks ??= typeDoc.Remarks;
+                    mergedTypeDoc.Returns ??= typeDoc.Returns;
+                    if (typeDoc.Parameters != null)
+                    {
+                        mergedTypeDoc.Parameters ??= new Dictionary<string, string>();
+                        foreach (var (key, value) in typeDoc.Parameters)
+                        {
+                            mergedTypeDoc.Parameters.TryAdd(key, value);
+                        }
+                    }
+                    logger.Log($"Merged additional type docs from {Path.GetFileName(filePath)}");
+                }
+                
+                // Collect samples from this file
+                if (typeDoc.Samples != null)
+                {
+                    allSamples.AddRange(typeDoc.Samples.Select(s => new SampleReference
+                    {
+                        RelativePath = s.RelativePath,
+                        Description = s.Description,
+                        Region = s.Region,
+                        ResolvedUrl = ResolveSampleUrl(url, s.RelativePath)
+                    }));
+                }
+            }
+            
+            // Parse member documentation
+            if (apiType.Members != null)
+            {
+                var membersToDocument = options.MemberFilter?.Count > 0
+                    ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
+                    : apiType.Members;
+
+                foreach (var member in membersToDocument)
+                {
+                    // Only set if not already documented (first file wins for each member)
+                    if (member.Documentation == null)
+                    {
+                        var memberDoc = parser.ExtractMemberDocComment(content, apiType.Name, member.Name);
+                        if (memberDoc != null)
+                        {
+                            member.Documentation = new DocComment
+                            {
+                                Summary = memberDoc.Summary,
+                                Remarks = memberDoc.Remarks,
+                                Parameters = memberDoc.Parameters,
+                                Returns = memberDoc.Returns,
+                                Samples = memberDoc.Samples?.Select(s => new SampleReference
+                                {
+                                    RelativePath = s.RelativePath,
+                                    Description = s.Description,
+                                    Region = s.Region,
+                                    ResolvedUrl = ResolveSampleUrl(url, s.RelativePath)
+                                }).ToList()
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Set the merged type documentation
+        if (mergedTypeDoc != null)
+        {
+            mergedTypeDoc.Samples = allSamples.Count > 0 ? allSamples : null;
+            apiType.Documentation = mergedTypeDoc;
         }
     }
 
@@ -1078,6 +1217,12 @@ public class ApiCommand
             if (type.SourceResolution != null)
             {
                 sb.AppendLine($"**Source Resolution:** {type.SourceResolution}");
+            }
+            
+            // Show additional source files for partial types
+            if (type.IsPartialType && type.AdditionalSourceFiles != null)
+            {
+                sb.AppendLine($"**Partial Type:** {type.AdditionalSourceFiles.Count + 1} source files");
             }
         }
 

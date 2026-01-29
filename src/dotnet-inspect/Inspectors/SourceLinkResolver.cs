@@ -29,6 +29,27 @@ public class SourceLinkResolver
         int? LineNumber,
         string? GitHubBrowseUrl,
         SourceResolutionMethod ResolutionMethod = SourceResolutionMethod.SourceLink
+    )
+    {
+        /// <summary>
+        /// Additional source files for partial types (e.g., JObject.Async.cs alongside JObject.cs).
+        /// Only populated when type has multiple source files.
+        /// </summary>
+        public List<PartialSourceFile>? AdditionalSourceFiles { get; init; }
+        
+        /// <summary>
+        /// Indicates whether this type is defined across multiple partial files.
+        /// </summary>
+        public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
+    }
+    
+    /// <summary>
+    /// Represents a source file that is part of a partial type definition.
+    /// </summary>
+    public record PartialSourceFile(
+        string FilePath,
+        string? SourceUrl,
+        string? GitHubBrowseUrl
     );
 
     private SourceLinkResolver(Dictionary<string, string> documentMappings)
@@ -56,29 +77,131 @@ public class SourceLinkResolver
     /// <summary>
     /// Resolves source information for a type by finding a method with debug info.
     /// Falls back to document name matching for interfaces/abstract types without implementations.
+    /// Also collects all source files for partial types.
     /// </summary>
     public TypeSourceInfo? ResolveTypeSource(MetadataReader metadata, MetadataReader pdb, TypeDefinitionHandle typeHandle)
     {
         var typeDef = metadata.GetTypeDefinition(typeHandle);
         var typeName = metadata.GetString(typeDef.Name);
 
-        // First, try to find a method with debug info (works for classes with implementations)
-        // Only consider methods that have actual bodies (RVA != 0)
+        // Collect ALL unique source files from all methods of this type
+        var allSourceFiles = CollectAllSourceFiles(metadata, pdb, typeHandle);
+        
+        // Also check PDB documents for files matching the type name pattern
+        // This catches files that may not have any methods (e.g., partial with only fields)
+        var documentFiles = FindDocumentsMatchingTypeName(pdb, typeName);
+        foreach (var docFile in documentFiles)
+        {
+            if (!allSourceFiles.ContainsKey(docFile.FilePath))
+            {
+                allSourceFiles[docFile.FilePath] = docFile;
+            }
+        }
+
+        if (allSourceFiles.Count == 0)
+        {
+            // Fallback: search all documents for a file that matches the type name
+            // This works for interfaces and abstract types that have no method implementations
+            return ResolveTypeSourceByDocumentName(pdb, typeName);
+        }
+
+        // Determine the primary file (prefer {TypeName}.cs over {TypeName}.*.cs)
+        var primaryFile = SelectPrimarySourceFile(allSourceFiles.Values.ToList(), typeName);
+        
+        // Build additional source files list (excluding primary)
+        List<PartialSourceFile>? additionalFiles = null;
+        if (allSourceFiles.Count > 1)
+        {
+            additionalFiles = allSourceFiles.Values
+                .Where(f => f.FilePath != primaryFile.FilePath)
+                .Select(f => new PartialSourceFile(f.FilePath, f.SourceUrl, f.GitHubBrowseUrl))
+                .ToList();
+        }
+
+        return new TypeSourceInfo(
+            primaryFile.FilePath,
+            primaryFile.SourceUrl,
+            null, // Line number not meaningful for type-level
+            primaryFile.GitHubBrowseUrl,
+            SourceResolutionMethod.SourceLink
+        )
+        {
+            AdditionalSourceFiles = additionalFiles
+        };
+    }
+    
+    /// <summary>
+    /// Collects all unique source files from all methods of a type.
+    /// </summary>
+    private Dictionary<string, PartialSourceFile> CollectAllSourceFiles(
+        MetadataReader metadata, MetadataReader pdb, TypeDefinitionHandle typeHandle)
+    {
+        var sourceFiles = new Dictionary<string, PartialSourceFile>(StringComparer.OrdinalIgnoreCase);
+        var typeDef = metadata.GetTypeDefinition(typeHandle);
+
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = metadata.GetMethodDefinition(methodHandle);
-            // Skip methods without bodies (interface methods, abstract methods)
             if (method.RelativeVirtualAddress == 0)
                 continue;
-                
+
             var sourceInfo = ResolveMethodSource(pdb, methodHandle);
-            if (sourceInfo != null)
-                return sourceInfo;
+            if (sourceInfo?.SourceFilePath != null && !sourceFiles.ContainsKey(sourceInfo.SourceFilePath))
+            {
+                sourceFiles[sourceInfo.SourceFilePath] = new PartialSourceFile(
+                    sourceInfo.SourceFilePath,
+                    sourceInfo.SourceUrl,
+                    sourceInfo.GitHubBrowseUrl
+                );
+            }
         }
 
-        // Fallback: search all documents for a file that matches the type name
-        // This works for interfaces and abstract types that have no method implementations
-        return ResolveTypeSourceByDocumentName(pdb, typeName);
+        return sourceFiles;
+    }
+    
+    /// <summary>
+    /// Finds PDB documents matching the type name pattern (e.g., JObject.cs, JObject.Async.cs).
+    /// </summary>
+    private List<PartialSourceFile> FindDocumentsMatchingTypeName(MetadataReader pdb, string typeName)
+    {
+        var matches = new List<PartialSourceFile>();
+        
+        foreach (var docHandle in pdb.Documents)
+        {
+            var document = pdb.GetDocument(docHandle);
+            string filePath = pdb.GetString(document.Name);
+            string fileName = Path.GetFileName(filePath);
+            
+            // Match {TypeName}.cs or {TypeName}.*.cs patterns
+            if (fileName.Equals($"{typeName}.cs", StringComparison.OrdinalIgnoreCase) ||
+                (fileName.StartsWith($"{typeName}.", StringComparison.OrdinalIgnoreCase) && 
+                 fileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
+            {
+                string? sourceUrl = ApplySourceLinkMapping(filePath);
+                string? browseUrl = ConvertToGitHubRawUrl(sourceUrl);
+                matches.Add(new PartialSourceFile(filePath, sourceUrl, browseUrl));
+            }
+        }
+
+        return matches;
+    }
+    
+    /// <summary>
+    /// Selects the primary source file from a list of candidates.
+    /// Prefers {TypeName}.cs over {TypeName}.*.cs patterns.
+    /// </summary>
+    private static PartialSourceFile SelectPrimarySourceFile(List<PartialSourceFile> files, string typeName)
+    {
+        // Prefer exact match: {TypeName}.cs
+        var primaryPattern = $"{typeName}.cs";
+        var primary = files.FirstOrDefault(f => 
+            Path.GetFileName(f.FilePath).Equals(primaryPattern, StringComparison.OrdinalIgnoreCase));
+        
+        if (primary != null)
+            return primary;
+
+        // Otherwise, return the first one (or the one with shortest name)
+        return files.OrderBy(f => Path.GetFileName(f.FilePath).Length).First();
     }
 
     /// <summary>

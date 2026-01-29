@@ -58,6 +58,22 @@ public class SampleReference
     public string? Content { get; set; }
 }
 
+/// <summary>
+/// Represents a source file that is part of a partial type definition.
+/// </summary>
+[MarkoutSerializable]
+public class PartialSourceFileInfo
+{
+    [JsonPropertyName("file_path")]
+    public string? FilePath { get; set; }
+    
+    [JsonPropertyName("source_url")]
+    public string? SourceUrl { get; set; }
+    
+    [JsonPropertyName("github_browse_url")]
+    public string? GitHubBrowseUrl { get; set; }
+}
+
 [MarkoutSerializable]
 public class ApiSurface
 {
@@ -152,6 +168,20 @@ public class ApiType
     [MarkoutIgnore]
     [JsonPropertyName("source_resolution")]
     public string? SourceResolution { get; set; }
+    
+    /// <summary>
+    /// Additional source files for partial types. Only populated when type spans multiple files.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("additional_source_files")]
+    public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
+    
+    /// <summary>
+    /// Indicates whether this type is defined across multiple partial files.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("is_partial_type")]
+    public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
 
     // Documentation (populated with --docs)
     [MarkoutIgnore]
