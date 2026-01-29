@@ -167,11 +167,12 @@ public static class CommandLineBuilder
 
     private static Command CreateSamplesCommand(Option<bool> verboseOption)
     {
-        var samplesCommand = new Command("samples", "Show sample code references for a type");
+        var samplesCommand = new Command("samples", "Show sample code references for a type or assembly");
 
-        var typeNameArg = new Argument<string>("type")
+        var typeNameArg = new Argument<string?>("type")
         {
-            Description = "Type name to get samples for"
+            Description = "Type name to get samples for (omit for assembly-wide samples)",
+            Arity = ArgumentArity.ZeroOrOne
         };
 
         var packageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
@@ -205,7 +206,7 @@ public static class CommandLineBuilder
                 PrintSample = parseResult.GetValue(printOption)
             };
 
-            return await SamplesCommand.ExecuteAsync(typeName!, options);
+            return await SamplesCommand.ExecuteAsync(typeName, options);
         });
 
         return samplesCommand;
@@ -358,6 +359,8 @@ public static class CommandLineBuilder
         };
         memberOption.Aliases.Add("--member");
         var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
+        var samplesOption = new Option<bool>("--samples") { Description = "Fetch and display code samples from source" };
+        var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter to types with sourcelink resolution" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
@@ -376,6 +379,8 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(ctorOption);
         apiCommand.Options.Add(limitOption);
         apiCommand.Options.Add(docsOption);
+        apiCommand.Options.Add(samplesOption);
+        apiCommand.Options.Add(sourcelinkOnlyOption);
         apiCommand.Options.Add(browsableUrlsOption);
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
@@ -414,6 +419,8 @@ public static class CommandLineBuilder
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
                 ShowDocs = parseResult.GetValue(docsOption),
+                ShowSamples = parseResult.GetValue(samplesOption),
+                SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),

@@ -159,6 +159,17 @@ public class ApiCommand
                 }
                 api.Tfm = selectedTfm;
 
+                // Enrich types with source info if docs, samples, or sourcelink-only requested
+                if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && apiDllPath != null)
+                {
+                    logger.Log("Enriching types with source info...");
+                    foreach (var type in api.Types)
+                    {
+                        var fullTypeName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+                        await EnrichTypeWithSourceInfoAsync(type, fullTypeName, apiDllPath, options, logger);
+                    }
+                }
+
                 WriteFullApiOutput(api, options, selectedTfm);
             }
             else
@@ -262,6 +273,84 @@ public class ApiCommand
     {
         var (type, foundIn, _) = await ExtractTypeWithPathAsync(typeName, options, logger);
         return (type, foundIn);
+    }
+
+    /// <summary>
+    /// Extracts the full API surface from a package or assembly, enriching types with source info.
+    /// Used by SamplesCommand for assembly-wide sample collection.
+    /// </summary>
+    internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractApiSurfaceAsync(ApiOptions options, VerboseLogger logger)
+    {
+        string? tempDir = null;
+        try
+        {
+            string searchPath;
+            string? packageName = null;
+
+            if (!string.IsNullOrEmpty(options.PackagePath))
+            {
+                var extracted = await ExtractPackageAsync(options.PackagePath, logger);
+                if (extracted == null)
+                    return (null, null);
+                (searchPath, tempDir, packageName, _) = extracted.Value;
+
+                if (!string.IsNullOrEmpty(options.Tfm))
+                {
+                    var tfmAssembly = FindAssemblyByTfm(searchPath, options.Tfm);
+                    if (tfmAssembly != null)
+                        searchPath = tfmAssembly;
+                }
+            }
+            else if (!string.IsNullOrEmpty(options.AssemblyPath))
+            {
+                searchPath = options.AssemblyPath;
+            }
+            else
+            {
+                return (null, null);
+            }
+
+            string? selectedTfm = null;
+            if (Directory.Exists(searchPath))
+            {
+                var dlls = GetPackageDlls(searchPath);
+                if (dlls.Count > 1)
+                {
+                    var (selectedPath, tfm) = SelectHighestTfmAssembly(dlls, searchPath);
+                    if (selectedPath != null)
+                    {
+                        searchPath = selectedPath;
+                        selectedTfm = tfm;
+                    }
+                }
+            }
+
+            var (api, dllPath) = ExtractFullApi(searchPath, logger, options.IncludeAll);
+            if (api == null || dllPath == null)
+                return (null, null);
+
+            api.Name = packageName ?? Path.GetFileNameWithoutExtension(dllPath);
+            api.Tfm = selectedTfm;
+
+            // Enrich types with source info if docs or samples requested
+            if (options.ShowDocs || options.ShowSamples)
+            {
+                foreach (var type in api.Types)
+                {
+                    var fullTypeName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+                    await EnrichTypeWithSourceInfoAsync(type, fullTypeName, dllPath, options, logger);
+                }
+            }
+
+            return (api, selectedTfm);
+        }
+        finally
+        {
+            if (tempDir != null && Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
     }
 
     private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
@@ -416,8 +505,8 @@ public class ApiCommand
                 logger.Log($"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
             }
 
-            // Fetch docs if requested
-            if (options.ShowDocs && sourceInfo?.SourceUrl != null)
+            // Fetch docs/samples if requested
+            if ((options.ShowDocs || options.ShowSamples) && sourceInfo?.SourceUrl != null)
             {
                 var fetcher = new SourceFetcher();
                 var parser = new DocCommentParser();
@@ -961,6 +1050,17 @@ public class ApiCommand
             }).ToList();
             api.PublicTypeCount = api.Types.Count;
         }
+        
+        // Apply sourcelink-only filter - only show types with sourcelink resolution
+        if (options.SourceLinkOnly)
+        {
+            api.Types = api.Types.Where(t => !string.IsNullOrEmpty(t.SourceUrl)).ToList();
+            api.PublicTypeCount = api.Types.Count;
+            api.PublicMethodCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind is "method" or "constructor") ?? 0);
+            api.PublicPropertyCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "property") ?? 0);
+            api.PublicFieldCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "field") ?? 0);
+            api.PublicEventCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "event") ?? 0);
+        }
 
         // Apply unsafe filter - filter members and only show types with unsafe members
         if (options.UnsafeOnly)
@@ -1227,7 +1327,7 @@ public class ApiCommand
         }
 
         // Samples count
-        if (options.ShowDocs && type.Documentation?.Samples?.Count > 0)
+        if ((options.ShowDocs || options.ShowSamples) && type.Documentation?.Samples?.Count > 0)
         {
             sb.AppendLine($"**Samples:** {type.Documentation.Samples.Count} available");
         }
@@ -2084,6 +2184,8 @@ public record ApiOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string>? MemberFilter { get; init; }
     public bool ShowDocs { get; init; }
+    public bool ShowSamples { get; init; }
+    public bool SourceLinkOnly { get; init; }
     public bool BrowsableUrls { get; init; }
     public bool ShowInterfaces { get; init; }
     public bool IncludeAll { get; init; }

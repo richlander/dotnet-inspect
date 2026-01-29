@@ -5,43 +5,14 @@ using DotnetInspector.Output;
 namespace DotnetInspector.Commands;
 
 /// <summary>
-/// Displays sample code references for a specific type.
+/// Displays sample code references for a type or entire assembly.
 /// </summary>
 public class SamplesCommand
 {
-    public static async Task<int> ExecuteAsync(string typeName, SamplesOptions options)
+    public static async Task<int> ExecuteAsync(string? typeName, SamplesOptions options)
     {
-        // Delegate to ApiCommand with docs enabled, then extract samples
-        var apiOptions = new ApiOptions
-        {
-            PackagePath = options.PackagePath,
-            AssemblyPath = options.AssemblyPath,
-            Tfm = options.Tfm,
-            ShowDocs = true,
-            BrowsableUrls = options.BrowsableUrls,
-            Verbose = options.Verbose,
-            FieldsOnly = true // We only need type info, not member tables
-        };
-
         var logger = new VerboseLogger(options.Verbose);
-
-        // Use the existing ExtractTypeAsync which handles package extraction
-        var (apiType, foundIn) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger);
-        if (apiType == null)
-        {
-            Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-            return 1;
-        }
-
-        // Check if samples exist
-        if (apiType.Documentation?.Samples == null || apiType.Documentation.Samples.Count == 0)
-        {
-            Console.Error.WriteLine($"No samples found for type '{typeName}'.");
-            return 0;
-        }
-
-        var samples = apiType.Documentation.Samples;
-
+        
         // Get package info from options
         string? packageName = null;
         string? packageVersion = null;
@@ -50,6 +21,116 @@ public class SamplesCommand
             (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
         }
 
+        // If type name is specified, get samples for that type only
+        if (!string.IsNullOrEmpty(typeName))
+        {
+            return await ExecuteForTypeAsync(typeName, options, packageName, packageVersion, logger);
+        }
+
+        // No type specified - get samples for entire assembly
+        return await ExecuteForAssemblyAsync(options, packageName, packageVersion, logger);
+    }
+
+    private static async Task<int> ExecuteForTypeAsync(
+        string typeName, 
+        SamplesOptions options, 
+        string? packageName, 
+        string? packageVersion,
+        VerboseLogger logger)
+    {
+        var apiOptions = new ApiOptions
+        {
+            PackagePath = options.PackagePath,
+            AssemblyPath = options.AssemblyPath,
+            Tfm = options.Tfm,
+            ShowDocs = true,
+            ShowSamples = true,
+            BrowsableUrls = options.BrowsableUrls,
+            Verbose = options.Verbose,
+            FieldsOnly = true
+        };
+
+        var (apiType, foundIn) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger);
+        if (apiType == null)
+        {
+            Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
+            return 1;
+        }
+
+        if (apiType.Documentation?.Samples == null || apiType.Documentation.Samples.Count == 0)
+        {
+            Console.Error.WriteLine($"No samples found for type '{typeName}'.");
+            return 0;
+        }
+
+        var samples = apiType.Documentation.Samples
+            .Select(s => new TypedSample(apiType.Name, apiType.Namespace, s))
+            .ToList();
+
+        return await ProcessSamplesAsync(samples, options, packageName, packageVersion, null, logger);
+    }
+
+    private static async Task<int> ExecuteForAssemblyAsync(
+        SamplesOptions options, 
+        string? packageName, 
+        string? packageVersion,
+        VerboseLogger logger)
+    {
+        // Use ApiCommand to extract all types with docs
+        var apiOptions = new ApiOptions
+        {
+            PackagePath = options.PackagePath,
+            AssemblyPath = options.AssemblyPath,
+            Tfm = options.Tfm,
+            ShowDocs = true,
+            ShowSamples = true,
+            SourceLinkOnly = true, // Only types with sourcelink
+            BrowsableUrls = options.BrowsableUrls,
+            Verbose = options.Verbose,
+            FieldsOnly = true
+        };
+
+        logger.Log("Extracting samples from all types in assembly...");
+        var (api, selectedTfm) = await ApiCommand.ExtractApiSurfaceAsync(apiOptions, logger);
+        
+        if (api == null)
+        {
+            Console.Error.WriteLine("Error: Could not extract API surface.");
+            return 1;
+        }
+
+        // Collect all samples from all types
+        var allSamples = new List<TypedSample>();
+        foreach (var type in api.Types)
+        {
+            if (type.Documentation?.Samples != null)
+            {
+                foreach (var sample in type.Documentation.Samples)
+                {
+                    allSamples.Add(new TypedSample(type.Name, type.Namespace, sample));
+                }
+            }
+        }
+
+        if (allSamples.Count == 0)
+        {
+            Console.Error.WriteLine("No samples found in assembly.");
+            return 0;
+        }
+
+        logger.Log($"Found {allSamples.Count} samples across {api.Types.Count(t => t.Documentation?.Samples?.Count > 0)} types");
+
+        return await ProcessSamplesAsync(allSamples, options, packageName, packageVersion, api.Name, logger);
+    }
+
+    private static async Task<int> ProcessSamplesAsync(
+        List<TypedSample> samples,
+        SamplesOptions options,
+        string? packageName,
+        string? packageVersion,
+        string? assemblyName,
+        VerboseLogger logger)
+    {
         // Handle --print N: print specific sample as raw code
         if (options.PrintSample.HasValue)
         {
@@ -59,16 +140,16 @@ public class SamplesCommand
         // Handle --list: show numbered list only
         if (options.ListOnly)
         {
-            var listOutput = RenderSamplesList(apiType, packageName, packageVersion, options);
+            var listOutput = RenderSamplesList(samples, packageName, packageVersion, assemblyName, options);
             Console.WriteLine(listOutput);
             return 0;
         }
 
         // Default: fetch and print all samples with numbered sections
-        return await PrintAllSamplesAsync(apiType, samples, packageName, packageVersion, logger);
+        return await PrintAllSamplesAsync(samples, packageName, packageVersion, assemblyName, logger);
     }
 
-    private static async Task<int> PrintSingleSampleAsync(List<SampleReference> samples, int sampleNumber, VerboseLogger logger)
+    private static async Task<int> PrintSingleSampleAsync(List<TypedSample> samples, int sampleNumber, VerboseLogger logger)
     {
         if (sampleNumber < 1 || sampleNumber > samples.Count)
         {
@@ -77,7 +158,7 @@ public class SamplesCommand
         }
 
         var fetcher = new SourceFetcher();
-        var sample = samples[sampleNumber - 1];
+        var sample = samples[sampleNumber - 1].Sample;
         var content = await FetchSampleContentAsync(fetcher, sample, logger);
         
         if (content == null)
@@ -86,37 +167,38 @@ public class SamplesCommand
             return 1;
         }
         
-        // Print raw code, no markdown fence
         Console.WriteLine(content);
         return 0;
     }
 
     private static async Task<int> PrintAllSamplesAsync(
-        ApiType apiType, 
-        List<SampleReference> samples, 
+        List<TypedSample> samples, 
         string? packageName, 
         string? packageVersion,
+        string? assemblyName,
         VerboseLogger logger)
     {
         var fetcher = new SourceFetcher();
         var sb = new StringBuilder();
 
         // H1 title
-        var fullName = string.IsNullOrEmpty(apiType.Namespace) ? apiType.Name : $"{apiType.Namespace}.{apiType.Name}";
+        var title = assemblyName ?? packageName ?? "Samples";
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
-            : packageName != null ? $" ({packageName})" : "";
-        sb.AppendLine($"# Samples: {fullName}{packageInfo}");
+            : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
+        sb.AppendLine($"# Samples: {title}{packageInfo}");
         sb.AppendLine();
 
         for (int i = 0; i < samples.Count; i++)
         {
-            var sample = samples[i];
+            var typedSample = samples[i];
+            var sample = typedSample.Sample;
             var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
             var regionInfo = sample.Region != null ? $" (region: {sample.Region})" : "";
+            var typeInfo = typedSample.TypeName;
 
-            // Numbered section header
-            sb.AppendLine($"## {i + 1}. {description}{regionInfo}");
+            // Numbered section header with type info
+            sb.AppendLine($"## {i + 1}. {description} [{typeInfo}]{regionInfo}");
             sb.AppendLine();
 
             var content = await FetchSampleContentAsync(fetcher, sample, logger);
@@ -138,6 +220,44 @@ public class SamplesCommand
         return 0;
     }
 
+    private static string RenderSamplesList(
+        List<TypedSample> samples, 
+        string? packageName, 
+        string? packageVersion, 
+        string? assemblyName,
+        SamplesOptions options)
+    {
+        var sb = new StringBuilder();
+
+        // H1 title
+        var title = assemblyName ?? packageName ?? "Samples";
+        var packageInfo = packageName != null && packageVersion != null
+            ? $" ({packageName} {packageVersion})"
+            : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
+        sb.AppendLine($"# Samples: {title}{packageInfo}");
+        sb.AppendLine();
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            var typedSample = samples[i];
+            var sample = typedSample.Sample;
+            var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
+            var url = sample.ResolvedUrl != null
+                ? ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
+                : sample.RelativePath;
+
+            if (options.BrowsableUrls && url != sample.RelativePath)
+            {
+                url = ConvertRawToBlobUrl(url);
+            }
+
+            var regionInfo = sample.Region != null ? $" (region: `{sample.Region}`)" : "";
+            sb.AppendLine($"{i + 1}. [{typedSample.TypeName}] {description}: {url}{regionInfo}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
     private static async Task<string?> FetchSampleContentAsync(SourceFetcher fetcher, SampleReference sample, VerboseLogger logger)
     {
         if (string.IsNullOrEmpty(sample.ResolvedUrl))
@@ -146,7 +266,6 @@ public class SamplesCommand
             return null;
         }
 
-        // Convert to raw URL for fetching
         var rawUrl = ConvertToRawGitHubUrl(sample.ResolvedUrl);
         logger.Log($"Fetching: {rawUrl}");
 
@@ -154,7 +273,6 @@ public class SamplesCommand
         if (content == null)
             return null;
 
-        // Extract region if specified
         if (!string.IsNullOrEmpty(sample.Region))
         {
             var regionContent = SourceFetcher.ExtractRegion(content, sample.Region);
@@ -170,7 +288,6 @@ public class SamplesCommand
 
     private static string ConvertToRawGitHubUrl(string url)
     {
-        // Convert github.com/raw/ or /blob/ URLs to raw.githubusercontent.com
         if (url.Contains("github.com"))
         {
             var match = System.Text.RegularExpressions.Regex.Match(url,
@@ -180,7 +297,6 @@ public class SamplesCommand
                 return $"https://raw.githubusercontent.com/{match.Groups[1].Value}/{match.Groups[2].Value}/{match.Groups[4].Value}/{match.Groups[5].Value}";
             }
         }
-        // Already a raw URL
         if (url.Contains("raw.githubusercontent.com"))
             return url;
 
@@ -205,19 +321,15 @@ public class SamplesCommand
 
     private static (string name, string? version) ParsePackageReference(string packageRef)
     {
-        // Handle name@version format
         var atIndex = packageRef.LastIndexOf('@');
         if (atIndex > 0)
         {
             return (packageRef[..atIndex], packageRef[(atIndex + 1)..]);
         }
-        // Handle .nupkg file path
         if (packageRef.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
         {
             var fileName = Path.GetFileNameWithoutExtension(packageRef);
-            // Parse package.version.nupkg format
             var parts = fileName.Split('.');
-            // Find where version starts (first numeric segment)
             for (int i = 0; i < parts.Length; i++)
             {
                 if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
@@ -231,47 +343,10 @@ public class SamplesCommand
         return (packageRef, null);
     }
 
-    private static string RenderSamplesList(ApiType type, string? packageName, string? packageVersion, SamplesOptions options)
-    {
-        var sb = new StringBuilder();
-
-        // H1 title
-        var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-        var packageInfo = packageName != null && packageVersion != null
-            ? $" ({packageName} {packageVersion})"
-            : packageName != null ? $" ({packageName})" : "";
-        sb.AppendLine($"# Samples: {fullName}{packageInfo}");
-        sb.AppendLine();
-
-        // Numbered sample list
-        var samples = type.Documentation!.Samples!;
-        for (int i = 0; i < samples.Count; i++)
-        {
-            var sample = samples[i];
-            var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
-            var url = sample.ResolvedUrl != null
-                ? ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
-                : sample.RelativePath;
-
-            if (options.BrowsableUrls && url != sample.RelativePath)
-            {
-                url = ConvertRawToBlobUrl(url);
-            }
-
-            var regionInfo = sample.Region != null ? $" (region: `{sample.Region}`)" : "";
-            sb.AppendLine($"{i + 1}. {description}: {url}{regionInfo}");
-        }
-
-        return sb.ToString().TrimEnd();
-    }
-
     private static string? ConvertToGitHubRawUrl(string url)
     {
-        // Convert raw.githubusercontent.com URLs to github.com/raw URLs
         if (url.Contains("raw.githubusercontent.com"))
         {
-            // https://raw.githubusercontent.com/owner/repo/sha/path
-            // -> https://github.com/owner/repo/raw/sha/path
             var match = System.Text.RegularExpressions.Regex.Match(url,
                 @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
             if (match.Success)
@@ -284,9 +359,16 @@ public class SamplesCommand
 
     private static string ConvertRawToBlobUrl(string url)
     {
-        // Convert /raw/ to /blob/ for browsable URLs
         return url.Replace("/raw/", "/blob/");
     }
+}
+
+/// <summary>
+/// A sample reference with its owning type information.
+/// </summary>
+internal record TypedSample(string TypeName, string? TypeNamespace, SampleReference Sample)
+{
+    public string FullTypeName => string.IsNullOrEmpty(TypeNamespace) ? TypeName : $"{TypeNamespace}.{TypeName}";
 }
 
 public record SamplesOptions
@@ -296,12 +378,6 @@ public record SamplesOptions
     public string? Tfm { get; init; }
     public bool BrowsableUrls { get; init; }
     public bool Verbose { get; init; }
-    /// <summary>
-    /// List samples only without fetching content.
-    /// </summary>
     public bool ListOnly { get; init; }
-    /// <summary>
-    /// Print specific sample by number (1-based). Raw code output, no markdown.
-    /// </summary>
     public int? PrintSample { get; init; }
 }
