@@ -113,6 +113,12 @@ public static class OutputFormatter
                 sb.AppendLine($"| Path | {audit.PdbPath} |");
             }
 
+            if (audit.PdbLocation == null && !string.IsNullOrEmpty(audit.PdbPath))
+            {
+                sb.AppendLine();
+                sb.AppendLine("*Path is from the CodeView record in the assembly; actual PDB location is unknown.*");
+            }
+
             if (audit.WindowsPdbDetected)
             {
                 sb.AppendLine();
