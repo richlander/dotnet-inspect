@@ -313,6 +313,7 @@ public static class CommandLineBuilder
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
+        var fieldsOnlyOption = new Option<bool>("--fields-only") { Description = "Show only type info (source URL, docs) without member tables" };
 
         apiCommand.Arguments.Add(typeNameArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -330,6 +331,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(compactOption);
         apiCommand.Options.Add(signaturesOnlyOption);
         apiCommand.Options.Add(unsafeOption);
+        apiCommand.Options.Add(fieldsOnlyOption);
         apiCommand.Options.Add(markoutOption);
         apiCommand.Options.Add(verboseOption);
         apiCommand.Options.Add(verbosityOption);
@@ -368,6 +370,7 @@ public static class CommandLineBuilder
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
+                FieldsOnly = parseResult.GetValue(fieldsOnlyOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption))
             };

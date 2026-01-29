@@ -978,6 +978,9 @@ public class ApiCommand
         var sb = new StringBuilder();
         sb.Append(RenderTypeHeader(type, foundIn, options));
 
+        // Skip member output in fields-only mode
+        if (options.FieldsOnly) return sb.ToString().TrimEnd();
+
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
@@ -1017,6 +1020,9 @@ public class ApiCommand
         var sb = new StringBuilder();
         var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
         sb.Append(RenderTypeHeader(type, foundIn, options, allMembers.Count));
+
+        // Skip member output in fields-only mode
+        if (options.FieldsOnly) return sb.ToString().TrimEnd();
 
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
@@ -1093,6 +1099,9 @@ public class ApiCommand
         {
             sb.Append(RenderTypeHeader(type, foundIn, options));
         }
+
+        // Skip member output in fields-only mode
+        if (options.FieldsOnly) return sb.ToString().TrimEnd();
 
         if (type.Members is { Count: > 0 })
         {
@@ -1613,4 +1622,5 @@ public record ApiOptions
     public bool SignaturesOnly { get; init; }
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
+    public bool FieldsOnly { get; init; }
 }
