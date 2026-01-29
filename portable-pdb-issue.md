@@ -65,16 +65,21 @@ Without readable PDBs containing SourceLink:
 - XML doc comments in source files are inaccessible
 - Developers lose the ability to "go to definition" in the actual source
 
-### 4. Example: What tools see today
+### 4. Example: What cross-platform tools see today
 
-For a package with **Portable PDB + SourceLink** (e.g., `Markout`):
+Using [dotnet-inspect](https://github.com/richlander/dotnet-inspect), a cross-platform tool for inspecting .NET assemblies:
+
+#### Embedded Portable PDB (Markout) - Works
 
 ```text
+$ dotnet-inspect assembly --package Markout --audit
+
 ## Build Audit
 
 | Check | Status |
 |-------|--------|
 | Deterministic | ✓ |
+| Reproducible Flag | ✓ |
 | SourceLink | ✓ |
 
 ## PDB
@@ -82,30 +87,61 @@ For a package with **Portable PDB + SourceLink** (e.g., `Markout`):
 | Property | Value |
 |----------|-------|
 | Format | Portable |
-| Deployment | Embedded |
+| Location | Embedded |
+| Path | Markout.pdb |
 ```
 
-For a package with **Windows PDB on symbol server** (e.g., `Microsoft.AspNetCore.Authentication.JwtBearer`):
+#### Symbol Package / snupkg (Newtonsoft.Json) - Works
 
 ```text
+$ dotnet-inspect assembly --package Newtonsoft.Json --tfm net6.0 --audit
+
 ## Build Audit
 
 | Check | Status |
 |-------|--------|
 | Deterministic | ✓ |
+| Reproducible Flag | ✓ |
+| SourceLink | ✓ |
+
+## PDB
+
+| Property | Value |
+|----------|-------|
+| Format | Portable |
+| Location | Symbol Package |
+| Path | /_/Src/Newtonsoft.Json/obj/Release/net6.0/Newtonsoft.Json.pdb |
+```
+
+#### Windows PDB on Symbol Server (Microsoft.AspNetCore.Authentication.JwtBearer) - Fails
+
+```text
+$ dotnet-inspect assembly --package Microsoft.AspNetCore.Authentication.JwtBearer --audit
+
+## Build Audit
+
+| Check | Status |
+|-------|--------|
+| Deterministic | ✓ |
+| Reproducible Flag | ✓ |
 | SourceLink | ✗ |
 
 ## PDB
 
 | Property | Value |
 |----------|-------|
-| Format | None |
-| Deployment | Symbol Server |
+| Format | Windows |
+| Location | Unknown |
+| Path | /_/src/aspnetcore/artifacts/obj/.../Microsoft.AspNetCore.Authentication.JwtBearer.pdb |
 
-Warning: PDB could not be read (Windows PDB format is not supported).
-         Only Portable PDBs are supported. Consider asking the maintainer
-         to publish Portable PDBs (embedded or in .snupkg).
+*Path is from the CodeView record in the assembly; actual PDB location is unknown.*
+
+**Note:** Windows PDB format is not supported by this tool.
+Only Portable PDBs (embedded or in .snupkg) can be read.
+Consider asking the package maintainer to publish Portable PDBs.
 ```
+
+The first two packages work perfectly - cross-platform tools can read their debug information and resolve source URLs. The third package publishes a Windows PDB to the Microsoft symbol server, making it inaccessible to managed code tools.
 
 ## The Solution
 
