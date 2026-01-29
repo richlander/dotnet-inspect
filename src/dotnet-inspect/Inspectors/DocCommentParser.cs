@@ -13,7 +13,14 @@ public class DocCommentParser
         string? Summary,
         string? Remarks,
         Dictionary<string, string>? Parameters,
-        string? Returns
+        string? Returns,
+        List<SampleReference>? Samples = null
+    );
+
+    public record SampleReference(
+        string RelativePath,
+        string? Description,
+        string? Region
     );
 
     /// <summary>
@@ -141,10 +148,13 @@ public class DocCommentParser
                 }
             }
 
-            if (summary == null && remarks == null && returns == null && parameters == null)
+            // Extract sample references from <example><code source="..." .../> and <seealso href="...">
+            List<SampleReference>? samples = ExtractSampleReferences(doc);
+
+            if (summary == null && remarks == null && returns == null && parameters == null && samples == null)
                 return null;
 
-            return new DocComment(summary, remarks, parameters, returns);
+            return new DocComment(summary, remarks, parameters, returns, samples);
         }
         catch
         {
@@ -157,6 +167,87 @@ public class DocCommentParser
             }
             return null;
         }
+    }
+
+    /// <summary>
+    /// Extracts sample references from doc comments.
+    /// Supports two patterns:
+    /// 1. Sandcastle-style: <example><code source="..." region="..." title="..."/></example>
+    /// 2. Simple seealso: <seealso href="path/to/file.cs">description</seealso>
+    /// </summary>
+    private static List<SampleReference>? ExtractSampleReferences(XmlDocument doc)
+    {
+        var samples = new List<SampleReference>();
+
+        // Pattern 1: Sandcastle-style <code source="..." region="..." title="..."/>
+        var codeNodes = doc.SelectNodes("//example/code[@source]");
+        if (codeNodes != null)
+        {
+            foreach (XmlNode node in codeNodes)
+            {
+                var source = node.Attributes?["source"]?.Value;
+                if (string.IsNullOrEmpty(source))
+                    continue;
+
+                var region = node.Attributes?["region"]?.Value;
+                var title = node.Attributes?["title"]?.Value;
+
+                samples.Add(new SampleReference(
+                    NormalizePath(source),
+                    title,
+                    region
+                ));
+            }
+        }
+
+        // Pattern 2: <seealso href="path/to/file.cs">description</seealso>
+        var seealsoNodes = doc.SelectNodes("//seealso[@href]");
+        if (seealsoNodes != null)
+        {
+            foreach (XmlNode node in seealsoNodes)
+            {
+                var href = node.Attributes?["href"]?.Value;
+                if (string.IsNullOrEmpty(href))
+                    continue;
+
+                // Only process relative paths to code files, not URLs
+                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Check if it's a code file
+                if (!IsCodeFile(href))
+                    continue;
+
+                var description = node.InnerText?.Trim();
+                var region = node.Attributes?["region"]?.Value;
+
+                samples.Add(new SampleReference(
+                    NormalizePath(href),
+                    string.IsNullOrEmpty(description) ? null : description,
+                    region
+                ));
+            }
+        }
+
+        return samples.Count > 0 ? samples : null;
+    }
+
+    /// <summary>
+    /// Checks if a path points to a code file based on extension.
+    /// </summary>
+    private static bool IsCodeFile(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext is ".cs" or ".fs" or ".vb" or ".fsx" or ".csx";
+    }
+
+    /// <summary>
+    /// Normalizes a path by converting backslashes to forward slashes.
+    /// </summary>
+    private static string NormalizePath(string path)
+    {
+        return path.Replace('\\', '/');
     }
 
     private static string? GetElementText(XmlDocument doc, string xpath)

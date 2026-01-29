@@ -15,6 +15,47 @@ public class DocComment
     [MarkoutIgnore]
     public Dictionary<string, string>? Parameters { get; set; }
     public string? Returns { get; set; }
+
+    /// <summary>
+    /// Sample code references extracted from doc comments.
+    /// </summary>
+    [MarkoutIgnore]
+    public List<SampleReference>? Samples { get; set; }
+}
+
+/// <summary>
+/// Represents a reference to sample code in the same repository.
+/// </summary>
+[MarkoutSerializable]
+public class SampleReference
+{
+    /// <summary>
+    /// Relative path to the sample file from the source file.
+    /// </summary>
+    [JsonPropertyName("relative_path")]
+    public string RelativePath { get; set; } = "";
+
+    /// <summary>
+    /// Human-readable description or title of the sample.
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Optional region name to extract from the sample file.
+    /// </summary>
+    public string? Region { get; set; }
+
+    /// <summary>
+    /// Resolved URL to the sample file (computed from SourceLink).
+    /// </summary>
+    [JsonPropertyName("resolved_url")]
+    public string? ResolvedUrl { get; set; }
+
+    /// <summary>
+    /// Fetched sample content (populated when --inline is used).
+    /// </summary>
+    [MarkoutIgnore]
+    public string? Content { get; set; }
 }
 
 [MarkoutSerializable]

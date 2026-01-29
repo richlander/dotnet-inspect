@@ -407,7 +407,14 @@ public class ApiCommand
                             Summary = typeDoc.Summary,
                             Remarks = typeDoc.Remarks,
                             Parameters = typeDoc.Parameters,
-                            Returns = typeDoc.Returns
+                            Returns = typeDoc.Returns,
+                            Samples = typeDoc.Samples?.Select(s => new SampleReference
+                            {
+                                RelativePath = s.RelativePath,
+                                Description = s.Description,
+                                Region = s.Region,
+                                ResolvedUrl = ResolveSampleUrl(sourceInfo.SourceUrl, s.RelativePath)
+                            }).ToList()
                         };
                         logger.Log("Extracted type documentation.");
                     }
@@ -429,7 +436,14 @@ public class ApiCommand
                                     Summary = memberDoc.Summary,
                                     Remarks = memberDoc.Remarks,
                                     Parameters = memberDoc.Parameters,
-                                    Returns = memberDoc.Returns
+                                    Returns = memberDoc.Returns,
+                                    Samples = memberDoc.Samples?.Select(s => new SampleReference
+                                    {
+                                        RelativePath = s.RelativePath,
+                                        Description = s.Description,
+                                        Region = s.Region,
+                                        ResolvedUrl = ResolveSampleUrl(sourceInfo.SourceUrl, s.RelativePath)
+                                    }).ToList()
                                 };
                             }
                         }
@@ -1027,6 +1041,23 @@ public class ApiCommand
         {
             sb.AppendLine();
             sb.AppendLine($"> {type.Documentation.Summary}");
+        }
+
+        // Show sample references if available
+        if (options.ShowDocs && type.Documentation?.Samples?.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("**Samples:**");
+            foreach (var sample in type.Documentation.Samples)
+            {
+                var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
+                var url = sample.ResolvedUrl != null 
+                    ? ConvertToGitHubBrowseUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
+                    : sample.RelativePath;
+                
+                var regionInfo = sample.Region != null ? $" (region: `{sample.Region}`)" : "";
+                sb.AppendLine($"- [{description}]({url}){regionInfo}");
+            }
         }
 
         return sb.ToString();
@@ -1738,6 +1769,102 @@ public class ApiCommand
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a relative sample path to a full URL based on the source file URL.
+    /// Handles both simple relative paths and Sandcastle-style paths.
+    /// </summary>
+    private static string? ResolveSampleUrl(string sourceUrl, string relativePath)
+    {
+        // sourceUrl format: https://raw.githubusercontent.com/user/repo/commit/path/to/file.cs
+        // We need to resolve relativePath relative to the source file's directory
+        
+        try
+        {
+            var uri = new Uri(sourceUrl);
+            
+            // Get the path portion (e.g., /user/repo/commit/path/to/file.cs)
+            var pathSegments = uri.AbsolutePath.Split('/').ToList();
+            
+            // Remove the filename to get the directory
+            if (pathSegments.Count > 0)
+                pathSegments.RemoveAt(pathSegments.Count - 1);
+            
+            // Process the relative path
+            var relativeSegments = relativePath.Split('/');
+            int i = 0;
+            
+            // First, handle all the ".." segments
+            while (i < relativeSegments.Length && relativeSegments[i] == "..")
+            {
+                if (pathSegments.Count > 0)
+                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                i++;
+            }
+            
+            // Now handle the remaining path segments
+            // Check for Sandcastle-style redundant path: if the next segment matches the last segment
+            // we're currently at, it's likely a "go up then back into same dir" pattern - skip it
+            while (i < relativeSegments.Length)
+            {
+                var segment = relativeSegments[i];
+                
+                if (segment == "." || string.IsNullOrEmpty(segment))
+                {
+                    i++;
+                    continue;
+                }
+                
+                // Check if this segment duplicates where we currently are
+                // e.g., we're at /foo/Src and the next segment is "Src" - that's redundant
+                if (pathSegments.Count > 0 && pathSegments[^1] == segment)
+                {
+                    // Skip this redundant segment
+                    i++;
+                    continue;
+                }
+                
+                pathSegments.Add(segment);
+                i++;
+            }
+            
+            // Reconstruct the URL
+            var newPath = string.Join("/", pathSegments);
+            var resolvedUri = new UriBuilder(uri.Scheme, uri.Host)
+            {
+                Path = newPath
+            };
+            
+            return resolvedUri.Uri.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Converts a raw GitHub URL to a browsable GitHub URL.
+    /// </summary>
+    private static string? ConvertToGitHubBrowseUrl(string rawUrl)
+    {
+        // https://raw.githubusercontent.com/user/repo/commit/path
+        // -> https://github.com/user/repo/blob/commit/path
+        if (rawUrl.StartsWith("https://raw.githubusercontent.com/"))
+        {
+            return rawUrl
+                .Replace("https://raw.githubusercontent.com/", "https://github.com/")
+                .Replace($"/{GetCommitFromUrl(rawUrl)}/", $"/blob/{GetCommitFromUrl(rawUrl)}/");
+        }
+        return rawUrl;
+    }
+
+    private static string? GetCommitFromUrl(string url)
+    {
+        // Extract commit SHA from URL like https://raw.githubusercontent.com/user/repo/COMMIT/path
+        var match = System.Text.RegularExpressions.Regex.Match(url, @"githubusercontent\.com/[^/]+/[^/]+/([^/]+)/");
+        return match.Success ? match.Groups[1].Value : null;
     }
 
 }

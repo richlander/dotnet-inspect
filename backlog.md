@@ -2,6 +2,14 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
+## NuGet.config Support
+
+Add support for reading `NuGet.config` files when resolving packages. Currently package resolution only uses the default NuGet cache and nuget.org. This would enable:
+
+- Using local package sources for development/testing
+- Using private feeds (Azure Artifacts, GitHub Packages, etc.)
+- Respecting repository-specific package configurations
+
 ## Inherited Members Option
 
 A `--inherited` flag to show members from base classes inline:
