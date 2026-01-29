@@ -42,12 +42,6 @@ public class SamplesCommand
 
         var samples = apiType.Documentation.Samples;
 
-        // Handle --print option
-        if (options.Print.HasValue)
-        {
-            return await PrintSamplesAsync(samples, options, logger);
-        }
-
         // Get package info from options
         string? packageName = null;
         string? packageVersion = null;
@@ -56,54 +50,78 @@ public class SamplesCommand
             (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
         }
 
-        // Render numbered list output
-        var output = RenderSamplesList(apiType, packageName, packageVersion, options);
-        Console.WriteLine(output);
-
-        return 0;
-    }
-
-    private static async Task<int> PrintSamplesAsync(List<SampleReference> samples, SamplesOptions options, VerboseLogger logger)
-    {
-        var fetcher = new SourceFetcher();
-        int printValue = options.Print!.Value;
-
-        // Validate sample number if specific sample requested
-        if (printValue > 0)
+        // Handle --print N: print specific sample as raw code
+        if (options.PrintSample.HasValue)
         {
-            if (printValue > samples.Count)
-            {
-                Console.Error.WriteLine($"Error: Sample #{printValue} not found. Available samples: 1-{samples.Count}");
-                return 1;
-            }
+            return await PrintSingleSampleAsync(samples, options.PrintSample.Value, logger);
+        }
 
-            // Print single sample (plain code, no markdown)
-            var sample = samples[printValue - 1];
-            var content = await FetchSampleContentAsync(fetcher, sample, logger);
-            if (content == null)
-            {
-                Console.Error.WriteLine($"Error: Failed to fetch sample content from {sample.ResolvedUrl ?? sample.RelativePath}");
-                return 1;
-            }
-            Console.WriteLine(content);
+        // Handle --list: show numbered list only
+        if (options.ListOnly)
+        {
+            var listOutput = RenderSamplesList(apiType, packageName, packageVersion, options);
+            Console.WriteLine(listOutput);
             return 0;
         }
 
-        // Print all samples with markdown code fences
+        // Default: fetch and print all samples with numbered sections
+        return await PrintAllSamplesAsync(apiType, samples, packageName, packageVersion, logger);
+    }
+
+    private static async Task<int> PrintSingleSampleAsync(List<SampleReference> samples, int sampleNumber, VerboseLogger logger)
+    {
+        if (sampleNumber < 1 || sampleNumber > samples.Count)
+        {
+            Console.Error.WriteLine($"Error: Sample #{sampleNumber} not found. Available samples: 1-{samples.Count}");
+            return 1;
+        }
+
+        var fetcher = new SourceFetcher();
+        var sample = samples[sampleNumber - 1];
+        var content = await FetchSampleContentAsync(fetcher, sample, logger);
+        
+        if (content == null)
+        {
+            Console.Error.WriteLine($"Error: Failed to fetch sample content from {sample.ResolvedUrl ?? sample.RelativePath}");
+            return 1;
+        }
+        
+        // Print raw code, no markdown fence
+        Console.WriteLine(content);
+        return 0;
+    }
+
+    private static async Task<int> PrintAllSamplesAsync(
+        ApiType apiType, 
+        List<SampleReference> samples, 
+        string? packageName, 
+        string? packageVersion,
+        VerboseLogger logger)
+    {
+        var fetcher = new SourceFetcher();
         var sb = new StringBuilder();
+
+        // H1 title
+        var fullName = string.IsNullOrEmpty(apiType.Namespace) ? apiType.Name : $"{apiType.Namespace}.{apiType.Name}";
+        var packageInfo = packageName != null && packageVersion != null
+            ? $" ({packageName} {packageVersion})"
+            : packageName != null ? $" ({packageName})" : "";
+        sb.AppendLine($"# Samples: {fullName}{packageInfo}");
+        sb.AppendLine();
+
         for (int i = 0; i < samples.Count; i++)
         {
             var sample = samples[i];
             var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
             var regionInfo = sample.Region != null ? $" (region: {sample.Region})" : "";
 
+            // Numbered section header
             sb.AppendLine($"## {i + 1}. {description}{regionInfo}");
             sb.AppendLine();
 
             var content = await FetchSampleContentAsync(fetcher, sample, logger);
             if (content != null)
             {
-                // Detect language from file extension
                 var lang = GetLanguageFromPath(sample.RelativePath);
                 sb.AppendLine($"```{lang}");
                 sb.AppendLine(content);
@@ -279,7 +297,11 @@ public record SamplesOptions
     public bool BrowsableUrls { get; init; }
     public bool Verbose { get; init; }
     /// <summary>
-    /// null = list only (no fetch), -1 = fetch all, N > 0 = fetch specific sample by number
+    /// List samples only without fetching content.
     /// </summary>
-    public int? Print { get; init; }
+    public bool ListOnly { get; init; }
+    /// <summary>
+    /// Print specific sample by number (1-based). Raw code output, no markdown.
+    /// </summary>
+    public int? PrintSample { get; init; }
 }
