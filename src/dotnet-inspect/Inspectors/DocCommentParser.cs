@@ -27,11 +27,12 @@ public class DocCommentParser
 
         // Find type declaration patterns:
         // class Foo, struct Foo, interface IFoo, enum Foo, record Foo
-        // Allow any combination of modifiers before the type keyword
+        // Allow attributes and modifiers between doc comment and type keyword
+        var attributes = @"(?:\s*\[[^\]]*\]\s*)*";
         var modifiers = @"(?:(?:public|internal|private|protected|static|partial|abstract|sealed|readonly|unsafe|new|file)\s+)*";
         var typeKeywords = @"(?:class|struct|interface|enum|record(?:\s+struct)?(?:\s+class)?)";
 
-        var pattern = $@"((?:^\s*///.*$\s*)+)^\s*{modifiers}{typeKeywords}\s+{Regex.Escape(cleanName)}(?:<[^>]+>)?(?:\s|:|$|\{{)";
+        var pattern = $@"((?:^\s*///.*$\s*)+){attributes}^\s*{modifiers}{typeKeywords}\s+{Regex.Escape(cleanName)}(?:<[^>]+>)?(?:\s|:|$|\{{)";
 
         var match = Regex.Match(sourceContent, pattern, RegexOptions.Multiline);
         if (match.Success && match.Groups.Count > 1)
