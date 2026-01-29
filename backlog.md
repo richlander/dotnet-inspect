@@ -2,16 +2,6 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
-## Style Guide Completion
-
-Finish the style guide (`docs/style-guide.md`) for markdown pages the tool generates. Currently only covers links. Need to document:
-
-- Heading structure (H2 for type name, etc.)
-- Table formatting (member tables, etc.)
-- Code block usage (signatures in backticks)
-- Section ordering (source, summary, samples, members)
-- Verbosity level conventions
-
 ## Source URLs Per-Member
 
 Consider adding source URLs for individual members in the API member table. Currently only type-level source URLs are shown. Per-member URLs would enable:

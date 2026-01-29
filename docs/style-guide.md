@@ -2,6 +2,128 @@
 
 This document defines the output format conventions for `dotnet-inspect`. The primary goal is to produce output that is easily consumable by both humans and LLMs.
 
+## Document Structure
+
+All markdown output follows a consistent four-part structure:
+
+```markdown
+# Title (Package Version)
+
+Optional description paragraph.
+
+**Field1:** value
+**Field2:** value
+
+## Section Name
+
+| Column | Column |
+|--------|--------|
+| data   | data   |
+```
+
+### 1. H1 Title
+
+Every output starts with a single H1 heading that clearly describes the content:
+
+- **Type view:** `# Namespace.TypeName (Package Version)`
+- **Package view:** `# Package Version`
+- **Assembly view:** `# AssemblyName.dll`
+
+The title should provide enough context to understand what you're looking at.
+
+### 2. Description Paragraph
+
+An optional plain-text paragraph immediately after the H1. This is where documentation summaries appear. No special formatting (not a blockquote, not italicized).
+
+```markdown
+# System.Text.Json.JsonSerializer (System.Text.Json 8.0.0)
+
+Provides functionality to serialize objects or value types to JSON and deserialize JSON into objects or value types.
+```
+
+### 3. Key-Value Fields
+
+Structured metadata as `**Label:** value` pairs, one per line. These fields form the stable "header" that `--fields-only` preserves.
+
+**Standard fields for type output:**
+- `**Kind:** class` / `interface` / `struct` / `enum`
+- `**Modifiers:** static, sealed` (only if modifiers exist)
+- `**Assembly:** Markout.dll`
+- `**Source:** https://...`
+
+```markdown
+**Kind:** class
+**Modifiers:** sealed
+**Assembly:** System.Text.Json.dll
+**Source:** https://github.com/.../JsonSerializer.cs
+```
+
+Fields always appear in a consistent order. Empty/null fields are omitted.
+
+### 4. H2 Sections
+
+Tables and structured content appear under H2 headings. Section visibility is controlled by verbosity level.
+
+```markdown
+## Members
+
+| Member | Kind | Signature |
+|--------|------|-----------|
+| Parse  | method | `JsonDocument Parse(string json)` |
+```
+
+When there is only a single table, the H2 heading may be omitted for brevity.
+
+### Special Cases
+
+**Samples:** The samples feature doesn't fit cleanly into the field or section model. Its formatting is deferred for future design work.
+
+## Verbosity Levels
+
+Verbosity controls which H2 sections appear, not which fields appear:
+
+| Level | Description | Sections |
+|-------|-------------|----------|
+| Quiet | Title and fields only | None |
+| Minimal | Compact section view | Summary sections only |
+| Normal | Full output (default) | All standard sections |
+| Detailed | Extended output | All sections including audit details |
+
+The H1, description, and fields are always present regardless of verbosity.
+
+## Table Formatting
+
+Tables use pipe-delimited markdown:
+
+```markdown
+| Member | Kind | Signature |
+|--------|------|-----------|
+| Parse  | method | `JsonDocument Parse(string json)` |
+```
+
+**Conventions:**
+- Header row with column names
+- Separator row with dashes
+- Pipes in cell content escaped as `\|`
+- Boolean values: `✓` (yes) and `✗` (no)
+
+**Common table formats:**
+- Member tables: `| Member | Kind | Signature |` (+ `| Description |` with `--docs`)
+- Metadata tables: `| Property | Value |`
+- Audit tables: `| File | Deterministic | SourceLink |`
+
+## Code Formatting
+
+Signatures use inline backticks within tables:
+
+```markdown
+| Method | Signature |
+|--------|-----------|
+| Parse  | `JsonDocument Parse(string json)` |
+```
+
+Triple-backtick code blocks are not used for signatures. This keeps output compact and works well in table cells.
+
 ## Links
 
 All links in output should be **raw URLs**, not markdown-formatted links. This ensures:
