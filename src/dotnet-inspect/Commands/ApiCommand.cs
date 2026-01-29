@@ -30,6 +30,8 @@ public class ApiCommand
         try
         {
             string searchPath;
+            string? packageName = null;
+            string? packageVersion = null;
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -39,7 +41,7 @@ public class ApiCommand
                 {
                     return 1;
                 }
-                (searchPath, tempDir) = extracted.Value;
+                (searchPath, tempDir, packageName, packageVersion) = extracted.Value;
 
                 // If --tfm is specified, find assembly by TFM
                 if (!string.IsNullOrEmpty(options.Tfm))
@@ -174,14 +176,6 @@ public class ApiCommand
                 // Enrich with source info (SourceLink URL, docs)
                 await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
 
-                // Get package info for output
-                string? packageName = null;
-                string? packageVersion = null;
-                if (!string.IsNullOrEmpty(options.PackagePath))
-                {
-                    (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
-                }
-
                 WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
             }
 
@@ -217,7 +211,7 @@ public class ApiCommand
                 if (extracted == null)
                     return (null, null, null);
                 
-                (searchPath, tempDir) = extracted.Value;
+                (searchPath, tempDir, _, _) = extracted.Value;
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
@@ -1065,6 +1059,16 @@ public class ApiCommand
             sb.AppendLine($"**Assembly:** {foundIn}");
         }
 
+        // Package fields
+        if (packageName != null)
+        {
+            sb.AppendLine($"**Package:** {packageName}");
+        }
+        if (packageVersion != null)
+        {
+            sb.AppendLine($"**Version:** {packageVersion}");
+        }
+
         // Source URL
         if (type.GitHubBrowseUrl != null)
         {
@@ -1544,7 +1548,7 @@ public class ApiCommand
         return signature[parenStart..];
     }
 
-    private static async Task<(string extractPath, string? tempDir)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
+    private static async Task<(string extractPath, string? tempDir, string? packageName, string? version)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
@@ -1562,7 +1566,10 @@ public class ApiCommand
 
             logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
             ZipFile.ExtractToDirectory(packageSource, extractPath);
-            return (extractPath, tempDir);
+            
+            // Parse package name and version from filename
+            var (pkgName, pkgVersion) = ParsePackageReference(packageSource);
+            return (extractPath, tempDir, pkgName, pkgVersion);
         }
         else
         {
@@ -1594,7 +1601,7 @@ public class ApiCommand
             if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
             {
                 logger.Log($"Using cached package: {cachedPath}");
-                return (cachedPath, null); // null tempDir means don't delete
+                return (cachedPath, null, packageName, version); // null tempDir means don't delete
             }
 
             string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-api-{Guid.NewGuid():N}");
@@ -1633,7 +1640,7 @@ public class ApiCommand
                 return null;
             }
 
-            return (extractPath, tempDir);
+            return (extractPath, tempDir, packageName, version);
         }
     }
 
