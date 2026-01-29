@@ -7,16 +7,23 @@ namespace DotnetInspector.Inspectors;
 /// <summary>
 /// Result of attempting to get a PDB reader.
 /// </summary>
+/// <param name="SymbolServer">The server the PDB was retrieved from (e.g., "nuget.org", "msdl.microsoft.com"), or null if local.</param>
 public record PdbLookupResult(
     MetadataReader? Reader,
     IDisposable? Provider,
-    bool WindowsPdbDetected = false
+    bool WindowsPdbDetected = false,
+    string? SymbolServer = null
 );
 
 /// <summary>
 /// Downloads and manages symbol packages (.snupkg) from NuGet for SourceLink resolution.
 /// Only supports Portable PDBs (embedded or standalone) and snupkg files.
 /// </summary>
+/// <remarks>
+/// Symbol server key generation follows the conventions from dotnet/symstore:
+/// https://github.com/dotnet/symstore/blob/d66992e7c2f32288fbf1acf08cdea43098025c7c/src/Microsoft.SymbolStore/KeyGenerators/PortablePDBFileKeyGenerator.cs
+/// Portable PDBs use {GUID}FFFFFFFF, Windows PDBs use {GUID}{age:x}.
+/// </remarks>
 public class SymbolPackageDownloader
 {
     private readonly HttpClient _client;
@@ -65,22 +72,39 @@ public class SymbolPackageDownloader
 
         // 3. Try to get CodeView info for symbol server lookup
         CodeViewDebugDirectoryData? codeView = null;
+        DebugDirectoryEntry? codeViewEntry = null;
         foreach (var entry in peReader.ReadDebugDirectory())
         {
             if (entry.Type == DebugDirectoryEntryType.CodeView)
             {
                 codeView = peReader.ReadCodeViewDebugDirectoryData(entry);
+                codeViewEntry = entry;
                 break;
             }
         }
 
-        if (codeView == null)
+        if (codeView == null || codeViewEntry == null)
         {
             log?.Invoke("No CodeView debug directory found");
             return new PdbLookupResult(null, null, windowsPdbDetected);
         }
 
-        // 4. Try downloading symbol package (.snupkg) from NuGet
+        // Check if this is a Portable PDB (MinorVersion == 0x504d means "PM" for Portable Metadata)
+        bool isPortablePdb = codeViewEntry.Value.MinorVersion == 0x504d;
+
+        // 4. For Microsoft packages, try MSDL symbol server first (they typically don't publish snupkg)
+        bool isMicrosoftPackage = IsMicrosoftPackage(packageName);
+        if (isMicrosoftPackage)
+        {
+            log?.Invoke("Microsoft package detected, trying MSDL symbol server first");
+            var msdlResult = await TryDownloadFromMsdlAsync(codeView.Value, isPortablePdb, log);
+            if (msdlResult.Reader != null)
+                return msdlResult;
+            if (msdlResult.WindowsPdbDetected)
+                windowsPdbDetected = true;
+        }
+
+        // 5. Try downloading symbol package (.snupkg) from NuGet
         if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
         {
             var snupkgResult = await TryDownloadSymbolPackageAsync(
@@ -91,12 +115,15 @@ public class SymbolPackageDownloader
                 windowsPdbDetected = true;
         }
 
-        // 5. Try Microsoft/NuGet symbol servers (only for Portable PDBs)
-        var symbolResult = await TryDownloadFromSymbolServerAsync(codeView.Value, log);
-        if (symbolResult.Reader != null)
-            return symbolResult;
-        if (symbolResult.WindowsPdbDetected)
-            windowsPdbDetected = true;
+        // 6. Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
+        if (!isMicrosoftPackage)
+        {
+            var symbolResult = await TryDownloadFromSymbolServerAsync(codeView.Value, isPortablePdb, log);
+            if (symbolResult.Reader != null)
+                return symbolResult;
+            if (symbolResult.WindowsPdbDetected)
+                windowsPdbDetected = true;
+        }
 
         log?.Invoke("No Portable PDB available");
         return new PdbLookupResult(null, null, windowsPdbDetected);
@@ -145,7 +172,7 @@ public class SymbolPackageDownloader
             log?.Invoke($"Using cached PDB: {Path.GetFileName(cachedPdbPath)}");
             var result = TryReadPortablePdb(cachedPdbPath, log);
             if (result.reader != null)
-                return new PdbLookupResult(result.reader, result.provider);
+                return new PdbLookupResult(result.reader, result.provider, SymbolServer: "nuget.org");
             if (result.isWindowsPdb)
                 windowsPdbDetected = true;
         }
@@ -222,7 +249,7 @@ public class SymbolPackageDownloader
                 if (result.reader != null)
                 {
                     log?.Invoke("Successfully loaded PDB from symbol package");
-                    return new PdbLookupResult(result.reader, result.provider);
+                    return new PdbLookupResult(result.reader, result.provider, SymbolServer: "nuget.org");
                 }
                 if (result.isWindowsPdb)
                     windowsPdbDetected = true;
@@ -247,16 +274,21 @@ public class SymbolPackageDownloader
 
     private async Task<PdbLookupResult> TryDownloadFromSymbolServerAsync(
         CodeViewDebugDirectoryData codeView,
+        bool isPortablePdb,
         Action<string>? log)
     {
         bool windowsPdbDetected = false;
 
         // Build symbol server URL
-        // Format: {server}/{pdbname}/{guid}{age}/{pdbname}
+        // Format: {server}/{pdbname}/{symbolkey}/{pdbname}
         var pdbName = Path.GetFileName(codeView.Path);
         var guid = codeView.Guid.ToString("N").ToUpperInvariant();
         var age = codeView.Age;
-        var symbolKey = $"{guid}{age:X}";
+        
+        // Portable PDBs use FFFFFFFF, Windows PDBs use the actual age
+        var symbolKey = isPortablePdb 
+            ? $"{guid}FFFFFFFF" 
+            : $"{guid}{age:x}";
 
         // Try NuGet symbol server first (typically has Portable PDBs)
         var symbolServers = new[]
@@ -288,8 +320,9 @@ public class SymbolPackageDownloader
                 var result = TryReadPortablePdb(cachePath, log);
                 if (result.reader != null)
                 {
+                    var serverHost = new Uri(server).Host;
                     log?.Invoke($"Successfully loaded PDB from symbol server");
-                    return new PdbLookupResult(result.reader, result.provider);
+                    return new PdbLookupResult(result.reader, result.provider, SymbolServer: serverHost);
                 }
                 if (result.isWindowsPdb)
                 {
@@ -301,6 +334,91 @@ public class SymbolPackageDownloader
             {
                 log?.Invoke($"Symbol server error: {ex.Message}");
             }
+        }
+
+        return new PdbLookupResult(null, null, windowsPdbDetected);
+    }
+
+    /// <summary>
+    /// Checks if a package name indicates it's a Microsoft package.
+    /// </summary>
+    private static bool IsMicrosoftPackage(string? packageName)
+    {
+        if (string.IsNullOrEmpty(packageName))
+            return false;
+
+        return packageName.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase) ||
+               packageName.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
+               packageName.StartsWith("Azure.", StringComparison.OrdinalIgnoreCase) ||
+               packageName.Equals("WindowsAzure.Storage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Tries to download a Portable PDB from Microsoft's symbol server (MSDL).
+    /// </summary>
+    private async Task<PdbLookupResult> TryDownloadFromMsdlAsync(
+        CodeViewDebugDirectoryData codeView,
+        bool isPortablePdb,
+        Action<string>? log)
+    {
+        bool windowsPdbDetected = false;
+
+        var pdbName = Path.GetFileName(codeView.Path);
+        var guid = codeView.Guid.ToString("N").ToUpperInvariant();
+        var age = codeView.Age;
+        
+        // Portable PDBs use FFFFFFFF, Windows PDBs use the actual age
+        // See: https://github.com/dotnet/symstore/blob/main/src/Microsoft.SymbolStore/KeyGenerators/PortablePDBFileKeyGenerator.cs
+        var symbolKey = isPortablePdb 
+            ? $"{guid}FFFFFFFF" 
+            : $"{guid}{age:x}";
+
+        // Check cache first
+        var cachePath = GetSymbolServerCachePath(pdbName, symbolKey);
+        if (File.Exists(cachePath))
+        {
+            log?.Invoke($"Using cached PDB from MSDL");
+            var cached = TryReadPortablePdb(cachePath, log);
+            if (cached.reader != null)
+                return new PdbLookupResult(cached.reader, cached.provider, SymbolServer: "msdl.microsoft.com");
+            if (cached.isWindowsPdb)
+                windowsPdbDetected = true;
+        }
+
+        var url = $"https://msdl.microsoft.com/download/symbols/{pdbName}/{symbolKey}/{pdbName}";
+        log?.Invoke($"Trying MSDL symbol server");
+
+        try
+        {
+            using var response = await _client.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                log?.Invoke($"MSDL returned {response.StatusCode}");
+                return new PdbLookupResult(null, null, windowsPdbDetected);
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+
+            using (var fs = File.Create(cachePath))
+            {
+                await response.Content.CopyToAsync(fs);
+            }
+
+            var result = TryReadPortablePdb(cachePath, log);
+            if (result.reader != null)
+            {
+                log?.Invoke("Successfully loaded PDB from MSDL");
+                return new PdbLookupResult(result.reader, result.provider, SymbolServer: "msdl.microsoft.com");
+            }
+            if (result.isWindowsPdb)
+            {
+                windowsPdbDetected = true;
+                log?.Invoke("MSDL returned a Windows PDB (not supported on this platform)");
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"MSDL error: {ex.Message}");
         }
 
         return new PdbLookupResult(null, null, windowsPdbDetected);

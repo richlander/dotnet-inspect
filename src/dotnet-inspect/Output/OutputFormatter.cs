@@ -108,6 +108,10 @@ public static class OutputFormatter
             sb.AppendLine("|----------|-------|");
             sb.AppendLine($"| Format | {audit.PdbFormat ?? "Unknown"} |");
             sb.AppendLine($"| Location | {audit.PdbLocation ?? "Unknown"} |");
+            if (!string.IsNullOrEmpty(audit.SymbolServer))
+            {
+                sb.AppendLine($"| Server | {audit.SymbolServer} |");
+            }
             if (!string.IsNullOrEmpty(audit.PdbPath))
             {
                 sb.AppendLine($"| Path | {audit.PdbPath} |");

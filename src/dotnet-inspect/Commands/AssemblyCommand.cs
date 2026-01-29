@@ -506,6 +506,7 @@ public class AssemblyCommand
                     using var _ = pdbResult.Provider;
                     audit.PdbFormat = "Portable";
                     audit.PdbLocation = "Symbol Package";
+                    audit.SymbolServer = pdbResult.SymbolServer;
 
                     string? sourceLink = ExtractSourceLink(pdbResult.Reader);
                     if (sourceLink != null)

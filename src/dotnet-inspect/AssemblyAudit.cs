@@ -56,6 +56,13 @@ public class AssemblyAudit
     [MarkoutIgnore]
     public bool WindowsPdbDetected { get; set; }
 
+    /// <summary>
+    /// The server the PDB was retrieved from (e.g., "nuget.org", "msdl.microsoft.com"), or null if local/embedded.
+    /// </summary>
+    [MarkoutPropertyName("Symbol Server")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SymbolServer { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [MarkoutIgnore]
     public string? SourceLinkJson { get; set; }
