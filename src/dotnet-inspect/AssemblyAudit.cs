@@ -21,10 +21,10 @@ public class AssemblyAudit
     public string? PdbFormat { get; set; }
 
     /// <summary>
-    /// How the PDB is deployed: "Embedded", "Standalone", "Symbol Package", "Symbol Server", or null.
+    /// Where the PDB is located: "Embedded", "Standalone", or null if unknown.
     /// </summary>
-    [MarkoutPropertyName("PDB Deployment")]
-    public string? PdbDeployment { get; set; }
+    [MarkoutPropertyName("PDB Location")]
+    public string? PdbLocation { get; set; }
 
     [MarkoutPropertyName("PDB Path")]
     public string? PdbPath { get; set; }

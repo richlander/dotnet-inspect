@@ -106,8 +106,8 @@ public static class OutputFormatter
             sb.AppendLine();
             sb.AppendLine("| Property | Value |");
             sb.AppendLine("|----------|-------|");
-            sb.AppendLine($"| Format | {audit.PdbFormat ?? "None"} |");
-            sb.AppendLine($"| Deployment | {audit.PdbDeployment ?? "None"} |");
+            sb.AppendLine($"| Format | {audit.PdbFormat ?? "Unknown"} |");
+            sb.AppendLine($"| Location | {audit.PdbLocation ?? "Unknown"} |");
             if (!string.IsNullOrEmpty(audit.PdbPath))
             {
                 sb.AppendLine($"| Path | {audit.PdbPath} |");

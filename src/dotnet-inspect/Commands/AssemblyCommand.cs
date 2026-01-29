@@ -438,7 +438,7 @@ public class AssemblyCommand
             {
                 audit.HasEmbeddedPdb = true;
                 audit.PdbFormat = "Portable";
-                audit.PdbDeployment = "Embedded";
+                audit.PdbLocation = "Embedded";
                 using var provider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
                 var reader = provider.GetMetadataReader();
 
@@ -461,19 +461,16 @@ public class AssemblyCommand
                 {
                     audit.WindowsPdbDetected = true;
                     audit.PdbFormat = "Windows";
-                    audit.PdbDeployment = "Standalone";
+                    audit.PdbLocation = "Standalone";
                 }
                 else if (IsPortablePdb(pdbPath))
                 {
                     audit.PdbFormat = "Portable";
-                    audit.PdbDeployment = "Standalone";
+                    audit.PdbLocation = "Standalone";
                 }
             }
-            else if (audit.PdbPath != null)
-            {
-                // Has CodeView entry but no local PDB - likely on symbol server
-                audit.PdbDeployment = "Symbol Server";
-            }
+            // If no embedded or standalone PDB, location is unknown
+            // (PdbPath from CodeView entry tells us what the build expected, not where it actually is)
         }
 
         audit.IsDeterministic = audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
