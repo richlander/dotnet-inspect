@@ -10,6 +10,10 @@
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>

@@ -31,7 +31,7 @@ public class SymbolPackageDownloader
 
     public SymbolPackageDownloader(HttpClient? client = null)
     {
-        _client = client ?? new HttpClient();
+        _client = client ?? HttpClientFactory.Create();
         _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
     }
 

@@ -10,9 +10,7 @@ public class SourceFetcher
 
     public SourceFetcher()
     {
-        _httpClient = new HttpClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(10);
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "dotnet-inspect");
+        _httpClient = HttpClientFactory.Create(TimeSpan.FromSeconds(10));
     }
 
     /// <summary>

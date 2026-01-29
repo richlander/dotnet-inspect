@@ -33,7 +33,7 @@ public class PackageCommand
         bool isLocalFile = packageArgs.Length >= 1 &&
             packageArgs[0].EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
-        using HttpClient client = new();
+        using HttpClient client = HttpClientFactory.Create();
 
         string packageName;
         string version;
@@ -364,7 +364,7 @@ public class PackageCommand
 
     private static async Task<int> ListVersionsAsync(string packageName, bool includePrerelease, int? limit, VerboseLogger logger)
     {
-        using HttpClient client = new();
+        using HttpClient client = HttpClientFactory.Create();
         string normalizedName = packageName.ToLowerInvariant();
 
         try

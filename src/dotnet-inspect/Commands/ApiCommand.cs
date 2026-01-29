@@ -1578,7 +1578,7 @@ public class ApiCommand
         }
         else
         {
-            using HttpClient client = new();
+            using HttpClient client = HttpClientFactory.Create();
 
             string packageName;
             string? version;
@@ -1808,7 +1808,7 @@ public class ApiCommand
     /// Resolves a relative sample path to a full URL based on the source file URL.
     /// Handles both simple relative paths and Sandcastle-style paths.
     /// </summary>
-    private static string? ResolveSampleUrl(string sourceUrl, string relativePath)
+    internal static string? ResolveSampleUrl(string sourceUrl, string relativePath)
     {
         // sourceUrl format: https://raw.githubusercontent.com/user/repo/commit/path/to/file.cs
         // We need to resolve relativePath relative to the source file's directory
@@ -1836,24 +1836,36 @@ public class ApiCommand
                 i++;
             }
             
-            // Now handle the remaining path segments
-            // Check for Sandcastle-style redundant path: if the next segment matches the last segment
-            // we're currently at, it's likely a "go up then back into same dir" pattern - skip it
+            // Handle Sandcastle-style paths where the relative path may reference a parent directory
+            // that we've already traversed to. For example:
+            // - Source: /user/repo/commit/Src/Newtonsoft.Json/Serialization/File.cs
+            // - After ../: /user/repo/commit/Src/Newtonsoft.Json
+            // - Relative continues with: Src/Newtonsoft.Json.Tests/...
+            // - "Src" is a parent we should navigate back to, not append
+            if (i < relativeSegments.Length)
+            {
+                var firstSegment = relativeSegments[i];
+                // Look for this segment in our current path (excluding the metadata prefix segments)
+                // The first 4 segments are typically: "", "user", "repo", "commit"
+                int metadataEnd = Math.Min(4, pathSegments.Count);
+                for (int j = metadataEnd; j < pathSegments.Count; j++)
+                {
+                    if (pathSegments[j] == firstSegment)
+                    {
+                        // Found the segment in our path - truncate to that point
+                        pathSegments = pathSegments.Take(j).ToList();
+                        break;
+                    }
+                }
+            }
+            
+            // Now add the remaining path segments
             while (i < relativeSegments.Length)
             {
                 var segment = relativeSegments[i];
                 
                 if (segment == "." || string.IsNullOrEmpty(segment))
                 {
-                    i++;
-                    continue;
-                }
-                
-                // Check if this segment duplicates where we currently are
-                // e.g., we're at /foo/Src and the next segment is "Src" - that's redundant
-                if (pathSegments.Count > 0 && pathSegments[^1] == segment)
-                {
-                    // Skip this redundant segment
                     i++;
                     continue;
                 }
