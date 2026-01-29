@@ -174,7 +174,15 @@ public class ApiCommand
                 // Enrich with source info (SourceLink URL, docs)
                 await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
 
-                WriteTypeOutput(apiType, foundIn, options);
+                // Get package info for output
+                string? packageName = null;
+                string? packageVersion = null;
+                if (!string.IsNullOrEmpty(options.PackagePath))
+                {
+                    (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+                }
+
+                WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
             }
 
             return 0;
@@ -918,7 +926,7 @@ public class ApiCommand
         return System.Text.RegularExpressions.Regex.IsMatch(text, regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
-    private static void WriteTypeOutput(ApiType type, string? foundIn, ApiOptions options)
+    private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
         // Check for member filter miss and warn
         if (options.MemberFilter?.Count > 0 && type.Members != null)
@@ -991,76 +999,80 @@ public class ApiCommand
         }
         else
         {
-            Console.WriteLine(RenderTypeMarkdown(type, foundIn, options));
+            Console.WriteLine(RenderTypeMarkdown(type, foundIn, packageName, packageVersion, options));
         }
     }
 
-    private static string RenderTypeMarkdown(ApiType type, string? foundIn, ApiOptions options)
+    private static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
         return options.Verbosity switch
         {
-            Verbosity.Quiet => RenderTypeQuiet(type, foundIn, options),
-            Verbosity.Minimal => RenderTypeMinimal(type, foundIn, options),
-            _ => RenderTypeNormalOrDetailed(type, foundIn, options)
+            Verbosity.Quiet => RenderTypeQuiet(type, foundIn, packageName, packageVersion, options),
+            Verbosity.Minimal => RenderTypeMinimal(type, foundIn, packageName, packageVersion, options),
+            _ => RenderTypeNormalOrDetailed(type, foundIn, packageName, packageVersion, options)
         };
     }
 
-    private static string RenderTypeHeader(ApiType type, string? foundIn, ApiOptions options, int? memberCount = null)
+    private static string RenderTypeHeader(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options, int? memberCount = null)
     {
         var sb = new StringBuilder();
 
         var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-        sb.AppendLine($"## {fullName}");
+        
+        // H1 title with package info
+        var packageInfo = packageName != null && packageVersion != null
+            ? $" ({packageName} {packageVersion})"
+            : packageName != null ? $" ({packageName})" : "";
+        sb.AppendLine($"# {fullName}{packageInfo}");
+
+        // Description paragraph (plain text, not blockquote)
+        if (options.ShowDocs && type.Documentation?.Summary != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine(type.Documentation.Summary);
+        }
+
         sb.AppendLine();
 
-        // Type modifiers
+        // Key-value fields
+        sb.AppendLine($"**Kind:** {type.Kind}");
+
+        // Modifiers field (only if there are modifiers)
         var modifiers = new List<string>();
         if (type.IsStatic) modifiers.Add("static");
         if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
-        modifiers.Add(type.Kind);
-
-        if (memberCount.HasValue)
+        if (modifiers.Count > 0)
         {
-            sb.AppendLine($"*{string.Join(" ", modifiers)}, {memberCount} members*");
-        }
-        else
-        {
-            sb.AppendLine($"*{string.Join(" ", modifiers)}*");
+            sb.AppendLine($"**Modifiers:** {string.Join(", ", modifiers)}");
         }
 
+        // Base type (if non-trivial)
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
         {
-            sb.AppendLine($"  : {type.BaseType}");
+            sb.AppendLine($"**Base:** {type.BaseType}");
         }
 
+        // Interfaces
         if (options.ShowInterfaces && type.Interfaces is { Count: > 0 })
         {
-            sb.AppendLine($"  implements {string.Join(", ", type.Interfaces)}");
+            sb.AppendLine($"**Implements:** {string.Join(", ", type.Interfaces)}");
         }
 
+        // Assembly
         if (foundIn != null)
         {
-            sb.AppendLine();
-            sb.AppendLine($"*from {foundIn}*");
+            sb.AppendLine($"**Assembly:** {foundIn}");
         }
 
-        // Show source link if available (raw URL by default for LLM consumption, blob if --browsable-urls)
+        // Source URL
         if (type.GitHubBrowseUrl != null)
         {
-            sb.AppendLine();
             var sourceUrl = options.BrowsableUrls ? ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl;
             sb.AppendLine($"**Source:** {sourceUrl}");
         }
 
-        // Show documentation summary if available
-        if (options.ShowDocs && type.Documentation?.Summary != null)
-        {
-            sb.AppendLine();
-            sb.AppendLine($"> {type.Documentation.Summary}");
-        }
-
-        // Show sample references if available (raw URLs by default for LLM consumption, blob if --browsable-urls)
+        // Samples count
         if (options.ShowDocs && type.Documentation?.Samples?.Count > 0)
         {
             sb.AppendLine($"**Samples:** {type.Documentation.Samples.Count} available");
@@ -1139,10 +1151,10 @@ public class ApiCommand
         return typePart;
     }
 
-    private static string RenderTypeQuiet(ApiType type, string? foundIn, ApiOptions options)
+    private static string RenderTypeQuiet(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
         var sb = new StringBuilder();
-        sb.Append(RenderTypeHeader(type, foundIn, options));
+        sb.Append(RenderTypeHeader(type, foundIn, packageName, packageVersion, options));
 
         // Skip member output in fields-only mode
         if (options.FieldsOnly) return sb.ToString().TrimEnd();
@@ -1181,11 +1193,11 @@ public class ApiCommand
         return sb.ToString().TrimEnd();
     }
 
-    private static string RenderTypeMinimal(ApiType type, string? foundIn, ApiOptions options)
+    private static string RenderTypeMinimal(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
         var sb = new StringBuilder();
         var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
-        sb.Append(RenderTypeHeader(type, foundIn, options, allMembers.Count));
+        sb.Append(RenderTypeHeader(type, foundIn, packageName, packageVersion, options, allMembers.Count));
 
         // Skip member output in fields-only mode
         if (options.FieldsOnly) return sb.ToString().TrimEnd();
@@ -1256,14 +1268,14 @@ public class ApiCommand
         return sb.ToString().TrimEnd();
     }
 
-    private static string RenderTypeNormalOrDetailed(ApiType type, string? foundIn, ApiOptions options)
+    private static string RenderTypeNormalOrDetailed(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
         var sb = new StringBuilder();
 
         // In signatures-only mode, skip the header entirely
         if (!options.SignaturesOnly)
         {
-            sb.Append(RenderTypeHeader(type, foundIn, options));
+            sb.Append(RenderTypeHeader(type, foundIn, packageName, packageVersion, options));
         }
 
         // Skip member output in fields-only mode
@@ -1302,6 +1314,9 @@ public class ApiCommand
 
             if (!options.SignaturesOnly)
             {
+                // Add Members section heading
+                sb.AppendLine();
+                sb.AppendLine("## Members");
                 sb.AppendLine();
                 if (hasAnyDocs)
                 {
