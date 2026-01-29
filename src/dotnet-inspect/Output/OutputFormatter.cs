@@ -74,14 +74,8 @@ public static class OutputFormatter
         {
             sb.AppendLine();
             sb.AppendLine("## Build Audit");
-            sb.AppendLine();
-            sb.AppendLine("| Check | Status |");
-            sb.AppendLine("|-------|--------|");
-            sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
-            sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
-            sb.AppendLine($"| SourceLink | {(audit.HasSourceLink ? "✓" : "✗")} |");
-            sb.AppendLine($"| Embedded PDB | {(audit.HasEmbeddedPdb ? "✓" : "✗")} |");
 
+            // Show fields before the table
             if (!string.IsNullOrEmpty(audit.RepositoryUrl))
             {
                 sb.AppendLine();
@@ -96,6 +90,35 @@ public static class OutputFormatter
                 {
                     sb.AppendLine($"- {path}");
                 }
+            }
+
+            // Show the checkmark table
+            sb.AppendLine();
+            sb.AppendLine("| Check | Status |");
+            sb.AppendLine("|-------|--------|");
+            sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
+            sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
+            sb.AppendLine($"| SourceLink | {(audit.HasSourceLink ? "✓" : "✗")} |");
+
+            // PDB section
+            sb.AppendLine();
+            sb.AppendLine("## PDB");
+            sb.AppendLine();
+            sb.AppendLine("| Property | Value |");
+            sb.AppendLine("|----------|-------|");
+            sb.AppendLine($"| Format | {audit.PdbFormat ?? "None"} |");
+            sb.AppendLine($"| Deployment | {audit.PdbDeployment ?? "None"} |");
+            if (!string.IsNullOrEmpty(audit.PdbPath))
+            {
+                sb.AppendLine($"| Path | {audit.PdbPath} |");
+            }
+
+            if (audit.WindowsPdbDetected)
+            {
+                sb.AppendLine();
+                sb.AppendLine("**Note:** Windows PDB format is not supported by this tool.");
+                sb.AppendLine("Only Portable PDBs (embedded or in .snupkg) can be read.");
+                sb.AppendLine("Consider asking the package maintainer to publish Portable PDBs.");
             }
         }
 

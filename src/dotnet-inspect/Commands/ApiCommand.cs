@@ -294,25 +294,48 @@ public class ApiCommand
                 return;
             }
 
-            // Find embedded PDB
-            MetadataReaderProvider? pdbProvider = null;
-            foreach (var entry in peReader.ReadDebugDirectory())
+            // Parse package name and version for symbol package download
+            string? packageName = null;
+            string? packageVersion = null;
+            if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
+                (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+
+                // If version wasn't specified, try to extract from the DLL path (cached packages have version in path)
+                if (packageVersion == null && !string.IsNullOrEmpty(packageName))
                 {
-                    pdbProvider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
-                    break;
+                    packageVersion = ExtractVersionFromPath(dllPath, packageName);
                 }
             }
 
-            if (pdbProvider == null)
+            // Try to get PDB reader (embedded, standalone, or from symbol package)
+            var symbolDownloader = new SymbolPackageDownloader();
+            var pdbResult = await symbolDownloader.GetPdbReaderAsync(
+                peReader, dllPath, packageName, packageVersion, logger.Log);
+
+            if (pdbResult.Reader == null || pdbResult.Provider == null)
             {
-                logger.Log("No embedded PDB found, cannot resolve source.");
+                // Show warning about PDB issue
+                Console.Error.WriteLine();
+                if (pdbResult.WindowsPdbDetected)
+                {
+                    Console.Error.WriteLine("Warning: PDB could not be read (Windows PDB format is not supported).");
+                    Console.Error.WriteLine("         Only Portable PDBs are supported. Consider asking the maintainer");
+                    Console.Error.WriteLine("         to publish Portable PDBs (embedded or in .snupkg).");
+                }
+                else
+                {
+                    Console.Error.WriteLine("Warning: No readable PDB found.");
+                }
+                Console.Error.WriteLine("         Run 'assembly --audit' for more details.");
+                Console.Error.WriteLine();
                 return;
             }
 
+            var pdbReader = pdbResult.Reader;
+            var pdbProvider = pdbResult.Provider;
+
             using var _ = pdbProvider;
-            var pdbReader = pdbProvider.GetMetadataReader();
             var metadataReader = peReader.GetMetadataReader();
 
             // Create source link resolver
@@ -1489,6 +1512,81 @@ public class ApiCommand
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Parses a package reference string into name and version.
+    /// Handles formats: "PackageName", "PackageName@1.0.0", "path/to/package.nupkg"
+    /// </summary>
+    private static (string? name, string? version) ParsePackageReference(string packageSource)
+    {
+        // Local file - can't determine package name/version reliably
+        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+        {
+            // Try to extract from filename: PackageName.1.0.0.nupkg
+            var fileName = Path.GetFileNameWithoutExtension(packageSource);
+            return ParsePackageFileName(fileName);
+        }
+
+        // Package name with optional version: "PackageName@1.0.0" or "PackageName"
+        int atIndex = packageSource.IndexOf('@');
+        if (atIndex > 0)
+        {
+            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
+        }
+
+        // Just package name - version will need to be resolved
+        return (packageSource, null);
+    }
+
+    /// <summary>
+    /// Attempts to parse a package file name like "Microsoft.Extensions.Logging.8.0.0"
+    /// </summary>
+    private static (string? name, string? version) ParsePackageFileName(string fileName)
+    {
+        // Find the version part (first segment that starts with a digit)
+        var parts = fileName.Split('.');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
+            {
+                var name = string.Join(".", parts.Take(i));
+                var version = string.Join(".", parts.Skip(i));
+                return (name, version);
+            }
+        }
+        return (fileName, null);
+    }
+
+    /// <summary>
+    /// Extracts version from a cached package path.
+    /// Path format: .../packages/packagename/version/lib/tfm/assembly.dll
+    /// </summary>
+    private static string? ExtractVersionFromPath(string dllPath, string packageName)
+    {
+        var normalizedPath = dllPath.Replace('\\', '/');
+        var normalizedPackageName = packageName.ToLowerInvariant();
+
+        // Look for pattern: /packagename/version/
+        var searchPattern = $"/{normalizedPackageName}/";
+        var index = normalizedPath.ToLowerInvariant().IndexOf(searchPattern, StringComparison.Ordinal);
+        if (index < 0)
+            return null;
+
+        // Extract what comes after the package name
+        var afterPackage = normalizedPath[(index + searchPattern.Length)..];
+        var nextSlash = afterPackage.IndexOf('/');
+        if (nextSlash > 0)
+        {
+            var possibleVersion = afterPackage[..nextSlash];
+            // Verify it looks like a version (starts with digit)
+            if (possibleVersion.Length > 0 && char.IsDigit(possibleVersion[0]))
+            {
+                return possibleVersion;
+            }
+        }
+
+        return null;
     }
 
 }

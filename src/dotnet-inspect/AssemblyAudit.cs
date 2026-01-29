@@ -14,8 +14,17 @@ public class AssemblyAudit
     [MarkoutPropertyName("Type")]
     public string FileType { get; set; } = "";
 
+    /// <summary>
+    /// PDB format: "Portable PDB", "Windows PDB", or null if none.
+    /// </summary>
     [MarkoutPropertyName("PDB Format")]
     public string? PdbFormat { get; set; }
+
+    /// <summary>
+    /// How the PDB is deployed: "Embedded", "Standalone", "Symbol Package", "Symbol Server", or null.
+    /// </summary>
+    [MarkoutPropertyName("PDB Deployment")]
+    public string? PdbDeployment { get; set; }
 
     [MarkoutPropertyName("PDB Path")]
     public string? PdbPath { get; set; }
@@ -40,6 +49,12 @@ public class AssemblyAudit
 
     [MarkoutPropertyName("Repository URL")]
     public string? RepositoryUrl { get; set; }
+
+    /// <summary>
+    /// Indicates that a Windows PDB was detected (not supported by this tool).
+    /// </summary>
+    [MarkoutIgnore]
+    public bool WindowsPdbDetected { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [MarkoutIgnore]

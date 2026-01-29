@@ -1,0 +1,394 @@
+using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+
+namespace DotnetInspector.Inspectors;
+
+/// <summary>
+/// Result of attempting to get a PDB reader.
+/// </summary>
+public record PdbLookupResult(
+    MetadataReader? Reader,
+    IDisposable? Provider,
+    bool WindowsPdbDetected = false
+);
+
+/// <summary>
+/// Downloads and manages symbol packages (.snupkg) from NuGet for SourceLink resolution.
+/// Only supports Portable PDBs (embedded or standalone) and snupkg files.
+/// </summary>
+public class SymbolPackageDownloader
+{
+    private readonly HttpClient _client;
+    private readonly string _cachePath;
+
+    public SymbolPackageDownloader(HttpClient? client = null)
+    {
+        _client = client ?? new HttpClient();
+        _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
+    }
+
+    /// <summary>
+    /// Tries to get a PDB reader for an assembly, checking embedded PDB first, then external sources.
+    /// Only supports Portable PDBs. Returns WindowsPdbDetected=true if a Windows PDB was found.
+    /// </summary>
+    public async Task<PdbLookupResult> GetPdbReaderAsync(
+        PEReader peReader,
+        string assemblyPath,
+        string? packageName = null,
+        string? packageVersion = null,
+        Action<string>? log = null)
+    {
+        bool windowsPdbDetected = false;
+
+        // 1. Try embedded PDB first
+        foreach (var entry in peReader.ReadDebugDirectory())
+        {
+            if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
+            {
+                log?.Invoke("Using embedded PDB");
+                var provider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
+                return new PdbLookupResult(provider.GetMetadataReader(), provider);
+            }
+        }
+
+        // 2. Try standalone PDB next to the assembly
+        var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        if (File.Exists(pdbPath))
+        {
+            var (reader, provider, isWindowsPdb) = TryReadPortablePdb(pdbPath, log);
+            if (reader != null)
+                return new PdbLookupResult(reader, provider);
+            if (isWindowsPdb)
+                windowsPdbDetected = true;
+        }
+
+        // 3. Try to get CodeView info for symbol server lookup
+        CodeViewDebugDirectoryData? codeView = null;
+        foreach (var entry in peReader.ReadDebugDirectory())
+        {
+            if (entry.Type == DebugDirectoryEntryType.CodeView)
+            {
+                codeView = peReader.ReadCodeViewDebugDirectoryData(entry);
+                break;
+            }
+        }
+
+        if (codeView == null)
+        {
+            log?.Invoke("No CodeView debug directory found");
+            return new PdbLookupResult(null, null, windowsPdbDetected);
+        }
+
+        // 4. Try downloading symbol package (.snupkg) from NuGet
+        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
+        {
+            var snupkgResult = await TryDownloadSymbolPackageAsync(
+                packageName, packageVersion, codeView.Value, assemblyPath, log);
+            if (snupkgResult.Reader != null)
+                return snupkgResult;
+            if (snupkgResult.WindowsPdbDetected)
+                windowsPdbDetected = true;
+        }
+
+        // 5. Try Microsoft/NuGet symbol servers (only for Portable PDBs)
+        var symbolResult = await TryDownloadFromSymbolServerAsync(codeView.Value, log);
+        if (symbolResult.Reader != null)
+            return symbolResult;
+        if (symbolResult.WindowsPdbDetected)
+            windowsPdbDetected = true;
+
+        log?.Invoke("No Portable PDB available");
+        return new PdbLookupResult(null, null, windowsPdbDetected);
+    }
+
+    /// <summary>
+    /// Extracts SourceLink JSON from a PDB file, checking embedded PDB first, then external sources.
+    /// </summary>
+    public async Task<(string? json, bool windowsPdbDetected)> GetSourceLinkJsonAsync(
+        PEReader peReader,
+        string assemblyPath,
+        string? packageName = null,
+        string? packageVersion = null,
+        Action<string>? log = null)
+    {
+        var result = await GetPdbReaderAsync(peReader, assemblyPath, packageName, packageVersion, log);
+        if (result.Reader == null)
+            return (null, result.WindowsPdbDetected);
+
+        try
+        {
+            return (ExtractSourceLinkFromReader(result.Reader), false);
+        }
+        finally
+        {
+            result.Provider?.Dispose();
+        }
+    }
+
+    private async Task<PdbLookupResult> TryDownloadSymbolPackageAsync(
+        string packageName,
+        string packageVersion,
+        CodeViewDebugDirectoryData codeView,
+        string assemblyPath,
+        Action<string>? log)
+    {
+        var normalizedName = packageName.ToLowerInvariant();
+        var normalizedVersion = packageVersion.ToLowerInvariant();
+
+        bool windowsPdbDetected = false;
+
+        // Check cache first
+        var cachedPdbPath = GetCachedPdbPath(normalizedName, normalizedVersion, assemblyPath);
+        if (cachedPdbPath != null && File.Exists(cachedPdbPath))
+        {
+            log?.Invoke($"Using cached PDB: {Path.GetFileName(cachedPdbPath)}");
+            var result = TryReadPortablePdb(cachedPdbPath, log);
+            if (result.reader != null)
+                return new PdbLookupResult(result.reader, result.provider);
+            if (result.isWindowsPdb)
+                windowsPdbDetected = true;
+        }
+
+        // Try NuGet global CDN first (same URL NuGet Package Explorer uses)
+        var snupkgUrls = new[]
+        {
+            $"https://globalcdn.nuget.org/symbol-packages/{normalizedName}.{normalizedVersion}.snupkg",
+            $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{normalizedVersion}/{normalizedName}.{normalizedVersion}.snupkg"
+        };
+
+        log?.Invoke($"Trying symbol package: {normalizedName}.{normalizedVersion}.snupkg");
+
+        HttpResponseMessage? response = null;
+        try
+        {
+            foreach (var snupkgUrl in snupkgUrls)
+            {
+                response = await _client.GetAsync(snupkgUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    log?.Invoke($"Found symbol package at: {snupkgUrl}");
+                    break;
+                }
+                response.Dispose();
+                response = null;
+            }
+
+            if (response == null || !response.IsSuccessStatusCode)
+            {
+                log?.Invoke($"Symbol package not found on NuGet");
+                return new PdbLookupResult(null, null, windowsPdbDetected);
+            }
+
+            // Download to temp file and extract
+            var tempDir = Path.Combine(Path.GetTempPath(), $"snupkg-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var snupkgPath = Path.Combine(tempDir, "package.snupkg");
+                using (var fs = File.Create(snupkgPath))
+                {
+                    await response.Content.CopyToAsync(fs);
+                }
+                response.Dispose();
+                response = null;
+
+                var extractPath = Path.Combine(tempDir, "extracted");
+                ZipFile.ExtractToDirectory(snupkgPath, extractPath);
+
+                // Find matching PDB
+                var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+                var pdbFiles = Directory.GetFiles(extractPath, $"{assemblyName}.pdb", SearchOption.AllDirectories);
+
+                if (pdbFiles.Length == 0)
+                {
+                    log?.Invoke("No matching PDB found in symbol package");
+                    return new PdbLookupResult(null, null, windowsPdbDetected);
+                }
+
+                // Cache the PDB for future use
+                var pdbFile = pdbFiles[0];
+                var cachePath = EnsureCachedPdbPath(normalizedName, normalizedVersion, assemblyPath);
+                if (cachePath != null)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+                    File.Copy(pdbFile, cachePath, overwrite: true);
+                    log?.Invoke($"Cached PDB to: {cachePath}");
+                    pdbFile = cachePath;
+                }
+
+                var result = TryReadPortablePdb(pdbFile, log);
+                if (result.reader != null)
+                {
+                    log?.Invoke("Successfully loaded PDB from symbol package");
+                    return new PdbLookupResult(result.reader, result.provider);
+                }
+                if (result.isWindowsPdb)
+                    windowsPdbDetected = true;
+            }
+            finally
+            {
+                // Cleanup temp dir (but not cached PDB)
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Error downloading symbol package: {ex.Message}");
+        }
+        finally
+        {
+            response?.Dispose();
+        }
+
+        return new PdbLookupResult(null, null, windowsPdbDetected);
+    }
+
+    private async Task<PdbLookupResult> TryDownloadFromSymbolServerAsync(
+        CodeViewDebugDirectoryData codeView,
+        Action<string>? log)
+    {
+        bool windowsPdbDetected = false;
+
+        // Build symbol server URL
+        // Format: {server}/{pdbname}/{guid}{age}/{pdbname}
+        var pdbName = Path.GetFileName(codeView.Path);
+        var guid = codeView.Guid.ToString("N").ToUpperInvariant();
+        var age = codeView.Age;
+        var symbolKey = $"{guid}{age:X}";
+
+        // Try NuGet symbol server first (typically has Portable PDBs)
+        var symbolServers = new[]
+        {
+            "https://symbols.nuget.org/download/symbols",
+            "https://msdl.microsoft.com/download/symbols"
+        };
+
+        foreach (var server in symbolServers)
+        {
+            var url = $"{server}/{pdbName}/{symbolKey}/{pdbName}";
+            log?.Invoke($"Trying symbol server: {server}");
+
+            try
+            {
+                using var response = await _client.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                    continue;
+
+                // Download to cache
+                var cachePath = GetSymbolServerCachePath(pdbName, symbolKey);
+                Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+
+                using (var fs = File.Create(cachePath))
+                {
+                    await response.Content.CopyToAsync(fs);
+                }
+
+                var result = TryReadPortablePdb(cachePath, log);
+                if (result.reader != null)
+                {
+                    log?.Invoke($"Successfully loaded PDB from symbol server");
+                    return new PdbLookupResult(result.reader, result.provider);
+                }
+                if (result.isWindowsPdb)
+                {
+                    windowsPdbDetected = true;
+                    log?.Invoke("Symbol server returned a Windows PDB (not supported)");
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"Symbol server error: {ex.Message}");
+            }
+        }
+
+        return new PdbLookupResult(null, null, windowsPdbDetected);
+    }
+
+    private (MetadataReader? reader, IDisposable? provider, bool isWindowsPdb) TryReadPortablePdb(string pdbPath, Action<string>? log)
+    {
+        try
+        {
+            var stream = File.OpenRead(pdbPath);
+
+            // Check for Portable PDB magic header (BSJB)
+            byte[] header = new byte[4];
+            stream.ReadExactly(header, 0, 4);
+            stream.Position = 0;
+
+            if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
+            {
+                // Check if it's a Windows PDB (MSF 7.00 header)
+                bool isWindowsPdb = header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
+                stream.Dispose();
+                return (null, null, isWindowsPdb);
+            }
+
+            var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
+            return (provider.GetMetadataReader(), new CompositeDisposable(provider, stream), false);
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Error reading PDB: {ex.Message}");
+            return (null, null, false);
+        }
+    }
+
+    private string? GetCachedPdbPath(string packageName, string packageVersion, string assemblyPath)
+    {
+        var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+        var cachePath = Path.Combine(_cachePath, packageName, packageVersion, $"{assemblyName}.pdb");
+        return cachePath;
+    }
+
+    private string? EnsureCachedPdbPath(string packageName, string packageVersion, string assemblyPath)
+    {
+        return GetCachedPdbPath(packageName, packageVersion, assemblyPath);
+    }
+
+    private string GetSymbolServerCachePath(string pdbName, string symbolKey)
+    {
+        return Path.Combine(_cachePath, "servers", pdbName, symbolKey, pdbName);
+    }
+
+    private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
+
+    private static string? ExtractSourceLinkFromReader(MetadataReader reader)
+    {
+        foreach (CustomDebugInformationHandle handle in reader.CustomDebugInformation)
+        {
+            CustomDebugInformation info = reader.GetCustomDebugInformation(handle);
+            Guid kind = reader.GetGuid(info.Kind);
+
+            if (kind == SourceLinkGuid)
+            {
+                byte[] bytes = reader.GetBlobBytes(info.Value);
+                return System.Text.Encoding.UTF8.GetString(bytes);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Helper class to dispose multiple disposables.
+    /// </summary>
+    private class CompositeDisposable : IDisposable
+    {
+        private readonly IDisposable[] _disposables;
+
+        public CompositeDisposable(params IDisposable[] disposables)
+        {
+            _disposables = disposables;
+        }
+
+        public void Dispose()
+        {
+            foreach (var d in _disposables)
+            {
+                try { d.Dispose(); } catch { }
+            }
+        }
+    }
+}

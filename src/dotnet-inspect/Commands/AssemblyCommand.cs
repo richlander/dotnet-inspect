@@ -364,7 +364,7 @@ public class AssemblyCommand
             // Audit if requested
             if (options.IncludeAudit)
             {
-                AuditAssembly(peReader, audit);
+                AuditAssembly(peReader, audit, path);
             }
 
             return audit;
@@ -407,7 +407,7 @@ public class AssemblyCommand
         return audit;
     }
 
-    private static void AuditAssembly(PEReader peReader, AssemblyAudit audit)
+    private static void AuditAssembly(PEReader peReader, AssemblyAudit audit, string assemblyPath)
     {
         foreach (var entry in peReader.ReadDebugDirectory())
         {
@@ -437,6 +437,8 @@ public class AssemblyCommand
             if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.EmbeddedPortablePdb)
             {
                 audit.HasEmbeddedPdb = true;
+                audit.PdbFormat = "Portable";
+                audit.PdbDeployment = "Embedded";
                 using var provider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
                 var reader = provider.GetMetadataReader();
 
@@ -446,6 +448,31 @@ public class AssemblyCommand
                     audit.HasSourceLink = true;
                     audit.SourceLinkJson = sourceLink;
                 }
+            }
+        }
+
+        // Check for standalone PDB file (if no embedded PDB)
+        if (!audit.HasEmbeddedPdb)
+        {
+            var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            if (File.Exists(pdbPath))
+            {
+                if (IsWindowsPdb(pdbPath))
+                {
+                    audit.WindowsPdbDetected = true;
+                    audit.PdbFormat = "Windows";
+                    audit.PdbDeployment = "Standalone";
+                }
+                else if (IsPortablePdb(pdbPath))
+                {
+                    audit.PdbFormat = "Portable";
+                    audit.PdbDeployment = "Standalone";
+                }
+            }
+            else if (audit.PdbPath != null)
+            {
+                // Has CodeView entry but no local PDB - likely on symbol server
+                audit.PdbDeployment = "Symbol Server";
             }
         }
 
@@ -468,6 +495,48 @@ public class AssemblyCommand
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Checks if a PDB file is a Windows PDB (MSF format) rather than a Portable PDB.
+    /// </summary>
+    private static bool IsWindowsPdb(string pdbPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(pdbPath);
+            byte[] header = new byte[4];
+            if (stream.Read(header, 0, 4) < 4)
+                return false;
+
+            // Windows PDB starts with "Microsoft C/C++ MSF 7.00" - first 4 bytes are "Micr"
+            return header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a PDB file is a Portable PDB.
+    /// </summary>
+    private static bool IsPortablePdb(string pdbPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(pdbPath);
+            byte[] header = new byte[4];
+            if (stream.Read(header, 0, 4) < 4)
+                return false;
+
+            // Portable PDB starts with "BSJB"
+            return header[0] == 'B' && header[1] == 'S' && header[2] == 'J' && header[3] == 'B';
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static AssemblyInfo ExtractAssemblyInfo(PEReader peReader)
