@@ -1131,11 +1131,22 @@ public class ApiCommand
                 return sb.ToString().TrimEnd();
             }
 
+            // Check if we should include a description column
+            bool hasAnyDocs = options.ShowDocs && members.Any(m => m.Documentation?.Summary != null);
+
             if (!options.SignaturesOnly)
             {
                 sb.AppendLine();
-                sb.AppendLine("| Member | Kind | Signature |");
-                sb.AppendLine("|--------|------|-----------|");
+                if (hasAnyDocs)
+                {
+                    sb.AppendLine("| Member | Kind | Signature | Description |");
+                    sb.AppendLine("|--------|------|-----------|-------------|");
+                }
+                else
+                {
+                    sb.AppendLine("| Member | Kind | Signature |");
+                    sb.AppendLine("|--------|------|-----------|");
+                }
             }
 
             var totalCount = members.Count;
@@ -1159,14 +1170,16 @@ public class ApiCommand
                 {
                     // Escape pipes in signatures for markdown table
                     sig = sig.Replace("|", "\\|");
-                    sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
 
-                    // Show member documentation if available (when --docs is used with member filter)
-                    if (member.Documentation?.Summary != null)
+                    if (hasAnyDocs)
                     {
-                        sb.AppendLine();
-                        sb.AppendLine($"> {member.Documentation.Summary}");
-                        sb.AppendLine();
+                        string desc = member.Documentation?.Summary ?? "";
+                        desc = desc.Replace("|", "\\|");
+                        sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` | {desc} |");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
                     }
                 }
             }
