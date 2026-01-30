@@ -218,11 +218,9 @@ public class SamplesCommand
             {
                 var sample = result.TypedSample.Sample;
                 var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
-                var regionInfo = sample.Region != null ? $" (region: {sample.Region})" : "";
-                var typeInfo = result.TypedSample.TypeName;
 
-                // Numbered section header with type info
-                Console.WriteLine($"## {result.Index + 1}. {description} [{typeInfo}]{regionInfo}");
+                // Format: ## 1. Namespace.Type - Description
+                Console.WriteLine($"## {result.Index + 1}. {result.TypedSample.FullTypeName} - {description}");
                 Console.WriteLine();
 
                 if (result.Content != null)
@@ -280,8 +278,8 @@ public class SamplesCommand
                 url = ConvertRawToBlobUrl(url);
             }
 
-            var regionInfo = sample.Region != null ? $" (region: `{sample.Region}`)" : "";
-            sb.AppendLine($"{i + 1}. [{typedSample.TypeName}] {description}: {url}{regionInfo}");
+            // Format: 1. Namespace.Type - Description: URL
+            sb.AppendLine($"{i + 1}. {typedSample.FullTypeName} - {description}: {url}");
         }
 
         return sb.ToString().TrimEnd();
