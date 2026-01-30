@@ -148,18 +148,28 @@ public partial class DocCommentParser
     /// </summary>
     private static string? ExtractPrecedingDocComment(string sourceContent, int declarationIndex)
     {
-        // Search backwards from declaration to find /// comment lines
-        var lines = new List<string>();
-        var currentIdx = declarationIndex - 1;
+        // First, find the start of the line containing the declaration
+        var declLineStart = sourceContent.LastIndexOf('\n', declarationIndex);
+        if (declLineStart < 0) declLineStart = 0;
+        else declLineStart++; // Skip the newline char
         
-        // Skip whitespace, attributes, and modifiers before declaration
+        // Start searching from the line before the declaration
+        var currentIdx = declLineStart - 2;
+        if (currentIdx < 0) return null;
+        
+        // Search backwards to find /// comment lines
+        var lines = new List<string>();
+        
         while (currentIdx >= 0)
         {
             var lineStart = sourceContent.LastIndexOf('\n', currentIdx);
             if (lineStart < 0) lineStart = 0;
             else lineStart++; // Skip the newline char
             
-            var line = sourceContent.Substring(lineStart, currentIdx - lineStart + 1).Trim();
+            var lineEnd = sourceContent.IndexOf('\n', lineStart);
+            if (lineEnd < 0) lineEnd = sourceContent.Length;
+            
+            var line = sourceContent.Substring(lineStart, lineEnd - lineStart).Trim();
             
             if (line.StartsWith("///"))
             {
@@ -168,15 +178,14 @@ public partial class DocCommentParser
             }
             else if (line.Length == 0 || 
                      line.StartsWith("[") || 
-                     (line.StartsWith("//") && !line.StartsWith("///")) ||
-                     IsModifierLine(line))
+                     (line.StartsWith("//") && !line.StartsWith("///")))
             {
-                // Empty line, attribute, regular comment, or modifier - skip and continue looking
+                // Empty line, attribute, or regular comment - skip and continue looking
                 currentIdx = lineStart - 2;
             }
             else
             {
-                // Non-comment, non-attribute, non-modifier line - stop searching
+                // Non-comment, non-attribute line - stop searching
                 break;
             }
             
