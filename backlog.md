@@ -2,6 +2,79 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
+## Platform Command
+
+Add a `platform` command for discovering and listing platform/framework assemblies without requiring knowledge of installation paths:
+
+```bash
+# List all platform frameworks
+dotnet-inspect platform --list-frameworks
+
+# Output:
+# | Framework | Version | Assemblies |
+# |-----------|---------|------------|
+# | runtime | 9.0.12 | 142 |
+# | aspnetcore | 9.0.0 | 87 |
+
+# List assemblies for a specific framework
+dotnet-inspect platform --framework runtime
+
+# Output:
+# # runtime (9.0.12)
+# 
+# | Assembly | Types |
+# |----------|-------|
+# | System.Text.Json.dll | 77 |
+# | System.Net.Http.dll | 45 |
+# | ... | ... |
+
+# List all assemblies across all frameworks (default)
+dotnet-inspect platform
+
+# Specify a version
+dotnet-inspect platform --framework runtime@8.0.23
+```
+
+Framework short names:
+- `runtime` → Microsoft.NETCore.App.Ref
+- `aspnetcore` → Microsoft.AspNetCore.App.Ref
+- `netstandard` → NETStandard.Library.Ref
+
+Behavior:
+- Auto-detect platform installation paths (macOS, Windows, various Linux distros)
+- Default to latest installed version (like TFM selection in packages)
+- May need a `--list-versions` flag to show available versions per framework
+- Similar to `dotnet --info` but focused on ref assemblies for inspection
+
+## Platform Flag for API Commands
+
+Add `--platform` flag to `api` and `samples` commands as an ergonomic alternative to long `--assembly` paths:
+
+```bash
+# Instead of:
+dotnet-inspect api JsonSerializer --assembly /usr/local/share/dotnet/packs/Microsoft.NETCore.App.Ref/9.0.12/ref/net9.0/System.Text.Json.dll
+
+# Use:
+dotnet-inspect api JsonSerializer --platform System.Text.Json
+dotnet-inspect api --platform System.Text.Json  # List all types
+
+# Specify framework if needed (defaults to runtime)
+dotnet-inspect api --platform Microsoft.AspNetCore.Mvc --framework aspnetcore
+
+# Specify version
+dotnet-inspect api --platform System.Text.Json --framework runtime@8.0.23
+
+# Samples from platform
+dotnet-inspect samples --platform System.Text.Json
+```
+
+The `.dll` extension should be optional. All the same defaulting applies:
+- Default to `runtime` framework
+- Default to latest installed version
+- Search across frameworks if assembly name is unambiguous
+
+Long `--assembly` paths remain supported but not documented as the primary workflow.
+
 ## Derived Types Table
 
 Add a "Derived Types" section to `api` output that displays:
