@@ -45,6 +45,12 @@ Provides functionality to serialize objects or value types to JSON and deseriali
 
 Structured metadata as `**Label:** value` pairs, one per line. These fields form the stable "header" that `--fields-only` preserves.
 
+**When to use fields vs tables:**
+- Use **fields** for top-level metadata about the subject (type, assembly, package)
+- Use **tables** within named H2 sections for collections of related items (members, files, audit results)
+
+Fields describe "what this thing is"; tables list "what this thing contains".
+
 **Standard fields for type output:**
 - `**Kind:** class` / `interface` / `struct` / `enum`
 - `**Modifiers:** static, sealed` (only if modifiers exist)
