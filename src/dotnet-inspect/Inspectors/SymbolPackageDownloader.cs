@@ -191,13 +191,13 @@ public class SymbolPackageDownloader
         {
             foreach (var snupkgUrl in snupkgUrls)
             {
-                response = await _client.GetAsync(snupkgUrl);
-                if (response.IsSuccessStatusCode)
+                response = await HttpRetryHelper.GetWithRetryAsync(_client, snupkgUrl, log: log);
+                if (response != null && response.IsSuccessStatusCode)
                 {
                     log?.Invoke($"Found symbol package at: {snupkgUrl}");
                     break;
                 }
-                response.Dispose();
+                response?.Dispose();
                 response = null;
             }
 
@@ -304,8 +304,8 @@ public class SymbolPackageDownloader
 
             try
             {
-                using var response = await _client.GetAsync(url);
-                if (!response.IsSuccessStatusCode)
+                using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log);
+                if (response == null || !response.IsSuccessStatusCode)
                     continue;
 
                 // Download to cache
@@ -390,10 +390,10 @@ public class SymbolPackageDownloader
 
         try
         {
-            using var response = await _client.GetAsync(url);
-            if (!response.IsSuccessStatusCode)
+            using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log);
+            if (response == null || !response.IsSuccessStatusCode)
             {
-                log?.Invoke($"MSDL returned {response.StatusCode}");
+                log?.Invoke($"MSDL: symbol not found");
                 return new PdbLookupResult(null, null, windowsPdbDetected);
             }
 
