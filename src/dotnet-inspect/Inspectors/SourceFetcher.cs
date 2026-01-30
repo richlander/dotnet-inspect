@@ -1,11 +1,11 @@
 namespace DotnetInspector.Inspectors;
 
 /// <summary>
-/// Fetches source files from URLs with in-memory caching.
+/// Fetches source files from URLs with persistent disk caching and in-memory caching.
 /// </summary>
 public class SourceFetcher
 {
-    private readonly Dictionary<string, string> _cache = new();
+    private readonly Dictionary<string, string> _memoryCache = new();
     private readonly HttpClient _httpClient;
 
     public SourceFetcher()
@@ -15,19 +15,31 @@ public class SourceFetcher
 
     /// <summary>
     /// Fetches source content from a URL, with caching.
+    /// Checks in-memory cache first, then disk cache, then fetches from network.
     /// Returns null if the fetch fails.
     /// </summary>
     public async Task<string?> FetchSourceAsync(string url)
     {
-        if (_cache.TryGetValue(url, out string? cached))
+        // Check in-memory cache first
+        if (_memoryCache.TryGetValue(url, out string? cached))
         {
             return cached;
         }
 
+        // Check persistent disk cache
+        var diskCached = NuGetCache.TryGetCachedSource(url);
+        if (diskCached != null)
+        {
+            _memoryCache[url] = diskCached;
+            return diskCached;
+        }
+
+        // Fetch from network
         try
         {
             string content = await _httpClient.GetStringAsync(url);
-            _cache[url] = content;
+            _memoryCache[url] = content;
+            NuGetCache.CacheSource(url, content);
             return content;
         }
         catch
