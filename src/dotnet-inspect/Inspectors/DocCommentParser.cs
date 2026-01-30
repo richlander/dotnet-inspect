@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Buffers;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -14,6 +15,10 @@ public partial class DocCommentParser
     // Source-generated regex for normalizing whitespace
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
+    
+    // SearchValues for fast multi-string search of type keywords
+    private static readonly SearchValues<string> TypeKeywords = 
+        SearchValues.Create(["class ", "struct ", "interface ", "enum ", "record "], StringComparison.Ordinal);
     
     public record DocComment(
         string? Summary,
@@ -38,37 +43,46 @@ public partial class DocCommentParser
         var backtickIndex = typeName.IndexOf('`');
         var cleanName = backtickIndex >= 0 ? typeName[..backtickIndex] : typeName;
 
-        // Fast path: find type declaration using string search
-        var typeKeywords = new[] { "class ", "struct ", "interface ", "enum ", "record " };
+        // Use SearchValues to find all type keyword positions
+        var span = sourceContent.AsSpan();
+        var searchStart = 0;
         
-        foreach (var keyword in typeKeywords)
+        while (searchStart < span.Length)
         {
-            var searchPattern = keyword + cleanName;
-            var idx = sourceContent.IndexOf(searchPattern, StringComparison.Ordinal);
+            var idx = span[searchStart..].IndexOfAny(TypeKeywords);
+            if (idx < 0) break;
             
-            while (idx >= 0)
+            idx += searchStart; // Adjust to absolute position
+            
+            // Find which keyword matched and get its length
+            int keywordLen = 0;
+            if (span[idx..].StartsWith("interface ")) keywordLen = 10;
+            else if (span[idx..].StartsWith("struct ")) keywordLen = 7;
+            else if (span[idx..].StartsWith("record ")) keywordLen = 7;
+            else if (span[idx..].StartsWith("class ")) keywordLen = 6;
+            else if (span[idx..].StartsWith("enum ")) keywordLen = 5;
+            
+            if (keywordLen == 0) { searchStart = idx + 1; continue; }
+            
+            // Check if type name follows the keyword
+            var afterKeyword = idx + keywordLen;
+            if (afterKeyword + cleanName.Length <= span.Length &&
+                span.Slice(afterKeyword, cleanName.Length).SequenceEqual(cleanName.AsSpan()))
             {
-                // Verify it's a word boundary (not part of a longer name)
-                var endIdx = idx + searchPattern.Length;
-                if (endIdx < sourceContent.Length)
+                // Verify word boundary
+                var endIdx = afterKeyword + cleanName.Length;
+                if (endIdx >= span.Length || (!char.IsLetterOrDigit(span[endIdx]) && span[endIdx] != '_'))
                 {
-                    var nextChar = sourceContent[endIdx];
-                    if (char.IsLetterOrDigit(nextChar) || nextChar == '_')
+                    // Found type declaration, search backwards for /// comments
+                    var commentBlock = ExtractPrecedingDocComment(sourceContent, idx);
+                    if (commentBlock != null)
                     {
-                        // Part of a longer identifier, keep searching
-                        idx = sourceContent.IndexOf(searchPattern, endIdx, StringComparison.Ordinal);
-                        continue;
+                        return ParseXmlDocComment(commentBlock);
                     }
                 }
-                
-                // Found type declaration, now search backwards for /// comments
-                var commentBlock = ExtractPrecedingDocComment(sourceContent, idx);
-                if (commentBlock != null)
-                {
-                    return ParseXmlDocComment(commentBlock);
-                }
-                break;
             }
+            
+            searchStart = idx + 1;
         }
 
         return null;
