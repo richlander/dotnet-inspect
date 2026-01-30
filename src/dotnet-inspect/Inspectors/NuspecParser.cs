@@ -21,6 +21,34 @@ public static class NuspecParser
         result.Authors = metadata.Element(ns + "authors")?.Value;
         result.Repository = metadata.Element(ns + "repository")?.Attribute("url")?.Value;
 
+        // Parse license (prefer expression over file or URL)
+        var licenseElement = metadata.Element(ns + "license");
+        if (licenseElement != null)
+        {
+            string? licenseType = licenseElement.Attribute("type")?.Value;
+            if (licenseType?.Equals("expression", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                result.License = licenseElement.Value;
+            }
+            else if (licenseType?.Equals("file", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                result.License = $"(file: {licenseElement.Value})";
+            }
+        }
+        // Fallback to deprecated licenseUrl if no license element
+        if (string.IsNullOrEmpty(result.License))
+        {
+            var licenseUrl = metadata.Element(ns + "licenseUrl")?.Value;
+            if (!string.IsNullOrEmpty(licenseUrl) && !licenseUrl.Contains("LICENSE"))
+            {
+                // Extract expression from nuget.org license URLs like https://licenses.nuget.org/MIT
+                if (licenseUrl.StartsWith("https://licenses.nuget.org/"))
+                {
+                    result.License = licenseUrl.Replace("https://licenses.nuget.org/", "");
+                }
+            }
+        }
+
         // Check if it's marked as a tool
         var packageTypes = metadata.Element(ns + "packageTypes");
         if (packageTypes != null)

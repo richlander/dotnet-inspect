@@ -77,3 +77,35 @@ Useful for:
 ## Skill Plugin
 
 Add a skill plugin to this repo. (User-requested feature - needs investigation to understand what this means in context. Possibly related to Copilot Extensions, Semantic Kernel skills, or another plugin system.)
+
+## Package README Command
+
+Add a command or flag to print the README.md content from a package:
+
+```bash
+dotnet-inspect package System.Text.Json --readme
+# or
+dotnet-inspect readme System.Text.Json
+```
+
+The `**Readme:** yes` field is already displayed when a package contains a README.md. This would expose the actual content, which could be useful for:
+
+- LLMs understanding package purpose and usage patterns
+- Quick reference without leaving the terminal
+- Automation workflows that need package documentation
+
+## Style Guide Review
+
+Audit all command outputs to ensure they follow the style guide in `docs/style-guide.md`:
+
+- Top-level metadata uses `**Field:** value` format
+- Tables appear in named H2 sections for collections
+- Consistent field ordering across commands
+- Boolean values rendered appropriately (✓/✗ in tables, yes/no in fields)
+
+Also evaluate the "verbosity spread" across `-v q`, `-v m`, `-v n`, `-v d`:
+
+- Is the default (`-v n`) the right balance for most use cases?
+- Is there meaningful differentiation between levels?
+- Are the right sections at the right verbosity levels?
+- Consider if some fields should only appear at higher verbosity

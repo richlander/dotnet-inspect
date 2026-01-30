@@ -131,6 +131,55 @@ public static class ToolsAnalyzer
         }
     }
 
+    /// <summary>
+    /// Detects standard NuGet package content directories and populates ContentDirectories.
+    /// </summary>
+    public static void AnalyzeContentDirectories(string extractPath, InspectionResult result)
+    {
+        var standardDirs = new[] { "lib", "tools", "analyzers", "build", "buildTransitive", "contentFiles", "ref", "runtimes" };
+        var found = new List<string>();
+
+        foreach (var dir in standardDirs)
+        {
+            var fullPath = Path.Combine(extractPath, dir);
+            if (Directory.Exists(fullPath))
+            {
+                found.Add(dir);
+            }
+        }
+
+        if (found.Count > 0)
+        {
+            result.ContentDirectories = found;
+        }
+    }
+
+    /// <summary>
+    /// Counts library assemblies (DLLs) in the package, excluding resource assemblies.
+    /// </summary>
+    public static int CountAssemblies(string extractPath)
+    {
+        var toolsDir = Path.Combine(extractPath, "tools");
+        var libDir = Path.Combine(extractPath, "lib");
+
+        string searchDir;
+        if (Directory.Exists(toolsDir))
+        {
+            searchDir = toolsDir;
+        }
+        else if (Directory.Exists(libDir))
+        {
+            searchDir = libDir;
+        }
+        else
+        {
+            return 0;
+        }
+
+        return Directory.GetFiles(searchDir, "*.dll", SearchOption.AllDirectories)
+            .Count(f => !f.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase));
+    }
+
     public static void AnalyzeRuntimesDirectory(string runtimesDir, InspectionResult result)
     {
         // runtimes/{rid}/native/ or runtimes/{rid}/lib/{tfm}/

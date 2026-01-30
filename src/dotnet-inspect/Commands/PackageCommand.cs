@@ -154,6 +154,9 @@ public class PackageCommand
                 NuspecParser.Parse(nuspecFiles[0], result);
             }
 
+            // Check for README.md
+            result.HasReadme = File.Exists(Path.Combine(extractPath, "README.md"));
+
             // Always analyze directory structure
             string toolsDir = Path.Combine(extractPath, "tools");
             if (Directory.Exists(toolsDir))
@@ -177,6 +180,10 @@ public class PackageCommand
                 }
             }
 
+            // Analyze content directories and count assemblies
+            ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
+            result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
+
             // Parse deps.json files if deps flag is set
             if (options.IncludeDeps)
             {
@@ -192,6 +199,12 @@ public class PackageCommand
             {
                 string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(packageArgs[0])) : null;
                 await RidPackageVerifier.VerifyAsync(client, result, result.Version, localDir, logger);
+            }
+
+            // Populate files for detailed verbosity
+            if (options.Verbosity == Verbosity.Detailed)
+            {
+                PopulateFilesForDetailedView(extractPath, result);
             }
 
             // Filter output based on options
@@ -240,6 +253,41 @@ public class PackageCommand
         if (!options.IncludeDeps)
         {
             result.RuntimeDependencies = null;
+        }
+    }
+
+    /// <summary>
+    /// Populates the Files list for detailed verbosity output.
+    /// </summary>
+    private static void PopulateFilesForDetailedView(string extractPath, InspectionResult result)
+    {
+        // Get DLLs from tools or lib directory
+        string toolsDir = Path.Combine(extractPath, "tools");
+        string libDir = Path.Combine(extractPath, "lib");
+
+        string searchPath;
+        if (Directory.Exists(toolsDir))
+        {
+            searchPath = toolsDir;
+        }
+        else if (Directory.Exists(libDir))
+        {
+            searchPath = libDir;
+        }
+        else
+        {
+            return;
+        }
+
+        var files = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(extractPath, f))
+            .Where(p => !p.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p)
+            .ToList();
+
+        if (files.Count > 0)
+        {
+            result.Files = files;
         }
     }
 

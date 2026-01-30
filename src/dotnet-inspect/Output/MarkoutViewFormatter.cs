@@ -27,7 +27,8 @@ public class MarkoutViewFormatter
         var writer = new MarkoutWriter
         {
             IncludeSections = _includeSections,
-            ExcludeSections = _excludeSections
+            ExcludeSections = _excludeSections,
+            BoldFieldNames = true
         };
 
         // H1 title (always included - before first H2)
@@ -47,7 +48,6 @@ public class MarkoutViewFormatter
             case Verbosity.Normal:
                 WriteMetadataFull(writer);
                 WriteRidPackages(writer);
-                WritePackageDeps(writer);
                 WriteRuntimeDeps(writer);
                 WriteAuditSummary(writer);
                 WriteApiSurface(writer);
@@ -57,6 +57,7 @@ public class MarkoutViewFormatter
                 WriteRidPackages(writer);
                 WritePackageDeps(writer);
                 WriteRuntimeDeps(writer);
+                WriteFiles(writer);
                 WriteAuditSummary(writer);
                 WriteAssemblyAudit(writer);
                 WriteApiSurface(writer);
@@ -69,43 +70,45 @@ public class MarkoutViewFormatter
     private void WriteMetadataCompact(MarkoutWriter writer)
     {
         var items = new List<string>();
-        if (_result.IsToolPackage) items.Add("Tool Package");
-        if (!string.IsNullOrWhiteSpace(_result.TargetFrameworksSummary)) items.Add($"TFMs: {_result.TargetFrameworksSummary}");
-        if (!string.IsNullOrWhiteSpace(_result.SupportedRidsSummary)) items.Add($"RIDs: {_result.SupportedRidsSummary}");
+        items.Add($"Type: {_result.PackageType}");
+        if (_result.TargetFrameworkCount > 0) items.Add($"TFMs: {_result.TargetFrameworkCount}");
+        items.Add($"RIDs: {_result.SupportedRidCount}");
+        if (_result.AssemblyCount > 0) items.Add($"Libraries: {_result.AssemblyCount}");
 
-        if (items.Count == 0) return;
-
-        writer.WriteHeading(2, "Metadata");
         writer.WriteParagraph(string.Join(" | ", items));
     }
 
     private void WriteMetadataFull(MarkoutWriter writer)
     {
-        writer.WriteHeading(2, "Metadata");
-        writer.WriteTableStart("Property", "Value");
+        // Top-level metadata as fields (per style guide)
+        if (!string.IsNullOrWhiteSpace(_result.Authors))
+            writer.WriteField("Authors", _result.Authors);
+        if (!string.IsNullOrWhiteSpace(_result.License))
+            writer.WriteField("License", _result.License);
+        if (!string.IsNullOrWhiteSpace(_result.Repository))
+            writer.WriteField("Repository", _result.Repository);
+        writer.WriteField("Package Type", _result.PackageType);
+        if (!string.IsNullOrWhiteSpace(_result.ContentSummary))
+            writer.WriteField("Content", _result.ContentSummary);
+        if (_result.TargetFrameworkCount > 0)
+            writer.WriteField("Target Frameworks", _result.TargetFrameworkCount);
+        writer.WriteField("Runtime Identifiers", _result.SupportedRidCount);
+        if (_result.AssemblyCount > 0)
+            writer.WriteField("Libraries", _result.AssemblyCount);
+        if (_result.HasReadme)
+            writer.WriteField("Readme", true);
 
-        WriteRowIfPresent(writer, "Authors", _result.Authors);
-        WriteRowIfPresent(writer, "Repository", _result.Repository);
-        writer.WriteTableRow("Tool Package", _result.IsToolPackage ? "Yes" : "No");
-        WriteRowIfPresent(writer, "Package Types", _result.PackageTypesSummary);
-        WriteRowIfPresent(writer, "Target Frameworks", _result.TargetFrameworksSummary);
-        WriteRowIfPresent(writer, "Supported RIDs", _result.SupportedRidsSummary);
-        writer.WriteTableRow("Framework Dependent", _result.IsFrameworkDependent ? "Yes" : "No");
-        writer.WriteTableRow("RID-Specific Assets", _result.HasRidSpecificAssets ? "Yes" : "No");
-        writer.WriteTableRow("Native Dependencies", _result.HasNativeDependencies ? "Yes" : "No");
-
-        if (!string.IsNullOrWhiteSpace(_result.ToolFormat))
-            writer.WriteTableRow("Tool Format", _result.ToolFormat);
-        if (_result.IsRidSpecificPointerPackage)
-            writer.WriteTableRow("RID-Specific Pointer", "Yes");
+        // Tool-specific properties
         if (!string.IsNullOrWhiteSpace(_result.ToolCommandsSummary))
-            writer.WriteTableRow("Tool Commands", _result.ToolCommandsSummary);
-        if (!string.IsNullOrWhiteSpace(_result.RuntimeTargetRid))
-            writer.WriteTableRow("Runtime Target RID", _result.RuntimeTargetRid);
-        if (!string.IsNullOrWhiteSpace(_result.NativeFilesSummary))
-            writer.WriteTableRow("Native Files", _result.NativeFilesSummary);
+            writer.WriteField("Tool Commands", _result.ToolCommandsSummary);
 
-        writer.WriteTableEnd();
+        // Additional properties
+        if (_result.IsFrameworkDependent)
+            writer.WriteField("Framework Dependent", true);
+        if (_result.IsRidSpecificPointerPackage)
+            writer.WriteField("RID-Specific Pointer", true);
+        if (!string.IsNullOrWhiteSpace(_result.RuntimeTargetRid))
+            writer.WriteField("Runtime Target RID", _result.RuntimeTargetRid);
     }
 
     private void WriteRidPackages(MarkoutWriter writer)
@@ -146,6 +149,20 @@ public class MarkoutViewFormatter
 
         foreach (var dep in _result.RuntimeDependencies)
             writer.WriteTableRow(dep.Id, dep.Version);
+
+        writer.WriteTableEnd();
+    }
+
+    private void WriteFiles(MarkoutWriter writer)
+    {
+        if (_result.Files is not { Count: > 0 })
+            return;
+
+        writer.WriteHeading(2, "Files");
+        writer.WriteTableStart("Path");
+
+        foreach (var file in _result.Files)
+            writer.WriteTableRow(file);
 
         writer.WriteTableEnd();
     }

@@ -17,9 +17,15 @@ public class InspectionResult
     public string? Description { get; set; }
 
     public string? Authors { get; set; }
+    public string? License { get; set; }
     public string? Repository { get; set; }
 
-    [MarkoutPropertyName("Tool Package")]
+    /// <summary>
+    /// Indicates whether the package contains a README.md file.
+    /// </summary>
+    public bool HasReadme { get; set; }
+
+    [MarkoutIgnore] // Used internally; PackageType computed property is displayed
     public bool IsToolPackage { get; set; }
 
     [MarkoutIgnore]
@@ -31,6 +37,24 @@ public class InspectionResult
         ? string.Join(", ", PackageTypes)
         : null;
 
+    /// <summary>
+    /// Computed package type: Library, Tool, or Tool v2.
+    /// </summary>
+    [MarkoutPropertyName("Package Type")]
+    [JsonIgnore]
+    public string PackageType => ToolFormat?.Contains("Version=\"2\"") == true
+        ? "Tool v2"
+        : IsToolPackage ? "Tool" : "Library";
+
+    [MarkoutIgnore]
+    public List<string>? ContentDirectories { get; set; }
+
+    [MarkoutPropertyName("Content")]
+    [JsonIgnore]
+    public string? ContentSummary => ContentDirectories is { Count: > 0 }
+        ? string.Join(", ", ContentDirectories)
+        : null;
+
     [MarkoutIgnore]
     public List<string>? TargetFrameworks { get; set; }
 
@@ -40,6 +64,10 @@ public class InspectionResult
         ? string.Join(", ", TargetFrameworks)
         : null;
 
+    [MarkoutPropertyName("Target Frameworks")]
+    [JsonIgnore]
+    public int TargetFrameworkCount => TargetFrameworks?.Count ?? 0;
+
     [MarkoutIgnore]
     public List<string>? SupportedRids { get; set; }
 
@@ -48,6 +76,16 @@ public class InspectionResult
     public string? SupportedRidsSummary => SupportedRids is { Count: > 0 }
         ? string.Join(", ", SupportedRids)
         : null;
+
+    [MarkoutPropertyName("Runtime Identifiers")]
+    [JsonIgnore]
+    public int SupportedRidCount => SupportedRids?.Count ?? 0;
+
+    /// <summary>
+    /// Total number of library assemblies (DLLs) in the package, excluding resource assemblies.
+    /// </summary>
+    [MarkoutPropertyName("Libraries")]
+    public int AssemblyCount { get; set; }
 
     [MarkoutPropertyName("Framework Dependent")]
     public bool IsFrameworkDependent { get; set; }
@@ -124,6 +162,12 @@ public class InspectionResult
 
     [MarkoutSection(Name = "Runtime Dependencies")]
     public List<PackageDependency>? RuntimeDependencies { get; set; }
+
+    /// <summary>
+    /// List of files in the package (DLLs from lib/tools, or all files with --all).
+    /// </summary>
+    [MarkoutIgnore]
+    public List<string>? Files { get; set; }
 
     [MarkoutSection(Name = "Audit Summary")]
     public AuditSummary? AuditSummary { get; set; }
