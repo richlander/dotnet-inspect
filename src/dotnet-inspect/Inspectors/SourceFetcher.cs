@@ -34,10 +34,12 @@ public class SourceFetcher
             return diskCached;
         }
 
-        // Fetch from network
+        // Fetch from network with retry
         try
         {
-            string content = await _httpClient.GetStringAsync(url);
+            string? content = await HttpRetryHelper.GetStringWithRetryAsync(_httpClient, url);
+            if (content == null)
+                return null;
             _memoryCache[url] = content;
             NuGetCache.CacheSource(url, content);
             return content;

@@ -420,7 +420,12 @@ public class PackageCommand
             string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/index.json";
             logger.Log($"Fetching versions from: {indexUrl}");
 
-            string json = await client.GetStringAsync(indexUrl);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
+            if (json == null)
+            {
+                Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
+                return 1;
+            }
             using var doc = JsonDocument.Parse(json);
 
             if (doc.RootElement.TryGetProperty("versions", out var versions))
@@ -467,7 +472,9 @@ public class PackageCommand
             string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
             logger.Log($"Fetching versions from: {indexUrl}");
 
-            string json = await client.GetStringAsync(indexUrl);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
+            if (json == null)
+                return null;
             using var doc = JsonDocument.Parse(json);
 
             if (doc.RootElement.TryGetProperty("versions", out var versions))

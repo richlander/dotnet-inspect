@@ -31,15 +31,15 @@ public static class RidPackageVerifier
             }
             else
             {
-                // Remote verification: check NuGet API
+                // Remote verification: check NuGet API with retry
                 string packageId = ridPkg.PackageId.ToLowerInvariant();
                 string checkVersion = version.ToLowerInvariant();
                 string url = $"https://api.nuget.org/v3-flatcontainer/{packageId}/{checkVersion}/{packageId}.nuspec";
 
                 try
                 {
-                    var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
-                    ridPkg.Exists = response.IsSuccessStatusCode;
+                    using var response = await HttpRetryHelper.HeadWithRetryAsync(client, url);
+                    ridPkg.Exists = response != null && response.IsSuccessStatusCode;
 
                     string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
                     logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");

@@ -164,4 +164,106 @@ public static class HttpRetryHelper
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// Executes an HTTP GET and returns the response body as a string, with retry logic.
+    /// </summary>
+    /// <param name="client">HTTP client to use</param>
+    /// <param name="url">URL to fetch</param>
+    /// <param name="retryCount">Maximum number of retries (default: 3)</param>
+    /// <param name="log">Optional logging callback</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Response body as string, or null if failed</returns>
+    public static async Task<string?> GetStringWithRetryAsync(
+        HttpClient client,
+        string url,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
+        if (response == null)
+            return null;
+
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Executes an HTTP HEAD request with retry logic.
+    /// </summary>
+    /// <param name="client">HTTP client to use</param>
+    /// <param name="url">URL to check</param>
+    /// <param name="retryCount">Maximum number of retries (default: 3)</param>
+    /// <param name="log">Optional logging callback</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Response if successful, null if failed or not found</returns>
+    public static async Task<HttpResponseMessage?> HeadWithRetryAsync(
+        HttpClient client,
+        string url,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        int attempts = 0;
+
+        while (true)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Head, url);
+                var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return response;
+                }
+
+                var statusCode = response.StatusCode;
+                response.Dispose();
+
+                if (statusCode == HttpStatusCode.NotFound)
+                {
+                    return null;
+                }
+
+                if (!IsRetryableStatus(statusCode))
+                {
+                    log?.Invoke($"HTTP HEAD {(int)statusCode} (not retryable): {url}");
+                    return null;
+                }
+
+                log?.Invoke($"HTTP HEAD {(int)statusCode} (retryable): {url}");
+            }
+            catch (HttpRequestException ex)
+            {
+                var (isRetryable, socketError) = GetSocketError(ex);
+
+                if (!isRetryable)
+                {
+                    log?.Invoke($"HTTP HEAD error (not retryable): {ex.Message}");
+                    return null;
+                }
+
+                log?.Invoke($"Socket error {socketError} (retryable): {url}");
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                log?.Invoke($"HEAD request timeout (retryable): {url}");
+            }
+
+            if (attempts++ >= retryCount)
+            {
+                log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
+                return null;
+            }
+
+            var delay = GetRetryDelay(attempts);
+            log?.Invoke($"Retry #{attempts} after {delay.TotalMilliseconds:F0}ms");
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+    }
 }
