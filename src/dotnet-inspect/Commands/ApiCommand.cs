@@ -1297,8 +1297,16 @@ public class ApiCommand
 
         sb.AppendLine();
 
-        sb.AppendLine("| Type | Kind | Members |");
-        sb.AppendLine("|------|------|---------|");
+        if (options.ShowDocs)
+        {
+            sb.AppendLine("| Type | Kind | Members | Description |");
+            sb.AppendLine("|------|------|---------|-------------|");
+        }
+        else
+        {
+            sb.AppendLine("| Type | Kind | Members |");
+            sb.AppendLine("|------|------|---------|");
+        }
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
         {
@@ -1309,7 +1317,21 @@ public class ApiCommand
         {
             var memberCount = type.Members?.Count ?? 0;
             var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-            sb.AppendLine($"| {fullName} | {type.Kind} | {memberCount} |");
+            if (options.ShowDocs)
+            {
+                var summary = type.Documentation?.Summary ?? "";
+                // Truncate and clean up for table display
+                summary = summary.Replace("\n", " ").Replace("\r", "").Replace("|", "\\|");
+                if (summary.Length > 80)
+                {
+                    summary = summary[..77] + "...";
+                }
+                sb.AppendLine($"| {fullName} | {type.Kind} | {memberCount} | {summary} |");
+            }
+            else
+            {
+                sb.AppendLine($"| {fullName} | {type.Kind} | {memberCount} |");
+            }
         }
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
@@ -1735,6 +1757,13 @@ public class ApiCommand
                 return sb.ToString().TrimEnd();
             }
 
+            // Use specialized enum output for enum types
+            if (type.Kind == "enum")
+            {
+                sb.Append(RenderEnumValues(members, options));
+                return sb.ToString().TrimEnd();
+            }
+
             // Check if we should include a description column
             bool hasAnyDocs = options.ShowDocs && members.Any(m => m.Documentation?.Summary != null);
 
@@ -1802,13 +1831,84 @@ public class ApiCommand
         return sb.ToString().TrimEnd();
     }
 
+    /// <summary>
+    /// Renders enum values with a specialized format: Name | Value | Description
+    /// </summary>
+    private static string RenderEnumValues(List<ApiMember> members, ApiOptions options)
+    {
+        var sb = new StringBuilder();
+        
+        // Sort by enum value (numeric order)
+        var enumMembers = members
+            .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
+            .OrderBy(m => m.EnumValue)
+            .ToList();
+
+        if (enumMembers.Count == 0)
+            return "";
+
+        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation?.Summary != null);
+
+        if (!options.SignaturesOnly)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Values");
+            sb.AppendLine();
+            if (hasAnyDocs)
+            {
+                sb.AppendLine("| Name | Value | Description |");
+                sb.AppendLine("|------|-------|-------------|");
+            }
+            else
+            {
+                sb.AppendLine("| Name | Value |");
+                sb.AppendLine("|------|-------|");
+            }
+        }
+
+        var totalCount = enumMembers.Count;
+        var displayMembers = enumMembers.AsEnumerable();
+
+        if (options.Limit.HasValue && options.Limit.Value < totalCount)
+        {
+            displayMembers = displayMembers.Take(options.Limit.Value);
+        }
+
+        foreach (var member in displayMembers)
+        {
+            if (options.SignaturesOnly)
+            {
+                sb.AppendLine($"{member.Name} = {member.EnumValue}");
+            }
+            else if (hasAnyDocs)
+            {
+                string desc = member.Documentation?.Summary ?? "";
+                desc = desc.Replace("|", "\\|");
+                sb.AppendLine($"| {member.Name} | {member.EnumValue} | {desc} |");
+            }
+            else
+            {
+                sb.AppendLine($"| {member.Name} | {member.EnumValue} |");
+            }
+        }
+
+        if (!options.SignaturesOnly && options.Limit.HasValue && options.Limit.Value < totalCount)
+        {
+            var remaining = totalCount - options.Limit.Value;
+            sb.AppendLine();
+            sb.AppendLine($"*... and {remaining} more values*");
+        }
+
+        return sb.ToString();
+    }
+
     private static bool IsCompilerGenerated(string name)
     {
         // Filter out compiler-generated and internal members
         return name.StartsWith('<') ||           // Lambda/iterator state machines
-               name.StartsWith("__") ||          // Compiler internals
-               name.StartsWith("s_") ||          // Static backing fields
-               name.Contains("__BackingField"); // Auto-property backing fields
+               name.StartsWith('_') ||           // Private backing fields (convention)
+               name.Contains("__BackingField") || // Auto-property backing fields
+               name == "value__";                // Enum underlying value field
     }
 
     private static int GetMemberSortOrder(string kind) => kind switch

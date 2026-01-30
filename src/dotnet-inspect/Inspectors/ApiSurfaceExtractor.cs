@@ -158,6 +158,7 @@ public static class ApiSurfaceExtractor
             }
 
             // Fields (only public non-backing fields)
+            bool isEnum = apiType.Kind == "enum";
             foreach (var fieldHandle in typeDef.GetFields())
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
@@ -178,6 +179,29 @@ public static class ApiSurfaceExtractor
                     Kind = "field",
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0
                 };
+
+                // Read enum constant value
+                if (isEnum && (field.Attributes & FieldAttributes.Literal) != 0)
+                {
+                    var constantHandle = field.GetDefaultValue();
+                    if (!constantHandle.IsNil)
+                    {
+                        var constant = reader.GetConstant(constantHandle);
+                        var blob = reader.GetBlobReader(constant.Value);
+                        member.EnumValue = constant.TypeCode switch
+                        {
+                            ConstantTypeCode.SByte => blob.ReadSByte(),
+                            ConstantTypeCode.Byte => blob.ReadByte(),
+                            ConstantTypeCode.Int16 => blob.ReadInt16(),
+                            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+                            ConstantTypeCode.Int32 => blob.ReadInt32(),
+                            ConstantTypeCode.UInt32 => blob.ReadUInt32(),
+                            ConstantTypeCode.Int64 => blob.ReadInt64(),
+                            ConstantTypeCode.UInt64 => (long)blob.ReadUInt64(),
+                            _ => null
+                        };
+                    }
+                }
 
                 apiType.Members.Add(member);
                 surface.PublicFieldCount++;

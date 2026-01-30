@@ -2,6 +2,39 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
+## Derived Types Table
+
+Add a "Derived Types" section to `api` output that displays:
+
+- Interfaces implemented by the type (already available via `--interfaces`, but could be a table)
+- Base class hierarchy (immediate base, optionally full chain)
+- Known derived types within the same assembly
+
+This would help LLMs understand type relationships and inheritance patterns at a glance.
+
+## Generic Constraints Table
+
+Add a "Generic Constraints" section for generic types and methods:
+
+```
+## Type Parameters
+
+| Parameter | Constraints |
+|-----------|-------------|
+| T | class, IDisposable, new() |
+| TKey | notnull |
+| TValue | struct |
+```
+
+Would expose:
+- `where T : class` / `struct` / `notnull` / `unmanaged`
+- Interface constraints
+- Base class constraints
+- `new()` constructor constraint
+- Variance (`in`/`out` for interface type parameters)
+
+Currently generic constraints are not visible in the API surface, making it hard for LLMs to understand what types can be used as type arguments.
+
 ## Source URLs Per-Member
 
 Consider adding source URLs for individual members in the API member table. Currently only type-level source URLs are shown. Per-member URLs would enable:

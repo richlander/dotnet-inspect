@@ -211,6 +211,11 @@ public class ApiMember
     [MarkoutPropertyName("Unsafe")]
     public bool IsUnsafe { get; set; }
 
+    // Enum value (for enum fields only)
+    [MarkoutIgnore]
+    [JsonPropertyName("enum_value")]
+    public long? EnumValue { get; set; }
+
     // Source information (populated with --source-url)
     [MarkoutIgnore]
     [JsonPropertyName("source_line_number")]
