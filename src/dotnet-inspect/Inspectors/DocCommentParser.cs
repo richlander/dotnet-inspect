@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -6,9 +7,14 @@ namespace DotnetInspector.Inspectors;
 
 /// <summary>
 /// Parses XML doc comments (///) from C# source files.
+/// Uses string-based search with compiled regex fallback for performance.
 /// </summary>
-public class DocCommentParser
+public partial class DocCommentParser
 {
+    // Source-generated regex for normalizing whitespace
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
+    
     public record DocComment(
         string? Summary,
         string? Remarks,
@@ -24,7 +30,7 @@ public class DocCommentParser
     );
 
     /// <summary>
-    /// Extracts doc comment for a type declaration.
+    /// Extracts doc comment for a type declaration using fast string search.
     /// </summary>
     public DocComment? ExtractTypeDocComment(string sourceContent, string typeName)
     {
@@ -32,27 +38,44 @@ public class DocCommentParser
         var backtickIndex = typeName.IndexOf('`');
         var cleanName = backtickIndex >= 0 ? typeName[..backtickIndex] : typeName;
 
-        // Find type declaration patterns:
-        // class Foo, struct Foo, interface IFoo, enum Foo, record Foo
-        // Allow attributes and modifiers between doc comment and type keyword
-        var attributes = @"(?:\s*\[[^\]]*\]\s*)*";
-        var modifiers = @"(?:(?:public|internal|private|protected|static|partial|abstract|sealed|readonly|unsafe|new|file)\s+)*";
-        var typeKeywords = @"(?:class|struct|interface|enum|record(?:\s+struct)?(?:\s+class)?)";
-
-        var pattern = $@"((?:^\s*///.*$\s*)+){attributes}^\s*{modifiers}{typeKeywords}\s+{Regex.Escape(cleanName)}(?:<[^>]+>)?(?:\s|:|$|\{{)";
-
-        var match = Regex.Match(sourceContent, pattern, RegexOptions.Multiline);
-        if (match.Success && match.Groups.Count > 1)
+        // Fast path: find type declaration using string search
+        var typeKeywords = new[] { "class ", "struct ", "interface ", "enum ", "record " };
+        
+        foreach (var keyword in typeKeywords)
         {
-            string commentBlock = match.Groups[1].Value;
-            return ParseXmlDocComment(commentBlock);
+            var searchPattern = keyword + cleanName;
+            var idx = sourceContent.IndexOf(searchPattern, StringComparison.Ordinal);
+            
+            while (idx >= 0)
+            {
+                // Verify it's a word boundary (not part of a longer name)
+                var endIdx = idx + searchPattern.Length;
+                if (endIdx < sourceContent.Length)
+                {
+                    var nextChar = sourceContent[endIdx];
+                    if (char.IsLetterOrDigit(nextChar) || nextChar == '_')
+                    {
+                        // Part of a longer identifier, keep searching
+                        idx = sourceContent.IndexOf(searchPattern, endIdx, StringComparison.Ordinal);
+                        continue;
+                    }
+                }
+                
+                // Found type declaration, now search backwards for /// comments
+                var commentBlock = ExtractPrecedingDocComment(sourceContent, idx);
+                if (commentBlock != null)
+                {
+                    return ParseXmlDocComment(commentBlock);
+                }
+                break;
+            }
         }
 
         return null;
     }
 
     /// <summary>
-    /// Extracts doc comment for a member within a type.
+    /// Extracts doc comment for a member within a type using fast string search.
     /// </summary>
     public DocComment? ExtractMemberDocComment(string sourceContent, string typeName, string memberName)
     {
@@ -63,37 +86,103 @@ public class DocCommentParser
             memberName = backtickIndex >= 0 ? typeName[..backtickIndex] : typeName;
         }
 
-        // Allow any combination of modifiers before member declarations
-        var modifiers = @"(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|readonly|new|extern|unsafe|volatile|partial)\s+)*";
-
-        // Find member declaration patterns:
-        // Method: protected abstract void Foo(...)
-        // Property: public virtual int Bar { get; set; }
-        // Field: private readonly int _field;
-        // Event: public event EventHandler OnFoo;
+        // Fast path: find member by name with common patterns
         var patterns = new[]
         {
-            // Method or constructor with params (return type is optional for constructors)
-            $@"((?:^\s*///.*$\s*)+)^\s*(?:\[[^\]]*\]\s*)*{modifiers}(?:\S+\s+)?{Regex.Escape(memberName)}(?:<[^>]+>)?\s*\(",
-            // Property with getter/setter
-            $@"((?:^\s*///.*$\s*)+)^\s*(?:\[[^\]]*\]\s*)*{modifiers}(?:\S+\s+){Regex.Escape(memberName)}\s*\{{",
-            // Field or auto-property with initializer
-            $@"((?:^\s*///.*$\s*)+)^\s*(?:\[[^\]]*\]\s*)*{modifiers}(?:\S+\s+){Regex.Escape(memberName)}\s*[;=]",
-            // Event
-            $@"((?:^\s*///.*$\s*)+)^\s*(?:\[[^\]]*\]\s*)*{modifiers}event\s+\S+\s+{Regex.Escape(memberName)}\s*;",
+            memberName + "(",   // Method/constructor
+            memberName + "<",   // Generic method
+            memberName + " {",  // Property
+            memberName + "\n",  // Property (newline before brace)
+            memberName + "\r",  // Property (Windows newline)
+            " " + memberName + " ",  // Field with spaces
+            " " + memberName + ";",  // Field ending with semicolon
+            " " + memberName + "=",  // Field with initializer
         };
 
         foreach (var pattern in patterns)
         {
-            var match = Regex.Match(sourceContent, pattern, RegexOptions.Multiline);
-            if (match.Success && match.Groups.Count > 1)
+            var idx = sourceContent.IndexOf(pattern, StringComparison.Ordinal);
+            
+            while (idx >= 0)
             {
-                string commentBlock = match.Groups[1].Value;
-                return ParseXmlDocComment(commentBlock);
+                // Found potential member, search backwards for /// comments
+                var commentBlock = ExtractPrecedingDocComment(sourceContent, idx);
+                if (commentBlock != null)
+                {
+                    return ParseXmlDocComment(commentBlock);
+                }
+                
+                // Keep searching for other occurrences
+                idx = sourceContent.IndexOf(pattern, idx + pattern.Length, StringComparison.Ordinal);
             }
         }
 
         return null;
+    }
+
+    // Known C# modifiers that can appear before type/member declarations
+    private static readonly HashSet<string> Modifiers = new(StringComparer.Ordinal)
+    {
+        "public", "private", "protected", "internal",
+        "static", "virtual", "override", "abstract", "sealed",
+        "async", "readonly", "new", "extern", "unsafe", "volatile",
+        "partial", "file", "required"
+    };
+
+    /// <summary>
+    /// Extracts the /// comment block immediately preceding a declaration.
+    /// </summary>
+    private static string? ExtractPrecedingDocComment(string sourceContent, int declarationIndex)
+    {
+        // Search backwards from declaration to find /// comment lines
+        var lines = new List<string>();
+        var currentIdx = declarationIndex - 1;
+        
+        // Skip whitespace, attributes, and modifiers before declaration
+        while (currentIdx >= 0)
+        {
+            var lineStart = sourceContent.LastIndexOf('\n', currentIdx);
+            if (lineStart < 0) lineStart = 0;
+            else lineStart++; // Skip the newline char
+            
+            var line = sourceContent.Substring(lineStart, currentIdx - lineStart + 1).Trim();
+            
+            if (line.StartsWith("///"))
+            {
+                lines.Insert(0, line);
+                currentIdx = lineStart - 2; // Move to previous line
+            }
+            else if (line.Length == 0 || 
+                     line.StartsWith("[") || 
+                     (line.StartsWith("//") && !line.StartsWith("///")) ||
+                     IsModifierLine(line))
+            {
+                // Empty line, attribute, regular comment, or modifier - skip and continue looking
+                currentIdx = lineStart - 2;
+            }
+            else
+            {
+                // Non-comment, non-attribute, non-modifier line - stop searching
+                break;
+            }
+            
+            if (currentIdx < 0) break;
+        }
+        
+        if (lines.Count == 0)
+            return null;
+            
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Checks if a line contains only modifiers (part of declaration on previous lines).
+    /// </summary>
+    private static bool IsModifierLine(string line)
+    {
+        // Split by whitespace and check if all tokens are modifiers
+        var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Length > 0 && tokens.All(t => Modifiers.Contains(t));
     }
 
     /// <summary>
@@ -366,7 +455,7 @@ public class DocCommentParser
 
     private static string NormalizeWhitespace(string text)
     {
-        // Collapse multiple whitespace into single space
-        return Regex.Replace(text.Trim(), @"\s+", " ");
+        // Collapse multiple whitespace into single space using source-generated regex
+        return WhitespaceRegex().Replace(text.Trim(), " ");
     }
 }

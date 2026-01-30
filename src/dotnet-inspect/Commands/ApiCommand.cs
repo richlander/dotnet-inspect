@@ -335,11 +335,7 @@ public class ApiCommand
             // Enrich types with source info if docs or samples requested
             if (options.ShowDocs || options.ShowSamples)
             {
-                foreach (var type in api.Types)
-                {
-                    var fullTypeName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-                    await EnrichTypeWithSourceInfoAsync(type, fullTypeName, dllPath, options, logger);
-                }
+                await EnrichTypesWithSourceInfoBatchedAsync(api.Types.ToList(), dllPath, options, logger);
             }
 
             return (api, selectedTfm);
@@ -351,6 +347,182 @@ public class ApiCommand
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+    }
+
+    /// <summary>
+    /// Enriches all types with source info using batched parallel fetching.
+    /// Phase 1: Resolve all source URLs (reusing PDB reader)
+    /// Phase 2: Batch parallel fetch all source content
+    /// Phase 3: Parse docs using pre-fetched content
+    /// </summary>
+    private static async Task EnrichTypesWithSourceInfoBatchedAsync(
+        List<ApiType> types, 
+        string dllPath, 
+        ApiOptions options, 
+        VerboseLogger logger)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        
+        // Parse package info once
+        string? packageName = null;
+        string? packageVersion = null;
+        if (!string.IsNullOrEmpty(options.PackagePath))
+        {
+            (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+            if (packageVersion == null && !string.IsNullOrEmpty(packageName))
+            {
+                packageVersion = ExtractVersionFromPath(dllPath, packageName);
+            }
+        }
+
+        // Open PDB once for all types
+        using FileStream stream = File.OpenRead(dllPath);
+        using PEReader peReader = new(stream);
+
+        if (!peReader.HasMetadata)
+        {
+            logger.Log("No metadata in assembly, cannot resolve source.");
+            return;
+        }
+
+        var symbolDownloader = new SymbolPackageDownloader();
+        var pdbResult = await symbolDownloader.GetPdbReaderAsync(
+            peReader, dllPath, packageName, packageVersion, logger.Log);
+
+        if (pdbResult.Reader == null || pdbResult.Provider == null)
+        {
+            if (pdbResult.WindowsPdbDetected)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Warning: PDB could not be read (Windows PDB format is not supported).");
+                Console.Error.WriteLine("         Only Portable PDBs are supported.");
+                Console.Error.WriteLine();
+            }
+            return;
+        }
+
+        using var _ = pdbResult.Provider;
+        var pdbReader = pdbResult.Reader;
+        var metadataReader = peReader.GetMetadataReader();
+
+        var resolver = SourceLinkResolver.Create(pdbReader);
+        if (resolver == null)
+        {
+            logger.Log("No SourceLink information found in PDB.");
+            return;
+        }
+
+        // Phase 1: Collect all source URLs across all types
+        var typeSourceInfo = new List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)>();
+        var allUrlsToFetch = new HashSet<string>();
+
+        foreach (var apiType in types)
+        {
+            var typeName = string.IsNullOrEmpty(apiType.Namespace) ? apiType.Name : $"{apiType.Namespace}.{apiType.Name}";
+            TypeDefinitionHandle? typeHandle = FindTypeDefinitionHandle(metadataReader, typeName);
+            
+            if (typeHandle == null)
+                continue;
+
+            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeHandle.Value);
+            typeSourceInfo.Add((apiType, typeName, sourceInfo));
+
+            if (sourceInfo?.SourceUrl != null)
+            {
+                allUrlsToFetch.Add(sourceInfo.SourceUrl);
+                if (sourceInfo.AdditionalSourceFiles != null)
+                {
+                    foreach (var additional in sourceInfo.AdditionalSourceFiles)
+                    {
+                        if (additional.SourceUrl != null)
+                            allUrlsToFetch.Add(additional.SourceUrl);
+                    }
+                }
+            }
+        }
+
+        logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allUrlsToFetch.Count} unique source URLs ({stopwatch.ElapsedMilliseconds}ms)");
+
+        // Phase 2: Batch parallel fetch all source content
+        var fetcher = new SourceFetcher();
+        var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
+        var contentCache = new Dictionary<string, string?>();
+
+        // Fetch all URLs in parallel (disk cache makes this fast)
+        logger.Log($"Phase 2: Fetching {urlList.Count} URLs in parallel");
+        var fetchTasks = urlList.Select(async url =>
+        {
+            var content = await fetcher.FetchSourceAsync(url);
+            return (Url: url, Content: content);
+        });
+
+        var results = await Task.WhenAll(fetchTasks);
+        foreach (var result in results)
+        {
+            contentCache[result.Url] = result.Content;
+        }
+
+        logger.Log($"Phase 2: Fetched {contentCache.Count(kv => kv.Value != null)} of {contentCache.Count} URLs ({stopwatch.ElapsedMilliseconds}ms)");
+
+        // Phase 3: Parse docs using pre-fetched content
+        var parser = new DocCommentParser();
+        foreach (var (apiType, typeName, sourceInfo) in typeSourceInfo)
+        {
+            if (sourceInfo == null)
+                continue;
+
+            // Set source info on the type
+            apiType.SourceFilePath = sourceInfo.SourceFilePath;
+            apiType.SourceUrl = sourceInfo.SourceUrl;
+            apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
+            apiType.SourceLineNumber = sourceInfo.LineNumber;
+            apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
+
+            if (sourceInfo.AdditionalSourceFiles?.Count > 0)
+            {
+                apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
+                    .Select(f => new PartialSourceFileInfo
+                    {
+                        FilePath = f.FilePath,
+                        SourceUrl = f.SourceUrl,
+                        GitHubBrowseUrl = f.GitHubBrowseUrl
+                    })
+                    .ToList();
+            }
+
+            // Parse docs if we have source content
+            if ((options.ShowDocs || options.ShowSamples) && sourceInfo.SourceUrl != null)
+            {
+                var sourceContents = new List<(string Content, string Url, string FilePath)>();
+
+                // Primary source file
+                if (contentCache.TryGetValue(sourceInfo.SourceUrl, out var primaryContent) && primaryContent != null)
+                {
+                    sourceContents.Add((primaryContent, sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? ""));
+                }
+
+                // Additional source files for partial types
+                if (sourceInfo.AdditionalSourceFiles != null)
+                {
+                    foreach (var additional in sourceInfo.AdditionalSourceFiles)
+                    {
+                        if (additional.SourceUrl != null && 
+                            contentCache.TryGetValue(additional.SourceUrl, out var additionalContent) && 
+                            additionalContent != null)
+                        {
+                            sourceContents.Add((additionalContent, additional.SourceUrl, additional.FilePath));
+                        }
+                    }
+                }
+
+                if (sourceContents.Count > 0)
+                {
+                    await MergePartialTypeDocumentation(apiType, sourceContents, parser, options, logger);
+                }
+            }
+        }
+
+        logger.Log($"Phase 3: Parsed docs for {typeSourceInfo.Count} types ({stopwatch.ElapsedMilliseconds}ms total)");
     }
 
     private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
