@@ -63,7 +63,7 @@ public record InspectionOptions
     /// <summary>
     /// Output verbosity level.
     /// </summary>
-    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
     /// Sections to include (1-indexed). If empty, all sections are included.

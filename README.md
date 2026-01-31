@@ -36,10 +36,12 @@ dotnet-inspect package dotnet-inspect --files --all
 
 ### package
 
-Inspect NuGet packages - view metadata, dependencies, and file structure.
+Inspect NuGet packages - view metadata, dependencies, vulnerabilities, and file structure.
 
 ```bash
-dotnet-inspect package System.Text.Json              # Package metadata
+dotnet-inspect package System.Text.Json              # Package metadata (minimal verbosity)
+dotnet-inspect package System.Text.Json -v normal    # Include Metadata table + sections
+dotnet-inspect package System.Text.Json 8.0.4        # Specific version (shows vulnerability)
 dotnet-inspect package System.CommandLine --files    # List DLLs
 dotnet-inspect package System.CommandLine --versions # List available versions
 dotnet-inspect package dotnet-inspect --files --all  # Inspect tool packages
@@ -117,6 +119,7 @@ dotnet-inspect api --platform System.Text.Json --framework runtime@9.0.12  # Spe
 ## Key Features
 
 - **Package inspection**: View metadata, dependencies, target frameworks, and file structure
+- **Security awareness**: Detects vulnerabilities (with CVE IDs) and deprecation status from NuGet APIs
 - **API surface extraction**: List types and members with full signatures including parameter names
 - **Generic type support**: Use C#-style syntax (`Option<T>`) or CLR backtick notation (`Option`1`)
 - **Constructor emphasis**: `--ctor` shows constructors with parameter details (required vs optional)
@@ -145,7 +148,7 @@ dotnet-inspect api --platform System.Text.Json --framework runtime@9.0.12  # Spe
 
 Output verbosity follows a **height × width** model for progressive disclosure:
 
-- **Width** (verbosity) controls column density: `-v:q` (quiet) → `-v:d` (detailed)
+- **Width** (verbosity) controls information density: `-v:q` (quiet) → `-v:d` (detailed)
 - **Height** (sections) controls which sections appear: `-s:1,2` (include) or `-x:3` (exclude)
 
 This lets you dial in exactly the information you need. Run a command once to see section numbers, then filter.
@@ -158,12 +161,28 @@ dotnet-inspect package System.Text.Json -v:d -x:2  # Detailed, but skip dependen
 
 ### Verbosity Levels
 
-| Flag | Level | Description |
-|------|-------|-------------|
-| `-v:q` | Quiet | Summary only |
-| `-v:m` | Minimal | Summary + compact metadata |
-| `-v:n` | Normal | Full sections (default) |
-| `-v:d` | Detailed | All sections with full tables |
+| Level | Flag | Package Command Output |
+|-------|------|------------------------|
+| Quiet | `-v q` | H1 title + compact line |
+| Minimal | `-v m` | H1 + description + compact line **(default)** |
+| Normal | `-v n` | + Vulnerabilities section + Metadata table |
+| Detailed | `-v d` | + tier 2 sections (Files, Package Dependencies) |
+
+### Compact Line Format
+
+At quiet and minimal verbosity, essential fields appear in a pipe-delimited compact format:
+
+```
+Type: Library | TFM: net8.0 | Updated: 2024-07-09 | Vulnerabilities: 1
+```
+
+- **Type**: Package type (Library, DotnetTool, etc.)
+- **TFM**: Newest/highest target framework in the package
+- **Updated**: Publication date from NuGet
+- **Deprecated**: Deprecation reason (shown if package is deprecated)
+- **Vulnerabilities**: Count of known security vulnerabilities
+
+At normal+ verbosity, these fields also appear in the Metadata table alongside extended properties (Authors, License, Downloads, etc.).
 
 ## Caching
 

@@ -45,6 +45,8 @@ Provides functionality to serialize objects or value types to JSON and deseriali
 
 Structured metadata as `**Label:** value` pairs, one per line. These fields form the stable "header" that `--fields-only` preserves.
 
+**Line break handling:** Each field line ends with two trailing spaces to force a `<br>` in rendered markdown. Without the double space, consecutive field lines would collapse into a single paragraph.
+
 **When to use fields vs tables:**
 - Use **fields** for top-level metadata about the subject (type, assembly, package)
 - Use **tables** within named H2 sections for collections of related items (members, files, audit results)
@@ -95,9 +97,11 @@ Verbosity controls which H2 sections appear, not which fields appear:
 | Level | Description | Sections |
 |-------|-------------|----------|
 | Quiet | Title and fields only | None |
-| Minimal | Compact section view | Summary sections only |
-| Normal | Full output (default) | All standard sections |
+| Minimal | Compact section view (default) | Summary sections only |
+| Normal | Full output | All standard sections |
 | Detailed | Extended output | All sections including audit details |
+
+Note: The dotnet CLI uses minimal as the default verbosity level, not normal. This tool follows that convention.
 
 The H1, description, and fields are always present regardless of verbosity.
 

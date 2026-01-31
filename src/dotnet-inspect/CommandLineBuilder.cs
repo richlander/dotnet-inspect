@@ -515,16 +515,16 @@ public static class CommandLineBuilder
 
     public static Verbosity ParseVerbosity(string? value)
     {
-        if (string.IsNullOrEmpty(value)) return Verbosity.Normal;
+        if (string.IsNullOrEmpty(value)) return Verbosity.Minimal;
 
         var v = value.TrimStart(':').ToLowerInvariant();
         return v switch
         {
-            "q" => Verbosity.Quiet,
-            "m" => Verbosity.Minimal,
-            "n" => Verbosity.Normal,
-            "d" => Verbosity.Detailed,
-            _ => Verbosity.Normal
+            "q" or "quiet" => Verbosity.Quiet,
+            "m" or "minimal" => Verbosity.Minimal,
+            "n" or "normal" => Verbosity.Normal,
+            "d" or "detailed" => Verbosity.Detailed,
+            _ => Verbosity.Minimal
         };
     }
 

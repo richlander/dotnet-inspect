@@ -222,11 +222,11 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ParseVerbosity_WithNull_ReturnsNormal()
+    public void ParseVerbosity_WithNull_ReturnsMinimal()
     {
         var result = CommandLineBuilder.ParseVerbosity(null);
 
-        Assert.Equal(Options.Verbosity.Normal, result);
+        Assert.Equal(Options.Verbosity.Minimal, result);
     }
 
     [Fact]

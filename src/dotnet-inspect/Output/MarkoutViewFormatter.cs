@@ -31,33 +31,45 @@ public class MarkoutViewFormatter
             BoldFieldNames = true
         };
 
-        // H1 title (always included - before first H2)
+        // H1 title (always included)
         writer.WriteHeading(1, $"{_result.PackageName} {_result.Version}");
-        if (!string.IsNullOrWhiteSpace(_result.Description))
-            writer.WriteParagraph(_result.Description);
 
-        // Render sections based on verbosity
+        // Render based on verbosity
         switch (_verbosity)
         {
             case Verbosity.Quiet:
-                // No H2 sections
+                // H1 + compact line only
+                WriteCompactLine(writer);
                 break;
             case Verbosity.Minimal:
-                WriteMetadataCompact(writer);
+                // H1 + description + compact line
+                if (!string.IsNullOrWhiteSpace(_result.Description))
+                    writer.WriteParagraph(_result.Description);
+                WriteCompactLine(writer);
                 break;
             case Verbosity.Normal:
-                WriteMetadataFull(writer);
+                // H1 + description + compact line + Metadata table + tier 1 sections
+                if (!string.IsNullOrWhiteSpace(_result.Description))
+                    writer.WriteParagraph(_result.Description);
+                WriteCompactLine(writer);
+                WriteVulnerabilities(writer);
+                WriteMetadataSection(writer);
                 WriteRidPackages(writer);
                 WriteRuntimeDeps(writer);
                 WriteAuditSummary(writer);
                 WriteApiSurface(writer);
                 break;
             case Verbosity.Detailed:
-                WriteMetadataFull(writer);
+                // Everything including tier 2 sections
+                if (!string.IsNullOrWhiteSpace(_result.Description))
+                    writer.WriteParagraph(_result.Description);
+                WriteCompactLine(writer);
+                WriteVulnerabilities(writer);
+                WriteMetadataSection(writer);
                 WriteRidPackages(writer);
                 WritePackageDeps(writer);
                 WriteRuntimeDeps(writer);
-                WriteFiles(writer);
+                WriteFiles(writer);  // Tier 2
                 WriteAuditSummary(writer);
                 WriteAssemblyAudit(writer);
                 WriteApiSurface(writer);
@@ -67,48 +79,113 @@ public class MarkoutViewFormatter
         return writer.ToString().TrimEnd();
     }
 
-    private void WriteMetadataCompact(MarkoutWriter writer)
+    /// <summary>
+    /// Writes the compact triage line with essential fields.
+    /// Format: Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
+    /// </summary>
+    private void WriteCompactLine(MarkoutWriter writer)
     {
         var items = new List<string>();
         items.Add($"Type: {_result.PackageType}");
-        if (_result.TargetFrameworkCount > 0) items.Add($"TFMs: {_result.TargetFrameworkCount}");
-        items.Add($"RIDs: {_result.SupportedRidCount}");
-        if (_result.AssemblyCount > 0) items.Add($"Libraries: {_result.AssemblyCount}");
+        if (!string.IsNullOrEmpty(_result.NewestTfm))
+            items.Add($"TFM: {_result.NewestTfm}");
+        if (!string.IsNullOrEmpty(_result.PublishedDisplay))
+            items.Add($"Updated: {_result.PublishedDisplay}");
+        if (_result.Deprecation != null)
+            items.Add($"Deprecated: {_result.Deprecation.Summary}");
+        if (_result.Vulnerabilities is { Count: > 0 })
+            items.Add($"Vulnerabilities: {_result.Vulnerabilities.Count}");
 
         writer.WriteParagraph(string.Join(" | ", items));
     }
 
-    private void WriteMetadataFull(MarkoutWriter writer)
+    /// <summary>
+    /// Writes the Metadata section as a property/value table.
+    /// </summary>
+    private void WriteMetadataSection(MarkoutWriter writer)
     {
-        // Top-level metadata as fields (per style guide)
+        // Collect metadata rows
+        var rows = new List<(string Property, string Value)>();
+
+        // Include compact line fields first (for consistency with compact line display)
+        rows.Add(("Type", _result.PackageType));
+        if (!string.IsNullOrEmpty(_result.NewestTfm))
+            rows.Add(("Newest TFM", _result.NewestTfm));
+        if (!string.IsNullOrEmpty(_result.PublishedDisplay))
+            rows.Add(("Updated", _result.PublishedDisplay));
+        if (_result.Deprecation != null)
+            rows.Add(("Deprecated", _result.Deprecation.Summary));
+        if (_result.Vulnerabilities is { Count: > 0 })
+            rows.Add(("Vulnerabilities", _result.Vulnerabilities.Count.ToString()));
+
         if (!string.IsNullOrWhiteSpace(_result.Authors))
-            writer.WriteField("Authors", _result.Authors);
+            rows.Add(("Authors", _result.Authors));
+        if (!string.IsNullOrWhiteSpace(_result.OwnersDisplay) && _result.OwnersDisplay != _result.Authors)
+            rows.Add(("Owners", _result.OwnersDisplay));
         if (!string.IsNullOrWhiteSpace(_result.License))
-            writer.WriteField("License", _result.License);
+            rows.Add(("License", _result.License));
         if (!string.IsNullOrWhiteSpace(_result.Repository))
-            writer.WriteField("Repository", _result.Repository);
-        writer.WriteField("Package Type", _result.PackageType);
+            rows.Add(("Repository", _result.Repository));
+        
+        // NuGet metadata
+        if (!string.IsNullOrEmpty(_result.DownloadsDisplay))
+            rows.Add(("Downloads", _result.DownloadsDisplay));
+        if (_result.IsVerified == true)
+            rows.Add(("Verified", "yes"));
+        
         if (!string.IsNullOrWhiteSpace(_result.ContentSummary))
-            writer.WriteField("Content", _result.ContentSummary);
+            rows.Add(("Content", _result.ContentSummary));
         if (_result.TargetFrameworkCount > 0)
-            writer.WriteField("Target Frameworks", _result.TargetFrameworkCount);
-        writer.WriteField("Runtime Identifiers", _result.SupportedRidCount);
+            rows.Add(("Target Frameworks", _result.TargetFrameworkCount.ToString()));
+        if (_result.SupportedRidCount > 0)
+            rows.Add(("Runtime Identifiers", _result.SupportedRidCount.ToString()));
         if (_result.AssemblyCount > 0)
-            writer.WriteField("Libraries", _result.AssemblyCount);
+            rows.Add(("Libraries", _result.AssemblyCount.ToString()));
         if (_result.HasReadme)
-            writer.WriteField("Readme", true);
+            rows.Add(("Readme", "yes"));
 
         // Tool-specific properties
         if (!string.IsNullOrWhiteSpace(_result.ToolCommandsSummary))
-            writer.WriteField("Tool Commands", _result.ToolCommandsSummary);
+            rows.Add(("Tool Commands", _result.ToolCommandsSummary));
 
         // Additional properties
         if (_result.IsFrameworkDependent)
-            writer.WriteField("Framework Dependent", true);
+            rows.Add(("Framework Dependent", "yes"));
         if (_result.IsRidSpecificPointerPackage)
-            writer.WriteField("RID-Specific Pointer", true);
+            rows.Add(("RID-Specific Pointer", "yes"));
         if (!string.IsNullOrWhiteSpace(_result.RuntimeTargetRid))
-            writer.WriteField("Runtime Target RID", _result.RuntimeTargetRid);
+            rows.Add(("Runtime Target RID", _result.RuntimeTargetRid));
+
+        // Only write section if we have rows
+        if (rows.Count == 0)
+            return;
+
+        writer.WriteHeading(2, "Metadata");
+        writer.WriteTableStart("Property", "Value");
+
+        foreach (var (property, value) in rows)
+            writer.WriteTableRow(property, value);
+
+        writer.WriteTableEnd();
+    }
+
+    private void WriteVulnerabilities(MarkoutWriter writer)
+    {
+        if (_result.Vulnerabilities is not { Count: > 0 })
+            return;
+
+        writer.WriteHeading(2, "Vulnerabilities");
+        writer.WriteTableStart("Severity", "CVE", "Summary");
+
+        foreach (var vuln in _result.Vulnerabilities)
+        {
+            var cve = vuln.CveId ?? vuln.GhsaId ?? "";
+            // Escape pipes in summary for markdown table
+            var summary = (vuln.Summary ?? "").Replace("|", "-");
+            writer.WriteTableRow(vuln.Severity, cve, summary);
+        }
+
+        writer.WriteTableEnd();
     }
 
     private void WriteRidPackages(MarkoutWriter writer)
@@ -191,8 +268,6 @@ public class MarkoutViewFormatter
 
         foreach (var audit in _result.AssemblyAudits)
         {
-            // BoolFormat attributes on the model provide ✓/✗, but we manually format here
-            // to control which columns appear in the table
             writer.WriteTableRow(
                 audit.FileName,
                 audit.FileType,
@@ -238,11 +313,5 @@ public class MarkoutViewFormatter
                 writer.WriteTableEnd();
             }
         }
-    }
-
-    private static void WriteRowIfPresent(MarkoutWriter writer, string property, string? value)
-    {
-        if (!string.IsNullOrWhiteSpace(value))
-            writer.WriteTableRow(property, value);
     }
 }

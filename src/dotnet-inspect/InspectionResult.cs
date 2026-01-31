@@ -21,6 +21,84 @@ public class InspectionResult
     public string? Repository { get; set; }
 
     /// <summary>
+    /// When this package version was published to NuGet.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public DateTimeOffset? Published { get; set; }
+
+    /// <summary>
+    /// Formatted publish date for display.
+    /// </summary>
+    [MarkoutPropertyName("Updated")]
+    [JsonPropertyName("published")]
+    public string? PublishedDisplay => Published?.ToString("yyyy-MM-dd");
+
+    /// <summary>
+    /// Total downloads across all versions of the package.
+    /// </summary>
+    [MarkoutIgnore]
+    public long? TotalDownloads { get; set; }
+
+    /// <summary>
+    /// Formatted download count for display (e.g., "5.1B", "1.2M").
+    /// </summary>
+    [MarkoutPropertyName("Downloads")]
+    [JsonIgnore]
+    public string? DownloadsDisplay => TotalDownloads.HasValue ? FormatDownloads(TotalDownloads.Value) : null;
+
+    private static string FormatDownloads(long downloads)
+    {
+        return downloads switch
+        {
+            >= 1_000_000_000 => $"{downloads / 1_000_000_000.0:0.#}B",
+            >= 1_000_000 => $"{downloads / 1_000_000.0:0.#}M",
+            >= 1_000 => $"{downloads / 1_000.0:0.#}K",
+            _ => downloads.ToString()
+        };
+    }
+
+    /// <summary>
+    /// Whether the package owner is verified by NuGet.org.
+    /// </summary>
+    [MarkoutIgnore]
+    public bool? IsVerified { get; set; }
+
+    /// <summary>
+    /// Package owners (from NuGet.org).
+    /// </summary>
+    [MarkoutIgnore]
+    public List<string>? Owners { get; set; }
+
+    /// <summary>
+    /// Owners as comma-separated string for display.
+    /// </summary>
+    [MarkoutPropertyName("Owners")]
+    [JsonIgnore]
+    public string? OwnersDisplay => Owners is { Count: > 0 } ? string.Join(", ", Owners) : null;
+
+    /// <summary>
+    /// Deprecation information if the package is deprecated.
+    /// </summary>
+    [MarkoutIgnore]
+    public PackageDeprecation? Deprecation { get; set; }
+
+    /// <summary>
+    /// Known security vulnerabilities for this package version.
+    /// </summary>
+    [MarkoutIgnore]
+    public List<PackageVulnerability>? Vulnerabilities { get; set; }
+
+    /// <summary>
+    /// Summary of vulnerabilities for display.
+    /// </summary>
+    [MarkoutPropertyName("Vulnerabilities")]
+    [JsonIgnore]
+    public string? VulnerabilitiesDisplay => Vulnerabilities is { Count: > 0 }
+        ? $"{Vulnerabilities.Count} known ({string.Join(", ", Vulnerabilities.Select(v => v.Severity).Distinct())})"
+        : null;
+
+    /// <summary>
     /// Indicates whether the package contains a README.md file.
     /// </summary>
     public bool HasReadme { get; set; }
@@ -74,6 +152,64 @@ public class InspectionResult
     [MarkoutPropertyName("Target Frameworks")]
     [JsonIgnore]
     public int TargetFrameworkCount => TargetFrameworks?.Count ?? 0;
+
+    /// <summary>
+    /// The newest/highest target framework in the package (computed from TargetFrameworks).
+    /// </summary>
+    [MarkoutPropertyName("Newest TFM")]
+    [JsonIgnore]
+    public string? NewestTfm => TargetFrameworks is { Count: > 0 }
+        ? GetNewestTfm(TargetFrameworks)
+        : null;
+
+    private static string GetNewestTfm(List<string> tfms)
+    {
+        // Priority order: modern .NET (net5+) > netcoreapp > netstandard > netframework
+        return tfms
+            .OrderByDescending(GetTfmPriority)
+            .ThenByDescending(ExtractTfmVersion)
+            .First();
+    }
+
+    private static int GetTfmPriority(string tfm)
+    {
+        var lower = tfm.ToLowerInvariant();
+        // Modern .NET (net5.0+): starts with "net", has digit, and contains a dot (e.g., net8.0, net10.0)
+        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && 
+            !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework") &&
+            lower.Length > 3 && char.IsDigit(lower[3]) && lower.Contains('.'))
+            return 4; // Modern .NET (net5.0+)
+        if (lower.StartsWith("netcoreapp"))
+            return 3;
+        if (lower.StartsWith("netstandard"))
+            return 2;
+        // .NET Framework: net4xx without dot, or explicit netframework prefix
+        if (lower.StartsWith("net4") || lower.StartsWith("netframework"))
+            return 1;
+        return 0;
+    }
+
+    private static double ExtractTfmVersion(string tfm)
+    {
+        var lower = tfm.ToLowerInvariant();
+        // Extract version number from TFM strings like "net8.0", "netstandard2.1", "net462"
+        var versionPart = lower
+            .Replace("netcoreapp", "")
+            .Replace("netstandard", "")
+            .Replace("netframework", "")
+            .Replace("net", "")
+            .TrimStart('v');
+        
+        // Handle formats like "8.0", "462", "2.1"
+        if (double.TryParse(versionPart, out var version))
+            return version;
+        
+        // Handle "462" format -> 4.62
+        if (versionPart.Length == 3 && int.TryParse(versionPart, out var intVersion))
+            return intVersion / 100.0;
+        
+        return 0;
+    }
 
     [MarkoutIgnore]
     public List<string>? SupportedRids { get; set; }
@@ -181,4 +317,76 @@ public class InspectionResult
 
     [MarkoutSection(Name = "Assembly Audit")]
     public List<AssemblyAudit>? AssemblyAudits { get; set; }
+}
+
+/// <summary>
+/// Deprecation information for a NuGet package.
+/// </summary>
+public class PackageDeprecation
+{
+    /// <summary>
+    /// Reasons for deprecation (e.g., "Legacy", "CriticalBugs", "Other").
+    /// </summary>
+    [MarkoutIgnore]
+    public List<string>? Reasons { get; set; }
+
+    /// <summary>
+    /// Human-readable deprecation message.
+    /// </summary>
+    public string? Message { get; set; }
+
+    /// <summary>
+    /// Recommended alternative package ID.
+    /// </summary>
+    public string? AlternatePackageId { get; set; }
+
+    /// <summary>
+    /// Formatted deprecation summary for display.
+    /// </summary>
+    [JsonIgnore]
+    public string Summary
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (Reasons is { Count: > 0 })
+                parts.Add(string.Join(", ", Reasons));
+            if (!string.IsNullOrEmpty(AlternatePackageId))
+                parts.Add($"use {AlternatePackageId}");
+            if (!string.IsNullOrEmpty(Message))
+                parts.Add(Message);
+            return parts.Count > 0 ? string.Join(" - ", parts) : "Deprecated";
+        }
+    }
+}
+
+/// <summary>
+/// Security vulnerability information for a NuGet package.
+/// </summary>
+public class PackageVulnerability
+{
+    /// <summary>
+    /// Severity level (e.g., "Low", "Moderate", "High", "Critical").
+    /// </summary>
+    public string Severity { get; set; } = "";
+
+    /// <summary>
+    /// URL to the advisory.
+    /// </summary>
+    public string? AdvisoryUrl { get; set; }
+
+    /// <summary>
+    /// CVE identifier (e.g., "CVE-2024-43485").
+    /// </summary>
+    public string? CveId { get; set; }
+
+    /// <summary>
+    /// GHSA identifier (e.g., "GHSA-8g4q-xg66-9fp4").
+    /// </summary>
+    public string? GhsaId { get; set; }
+
+    /// <summary>
+    /// Brief description of the vulnerability.
+    /// </summary>
+    public string? Summary { get; set; }
 }

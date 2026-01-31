@@ -106,15 +106,34 @@ diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0) \
 ## Output Control (Height × Width)
 
 Output follows a 2D progressive disclosure model:
-- **Width** (verbosity): `-v:q` → `-v:d` controls column density
+- **Width** (verbosity): `-v:q` → `-v:d` controls information density
 - **Height** (sections): `-s:1,2` (include) or `-x:3` (exclude) controls which sections appear
 
-Verbosity levels:
+### Verbosity Levels
 
-- `-v:q` - Quiet: summary only
-- `-v:m` - Minimal: summary + compact metadata
-- `-v:n` - Normal: full sections (default)
-- `-v:d` - Detailed: all sections with full tables
+| Level | Flag | Package Command Output |
+|-------|------|------------------------|
+| Quiet | `-v:q` or `-v quiet` | H1 title + compact line |
+| Minimal | `-v:m` or `-v minimal` | H1 + description + compact line (default) |
+| Normal | `-v:n` or `-v normal` | + Vulnerabilities section + Metadata table + tier 1 sections |
+| Detailed | `-v:d` or `-v detailed` | + tier 2 sections (Files, Package Dependencies) |
+
+### Compact Line Format
+
+The compact line provides essential triage fields in a pipe-delimited format:
+
+```
+Type: Library | TFM: net8.0 | Updated: 2024-07-09 | Vulnerabilities: 1
+```
+
+Fields shown (when present):
+- **Type**: Package type (Library, DotnetTool, etc.)
+- **TFM**: Newest/highest target framework in the package
+- **Updated**: Publication date from NuGet
+- **Deprecated**: Deprecation reason (e.g., "Legacy - use NewPackage")
+- **Vulnerabilities**: Count of known security vulnerabilities
+
+All compact line fields are also included in the Metadata table at normal+ verbosity.
 
 ## Section Filtering
 
