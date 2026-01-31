@@ -36,6 +36,16 @@ public record InspectionOptions
     public bool IncludePrerelease { get; init; }
 
     /// <summary>
+    /// Show the README.md content from the package.
+    /// </summary>
+    public bool ShowReadme { get; init; }
+
+    /// <summary>
+    /// Path to write output to instead of stdout.
+    /// </summary>
+    public string? OutputPath { get; init; }
+
+    /// <summary>
     /// Limit the number of results (for --versions, --files).
     /// </summary>
     public int? Limit { get; init; }

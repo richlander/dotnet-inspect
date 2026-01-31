@@ -2,6 +2,8 @@
 
 Ideas for improving dotnet-inspect for LLM-driven C# development.
 
+> **Note:** Completed features are removed from this backlog. See git history for implemented items.
+
 ## Derived Types Table
 
 Add a "Derived Types" section to `api` output that displays:
@@ -94,41 +96,9 @@ When inspecting a type like `JsonSerializer`, suggest related types that are com
 
 This would help LLMs understand the ecosystem around a type without multiple exploratory queries.
 
-## Output to File
-
-An `--out` flag to write results directly to a file:
-
-```bash
-dotnet-inspect api --package System.Text.Json --out api-surface.md
-dotnet-inspect package System.Text.Json --json --out package-info.json
-```
-
-Useful for:
-
-- Saving API surfaces for later reference or diffing
-- Generating documentation artifacts
-- Caching expensive queries locally
-- Piping to other tools that prefer file input over stdin
-
 ## Skill Plugin
 
 Add a skill plugin to this repo. (User-requested feature - needs investigation to understand what this means in context. Possibly related to Copilot Extensions, Semantic Kernel skills, or another plugin system.)
-
-## Package README Command
-
-Add a command or flag to print the README.md content from a package:
-
-```bash
-dotnet-inspect package System.Text.Json --readme
-# or
-dotnet-inspect readme System.Text.Json
-```
-
-The `**Readme:** yes` field is already displayed when a package contains a README.md. This would expose the actual content, which could be useful for:
-
-- LLMs understanding package purpose and usage patterns
-- Quick reference without leaving the terminal
-- Automation workflows that need package documentation
 
 ## Style Guide Review
 

@@ -147,15 +147,22 @@ public class PackageCommand
                 Version = version
             };
 
-            // Always parse nuspec for basic metadata
+            // Always parse nuspec for basic metadata (needed for --readme to find correct file)
             string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
             if (nuspecFiles.Length > 0)
             {
                 NuspecParser.Parse(nuspecFiles[0], result);
             }
 
-            // Check for README.md
-            result.HasReadme = File.Exists(Path.Combine(extractPath, "README.md"));
+            // Handle --readme mode: print README and exit early
+            if (options.ShowReadme)
+            {
+                return PrintReadme(extractPath, result.ReadmeFile, options);
+            }
+
+            // Check for README (use nuspec-specified file or fall back to README.md)
+            string readmeFileName = result.ReadmeFile ?? "README.md";
+            result.HasReadme = File.Exists(Path.Combine(extractPath, readmeFileName));
 
             // Always analyze directory structure
             string toolsDir = Path.Combine(extractPath, "tools");
@@ -408,6 +415,32 @@ public class PackageCommand
         }
         
         return nodes;
+    }
+
+    private static int PrintReadme(string extractPath, string? readmeFile, InspectionOptions options)
+    {
+        // Use nuspec-specified readme file or fall back to README.md
+        string readmeFileName = readmeFile ?? "README.md";
+        string readmePath = Path.Combine(extractPath, readmeFileName);
+        
+        if (!File.Exists(readmePath))
+        {
+            Console.Error.WriteLine("Error: This package does not contain a readme file.");
+            return 1;
+        }
+
+        string content = File.ReadAllText(readmePath);
+        
+        if (!string.IsNullOrEmpty(options.OutputPath))
+        {
+            File.WriteAllText(options.OutputPath, content);
+        }
+        else
+        {
+            Console.WriteLine(content);
+        }
+        
+        return 0;
     }
 
     private static async Task<int> ListVersionsAsync(string packageName, bool includePrerelease, int? limit, VerboseLogger logger)

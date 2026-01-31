@@ -11,15 +11,18 @@ public static class OutputFormatter
 {
     public static void WriteResult(InspectionResult result, InspectionOptions options)
     {
+        string output;
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult));
+            output = JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
         else
         {
             var formatter = new MarkoutViewFormatter(result, options);
-            Console.WriteLine(formatter.Render());
+            output = formatter.Render();
         }
+        
+        WriteOutput(output, options.OutputPath);
     }
 
     public static void WriteAssemblyResult(AssemblyAudit audit, AssemblyOptions options)
@@ -133,5 +136,20 @@ public static class OutputFormatter
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Writes output to file if path is specified, otherwise to stdout.
+    /// </summary>
+    public static void WriteOutput(string content, string? outputPath)
+    {
+        if (!string.IsNullOrEmpty(outputPath))
+        {
+            File.WriteAllText(outputPath, content);
+        }
+        else
+        {
+            Console.WriteLine(content);
+        }
     }
 }

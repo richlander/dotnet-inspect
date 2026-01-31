@@ -25,6 +25,13 @@ public class InspectionResult
     /// </summary>
     public bool HasReadme { get; set; }
 
+    /// <summary>
+    /// Path to the readme file within the package (from nuspec readme element).
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public string? ReadmeFile { get; set; }
+
     [MarkoutIgnore] // Used internally; PackageType computed property is displayed
     public bool IsToolPackage { get; set; }
 

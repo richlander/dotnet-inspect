@@ -299,6 +299,8 @@ public static class CommandLineBuilder
         var versionsOption = new Option<bool>("--versions") { Description = "List available versions from nuget.org" };
         var prereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
         prereleaseOption.Aliases.Add("--prerelease");
+        var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
+        var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(depsOption);
@@ -307,6 +309,8 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(treeOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(prereleaseOption);
+        packageCommand.Options.Add(readmeOption);
+        packageCommand.Options.Add(outOption);
         packageCommand.Options.Add(limitOption);
         packageCommand.Options.Add(jsonOption);
         packageCommand.Options.Add(markoutOption);
@@ -326,6 +330,8 @@ public static class CommandLineBuilder
                 TreeView = parseResult.GetValue(treeOption),
                 ListVersions = parseResult.GetValue(versionsOption),
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
+                ShowReadme = parseResult.GetValue(readmeOption),
+                OutputPath = parseResult.GetValue(outOption),
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),

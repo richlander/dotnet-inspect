@@ -68,6 +68,9 @@ public static class NuspecParser
             }
         }
 
+        // Parse readme file path
+        result.ReadmeFile = metadata.Element(ns + "readme")?.Value;
+
         // Parse dependencies
         var dependencies = metadata.Element(ns + "dependencies");
         if (dependencies != null)
