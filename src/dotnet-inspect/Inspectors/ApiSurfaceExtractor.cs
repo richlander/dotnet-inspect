@@ -240,6 +240,34 @@ public static class ApiSurfaceExtractor
             surface.PublicTypeCount++;
         }
 
+        // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
+        foreach (var exportedTypeHandle in reader.ExportedTypes)
+        {
+            var exportedType = reader.GetExportedType(exportedTypeHandle);
+            
+            // Type forwarders have IsForwarder flag set
+            if (!exportedType.IsForwarder)
+                continue;
+
+            var typeName = reader.GetString(exportedType.Name);
+            var ns = reader.GetString(exportedType.Namespace);
+            var fullName = string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}";
+
+            // Get the target assembly
+            string targetAssembly = "";
+            if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
+            {
+                var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
+                targetAssembly = reader.GetString(assemblyRef.Name);
+            }
+
+            surface.TypeForwarders.Add(new TypeForwarder
+            {
+                TypeName = fullName,
+                TargetAssembly = targetAssembly
+            });
+        }
+
         return surface;
     }
 

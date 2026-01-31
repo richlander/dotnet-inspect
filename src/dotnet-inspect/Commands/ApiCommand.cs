@@ -31,6 +31,7 @@ public class ApiCommand
         try
         {
             string searchPath;
+            string? runtimeAssemblyPath = null;  // For platform assemblies with --docs, use runtime path for PDB lookup
             string? packageName = null;
             string? packageVersion = null;
 
@@ -97,14 +98,12 @@ public class ApiCommand
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
                 // Use platform assembly
-                // When --docs or --samples is requested, use runtime assemblies (they have PDBs for MSDL)
-                bool useRuntimeAssemblies = options.ShowDocs || options.ShowSamples;
-                
+                // Always use ref assemblies for API extraction (they have the public types)
                 var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly, 
                     options.PlatformFramework,
                     packsDirectory: null,
-                    useRuntimeAssemblies: useRuntimeAssemblies);
+                    useRuntimeAssemblies: false);
                 
                 if (error != null)
                 {
@@ -113,7 +112,23 @@ public class ApiCommand
                 }
                 
                 searchPath = assemblyPath!;
-                logger.Log($"Using platform {(useRuntimeAssemblies ? "runtime" : "ref")} assembly: {framework} {version}");
+                logger.Log($"Using platform ref assembly: {framework} {version}");
+                
+                // When --docs or --samples is requested, also resolve runtime assembly for PDB lookup
+                if (options.ShowDocs || options.ShowSamples)
+                {
+                    var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
+                        options.PlatformAssembly,
+                        options.PlatformFramework,
+                        packsDirectory: null,
+                        useRuntimeAssemblies: true);
+                    
+                    if (runtimeError == null && runtimePath != null)
+                    {
+                        runtimeAssemblyPath = runtimePath;
+                        logger.Log($"Using runtime assembly for PDB lookup: {runtimePath}");
+                    }
+                }
             }
             else
             {
@@ -162,6 +177,12 @@ public class ApiCommand
                     return 1;
                 }
 
+                // If this is a type-forwarding assembly, resolve types from target assemblies
+                if (api.Types.Count == 0 && api.TypeForwarders.Count > 0 && apiDllPath != null)
+                {
+                    ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
+                }
+
                 // Set package/assembly name
                 if (!string.IsNullOrEmpty(options.PackagePath))
                 {
@@ -173,21 +194,22 @@ public class ApiCommand
                     api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
                 }
 
-                // Extract SourceLink repository URL
-                if (apiDllPath != null)
+                // Extract SourceLink repository URL (use runtime assembly if available for better SourceLink data)
+                var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
+                if (pdbLookupPath != null)
                 {
-                    api.RepositoryUrl = await ExtractRepositoryUrlAsync(apiDllPath, options, logger);
+                    api.RepositoryUrl = await ExtractRepositoryUrlAsync(pdbLookupPath, options, logger);
                 }
                 api.Tfm = selectedTfm;
 
                 // Enrich types with source info if docs, samples, or sourcelink-only requested
-                if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && apiDllPath != null)
+                if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && pdbLookupPath != null)
                 {
                     logger.Log("Enriching types with source info...");
                     foreach (var type in api.Types)
                     {
                         var fullTypeName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-                        await EnrichTypeWithSourceInfoAsync(type, fullTypeName, apiDllPath, options, logger);
+                        await EnrichTypeWithSourceInfoAsync(type, fullTypeName, pdbLookupPath, options, logger);
                     }
                 }
 
@@ -207,7 +229,9 @@ public class ApiCommand
                 }
 
                 // Enrich with source info (SourceLink URL, docs)
-                await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
+                // Use runtime assembly path for PDB lookup if available
+                var pdbLookupPath = runtimeAssemblyPath ?? dllPath;
+                await EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger);
 
                 WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
             }
@@ -669,6 +693,19 @@ public class ApiCommand
             TypeDefinitionHandle? typeHandle = FindTypeDefinitionHandle(metadataReader, typeName);
             if (typeHandle == null)
             {
+                // Type not defined in this assembly - check if it's forwarded
+                var forwardTarget = FindTypeForwarderTarget(metadataReader, typeName);
+                if (forwardTarget != null)
+                {
+                    logger.Log($"Type '{typeName}' is forwarded to '{forwardTarget}'.");
+                    
+                    // Try to resolve the target assembly and get docs from there
+                    var forwardedResult = await TryEnrichFromForwardedAssemblyAsync(
+                        apiType, typeName, forwardTarget, dllPath, options, logger);
+                    if (forwardedResult)
+                        return;
+                }
+                
                 logger.Log($"Could not find type definition for '{typeName}'.");
                 return;
             }
@@ -1006,6 +1043,63 @@ public class ApiCommand
         return null;
     }
 
+    /// <summary>
+    /// Finds the target assembly for a forwarded type.
+    /// </summary>
+    private static string? FindTypeForwarderTarget(MetadataReader reader, string typeName)
+    {
+        foreach (var exportedTypeHandle in reader.ExportedTypes)
+        {
+            var exportedType = reader.GetExportedType(exportedTypeHandle);
+            if (!exportedType.IsForwarder)
+                continue;
+
+            var name = reader.GetString(exportedType.Name);
+            var ns = reader.GetString(exportedType.Namespace);
+            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+
+            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
+                {
+                    var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
+                    return reader.GetString(assemblyRef.Name);
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Tries to enrich a type with docs from a forwarded assembly.
+    /// </summary>
+    private static async Task<bool> TryEnrichFromForwardedAssemblyAsync(
+        ApiType apiType, 
+        string typeName, 
+        string targetAssemblyName,
+        string originalDllPath,
+        ApiOptions options,
+        VerboseLogger logger)
+    {
+        // Resolve the target assembly in the same runtime directory
+        var runtimeDir = Path.GetDirectoryName(originalDllPath);
+        if (runtimeDir == null)
+            return false;
+
+        var targetDllPath = Path.Combine(runtimeDir, targetAssemblyName + ".dll");
+        if (!File.Exists(targetDllPath))
+        {
+            logger.Log($"Target assembly '{targetAssemblyName}' not found at '{targetDllPath}'.");
+            return false;
+        }
+
+        logger.Log($"Following type forwarder to '{targetAssemblyName}'...");
+
+        // Recursively call the enrichment with the target assembly
+        await EnrichTypeWithSourceInfoAsync(apiType, typeName, targetDllPath, options, logger);
+        return true;
+    }
+
     private static List<string> GetPackageDlls(string extractPath)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
@@ -1228,6 +1322,74 @@ public class ApiCommand
         }
     }
 
+    /// <summary>
+    /// Resolves types from forwarded assemblies when the primary assembly is a type-forwarding assembly.
+    /// </summary>
+    private static void ResolveForwardedTypes(ApiSurface api, string dllPath, VerboseLogger logger, bool includeAll)
+    {
+        if (api.Types.Count > 0 || api.TypeForwarders.Count == 0)
+            return;
+
+        var assemblyDir = Path.GetDirectoryName(dllPath);
+        if (assemblyDir == null)
+            return;
+
+        // Group forwarders by target assembly
+        var byAssembly = api.TypeForwarders
+            .GroupBy(f => f.TargetAssembly)
+            .ToDictionary(g => g.Key, g => g.Select(f => f.TypeName).ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        logger.Log($"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} assemblies...");
+
+        foreach (var (targetAssembly, forwardedTypeNames) in byAssembly)
+        {
+            var targetPath = Path.Combine(assemblyDir, targetAssembly + ".dll");
+            if (!File.Exists(targetPath))
+            {
+                logger.Log($"Target assembly '{targetAssembly}' not found, skipping.");
+                continue;
+            }
+
+            try
+            {
+                using FileStream stream = File.OpenRead(targetPath);
+                using PEReader peReader = new(stream);
+
+                if (!peReader.HasMetadata)
+                    continue;
+
+                var targetApi = ApiSurfaceExtractor.Extract(peReader, includeAll);
+
+                // Only include types that were forwarded from the original assembly
+                foreach (var type in targetApi.Types)
+                {
+                    var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+                    if (forwardedTypeNames.Contains(fullName))
+                    {
+                        api.Types.Add(type);
+                        api.PublicMethodCount += type.Members?.Count(m => m.Kind == "method" || m.Kind == "constructor") ?? 0;
+                        api.PublicPropertyCount += type.Members?.Count(m => m.Kind == "property") ?? 0;
+                        api.PublicEventCount += type.Members?.Count(m => m.Kind == "event") ?? 0;
+                        api.PublicFieldCount += type.Members?.Count(m => m.Kind == "field") ?? 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"Error reading '{targetAssembly}': {ex.Message}");
+            }
+        }
+
+        if (api.Types.Count > 0)
+        {
+            api.IsTypeForwardingAssembly = true;
+            api.PublicTypeCount = api.Types.Count;
+            // Sort types by full name
+            api.Types = api.Types.OrderBy(t => string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}").ToList();
+            logger.Log($"Resolved {api.Types.Count} types from forwarded assemblies.");
+        }
+    }
+
     private static string SerializeJson<T>(T value, JsonTypeInfo<T> typeInfo)
     {
         return JsonSerializer.Serialize(value, typeInfo);
@@ -1320,6 +1482,42 @@ public class ApiCommand
         }
 
         sb.AppendLine();
+
+        // If no types and couldn't resolve forwarders, show a note
+        if (totalCount == 0)
+        {
+            sb.AppendLine("This assembly contains no public types.");
+            
+            if (api.TypeForwarders.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Type forwarders could not be resolved. Target assemblies:");
+                sb.AppendLine();
+                
+                // Group forwarders by target assembly
+                var byAssembly = api.TypeForwarders
+                    .GroupBy(f => f.TargetAssembly)
+                    .OrderBy(g => g.Key)
+                    .ToList();
+
+                sb.AppendLine("| Target Assembly | Types |");
+                sb.AppendLine("|-----------------|-------|");
+                
+                foreach (var group in byAssembly)
+                {
+                    sb.AppendLine($"| {group.Key} | {group.Count()} |");
+                }
+            }
+            
+            return sb.ToString().TrimEnd();
+        }
+
+        // Show note for type-forwarding assemblies
+        if (api.IsTypeForwardingAssembly)
+        {
+            sb.AppendLine("*This is a type-forwarding assembly. Types shown are resolved from target assemblies.*");
+            sb.AppendLine();
+        }
 
         if (options.ShowDocs)
         {

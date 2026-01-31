@@ -112,6 +112,35 @@ public class ApiSurface
     /// </summary>
     [MarkoutPropertyName("Repository")]
     public string? RepositoryUrl { get; set; }
+
+    /// <summary>
+    /// Type forwarders in this assembly (types re-exported from other assemblies).
+    /// </summary>
+    [MarkoutIgnore]
+    public List<TypeForwarder> TypeForwarders { get; set; } = [];
+
+    /// <summary>
+    /// True if this assembly is a type-forwarding assembly (types resolved from target assemblies).
+    /// </summary>
+    [MarkoutIgnore]
+    public bool IsTypeForwardingAssembly { get; set; }
+}
+
+/// <summary>
+/// Represents a type forwarded to another assembly.
+/// </summary>
+[MarkoutSerializable]
+public class TypeForwarder
+{
+    /// <summary>
+    /// Full name of the forwarded type.
+    /// </summary>
+    public string TypeName { get; set; } = "";
+
+    /// <summary>
+    /// Name of the target assembly where the type is defined.
+    /// </summary>
+    public string TargetAssembly { get; set; } = "";
 }
 
 [MarkoutSerializable]
