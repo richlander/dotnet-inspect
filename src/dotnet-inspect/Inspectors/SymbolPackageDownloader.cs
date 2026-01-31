@@ -44,7 +44,8 @@ public class SymbolPackageDownloader
         string assemblyPath,
         string? packageName = null,
         string? packageVersion = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        bool isPlatformAssembly = false)
     {
         bool windowsPdbDetected = false;
 
@@ -92,11 +93,11 @@ public class SymbolPackageDownloader
         // Check if this is a Portable PDB (MinorVersion == 0x504d means "PM" for Portable Metadata)
         bool isPortablePdb = codeViewEntry.Value.MinorVersion == 0x504d;
 
-        // 4. For Microsoft packages, try MSDL symbol server first (they typically don't publish snupkg)
-        bool isMicrosoftPackage = IsMicrosoftPackage(packageName);
+        // 4. For Microsoft packages or platform assemblies, try MSDL symbol server first (they typically don't publish snupkg)
+        bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
         if (isMicrosoftPackage)
         {
-            log?.Invoke("Microsoft package detected, trying MSDL symbol server first");
+            log?.Invoke(isPlatformAssembly ? "Platform assembly, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryDownloadFromMsdlAsync(codeView.Value, isPortablePdb, log);
             if (msdlResult.Reader != null)
                 return msdlResult;

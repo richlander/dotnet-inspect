@@ -94,9 +94,30 @@ public class ApiCommand
                 }
                 searchPath = options.AssemblyPath;
             }
+            else if (!string.IsNullOrEmpty(options.PlatformAssembly))
+            {
+                // Use platform assembly
+                // When --docs or --samples is requested, use runtime assemblies (they have PDBs for MSDL)
+                bool useRuntimeAssemblies = options.ShowDocs || options.ShowSamples;
+                
+                var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(
+                    options.PlatformAssembly, 
+                    options.PlatformFramework,
+                    packsDirectory: null,
+                    useRuntimeAssemblies: useRuntimeAssemblies);
+                
+                if (error != null)
+                {
+                    Console.Error.WriteLine($"Error: {error}");
+                    return 1;
+                }
+                
+                searchPath = assemblyPath!;
+                logger.Log($"Using platform {(useRuntimeAssemblies ? "runtime" : "ref")} assembly: {framework} {version}");
+            }
             else
             {
-                Console.Error.WriteLine("Error: Must specify --package or --assembly.");
+                Console.Error.WriteLine("Error: Must specify --package, --assembly, or --platform.");
                 Console.Error.WriteLine("Run 'dotnet-inspect api --help' for usage.");
                 return 1;
             }
@@ -387,7 +408,8 @@ public class ApiCommand
 
         var symbolDownloader = new SymbolPackageDownloader();
         var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-            peReader, dllPath, packageName, packageVersion, logger.Log);
+            peReader, dllPath, packageName, packageVersion, logger.Log,
+            isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
 
         if (pdbResult.Reader == null || pdbResult.Provider == null)
         {
@@ -607,7 +629,8 @@ public class ApiCommand
             // Try to get PDB reader (embedded, standalone, or from symbol package)
             var symbolDownloader = new SymbolPackageDownloader();
             var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-                peReader, dllPath, packageName, packageVersion, logger.Log);
+                peReader, dllPath, packageName, packageVersion, logger.Log,
+                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
 
             if (pdbResult.Reader == null || pdbResult.Provider == null)
             {
@@ -912,7 +935,8 @@ public class ApiCommand
             // Try to get PDB reader
             var symbolDownloader = new SymbolPackageDownloader();
             var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-                peReader, dllPath, packageName, packageVersion, logger.Log);
+                peReader, dllPath, packageName, packageVersion, logger.Log,
+                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
 
             if (pdbResult.Reader == null || pdbResult.Provider == null)
                 return null;
@@ -2450,6 +2474,8 @@ public record ApiOptions
 {
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
+    public string? PlatformAssembly { get; init; }
+    public string? PlatformFramework { get; init; }
     public string? Tfm { get; init; }
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }

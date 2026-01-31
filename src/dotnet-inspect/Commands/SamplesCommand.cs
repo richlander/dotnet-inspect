@@ -42,6 +42,8 @@ public class SamplesCommand
         {
             PackagePath = options.PackagePath,
             AssemblyPath = options.AssemblyPath,
+            PlatformAssembly = options.PlatformAssembly,
+            PlatformFramework = options.PlatformFramework,
             Tfm = options.Tfm,
             ShowDocs = true,
             ShowSamples = true,
@@ -81,6 +83,8 @@ public class SamplesCommand
         {
             PackagePath = options.PackagePath,
             AssemblyPath = options.AssemblyPath,
+            PlatformAssembly = options.PlatformAssembly,
+            PlatformFramework = options.PlatformFramework,
             Tfm = options.Tfm,
             ShowDocs = true,
             ShowSamples = true,
@@ -402,6 +406,8 @@ public record SamplesOptions
 {
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
+    public string? PlatformAssembly { get; init; }
+    public string? PlatformFramework { get; init; }
     public string? Tfm { get; init; }
     public bool BrowsableUrls { get; init; }
     public bool Verbose { get; init; }

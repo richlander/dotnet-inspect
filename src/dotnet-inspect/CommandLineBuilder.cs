@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "samples", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "samples", "platform", "llmstxt", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -46,31 +46,37 @@ public static class CommandLineBuilder
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections (comma-separated, e.g., -x:4)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
 
-        // Package command
-        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption);
-        rootCommand.Subcommands.Add(packageCommand);
+        // Commands in alphabetical order (llmstxt last as meta command)
+        
+        // API command
+        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption);
+        rootCommand.Subcommands.Add(apiCommand);
 
         // Assembly command
         var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption);
         rootCommand.Subcommands.Add(assemblyCommand);
 
-        // API command
-        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption);
-        rootCommand.Subcommands.Add(apiCommand);
-
-        // Type command
-        var typeCommand = CreateTypeCommand(jsonOption, verboseOption);
-        rootCommand.Subcommands.Add(typeCommand);
-
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption);
         rootCommand.Subcommands.Add(diffCommand);
+
+        // Package command
+        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption);
+        rootCommand.Subcommands.Add(packageCommand);
+
+        // Platform command
+        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, limitOption);
+        rootCommand.Subcommands.Add(platformCommand);
 
         // Samples command
         var samplesCommand = CreateSamplesCommand(verboseOption);
         rootCommand.Subcommands.Add(samplesCommand);
 
-        // LLMs.txt command
+        // Type command
+        var typeCommand = CreateTypeCommand(jsonOption, verboseOption);
+        rootCommand.Subcommands.Add(typeCommand);
+
+        // LLMs.txt command (meta command, listed last)
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
@@ -177,6 +183,8 @@ public static class CommandLineBuilder
 
         var packageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
         var assemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
+        var platformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
+        var frameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs" };
         var listOption = new Option<bool>("--list") { Description = "List samples only (don't fetch content)" };
@@ -185,6 +193,8 @@ public static class CommandLineBuilder
         samplesCommand.Arguments.Add(typeNameArg);
         samplesCommand.Options.Add(packageOption);
         samplesCommand.Options.Add(assemblyOption);
+        samplesCommand.Options.Add(platformOption);
+        samplesCommand.Options.Add(frameworkOption);
         samplesCommand.Options.Add(tfmOption);
         samplesCommand.Options.Add(browsableUrlsOption);
         samplesCommand.Options.Add(listOption);
@@ -199,6 +209,8 @@ public static class CommandLineBuilder
             {
                 PackagePath = parseResult.GetValue(packageOption),
                 AssemblyPath = parseResult.GetValue(assemblyOption),
+                PlatformAssembly = parseResult.GetValue(platformOption),
+                PlatformFramework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
                 Verbose = parseResult.GetValue(verboseOption),
@@ -210,6 +222,57 @@ public static class CommandLineBuilder
         });
 
         return samplesCommand;
+    }
+
+    private static Command CreatePlatformCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<int?> limitOption)
+    {
+        var platformCommand = new Command("platform", "List installed frameworks and assemblies");
+
+        var frameworkOption = new Option<string?>("--framework")
+        {
+            Description = "List assemblies for framework (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
+        };
+        var listVersionsOption = new Option<bool>("--list-versions")
+        {
+            Description = "List all installed versions for each framework"
+        };
+        var includeTypesOption = new Option<bool>("--types")
+        {
+            Description = "Include public type count for each assembly (use with --framework)"
+        };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description = "Minified JSON (use with --json)"
+        };
+
+        platformCommand.Options.Add(frameworkOption);
+        platformCommand.Options.Add(listVersionsOption);
+        platformCommand.Options.Add(includeTypesOption);
+        platformCommand.Options.Add(limitOption);
+        platformCommand.Options.Add(jsonOption);
+        platformCommand.Options.Add(compactOption);
+        platformCommand.Options.Add(verboseOption);
+
+        platformCommand.SetAction(async (parseResult, ct) =>
+        {
+            var options = new PlatformOptions
+            {
+                Framework = parseResult.GetValue(frameworkOption),
+                ListVersions = parseResult.GetValue(listVersionsOption),
+                IncludeTypes = parseResult.GetValue(includeTypesOption),
+                Limit = parseResult.GetValue(limitOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await PlatformCommand.ExecuteAsync(options);
+        });
+
+        return platformCommand;
     }
 
     private static Command CreatePackageCommand(
@@ -348,6 +411,8 @@ public static class CommandLineBuilder
 
         var apiPackageOption = new Option<string?>("--package") { Description = "Extract from package (file, name, or name@version)" };
         var apiAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path (local file, or relative path within package)" };
+        var apiPlatformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
+        var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
         var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
         var interfacesOption = new Option<bool>("--interfaces") { Description = "Show implemented interfaces" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
@@ -371,6 +436,8 @@ public static class CommandLineBuilder
         apiCommand.Arguments.Add(typeNameArg);
         apiCommand.Options.Add(apiPackageOption);
         apiCommand.Options.Add(apiAssemblyOption);
+        apiCommand.Options.Add(apiPlatformOption);
+        apiCommand.Options.Add(apiFrameworkOption);
         apiCommand.Options.Add(apiTfmOption);
         apiCommand.Options.Add(interfacesOption);
         apiCommand.Options.Add(allOption);
@@ -412,6 +479,8 @@ public static class CommandLineBuilder
             {
                 PackagePath = parseResult.GetValue(apiPackageOption),
                 AssemblyPath = parseResult.GetValue(apiAssemblyOption),
+                PlatformAssembly = parseResult.GetValue(apiPlatformOption),
+                PlatformFramework = parseResult.GetValue(apiFrameworkOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
                 ShowInterfaces = parseResult.GetValue(interfacesOption),
                 IncludeAll = parseResult.GetValue(allOption),
