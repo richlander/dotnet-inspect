@@ -65,6 +65,26 @@ dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0  # C
 dotnet-inspect diff Command --package System.CommandLine@2.0.1..2.0.2        # See what changed
 ```
 
+## Platform Assembly Inspection
+
+Inspect .NET SDK reference assemblies directly without downloading packages:
+
+```bash
+# List installed frameworks and their versions
+dotnet-inspect platform                                     # List installed frameworks
+dotnet-inspect platform --list-versions                     # Show all installed versions
+dotnet-inspect platform --framework runtime                 # List assemblies in runtime
+dotnet-inspect platform --framework runtime@9.0.12          # Specific runtime version
+dotnet-inspect platform --framework runtime --types         # Include public type counts
+
+# Inspect platform assemblies with api command
+dotnet-inspect api --platform System.Text.Json              # List types in platform assembly
+dotnet-inspect api JsonSerializer --platform System.Text.Json  # Specific type in platform assembly
+dotnet-inspect api JsonSerializer --platform System.Text.Json --docs  # With XML documentation
+dotnet-inspect api --platform System.Console --framework runtime@9.0.12  # Specific runtime version
+dotnet-inspect api Span --platform System.Memory --framework runtime  # Types from any platform assembly
+```
+
 ## Common Workflows
 
 ```bash
@@ -120,6 +140,7 @@ dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
 - `--browsable-urls` switches URLs from `/raw/` (302 redirect, LLM-friendly) to `/blob/` (browser-friendly)
 - `--fields-only` shows only type info (source URL, docs) without member tables
 - Source URLs use `/raw/` format by default, which returns raw file content via 302 redirect
+- Platform assemblies (--platform) use .NET SDK reference assemblies; use --framework to specify runtime/aspnetcore/netstandard
 - Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
 - Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
 
