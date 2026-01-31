@@ -53,12 +53,11 @@ public class PlatformCommand
 
         if (options.JsonOutput)
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(frameworks, new System.Text.Json.JsonSerializerOptions 
-            { 
-                WriteIndented = !options.CompactJson,
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower
-            });
-            Console.WriteLine(json);
+            var data = frameworks.Select(f => new PlatformFrameworkJson(f.ShortName, f.LatestVersion, f.AssemblyCount)).ToList();
+            var typeInfo = options.CompactJson 
+                ? PlatformCompactJsonContext.Default.ListPlatformFrameworkJson 
+                : PlatformJsonContext.Default.ListPlatformFrameworkJson;
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(data, typeInfo));
             return 0;
         }
 
@@ -108,13 +107,11 @@ public class PlatformCommand
 
         if (options.JsonOutput)
         {
-            var data = frameworks.Select(f => new { f.ShortName, Versions = f.AllVersions }).ToList();
-            var json = System.Text.Json.JsonSerializer.Serialize(data, new System.Text.Json.JsonSerializerOptions 
-            { 
-                WriteIndented = !options.CompactJson,
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower
-            });
-            Console.WriteLine(json);
+            var data = frameworks.Select(f => new PlatformVersionsJson(f.ShortName, f.AllVersions)).ToList();
+            var typeInfo = options.CompactJson 
+                ? PlatformCompactJsonContext.Default.ListPlatformVersionsJson 
+                : PlatformJsonContext.Default.ListPlatformVersionsJson;
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(data, typeInfo));
             return 0;
         }
 
@@ -257,7 +254,7 @@ public class PlatformCommand
 
     private static int ListAssembliesJson(List<FrameworkInfo> frameworks, string? requestedVersion, PlatformOptions options)
     {
-        var result = new List<object>();
+        var result = new List<PlatformAssembliesJson>();
 
         foreach (var framework in frameworks)
         {
@@ -275,27 +272,18 @@ public class PlatformCommand
                 displayAssemblies = displayAssemblies.Take(options.Limit.Value);
             }
 
-            var assemblyList = displayAssemblies.Select(a => new
-            {
-                name = a.Name,
-                types = options.IncludeTypes ? CountPublicTypes(a.Path) : (int?)null
-            }).ToList();
+            var assemblyList = displayAssemblies.Select(a => new PlatformAssemblyJson(
+                a.Name,
+                options.IncludeTypes ? CountPublicTypes(a.Path) : null
+            )).ToList();
 
-            result.Add(new
-            {
-                framework = framework.ShortName,
-                version,
-                assemblies = assemblyList
-            });
+            result.Add(new PlatformAssembliesJson(framework.ShortName, version, assemblyList));
         }
 
-        var json = System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions 
-        { 
-            WriteIndented = !options.CompactJson,
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        });
-        Console.WriteLine(json);
+        var typeInfo = options.CompactJson 
+            ? PlatformCompactJsonContext.Default.ListPlatformAssembliesJson 
+            : PlatformJsonContext.Default.ListPlatformAssembliesJson;
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result, typeInfo));
         return 0;
     }
 
