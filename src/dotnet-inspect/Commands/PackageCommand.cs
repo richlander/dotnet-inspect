@@ -14,6 +14,16 @@ public class PackageCommand
 {
     public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options)
     {
+        // Handle --discover mode: list sections and exit early
+        if (options.Discover)
+        {
+            for (int i = 0; i < Output.MarkoutViewFormatter.SectionNames.Length; i++)
+            {
+                Console.WriteLine($"{i + 1}. {Output.MarkoutViewFormatter.SectionNames[i]}");
+            }
+            return 0;
+        }
+
         if (packageArgs.Length < 1)
         {
             Console.Error.WriteLine("Error: Package name or path required.");
@@ -574,7 +584,8 @@ public class PackageCommand
     {
         var normalizedName = packageName.ToLowerInvariant();
 
-        // Fetch from registration API (published, deprecation, vulnerabilities)
+        // Fetch from registration API (published date, catalog entry URL)
+        string? catalogEntryUrl = null;
         try
         {
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
@@ -596,58 +607,61 @@ public class PackageCommand
                     }
                 }
 
-                // Deprecation
-                if (root.TryGetProperty("deprecation", out var deprecationElement) && 
-                    deprecationElement.ValueKind == JsonValueKind.Object)
+                // Get catalog entry URL for version-specific deprecation
+                if (root.TryGetProperty("catalogEntry", out var catalogElement))
                 {
-                    result.Deprecation = new PackageDeprecation();
-                    
-                    if (deprecationElement.TryGetProperty("reasons", out var reasons))
-                    {
-                        result.Deprecation.Reasons = reasons.EnumerateArray()
-                            .Select(r => r.GetString())
-                            .Where(r => r != null)
-                            .Cast<string>()
-                            .ToList();
-                    }
-                    if (deprecationElement.TryGetProperty("message", out var message))
-                    {
-                        result.Deprecation.Message = message.GetString();
-                    }
-                    if (deprecationElement.TryGetProperty("alternatePackage", out var altPkg) &&
-                        altPkg.TryGetProperty("id", out var altId))
-                    {
-                        result.Deprecation.AlternatePackageId = altId.GetString();
-                    }
-                    logger.Log($"Deprecation: {result.Deprecation.Summary}");
-                }
-
-                // Vulnerabilities
-                if (root.TryGetProperty("vulnerabilities", out var vulnsElement) && 
-                    vulnsElement.ValueKind == JsonValueKind.Array)
-                {
-                    result.Vulnerabilities = vulnsElement.EnumerateArray()
-                        .Select(v => new PackageVulnerability
-                        {
-                            Severity = v.TryGetProperty("severity", out var sev) ? sev.GetString() ?? "" : "",
-                            AdvisoryUrl = v.TryGetProperty("advisoryUrl", out var url) ? url.GetString() : null
-                        })
-                        .ToList();
-                    
-                    if (result.Vulnerabilities.Count > 0)
-                    {
-                        logger.Log($"Vulnerabilities: {result.VulnerabilitiesDisplay}");
-                    }
-                    else
-                    {
-                        result.Vulnerabilities = null;
-                    }
+                    catalogEntryUrl = catalogElement.GetString();
                 }
             }
         }
         catch (Exception ex)
         {
             logger.Log($"Error fetching registration metadata: {ex.Message}");
+        }
+
+        // Fetch catalog entry for version-specific deprecation
+        if (!string.IsNullOrEmpty(catalogEntryUrl))
+        {
+            try
+            {
+                logger.Log($"Fetching catalog entry: {catalogEntryUrl}");
+                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(client, catalogEntryUrl);
+                if (catalogJson != null)
+                {
+                    using var doc = JsonDocument.Parse(catalogJson);
+                    var root = doc.RootElement;
+
+                    // Version-specific deprecation
+                    if (root.TryGetProperty("deprecation", out var deprecationElement) && 
+                        deprecationElement.ValueKind == JsonValueKind.Object)
+                    {
+                        result.Deprecation = new PackageDeprecation();
+                        
+                        if (deprecationElement.TryGetProperty("reasons", out var reasons))
+                        {
+                            result.Deprecation.Reasons = reasons.EnumerateArray()
+                                .Select(r => r.GetString())
+                                .Where(r => r != null)
+                                .Cast<string>()
+                                .ToList();
+                        }
+                        if (deprecationElement.TryGetProperty("message", out var message))
+                        {
+                            result.Deprecation.Message = message.GetString();
+                        }
+                        if (deprecationElement.TryGetProperty("alternatePackage", out var altPkg) &&
+                            altPkg.TryGetProperty("id", out var altId))
+                        {
+                            result.Deprecation.AlternatePackageId = altId.GetString();
+                        }
+                        logger.Log($"Deprecation: {result.Deprecation.Summary}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"Error fetching catalog entry: {ex.Message}");
+            }
         }
 
         // Fetch from search API (downloads, verified, owners)
@@ -670,6 +684,26 @@ public class PackageCommand
                     {
                         result.TotalDownloads = downloads.GetInt64();
                         logger.Log($"Downloads: {result.DownloadsDisplay}");
+                    }
+
+                    // Version count and per-version downloads
+                    if (pkg.TryGetProperty("versions", out var versions))
+                    {
+                        result.VersionCount = versions.GetArrayLength();
+                        logger.Log($"Version count: {result.VersionCount}");
+
+                        // Find downloads for this specific version
+                        foreach (var v in versions.EnumerateArray())
+                        {
+                            if (v.TryGetProperty("version", out var versionProp) &&
+                                string.Equals(versionProp.GetString(), version, StringComparison.OrdinalIgnoreCase) &&
+                                v.TryGetProperty("downloads", out var versionDownloads))
+                            {
+                                result.VersionDownloads = versionDownloads.GetInt64();
+                                logger.Log($"Version downloads: {result.VersionDownloadsDisplay}");
+                                break;
+                            }
+                        }
                     }
 
                     // Verified
@@ -736,6 +770,24 @@ public class PackageCommand
         catch (Exception ex)
         {
             logger.Log($"Error fetching vulnerability data: {ex.Message}");
+        }
+
+        // Fetch package size via HEAD request
+        try
+        {
+            string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{version}/{normalizedName}.{version}.nupkg";
+            logger.Log($"Fetching package size: {nupkgUrl}");
+
+            var response = await HttpRetryHelper.HeadWithRetryAsync(client, nupkgUrl);
+            if (response?.Content.Headers.ContentLength is long contentLength)
+            {
+                result.PackageSize = contentLength;
+                logger.Log($"Package size: {result.PackageSizeDisplay}");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Error fetching package size: {ex.Message}");
         }
     }
 

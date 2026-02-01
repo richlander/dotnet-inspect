@@ -289,7 +289,7 @@ public static class CommandLineBuilder
         var packageNameArg = new Argument<string[]>("package")
         {
             Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
-            Arity = ArgumentArity.OneOrMore
+            Arity = ArgumentArity.ZeroOrMore
         };
 
         var depsOption = new Option<bool>("--deps") { Description = "Include dependency analysis" };
@@ -301,6 +301,7 @@ public static class CommandLineBuilder
         prereleaseOption.Aliases.Add("--prerelease");
         var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
+        var discoverOption = new Option<bool>("--discover") { Description = "List available sections and exit" };
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(depsOption);
@@ -311,6 +312,7 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(readmeOption);
         packageCommand.Options.Add(outOption);
+        packageCommand.Options.Add(discoverOption);
         packageCommand.Options.Add(limitOption);
         packageCommand.Options.Add(jsonOption);
         packageCommand.Options.Add(markoutOption);
@@ -332,6 +334,7 @@ public static class CommandLineBuilder
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 ShowReadme = parseResult.GetValue(readmeOption),
                 OutputPath = parseResult.GetValue(outOption),
+                Discover = parseResult.GetValue(discoverOption),
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),

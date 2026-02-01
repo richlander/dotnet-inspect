@@ -56,6 +56,11 @@ public record InspectionOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Discover available sections and exit.
+    /// </summary>
+    public bool Discover { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

@@ -47,6 +47,47 @@ public class InspectionResult
     [JsonIgnore]
     public string? DownloadsDisplay => TotalDownloads.HasValue ? FormatDownloads(TotalDownloads.Value) : null;
 
+    /// <summary>
+    /// Downloads for this specific version.
+    /// </summary>
+    [MarkoutIgnore]
+    public long? VersionDownloads { get; set; }
+
+    /// <summary>
+    /// Formatted version download count for display.
+    /// </summary>
+    [JsonIgnore]
+    public string? VersionDownloadsDisplay => VersionDownloads.HasValue ? FormatDownloads(VersionDownloads.Value) : null;
+
+    /// <summary>
+    /// Total number of versions published for this package.
+    /// </summary>
+    [MarkoutIgnore]
+    public int? VersionCount { get; set; }
+
+    /// <summary>
+    /// Size of the .nupkg file in bytes.
+    /// </summary>
+    [MarkoutIgnore]
+    public long? PackageSize { get; set; }
+
+    /// <summary>
+    /// Formatted package size for display (e.g., "2.3 MB", "150 KB").
+    /// </summary>
+    [JsonIgnore]
+    public string? PackageSizeDisplay => PackageSize.HasValue ? FormatBytes(PackageSize.Value) : null;
+
+    private static string FormatBytes(long bytes)
+    {
+        return bytes switch
+        {
+            >= 1_073_741_824 => $"{bytes / 1_073_741_824.0:0.#} GB",
+            >= 1_048_576 => $"{bytes / 1_048_576.0:0.#} MB",
+            >= 1_024 => $"{bytes / 1_024.0:0.#} KB",
+            _ => $"{bytes} B"
+        };
+    }
+
     private static string FormatDownloads(long downloads)
     {
         return downloads switch

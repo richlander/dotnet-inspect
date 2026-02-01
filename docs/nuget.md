@@ -117,14 +117,57 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 
 ### 5. Catalog API
 
-**Purpose:** Append-only log of all package events
+**Purpose:** Append-only log of all package events, and **version-specific metadata**
 
 **Index:** `https://api.nuget.org/v3/catalog0/index.json`
 
+**Catalog Entry:** Accessed via `catalogEntry` URL from Registration API response
+
+**Example:** `https://api.nuget.org/v3/catalog0/data/2024.07.10.16.09.35/system.text.json.5.0.0.json`
+
+**Fields returned (in catalog entry):**
+| Field | Description |
+|-------|-------------|
+| `deprecation` | Version-specific deprecation (reasons, message, alternatePackage) |
+| `authors` | Package authors |
+| `description` | Package description |
+| `licenseExpression` | SPDX license expression |
+| `projectUrl` | Project URL |
+| `dependencyGroups` | Dependencies by target framework |
+| `published` | Publication date |
+| `listed` | Whether version is listed |
+
 **Notes:**
 - Contains full history of package publishes, unlists, deprecations
-- Each catalog entry has complete metadata including deprecation
-- Not typically used for single-package lookups (designed for mirroring)
+- **Critical:** This is the only source for version-specific deprecation
+- The catalog index is designed for mirroring, but individual entries can be fetched directly
+- Access pattern: Registration API → `catalogEntry` URL → fetch catalog entry
+
+## Deprecation: Package vs Version
+
+NuGet supports two levels of deprecation:
+
+| Level | Source | Example |
+|-------|--------|---------|
+| **Package-level** | Search API | Entire package deprecated (e.g., EntityFramework.MappingAPI) |
+| **Version-specific** | Catalog Entry | Old versions deprecated but package still active (e.g., System.Text.Json 5.0.0) |
+
+**Version-specific deprecation example (System.Text.Json 5.0.0):**
+```json
+{
+  "deprecation": {
+    "message": "This package has been deprecated as part of the .NET Package Deprecation effort...",
+    "reasons": ["Other", "Legacy"]
+  }
+}
+```
+
+**Access pattern for version-specific deprecation:**
+1. Fetch Registration API: `https://api.nuget.org/v3/registration5-semver1/{package}/{version}.json`
+2. Extract `catalogEntry` URL from response
+3. Fetch catalog entry to get `deprecation` field
+
+The Search API only returns deprecation for the latest version, so it won't show deprecation for older versions of actively maintained packages.
 
 ## Data Source Summary
 
@@ -134,7 +177,8 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 | Downloads | Search API | Aggregate across all versions |
 | Verified status | Search API | Owner verification |
 | Owners | Search API | Current owners |
-| Deprecation | Search API | More reliable than registration |
+| Deprecation (package) | Search API | When entire package is deprecated |
+| Deprecation (version) | Catalog Entry | When specific version is deprecated |
 | Vulnerabilities | Vulnerability API | Must check version ranges |
 | CVE ID | GitHub Advisory API | Fetch using GHSA ID from advisory URL |
 | Available versions | Flat Container | Simple JSON array |

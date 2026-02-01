@@ -9,6 +9,21 @@ namespace DotnetInspector.Output;
 /// </summary>
 public class MarkoutViewFormatter
 {
+    /// <summary>
+    /// Section names in order for package command.
+    /// Always-present first, then detailed-only, then conditional.
+    /// </summary>
+    public static readonly string[] SectionNames =
+    [
+        "Metadata",
+        "Statistics",
+        "Package Dependencies",
+        "Files",
+        "Vulnerabilities",
+        "RID Packages",
+        "Runtime Dependencies"
+    ];
+
     private readonly InspectionResult _result;
     private readonly Verbosity _verbosity;
     private readonly HashSet<int>? _includeSections;
@@ -48,31 +63,27 @@ public class MarkoutViewFormatter
                 WriteCompactLine(writer);
                 break;
             case Verbosity.Normal:
-                // H1 + description + compact line + Metadata table + tier 1 sections
-                if (!string.IsNullOrWhiteSpace(_result.Description))
-                    writer.WriteParagraph(_result.Description);
-                WriteCompactLine(writer);
-                WriteVulnerabilities(writer);
-                WriteMetadataSection(writer);
-                WriteRidPackages(writer);
-                WriteRuntimeDeps(writer);
-                WriteAuditSummary(writer);
-                WriteApiSurface(writer);
-                break;
             case Verbosity.Detailed:
-                // Everything including tier 2 sections
+                // All sections in fixed order
                 if (!string.IsNullOrWhiteSpace(_result.Description))
                     writer.WriteParagraph(_result.Description);
                 WriteCompactLine(writer);
-                WriteVulnerabilities(writer);
+                
+                // Section 1: Metadata (always)
                 WriteMetadataSection(writer);
+                
+                // Sections 2-4: Detailed only
+                if (_verbosity == Verbosity.Detailed)
+                {
+                    WriteStatistics(writer);
+                    WritePackageDeps(writer);
+                    WriteFiles(writer);
+                }
+                
+                // Sections 5-7: Conditional (only when data exists)
+                WriteVulnerabilities(writer);
                 WriteRidPackages(writer);
-                WritePackageDeps(writer);
                 WriteRuntimeDeps(writer);
-                WriteFiles(writer);  // Tier 2
-                WriteAuditSummary(writer);
-                WriteAssemblyAudit(writer);
-                WriteApiSurface(writer);
                 break;
         }
 
@@ -92,7 +103,7 @@ public class MarkoutViewFormatter
         if (!string.IsNullOrEmpty(_result.PublishedDisplay))
             items.Add($"Updated: {_result.PublishedDisplay}");
         if (_result.Deprecation != null)
-            items.Add($"Deprecated: {_result.Deprecation.Summary}");
+            items.Add("Deprecated: Yes");
         if (_result.Vulnerabilities is { Count: > 0 })
             items.Add($"Vulnerabilities: {_result.Vulnerabilities.Count}");
 
@@ -114,7 +125,11 @@ public class MarkoutViewFormatter
         if (!string.IsNullOrEmpty(_result.PublishedDisplay))
             rows.Add(("Updated", _result.PublishedDisplay));
         if (_result.Deprecation != null)
-            rows.Add(("Deprecated", _result.Deprecation.Summary));
+        {
+            rows.Add(("Deprecated", "Yes"));
+            if (!string.IsNullOrEmpty(_result.Deprecation.Summary))
+                rows.Add(("Deprecated Note", _result.Deprecation.Summary));
+        }
         if (_result.Vulnerabilities is { Count: > 0 })
             rows.Add(("Vulnerabilities", _result.Vulnerabilities.Count.ToString()));
 
@@ -128,8 +143,6 @@ public class MarkoutViewFormatter
             rows.Add(("Repository", _result.Repository));
         
         // NuGet metadata
-        if (!string.IsNullOrEmpty(_result.DownloadsDisplay))
-            rows.Add(("Downloads", _result.DownloadsDisplay));
         if (_result.IsVerified == true)
             rows.Add(("Verified", "yes"));
         
@@ -161,6 +174,34 @@ public class MarkoutViewFormatter
             return;
 
         writer.WriteHeading(2, "Metadata");
+        writer.WriteTableStart("Property", "Value");
+
+        foreach (var (property, value) in rows)
+            writer.WriteTableRow(property, value);
+
+        writer.WriteTableEnd();
+    }
+
+    /// <summary>
+    /// Writes the Statistics section with download and size data.
+    /// </summary>
+    private void WriteStatistics(MarkoutWriter writer)
+    {
+        var rows = new List<(string Property, string Value)>();
+
+        if (!string.IsNullOrEmpty(_result.DownloadsDisplay))
+            rows.Add(("Total Downloads", _result.DownloadsDisplay));
+        if (!string.IsNullOrEmpty(_result.VersionDownloadsDisplay))
+            rows.Add(("Version Downloads", _result.VersionDownloadsDisplay));
+        if (_result.VersionCount.HasValue)
+            rows.Add(("Version Count", _result.VersionCount.Value.ToString()));
+        if (!string.IsNullOrEmpty(_result.PackageSizeDisplay))
+            rows.Add(("Package Size", _result.PackageSizeDisplay));
+
+        if (rows.Count == 0)
+            return;
+
+        writer.WriteHeading(2, "Statistics");
         writer.WriteTableStart("Property", "Value");
 
         foreach (var (property, value) in rows)
@@ -281,15 +322,12 @@ public class MarkoutViewFormatter
 
     private void WriteApiSurface(MarkoutWriter writer)
     {
-        if (_result.AssemblyAudits is not { Count: > 0 })
-            return;
-
-        var apis = _result.AssemblyAudits
+        var apis = _result.AssemblyAudits?
             .Where(a => a.ApiSurface != null)
             .Select(a => (a.FileName, a.ApiSurface!))
             .ToList();
 
-        if (apis.Count == 0)
+        if (apis is not { Count: > 0 })
             return;
 
         writer.WriteHeading(2, "API Surface");
