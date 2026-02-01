@@ -1,189 +1,117 @@
 # dotnet-inspect
 
-A CLI tool for inspecting .NET assemblies and NuGet packages. Useful for understanding package contents, comparing API surfaces between versions, and auditing assemblies for SourceLink/determinism.
+CLI tool for inspecting .NET assemblies and NuGet packages.
+
+## Test Packages
+
+Use `System.Text.Json` to explore different scenarios:
+
+| Version | Scenario |
+|---------|----------|
+| 10.0.2 | Latest, multi-targeting (net462, net8.0, net9.0, net10.0, netstandard2.0) |
+| 8.0.4 | Vulnerable (CVE-2024-43485) |
+| 5.0.0 | Deprecated |
+
+Other useful packages:
+- `dotnet-ef` - Tool package
+- `SkiaSharp` - Native dependencies
 
 ## Commands
 
-### package - Inspect NuGet packages
+### package
 
 ```bash
-dotnet-inspect package System.Text.Json                      # Package metadata
-dotnet-inspect package System.CommandLine --files            # List DLLs
-dotnet-inspect package System.Text.Json --files --all        # List all files
-dotnet-inspect package System.CommandLine --versions         # Available versions
-dotnet-inspect package System.CommandLine --versions --preview -n 5  # With prereleases, limited
-dotnet-inspect package System.Text.Json --deps               # Show dependencies
-dotnet-inspect package dotnet-inspect --files --all          # Inspect tool packages
+dotnet-inspect System.Text.Json                    # Latest version metadata
+dotnet-inspect System.Text.Json 8.0.4 -v:d         # Detailed (shows vulnerability)
+dotnet-inspect System.Text.Json 5.0.0              # Shows deprecation
+dotnet-inspect System.Text.Json --versions -n 5    # List versions (limit 5)
+dotnet-inspect dotnet-ef --files --all             # Tool package structure
+dotnet-inspect package --discover                  # List section names
 ```
 
-### assembly - Inspect .NET assemblies
+### api
 
 ```bash
-dotnet-inspect assembly MyLib.dll                            # Basic info
-dotnet-inspect assembly MyLib.dll --audit                    # SourceLink/determinism audit
-dotnet-inspect assembly --package System.Text.Json --tfm net8.0  # From package by TFM
-dotnet-inspect assembly --package System.CommandLine@2.0.2   # From specific version
-dotnet-inspect assembly --package dotnet-inspect             # dotnet-inspect inspecting itself
+dotnet-inspect api --package System.Text.Json                     # List all types
+dotnet-inspect api --package System.Text.Json --filter "*Json*"   # Filter by glob
+dotnet-inspect api JsonSerializer --package System.Text.Json      # Single type
+dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0  # Specific version
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize  # Single member
+dotnet-inspect api JsonSerializer --package System.Text.Json --signatures-only  # Plain output
+dotnet-inspect api 'Option<T>' --package System.CommandLine       # Generic types
+dotnet-inspect api Command --package System.CommandLine --ctor    # Constructors
+dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # With documentation
+dotnet-inspect api --platform System.Text.Json                    # Platform assembly
 ```
 
-### api - View public API surface
+### assembly
 
 ```bash
-dotnet-inspect api --package System.CommandLine              # List all types (auto-selects highest TFM)
-dotnet-inspect api --package System.Text.Json --tfm net8.0   # Specific TFM
-dotnet-inspect api --package Spectre.Console --filter "Progress*"  # Filter types by glob pattern
-dotnet-inspect api --package System.Text.Json --filter "*Serializer*"  # Find serializer-related types
-dotnet-inspect api JsonSerializer --package System.Text.Json # Specific type
-dotnet-inspect api Command --package System.CommandLine@2.0.2  # Specific version
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize  # Filter to member
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize -m Deserialize  # Multiple members
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize --signatures-only  # Plain signatures
-dotnet-inspect api JsonDocument --package System.Text.Json --interfaces  # Show interfaces
-dotnet-inspect api Command --package System.CommandLine -m SetAction -v:q  # Quiet mode
-dotnet-inspect api Command --package System.CommandLine --ctor  # Show constructors with enhanced details
-dotnet-inspect api JsonSerializer --package System.Text.Json --json --compact  # JSON output
-dotnet-inspect api JsonSerializer --package System.Text.Json --all  # Include hidden/obsolete members
-dotnet-inspect api Unsafe --package System.Runtime.CompilerServices.Unsafe --unsafe  # Filter to unsafe methods
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # Fetch documentation from source
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs --browsable-urls  # Docs with /blob/ URLs for browsers
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --fields-only  # Source URL only, no members
-dotnet-inspect api CommandLineBuilder --package dotnet-inspect  # dotnet-inspect inspecting itself
+dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit
 ```
 
-### type - View type shape with hierarchy (tree view)
+### diff
 
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json  # Type shape with inheritance, interfaces, members
-dotnet-inspect type Command --package System.CommandLine       # Shows base class and implemented interfaces
-dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
 ```
 
-### diff - Compare API surfaces between versions
+### type
 
 ```bash
-dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0  # Compare type between versions
-dotnet-inspect diff Command --package System.CommandLine@2.0.1..2.0.2        # See what changed
+dotnet-inspect type JsonSerializer --package System.Text.Json     # Tree view
 ```
 
-## Platform Assembly Inspection
-
-Inspect .NET SDK reference assemblies directly without downloading packages:
+### platform
 
 ```bash
-# List installed frameworks and their versions
-dotnet-inspect platform                                     # List installed frameworks
-dotnet-inspect platform --list-versions                     # Show all installed versions
-dotnet-inspect platform --framework runtime                 # List assemblies in runtime
-dotnet-inspect platform --framework runtime@9.0.12          # Specific runtime version
-dotnet-inspect platform --framework runtime --types         # Include public type counts
-
-# Inspect platform assemblies with api command
-dotnet-inspect api --platform System.Text.Json              # List types in platform assembly
-dotnet-inspect api JsonSerializer --platform System.Text.Json  # Specific type in platform assembly
-dotnet-inspect api JsonSerializer --platform System.Text.Json --docs  # With XML documentation
-dotnet-inspect api --platform System.Console --framework runtime@9.0.12  # Specific runtime version
-dotnet-inspect api Span --platform System.Memory --framework runtime  # Types from any platform assembly
+dotnet-inspect platform --list-versions            # Installed SDKs
+dotnet-inspect platform --framework runtime        # Runtime assemblies
 ```
 
-## Common Workflows
+## Output Control
+
+### Verbosity
+
+| Flag | Output |
+|------|--------|
+| `-v:q` | Title + compact line |
+| `-v:m` | + description (default) |
+| `-v:n` | + Metadata table |
+| `-v:d` | + Statistics, Dependencies, Files |
+
+### Section Filtering
 
 ```bash
-# Compare API between versions (built-in diff)
-dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
-
-# Or use shell diff for line-by-line comparison
-diff <(dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0) \
-     <(dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0)
+dotnet-inspect package --discover                  # List sections with numbers
+dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude sections 3 and 4
+dotnet-inspect System.Text.Json -v:d -s:1,2        # Include only sections 1 and 2
 ```
 
-## Output Formats
+### Output Formats
 
-- Default: Markdown tables with full method signatures including parameter names
-- `--signatures-only`: Plain signatures only (no table formatting, minimal tokens)
-- `--json`: JSON output
-- `--json --compact`: Minified JSON, omits false/default values
+- Default: Markdown tables
+- `--signatures-only`: Plain method signatures
+- `--json`: JSON
+- `--json --compact`: Minified JSON
 
-## Output Control (Height × Width)
+## Key Options
 
-Output follows a 2D progressive disclosure model:
-- **Width** (verbosity): `-v:q` → `-v:d` controls information density
-- **Height** (sections): `-s:1,2` (include) or `-x:3` (exclude) controls which sections appear
-
-### Verbosity Levels
-
-| Level | Flag | Package Command Output |
-|-------|------|------------------------|
-| Quiet | `-v:q` or `-v quiet` | H1 title + compact line |
-| Minimal | `-v:m` or `-v minimal` | H1 + description + compact line (default) |
-| Normal | `-v:n` or `-v normal` | + Vulnerabilities section + Metadata table + tier 1 sections |
-| Detailed | `-v:d` or `-v detailed` | + tier 2 sections (Files, Package Dependencies) |
-
-### Compact Line Format
-
-The compact line provides essential triage fields in a pipe-delimited format:
-
-```
-Type: Library | TFM: net8.0 | Updated: 2024-07-09 | Vulnerabilities: 1
-```
-
-Fields shown (when present):
-- **Type**: Package type (Library, DotnetTool, etc.)
-- **TFM**: Newest/highest target framework in the package
-- **Updated**: Publication date from NuGet
-- **Deprecated**: Deprecation reason (e.g., "Legacy - use NewPackage")
-- **Vulnerabilities**: Count of known security vulnerabilities
-
-All compact line fields are also included in the Metadata table at normal+ verbosity.
-
-## Section Filtering
-
-Filter by H2 section number (1-indexed). Use `-s:1,2` to include or `-x:3` to exclude.
-
-```bash
-dotnet-inspect package System.Text.Json -s:1       # Metadata only (exclude dependencies)
-dotnet-inspect package System.Text.Json -v:d -s:1  # Detailed metadata only
-```
+| Option | Description |
+|--------|-------------|
+| `--tfm net8.0` | Select target framework |
+| `-m Name` | Filter to member |
+| `--filter "Pattern*"` | Glob filter for types |
+| `--ctor` | Constructor details |
+| `--docs` | Fetch XML documentation |
+| `--all` | Include hidden/obsolete |
+| `--unsafe` | Filter to pointer methods |
+| `--audit` | SourceLink/determinism check |
+| `--deps` | Show runtime dependencies |
 
 ## Tips
 
-- Signatures include parameter names: `void Serialize(Stream utf8Json, TValue value, JsonSerializerOptions options)`
-- Version suffix: `System.Text.Json@9.0.12`
-- Assembly paths use forward slashes: `lib/net8.0/Foo.dll`
-- `--tfm net8.0` selects by target framework; without it, highest TFM is auto-selected
-- `-m`/`--member` filter is case-insensitive and shows all matching overloads
-- `--filter` uses glob patterns: `*` matches any characters, `?` matches single character
-- `--all` includes EditorBrowsable(Never) and Obsolete members (excluded by default)
-- `--unsafe` filters to methods with pointer signatures (methods requiring unsafe context to call)
-- `--ctor` shows constructors with enhanced output (parameter details, required vs optional)
-- `--docs` fetches XML documentation comments from source via SourceLink
-- `--browsable-urls` switches URLs from `/raw/` (302 redirect, LLM-friendly) to `/blob/` (browser-friendly)
-- `--fields-only` shows only type info (source URL, docs) without member tables
-- Source URLs use `/raw/` format by default, which returns raw file content via 302 redirect
-- Platform assemblies (--platform) use .NET SDK reference assemblies; use --framework to specify runtime/aspnetcore/netstandard
-- Tool packages have executables in `tools/net10.0/any/`; use `--files --all` to explore
-- Reads from NuGet cache and caches downloads; use `--verbose` to see cache activity
-
-## Generic Types
-
-Generic types use CLR backtick notation internally. Both syntaxes are supported:
-
-```bash
-# C#-style syntax (automatically converted):
-dotnet-inspect api 'Argument<T>' --package System.CommandLine
-dotnet-inspect api 'Dictionary<TKey,TValue>' --package System.Collections
-
-# CLR backtick notation (also works):
-dotnet-inspect api 'Argument`1' --package System.CommandLine
-dotnet-inspect api 'Dictionary`2' --package System.Collections
-```
-
-The backtick number indicates the arity (number of type parameters). Quotes are needed to escape special characters in most shells.
-
-## Notes on Filtering
-
-By default, the API output excludes:
-- Members marked with `[EditorBrowsable(EditorBrowsableState.Never)]`
-- Members marked with `[Obsolete]`
-
-Use `--all` to include these members. Note that some libraries expose implementation-detail
-methods as public without these attributes; these will still appear in the output.
+- Version syntax: `Package@1.0.0` or `Package 1.0.0`
+- Generic types: `'Option<T>'` or `'Option\`1'`
+- Member filter is case-insensitive
+- Uses NuGet cache; `--verbose` shows cache activity
