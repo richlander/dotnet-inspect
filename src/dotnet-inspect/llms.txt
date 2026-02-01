@@ -14,7 +14,7 @@ Use `System.Text.Json` to explore different scenarios:
 
 Other useful packages:
 - `dotnet-ef` - Tool package
-- `SkiaSharp` - Native dependencies
+- `Microsoft.Data.SqlClient` - Native runtimes
 
 ## Commands
 

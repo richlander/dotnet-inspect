@@ -20,7 +20,7 @@ Use `System.Text.Json` versions to explore different scenarios:
 
 Other useful test packages:
 - `dotnet-ef` - Tool package with commands
-- `SkiaSharp` - Native dependencies per platform
+- `Microsoft.Data.SqlClient` - Native runtimes (win, unix)
 
 ## Commands
 
