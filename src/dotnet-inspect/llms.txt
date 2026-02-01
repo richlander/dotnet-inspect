@@ -15,6 +15,7 @@ Use `System.Text.Json` to explore different scenarios:
 Other useful packages:
 - `dotnet-ef` - Tool package
 - `Azure.Mcp` - RID-specific tool (shows RID Packages section)
+- `Microsoft.Data.SqlClient` - Library with native runtimes
 
 ## Commands
 

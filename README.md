@@ -21,6 +21,7 @@ Use `System.Text.Json` versions to explore different scenarios:
 Other useful test packages:
 - `dotnet-ef` - Tool package with commands
 - `Azure.Mcp` - RID-specific tool (shows RID Packages section)
+- `Microsoft.Data.SqlClient` - Library with native runtimes
 
 ## Commands
 
