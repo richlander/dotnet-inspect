@@ -2,32 +2,32 @@
 
 CLI tool for inspecting .NET assemblies and NuGet packages.
 
+```bash
+dotnet-inspect <package>[@version]           # Package metadata
+dotnet-inspect api <type> --package <pkg>    # API from package
+dotnet-inspect api --platform <assembly>     # API from installed SDK
+dotnet-inspect assembly path/to/file.dll     # Local assembly
+dotnet-inspect diff <type> --package         # Version comparison
+```
+
 ## Test Packages
 
-Use `System.Text.Json` to explore different scenarios:
-
-| Version | Scenario |
-|---------|----------|
-| 10.0.2 | Latest, multi-targeting (net462, net8.0, net9.0, net10.0, netstandard2.0) |
-| 8.0.4 | Vulnerable (CVE-2024-43485) |
-| 5.0.0 | Deprecated |
-
-Other useful packages:
-- `dotnet-ef` - Tool package
-- `Azure.Mcp` - RID-specific tool (shows RID Packages section)
-- `Microsoft.Data.SqlClient` - Library with native runtimes
+| Package | Version | Scenario |
+|---------|---------|----------|
+| System.Text.Json | 10.0.2 | Latest, multi-TFM |
+| System.Text.Json | 8.0.4 | Vulnerable (CVE-2024-43485) |
+| System.Text.Json | 5.0.0 | Deprecated |
+| dotnet-ef | | Tool package |
+| Azure.Mcp | | RID-specific tool |
 
 ## Commands
 
 ### package
 
 ```bash
-dotnet-inspect System.Text.Json                    # Latest version metadata
-dotnet-inspect System.Text.Json 8.0.4 -v:d         # Detailed (shows vulnerability)
-dotnet-inspect System.Text.Json 5.0.0              # Shows deprecation
-dotnet-inspect System.Text.Json --versions -n 5    # List versions (limit 5)
-dotnet-inspect dotnet-ef --files --all             # Tool package structure
-dotnet-inspect package --discover                  # List section names
+dotnet-inspect System.Text.Json                    # Latest version
+dotnet-inspect System.Text.Json@8.0.4 -v:d         # Specific version, detailed
+dotnet-inspect System.Text.Json --versions -n 5    # List versions
 ```
 
 ### api
@@ -63,6 +63,13 @@ dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
 dotnet-inspect type JsonSerializer --package System.Text.Json     # Tree view
 ```
 
+### samples
+
+```bash
+dotnet-inspect samples JsonSerializer --package System.Text.Json  # Code samples from SourceLink
+dotnet-inspect samples --package System.Text.Json --list          # List available samples
+```
+
 ### platform
 
 ```bash
@@ -70,31 +77,39 @@ dotnet-inspect platform --list-versions            # Installed SDKs
 dotnet-inspect platform --framework runtime        # Runtime assemblies
 ```
 
-## Output Control
+## Output
 
-### Verbosity
+### Markdown (default)
+
+Verbosity controls output density:
 
 | Flag | Output |
 |------|--------|
 | `-v:q` | Title + compact line |
-| `-v:m` | + description (default) |
+| `-v:m` | + description |
 | `-v:n` | + Metadata table |
-| `-v:d` | + Statistics, Dependencies, Files |
+| `-v:d` | + Statistics, Dependencies, Files, Vulnerabilities |
 
-### Section Filtering
+The compact line summarizes key metadata:
+```
+Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
+```
 
+Section filtering:
 ```bash
 dotnet-inspect package --discover                  # List sections with numbers
 dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude sections 3 and 4
 dotnet-inspect System.Text.Json -v:d -s:1,2        # Include only sections 1 and 2
 ```
 
-### Output Formats
+### JSON
 
-- Default: Markdown tables
-- `--signatures-only`: Plain method signatures
-- `--json`: JSON
-- `--json --compact`: Minified JSON
+- `--json`: Full JSON (verbosity ignored)
+- `--json --compact`: Minified, nulls omitted
+
+### Other
+
+- `--signatures-only`: Plain method signatures (api command)
 
 ## Key Options
 
@@ -112,7 +127,6 @@ dotnet-inspect System.Text.Json -v:d -s:1,2        # Include only sections 1 and
 
 ## Tips
 
-- Version syntax: `Package@1.0.0` or `Package 1.0.0`
 - Generic types: `'Option<T>'` or `'Option\`1'`
 - Member filter is case-insensitive
 - Uses NuGet cache; `--verbose` shows cache activity

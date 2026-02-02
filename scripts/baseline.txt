@@ -10,14 +10,14 @@
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:q
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Type: Library | TFM: net10.0 | Updated: <FILTERED>
 
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:m
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -28,7 +28,7 @@ Type: Library | TFM: net10.0 | Updated: <FILTERED>
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:n
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -56,7 +56,7 @@ Type: Library | TFM: net10.0 | Updated: <FILTERED>
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:d
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -115,13 +115,11 @@ Type: Library | TFM: net10.0 | Updated: <FILTERED>
 
 ## Files
 
-| Path |
-|------|
-| lib/net10.0/System.Text.Json.dll |
-| lib/net462/System.Text.Json.dll |
-| lib/net8.0/System.Text.Json.dll |
-| lib/net9.0/System.Text.Json.dll |
-| lib/netstandard2.0/System.Text.Json.dll |
+- lib/net10.0/System.Text.Json.dll
+- lib/net462/System.Text.Json.dll
+- lib/net8.0/System.Text.Json.dll
+- lib/net9.0/System.Text.Json.dll
+- lib/netstandard2.0/System.Text.Json.dll
 
 
 ############################################################################
@@ -142,7 +140,7 @@ COMMAND: package --discover
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:d -s:1
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -170,7 +168,7 @@ Type: Library | TFM: net10.0 | Updated: <FILTERED>
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:d -s:1,2
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -206,7 +204,7 @@ Type: Library | TFM: net10.0 | Updated: <FILTERED>
 ================================================================================
 COMMAND: System.Text.Json 10.0.2 -v:d -x:3,4
 ================================================================================
-# System.Text.Json 10.0.2
+# System.Text.Json (10.0.2)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -247,7 +245,7 @@ Type: Library | TFM: net10.0 | Updated: <FILTERED>
 ================================================================================
 COMMAND: System.Text.Json 8.0.4 -v:d
 ================================================================================
-# System.Text.Json 8.0.4
+# System.Text.Json (8.0.4)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -262,7 +260,6 @@ Type: Library | TFM: net8.0 | Updated: <FILTERED> | Vulnerabilities: 1
 | Type | Library |
 | Newest TFM | net8.0 |
 | Updated | <FILTERED> |
-| Vulnerabilities | 1 |
 | Authors | Microsoft |
 | Owners | dotnetframework, Microsoft |
 | License | MIT |
@@ -272,6 +269,7 @@ Type: Library | TFM: net8.0 | Updated: <FILTERED> | Vulnerabilities: 1
 | Target Frameworks | 5 |
 | Libraries | 5 |
 | Readme | yes |
+| Vulnerabilities | 1 |
 
 ## Statistics
 
@@ -280,6 +278,12 @@ Type: Library | TFM: net8.0 | Updated: <FILTERED> | Vulnerabilities: 1
 | Total Downloads | <FILTERED> |
 | Version Downloads | <FILTERED> |
 | Version Count | 47 |
+
+## Vulnerabilities
+
+| Severity | CVE | Summary |
+|----------|-----|---------|
+| High | CVE-2024-43485 | Microsoft Security Advisory CVE-2024-43485 \| .NET Denial of Service Vulnerability |
 
 ## Package Dependencies
 
@@ -305,24 +309,16 @@ Type: Library | TFM: net8.0 | Updated: <FILTERED> | Vulnerabilities: 1
 
 ## Files
 
-| Path |
-|------|
-| lib/net462/System.Text.Json.dll |
-| lib/net6.0/System.Text.Json.dll |
-| lib/net7.0/System.Text.Json.dll |
-| lib/net8.0/System.Text.Json.dll |
-| lib/netstandard2.0/System.Text.Json.dll |
-
-## Vulnerabilities
-
-| Severity | CVE | Summary |
-|----------|-----|---------|
-| High | CVE-2024-43485 | Microsoft Security Advisory CVE-2024-43485 - .NET Denial of Service Vulnerability |
+- lib/net462/System.Text.Json.dll
+- lib/net6.0/System.Text.Json.dll
+- lib/net7.0/System.Text.Json.dll
+- lib/net8.0/System.Text.Json.dll
+- lib/netstandard2.0/System.Text.Json.dll
 
 ================================================================================
 COMMAND: System.Text.Json 5.0.0 -v:m
 ================================================================================
-# System.Text.Json 5.0.0
+# System.Text.Json (5.0.0)
 
 Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
 
@@ -340,7 +336,7 @@ Type: Library | TFM: netcoreapp3.0 | Updated: <FILTERED> | Deprecated: Yes
 ================================================================================
 COMMAND: dotnet-ef 10.0.2 -v:d
 ================================================================================
-# dotnet-ef 10.0.2
+# dotnet-ef (10.0.2)
 
 Entity Framework Core Tools for the .NET Command-Line Interface.
 
@@ -384,15 +380,13 @@ Type: Tool | TFM: net8.0 | Updated: <FILTERED>
 
 ## Files
 
-| Path |
-|------|
-| tools/net8.0/any/dotnet-ef.dll |
-| tools/net8.0/any/tools/net8.0/any/ef.dll |
+- tools/net8.0/any/dotnet-ef.dll
+- tools/net8.0/any/tools/net8.0/any/ef.dll
 
 ================================================================================
 COMMAND: Azure.Mcp 1.0.1 -v:d
 ================================================================================
-# Azure.Mcp 1.0.1
+# Azure.Mcp (1.0.1)
 
 Azure MCP Server - Model Context Protocol implementation for Azure
 
@@ -439,7 +433,7 @@ Type: Tool v2 | TFM: net9.0 | Updated: <FILTERED>
 ================================================================================
 COMMAND: Newtonsoft.Json 13.0.3 -v:d
 ================================================================================
-# Newtonsoft.Json 13.0.3
+# Newtonsoft.Json (13.0.3)
 
 Json.NET is a popular high-performance JSON framework for .NET
 
@@ -487,16 +481,14 @@ Type: Library | TFM: net6.0 | Updated: <FILTERED>
 
 ## Files
 
-| Path |
-|------|
-| lib/net20/Newtonsoft.Json.dll |
-| lib/net35/Newtonsoft.Json.dll |
-| lib/net40/Newtonsoft.Json.dll |
-| lib/net45/Newtonsoft.Json.dll |
-| lib/net6.0/Newtonsoft.Json.dll |
-| lib/netstandard1.0/Newtonsoft.Json.dll |
-| lib/netstandard1.3/Newtonsoft.Json.dll |
-| lib/netstandard2.0/Newtonsoft.Json.dll |
+- lib/net20/Newtonsoft.Json.dll
+- lib/net35/Newtonsoft.Json.dll
+- lib/net40/Newtonsoft.Json.dll
+- lib/net45/Newtonsoft.Json.dll
+- lib/net6.0/Newtonsoft.Json.dll
+- lib/netstandard1.0/Newtonsoft.Json.dll
+- lib/netstandard1.3/Newtonsoft.Json.dll
+- lib/netstandard2.0/Newtonsoft.Json.dll
 
 ================================================================================
 COMMAND: System.Text.Json --versions -n 5

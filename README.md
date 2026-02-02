@@ -76,6 +76,11 @@ dotnet-inspect platform --framework runtime        # List runtime assemblies
 
 **Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed)
 
+Each level includes a **compact summary line** with key metadata:
+```
+Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
+```
+
 **Sections**: Use `--discover` to list sections, then filter with `-s:1,2` (include) or `-x:3` (exclude)
 
 ```bash

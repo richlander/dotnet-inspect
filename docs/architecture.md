@@ -13,7 +13,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 
 ## Command Structure
 
-The tool is organized around four primary inspection verbs, each targeting a different level of abstraction:
+The tool is organized around seven commands plus a meta command, each targeting a different level of abstraction:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -28,6 +28,15 @@ The tool is organized around four primary inspection verbs, each targeting a dif
 ├─────────────────────────────────────────────────────────────┤
 │                         type                                 │
 │  Single type: hierarchy, interfaces, members (tree view)     │
+├─────────────────────────────────────────────────────────────┤
+│                         diff                                 │
+│  Compare API surfaces between two package versions           │
+├─────────────────────────────────────────────────────────────┤
+│                        samples                               │
+│  Extract code sample references from XML doc comments        │
+├─────────────────────────────────────────────────────────────┤
+│                       platform                               │
+│  List platform/framework assemblies from installed SDK       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,6 +70,27 @@ Displays a single type's shape in tree format:
 - Inheritance chain (base classes)
 - Implemented interfaces
 - Members grouped by kind
+
+### diff
+
+Compares API surfaces between two package versions:
+- Added, removed, and modified types
+- Member-level changes within types
+- Version range syntax: `Package@v1..v2`
+
+### samples
+
+Extracts code sample references from XML doc comments:
+- Sandcastle-style `<code source=...>` references
+- `<seealso href=...>` file references
+- Region extraction from source files
+
+### platform
+
+Lists platform/framework assemblies from the installed .NET SDK:
+- Available frameworks and versions
+- Assembly listing per framework
+- Useful for inspecting BCL types
 
 ## LLM Integration
 
@@ -291,17 +321,21 @@ src/dotnet-inspect/
 ├── Commands/           # Command implementations
 │   ├── ApiCommand.cs
 │   ├── AssemblyCommand.cs
+│   ├── DiffCommand.cs
+│   ├── LlmsTxtCommand.cs
 │   ├── PackageCommand.cs
-│   ├── TypeCommand.cs
-│   └── LlmsTxtCommand.cs
+│   ├── PlatformCommand.cs
+│   ├── SamplesCommand.cs
+│   └── TypeCommand.cs
 ├── Inspectors/         # Core inspection logic
 │   ├── ApiSurfaceExtractor.cs
 │   ├── AssemblyAuditor.cs
+│   ├── DocCommentParser.cs
 │   ├── SourceLinkResolver.cs
 │   └── ...
 ├── Output/             # Formatting
-│   ├── MarkoutViewFormatter.cs
-│   └── OutputFormatter.cs
+│   ├── OutputFormatter.cs
+│   └── VerboseLogger.cs
 ├── Options/            # Command options records
 ├── CommandLineBuilder.cs
 ├── SignatureTypeProvider.cs
