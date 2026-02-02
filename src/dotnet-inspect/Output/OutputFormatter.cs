@@ -9,6 +9,20 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class OutputFormatter
 {
+    /// <summary>
+    /// Section names in order for package command.
+    /// </summary>
+    public static readonly string[] SectionNames =
+    [
+        "Metadata",
+        "Statistics",
+        "Package Dependencies",
+        "Files",
+        "Vulnerabilities",
+        "RID Packages",
+        "Runtime Dependencies"
+    ];
+
     public static void WriteResult(InspectionResult result, InspectionOptions options)
     {
         string output;
@@ -18,11 +32,42 @@ public static class OutputFormatter
         }
         else
         {
-            var formatter = new MarkoutViewFormatter(result, options);
-            output = formatter.Render();
+            output = RenderMarkout(result, options);
         }
         
         WriteOutput(output, options.OutputPath);
+    }
+
+    private static string RenderMarkout(InspectionResult result, InspectionOptions options)
+    {
+        var context = new MarkoutContext
+        {
+            IncludeSections = options.IncludeSections,
+            ExcludeSections = GetExcludeSections(options)
+        };
+
+        return context.Serialize(result).TrimEnd();
+    }
+
+    private static HashSet<int>? GetExcludeSections(InspectionOptions options)
+    {
+        // If user specified explicit excludes, use those
+        if (options.ExcludeSections != null)
+            return options.ExcludeSections;
+
+        // Otherwise, map verbosity to section exclusions
+        return options.Verbosity switch
+        {
+            // Quiet: exclude all sections (just title + compact line)
+            Verbosity.Quiet => [1, 2, 3, 4, 5, 6, 7],
+            // Minimal: exclude Statistics (2), Package Deps (3), Files (4)
+            Verbosity.Minimal => [2, 3, 4],
+            // Normal: just show Metadata (1) and conditionals (5, 6, 7)
+            Verbosity.Normal => [2, 3, 4],
+            // Detailed: show everything
+            Verbosity.Detailed => null,
+            _ => null
+        };
     }
 
     public static void WriteAssemblyResult(AssemblyAudit audit, AssemblyOptions options)

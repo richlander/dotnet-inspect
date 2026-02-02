@@ -3,18 +3,43 @@ using Markout;
 
 namespace DotnetInspector;
 
-[MarkoutSerializable(TitleProperty = nameof(PackageName), TitleContextProperty = nameof(Version), DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(
+    TitleProperty = nameof(PackageName), 
+    TitleContextProperty = nameof(Version), 
+    DescriptionProperty = nameof(Description),
+    RenderScalars = false)]
 public class InspectionResult
 {
     [MarkoutPropertyName("Package")]
-    [MarkoutIgnore] // Rendered as title
     public string PackageName { get; set; } = "";
 
-    [MarkoutIgnore] // Rendered as title context
     public string Version { get; set; } = "";
 
-    [MarkoutIgnore] // Rendered as paragraph via DescriptionProperty
     public string? Description { get; set; }
+
+    // ===== Field Collections for Serializer =====
+    // Note: Property order matters for serialization output
+
+    /// <summary>
+    /// Compact summary line (rendered as pipe-separated fields).
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Summary => GetCompactFields();
+
+    /// <summary>
+    /// Metadata section (rendered as Property/Value table).
+    /// </summary>
+    [MarkoutSection(Name = "Metadata")]
+    [JsonIgnore]
+    public List<MarkoutField> Metadata => GetMetadataFields();
+
+    /// <summary>
+    /// Statistics section (rendered as Property/Value table).
+    /// </summary>
+    [MarkoutSection(Name = "Statistics")]
+    [JsonIgnore]
+    public List<MarkoutField> Statistics => GetStatisticsFields();
 
     public string? Authors { get; set; }
     public string? License { get; set; }
@@ -23,7 +48,6 @@ public class InspectionResult
     /// <summary>
     /// When this package version was published to NuGet.
     /// </summary>
-    [MarkoutIgnore]
     [JsonIgnore]
     public DateTimeOffset? Published { get; set; }
 
@@ -37,7 +61,6 @@ public class InspectionResult
     /// <summary>
     /// Total downloads across all versions of the package.
     /// </summary>
-    [MarkoutIgnore]
     public long? TotalDownloads { get; set; }
 
     /// <summary>
@@ -50,7 +73,6 @@ public class InspectionResult
     /// <summary>
     /// Downloads for this specific version.
     /// </summary>
-    [MarkoutIgnore]
     public long? VersionDownloads { get; set; }
 
     /// <summary>
@@ -62,13 +84,11 @@ public class InspectionResult
     /// <summary>
     /// Total number of versions published for this package.
     /// </summary>
-    [MarkoutIgnore]
     public int? VersionCount { get; set; }
 
     /// <summary>
     /// Size of the .nupkg file in bytes.
     /// </summary>
-    [MarkoutIgnore]
     public long? PackageSize { get; set; }
 
     /// <summary>
@@ -102,13 +122,12 @@ public class InspectionResult
     /// <summary>
     /// Whether the package owner is verified by NuGet.org.
     /// </summary>
-    [MarkoutIgnore]
     public bool? IsVerified { get; set; }
 
     /// <summary>
     /// Package owners (from NuGet.org).
     /// </summary>
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? Owners { get; set; }
 
     /// <summary>
@@ -121,13 +140,13 @@ public class InspectionResult
     /// <summary>
     /// Deprecation information if the package is deprecated.
     /// </summary>
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public PackageDeprecation? Deprecation { get; set; }
 
     /// <summary>
     /// Known security vulnerabilities for this package version.
     /// </summary>
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<PackageVulnerability>? Vulnerabilities { get; set; }
 
     /// <summary>
@@ -147,14 +166,12 @@ public class InspectionResult
     /// <summary>
     /// Path to the readme file within the package (from nuspec readme element).
     /// </summary>
-    [MarkoutIgnore]
     [JsonIgnore]
     public string? ReadmeFile { get; set; }
 
-    [MarkoutIgnore] // Used internally; PackageType computed property is displayed
     public bool IsToolPackage { get; set; }
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? PackageTypes { get; set; }
 
     [MarkoutPropertyName("Package Types")]
@@ -172,7 +189,7 @@ public class InspectionResult
         ? "Tool v2"
         : IsToolPackage ? "Tool" : "Library";
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? ContentDirectories { get; set; }
 
     [MarkoutPropertyName("Content")]
@@ -181,7 +198,7 @@ public class InspectionResult
         ? string.Join(", ", ContentDirectories)
         : null;
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? TargetFrameworks { get; set; }
 
     [MarkoutPropertyName("Target Frameworks")]
@@ -252,7 +269,7 @@ public class InspectionResult
         return 0;
     }
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? SupportedRids { get; set; }
 
     [MarkoutPropertyName("Supported RIDs")]
@@ -287,7 +304,7 @@ public class InspectionResult
     [MarkoutPropertyName("RID-Specific Pointer Package")]
     public bool IsRidSpecificPointerPackage { get; set; }
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? ToolCommands { get; set; }
 
     [MarkoutPropertyName("Tool Commands")]
@@ -302,7 +319,7 @@ public class InspectionResult
     [MarkoutPropertyName("Runtime Target RID")]
     public string? RuntimeTargetRid { get; set; }
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? NativeFiles { get; set; }
 
     [MarkoutPropertyName("Native Files")]
@@ -311,7 +328,7 @@ public class InspectionResult
         ? string.Join(", ", NativeFiles)
         : null;
 
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
     [MarkoutSection(Name = "Package Dependencies")]
@@ -350,7 +367,7 @@ public class InspectionResult
     /// <summary>
     /// List of files in the package (DLLs from lib/tools, or all files with --all).
     /// </summary>
-    [MarkoutIgnore]
+    [MarkoutSection(Name = "Files")]
     public List<string>? Files { get; set; }
 
     [MarkoutSection(Name = "Audit Summary")]
@@ -358,6 +375,87 @@ public class InspectionResult
 
     [MarkoutSection(Name = "Assembly Audit")]
     public List<AssemblyAudit>? AssemblyAudits { get; set; }
+
+    private List<MarkoutField> GetCompactFields()
+    {
+        var fields = new List<MarkoutField>();
+        
+        fields.Add(new("Type", PackageType));
+        
+        if (!string.IsNullOrEmpty(NewestTfm))
+            fields.Add(new("TFM", NewestTfm));
+        if (!string.IsNullOrEmpty(PublishedDisplay))
+            fields.Add(new("Updated", PublishedDisplay));
+        if (Deprecation != null)
+            fields.Add(MarkoutField.Create("Deprecated", true));
+        if (Vulnerabilities is { Count: > 0 })
+            fields.Add(MarkoutField.Create("Vulnerabilities", Vulnerabilities.Count));
+        
+        return fields;
+    }
+
+    private List<MarkoutField> GetMetadataFields()
+    {
+        // Include compact line fields first (for consistency with compact line display)
+        var fields = GetCompactFields();
+
+        if (Deprecation?.Summary != null)
+            fields.Add(new("Deprecated Note", Deprecation.Summary));
+
+        if (!string.IsNullOrWhiteSpace(Authors))
+            fields.Add(new("Authors", Authors));
+        if (!string.IsNullOrWhiteSpace(OwnersDisplay) && OwnersDisplay != Authors)
+            fields.Add(new("Owners", OwnersDisplay));
+        if (!string.IsNullOrWhiteSpace(License))
+            fields.Add(new("License", License));
+        if (!string.IsNullOrWhiteSpace(Repository))
+            fields.Add(new("Repository", Repository));
+        
+        // NuGet metadata
+        if (IsVerified == true)
+            fields.Add(MarkoutField.Create("Verified", true));
+        
+        if (!string.IsNullOrWhiteSpace(ContentSummary))
+            fields.Add(new("Content", ContentSummary));
+        if (TargetFrameworkCount > 0)
+            fields.Add(MarkoutField.Create("Target Frameworks", TargetFrameworkCount));
+        if (SupportedRidCount > 0)
+            fields.Add(MarkoutField.Create("Runtime Identifiers", SupportedRidCount));
+        if (AssemblyCount > 0)
+            fields.Add(MarkoutField.Create("Libraries", AssemblyCount));
+        if (HasReadme)
+            fields.Add(MarkoutField.Create("Readme", true));
+
+        // Tool-specific properties
+        if (!string.IsNullOrWhiteSpace(ToolCommandsSummary))
+            fields.Add(new("Tool Commands", ToolCommandsSummary));
+
+        // Additional properties
+        if (IsFrameworkDependent)
+            fields.Add(MarkoutField.Create("Framework Dependent", true));
+        if (IsRidSpecificPointerPackage)
+            fields.Add(MarkoutField.Create("RID-Specific Pointer", true));
+        if (!string.IsNullOrWhiteSpace(RuntimeTargetRid))
+            fields.Add(new("Runtime Target RID", RuntimeTargetRid));
+        
+        return fields;
+    }
+
+    private List<MarkoutField> GetStatisticsFields()
+    {
+        var fields = new List<MarkoutField>();
+        
+        if (!string.IsNullOrEmpty(DownloadsDisplay))
+            fields.Add(new("Total Downloads", DownloadsDisplay));
+        if (!string.IsNullOrEmpty(VersionDownloadsDisplay))
+            fields.Add(new("Version Downloads", VersionDownloadsDisplay));
+        if (VersionCount.HasValue)
+            fields.Add(MarkoutField.Create("Version Count", VersionCount.Value));
+        if (!string.IsNullOrEmpty(PackageSizeDisplay))
+            fields.Add(new("Package Size", PackageSizeDisplay));
+        
+        return fields;
+    }
 }
 
 /// <summary>
@@ -368,7 +466,7 @@ public class PackageDeprecation
     /// <summary>
     /// Reasons for deprecation (e.g., "Legacy", "CriticalBugs", "Other").
     /// </summary>
-    [MarkoutIgnore]
+    [MarkoutIgnoreInTable]
     public List<string>? Reasons { get; set; }
 
     /// <summary>

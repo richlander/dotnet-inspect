@@ -1,6 +1,6 @@
 # Designing for LLMs
 
-dotnet-inspect is designed from the ground up for LLM-driven .NET development. This document describes the design principles and specific optimizations that make the tool effective in AI-assisted workflows.
+dotnet-inspect is designed to accelerate LLM-driven .NET development by integrating API documentation directly into the dotnet CLI. This document describes the design principles and specific optimizations that make the tool effective in AI-assisted workflows.
 
 ## Design Philosophy
 
@@ -13,6 +13,24 @@ Traditional CLI tools optimize for human readability—colors, progress bars, in
 
 dotnet-inspect addresses each of these constraints explicitly.
 
+## Design Goals
+
+Two principles guide every output decision:
+
+1. **Equally readable by humans and LLMs.** The output should be scannable at a glance and parseable by code. No compromise in either direction—if it's hard for a person to read, it's probably hard for an LLM too.
+
+2. **Portable markdown.** Output can be copied to a file, pasted into a GitHub issue, or piped to another tool and render correctly everywhere. Markdown tables are the "web-native CSV"—structured data that displays well in any environment.
+
+## Implementation
+
+dotnet-inspect performs very little markdown formatting itself. Instead, it relies on [Markout](https://github.com/richlander/markout), a source-generated markdown serializer. Data models are annotated with attributes, and the serializer generates the markdown output at compile time—much like `System.Text.Json` serializes objects to JSON.
+
+This approach has several benefits:
+
+- **Consistent formatting.** All output follows the same patterns because it flows through a single serializer.
+- **Declarative models.** The code defines *what* to output, not *how* to format it.
+- **AOT compatible.** Because the serializer is a source generator, there's no reflection at runtime. The tool compiles to native code and starts instantly.
+
 ## Structured Output
 
 All output follows a consistent markdown format:
@@ -22,8 +40,14 @@ All output follows a consistent markdown format:
 
 Description paragraph.
 
-**Field1:** value  
-**Field2:** value
+Type: Library | TFM: net10.0 | Updated: 2026-01-13
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Authors | Microsoft |
+| License | MIT |
 
 ## Section Name
 
@@ -32,7 +56,7 @@ Description paragraph.
 | data   | data   |
 ```
 
-This four-part structure—H1 title, description, key-value fields, H2 sections with tables—is predictable and machine-parseable. LLMs can reliably extract specific pieces of information without fragile regex patterns.
+This structure—H1 title, description, compact summary line, H2 sections with tables—is predictable and machine-parseable. LLMs can reliably extract specific pieces of information without fragile regex patterns.
 
 ### Why Markdown Tables?
 

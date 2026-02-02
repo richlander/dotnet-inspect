@@ -17,9 +17,9 @@ public class PackageCommand
         // Handle --discover mode: list sections and exit early
         if (options.Discover)
         {
-            for (int i = 0; i < Output.MarkoutViewFormatter.SectionNames.Length; i++)
+            for (int i = 0; i < OutputFormatter.SectionNames.Length; i++)
             {
-                Console.WriteLine($"{i + 1}. {Output.MarkoutViewFormatter.SectionNames[i]}");
+                Console.WriteLine($"{i + 1}. {OutputFormatter.SectionNames[i]}");
             }
             return 0;
         }

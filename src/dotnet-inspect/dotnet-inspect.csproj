@@ -48,7 +48,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Markout" Version="0.1.2" />
+    <!-- TODO: Switch back to PackageReference after Markout publishes WriteCompactFields -->
+    <ProjectReference Include="../../../markout/src/Markout/Markout.csproj" />
+    <ProjectReference Include="../../../markout/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />
   </ItemGroup>
