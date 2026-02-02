@@ -92,7 +92,7 @@ dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude Package Dependencie
 
 ## LLM Integration
 
-Run `dotnet-inspect llmstxt` for detailed usage patterns.
+This tool is [designed for LLM-driven development](docs/llm-design.md). Run `dotnet-inspect llmstxt` for detailed usage patterns.
 
 ## Requirements
 
