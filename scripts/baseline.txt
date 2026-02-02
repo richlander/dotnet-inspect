@@ -1,0 +1,1043 @@
+# dotnet-inspect Baseline Output
+# This file is used for regression testing
+# Volatile data (downloads, dates) is filtered to <FILTERED>
+
+
+############################################################################
+# PACKAGE COMMAND - VERBOSITY LEVELS
+############################################################################
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:q
+================================================================================
+# System.Text.Json 10.0.2
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:m
+================================================================================
+# System.Text.Json 10.0.2
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:n
+================================================================================
+# System.Text.Json 10.0.2
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net10.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/dotnet |
+| Verified | yes |
+| Content | lib, analyzers, buildTransitive |
+| Target Frameworks | 5 |
+| Libraries | 5 |
+| Readme | yes |
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:d
+================================================================================
+# System.Text.Json 10.0.2
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net10.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/dotnet |
+| Verified | yes |
+| Content | lib, analyzers, buildTransitive |
+| Target Frameworks | 5 |
+| Libraries | 5 |
+| Readme | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 47 |
+
+## Package Dependencies
+
+| Target Framework | Package | Version |
+|------------------|---------|---------|
+| .NETStandard2.0 | Microsoft.Bcl.AsyncInterfaces | 10.0.2 |
+| .NETStandard2.0 | System.Buffers | 4.6.1 |
+| .NETStandard2.0 | System.IO.Pipelines | 10.0.2 |
+| .NETStandard2.0 | System.Memory | 4.6.3 |
+| .NETStandard2.0 | System.Runtime.CompilerServices.Unsafe | 6.1.2 |
+| .NETStandard2.0 | System.Text.Encodings.Web | 10.0.2 |
+| .NETStandard2.0 | System.Threading.Tasks.Extensions | 4.6.3 |
+| .NETFramework4.6.2 | Microsoft.Bcl.AsyncInterfaces | 10.0.2 |
+| .NETFramework4.6.2 | System.Buffers | 4.6.1 |
+| .NETFramework4.6.2 | System.IO.Pipelines | 10.0.2 |
+| .NETFramework4.6.2 | System.Memory | 4.6.3 |
+| .NETFramework4.6.2 | System.Runtime.CompilerServices.Unsafe | 6.1.2 |
+| .NETFramework4.6.2 | System.Text.Encodings.Web | 10.0.2 |
+| .NETFramework4.6.2 | System.Threading.Tasks.Extensions | 4.6.3 |
+| .NETFramework4.6.2 | System.ValueTuple | 4.6.1 |
+| net8.0 | System.IO.Pipelines | 10.0.2 |
+| net8.0 | System.Text.Encodings.Web | 10.0.2 |
+| net9.0 | System.IO.Pipelines | 10.0.2 |
+| net9.0 | System.Text.Encodings.Web | 10.0.2 |
+
+## Files
+
+| Path |
+|------|
+| lib/net10.0/System.Text.Json.dll |
+| lib/net462/System.Text.Json.dll |
+| lib/net8.0/System.Text.Json.dll |
+| lib/net9.0/System.Text.Json.dll |
+| lib/netstandard2.0/System.Text.Json.dll |
+
+
+############################################################################
+# PACKAGE COMMAND - SECTION FILTERING
+############################################################################
+
+================================================================================
+COMMAND: package --discover
+================================================================================
+1. Metadata
+2. Statistics
+3. Package Dependencies
+4. Files
+5. Vulnerabilities
+6. RID Packages
+7. Runtime Dependencies
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:d -s:1
+================================================================================
+# System.Text.Json 10.0.2
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net10.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/dotnet |
+| Verified | yes |
+| Content | lib, analyzers, buildTransitive |
+| Target Frameworks | 5 |
+| Libraries | 5 |
+| Readme | yes |
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:d -s:1,2
+================================================================================
+# System.Text.Json 10.0.2
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net10.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/dotnet |
+| Verified | yes |
+| Content | lib, analyzers, buildTransitive |
+| Target Frameworks | 5 |
+| Libraries | 5 |
+| Readme | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 47 |
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 -v:d -x:3,4
+================================================================================
+# System.Text.Json 10.0.2
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net10.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net10.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/dotnet |
+| Verified | yes |
+| Content | lib, analyzers, buildTransitive |
+| Target Frameworks | 5 |
+| Libraries | 5 |
+| Readme | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 47 |
+
+
+############################################################################
+# PACKAGE COMMAND - SPECIAL SCENARIOS
+############################################################################
+
+================================================================================
+COMMAND: System.Text.Json 8.0.4 -v:d
+================================================================================
+# System.Text.Json 8.0.4
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
+
+Type: Library | TFM: net8.0 | Updated: <FILTERED> | Vulnerabilities: 1
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net8.0 |
+| Updated | <FILTERED> |
+| Vulnerabilities | 1 |
+| Authors | Microsoft |
+| Owners | dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/runtime |
+| Verified | yes |
+| Content | lib, analyzers, buildTransitive |
+| Target Frameworks | 5 |
+| Libraries | 5 |
+| Readme | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 47 |
+
+## Package Dependencies
+
+| Target Framework | Package | Version |
+|------------------|---------|---------|
+| .NETStandard2.0 | Microsoft.Bcl.AsyncInterfaces | 8.0.0 |
+| .NETStandard2.0 | System.Buffers | 4.5.1 |
+| .NETStandard2.0 | System.Memory | 4.5.5 |
+| .NETStandard2.0 | System.Runtime.CompilerServices.Unsafe | 6.0.0 |
+| .NETStandard2.0 | System.Text.Encodings.Web | 8.0.0 |
+| .NETStandard2.0 | System.Threading.Tasks.Extensions | 4.5.4 |
+| .NETFramework4.6.2 | Microsoft.Bcl.AsyncInterfaces | 8.0.0 |
+| .NETFramework4.6.2 | System.Buffers | 4.5.1 |
+| .NETFramework4.6.2 | System.Memory | 4.5.5 |
+| .NETFramework4.6.2 | System.Runtime.CompilerServices.Unsafe | 6.0.0 |
+| .NETFramework4.6.2 | System.Text.Encodings.Web | 8.0.0 |
+| .NETFramework4.6.2 | System.Threading.Tasks.Extensions | 4.5.4 |
+| .NETFramework4.6.2 | System.ValueTuple | 4.5.0 |
+| net6.0 | System.Runtime.CompilerServices.Unsafe | 6.0.0 |
+| net6.0 | System.Text.Encodings.Web | 8.0.0 |
+| net7.0 | System.Text.Encodings.Web | 8.0.0 |
+| net8.0 | System.Text.Encodings.Web | 8.0.0 |
+
+## Files
+
+| Path |
+|------|
+| lib/net462/System.Text.Json.dll |
+| lib/net6.0/System.Text.Json.dll |
+| lib/net7.0/System.Text.Json.dll |
+| lib/net8.0/System.Text.Json.dll |
+| lib/netstandard2.0/System.Text.Json.dll |
+
+## Vulnerabilities
+
+| Severity | CVE | Summary |
+|----------|-----|---------|
+| High | CVE-2024-43485 | Microsoft Security Advisory CVE-2024-43485 - .NET Denial of Service Vulnerability |
+
+================================================================================
+COMMAND: System.Text.Json 5.0.0 -v:m
+================================================================================
+# System.Text.Json 5.0.0
+
+Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
+
+Commonly Used Types:
+System.Text.Json.JsonSerializer
+System.Text.Json.JsonDocument
+System.Text.Json.JsonElement
+System.Text.Json.Utf8JsonWriter
+System.Text.Json.Utf8JsonReader
+ 
+When using NuGet 3.x this package requires at least version 3.4.
+
+Type: Library | TFM: netcoreapp3.0 | Updated: <FILTERED> | Deprecated: Yes
+
+================================================================================
+COMMAND: dotnet-ef 10.0.2 -v:d
+================================================================================
+# dotnet-ef 10.0.2
+
+Entity Framework Core Tools for the .NET Command-Line Interface.
+
+      Enables these commonly used dotnet-ef commands:
+      dotnet ef migrations add
+      dotnet ef migrations list
+      dotnet ef migrations script
+      dotnet ef dbcontext info
+      dotnet ef dbcontext scaffold
+      dotnet ef database drop
+      dotnet ef database update
+
+Type: Tool | TFM: net8.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Tool |
+| Newest TFM | net8.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | aspnet, dotnetframework, Microsoft |
+| License | MIT |
+| Repository | https://github.com/dotnet/dotnet |
+| Verified | yes |
+| Content | tools |
+| Target Frameworks | 1 |
+| Runtime Identifiers | 1 |
+| Libraries | 2 |
+| Tool Commands | dotnet-ef |
+| Framework Dependent | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 162 |
+
+## Files
+
+| Path |
+|------|
+| tools/net8.0/any/dotnet-ef.dll |
+| tools/net8.0/any/tools/net8.0/any/ef.dll |
+
+================================================================================
+COMMAND: Azure.Mcp 1.0.1 -v:d
+================================================================================
+# Azure.Mcp 1.0.1
+
+Azure MCP Server - Model Context Protocol implementation for Azure
+
+Type: Tool v2 | TFM: net9.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Tool v2 |
+| Newest TFM | net9.0 |
+| Updated | <FILTERED> |
+| Authors | Microsoft |
+| Owners | azure-sdk, Microsoft |
+| License | MIT |
+| Repository | https://github.com/microsoft/mcp |
+| Verified | yes |
+| Content | tools |
+| Target Frameworks | 1 |
+| Runtime Identifiers | 7 |
+| Readme | yes |
+| Tool Commands | azmcp |
+| RID-Specific Pointer | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 21 |
+
+## RID Packages
+
+| RID | Package | Available |
+|-----|---------|-----------|
+| linux-arm64 | Azure.Mcp.linux-arm64 | yes |
+| linux-x64 | Azure.Mcp.linux-x64 | yes |
+| osx-arm64 | Azure.Mcp.osx-arm64 | yes |
+| osx-x64 | Azure.Mcp.osx-x64 | yes |
+| win-arm64 | Azure.Mcp.win-arm64 | yes |
+| win-x64 | Azure.Mcp.win-x64 | yes |
+
+================================================================================
+COMMAND: Newtonsoft.Json 13.0.3 -v:d
+================================================================================
+# Newtonsoft.Json 13.0.3
+
+Json.NET is a popular high-performance JSON framework for .NET
+
+Type: Library | TFM: net6.0 | Updated: <FILTERED>
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| Type | Library |
+| Newest TFM | net6.0 |
+| Updated | <FILTERED> |
+| Authors | James Newton-King |
+| Owners | dotnetfoundation, jamesnk, newtonsoft |
+| License | MIT |
+| Repository | https://github.com/JamesNK/Newtonsoft.Json |
+| Verified | yes |
+| Content | lib |
+| Target Frameworks | 8 |
+| Libraries | 8 |
+| Readme | yes |
+
+## Statistics
+
+| Property | Value |
+|----------|-------|
+| Total Downloads | <FILTERED> |
+| Version Downloads | <FILTERED> |
+| Version Count | 53 |
+
+## Package Dependencies
+
+| Target Framework | Package | Version |
+|------------------|---------|---------|
+| .NETStandard1.0 | Microsoft.CSharp | 4.3.0 |
+| .NETStandard1.0 | NETStandard.Library | 1.6.1 |
+| .NETStandard1.0 | System.ComponentModel.TypeConverter | 4.3.0 |
+| .NETStandard1.0 | System.Runtime.Serialization.Primitives | 4.3.0 |
+| .NETStandard1.3 | Microsoft.CSharp | 4.3.0 |
+| .NETStandard1.3 | NETStandard.Library | 1.6.1 |
+| .NETStandard1.3 | System.ComponentModel.TypeConverter | 4.3.0 |
+| .NETStandard1.3 | System.Runtime.Serialization.Formatters | 4.3.0 |
+| .NETStandard1.3 | System.Runtime.Serialization.Primitives | 4.3.0 |
+| .NETStandard1.3 | System.Xml.XmlDocument | 4.3.0 |
+
+## Files
+
+| Path |
+|------|
+| lib/net20/Newtonsoft.Json.dll |
+| lib/net35/Newtonsoft.Json.dll |
+| lib/net40/Newtonsoft.Json.dll |
+| lib/net45/Newtonsoft.Json.dll |
+| lib/net6.0/Newtonsoft.Json.dll |
+| lib/netstandard1.0/Newtonsoft.Json.dll |
+| lib/netstandard1.3/Newtonsoft.Json.dll |
+| lib/netstandard2.0/Newtonsoft.Json.dll |
+
+================================================================================
+COMMAND: System.Text.Json --versions -n 5
+================================================================================
+10.0.2
+10.0.1
+10.0.0
+9.0.12
+9.0.11
+
+================================================================================
+COMMAND: System.Text.Json 10.0.2 --files
+================================================================================
+lib/net10.0/System.Text.Json.dll
+lib/net462/System.Text.Json.dll
+lib/net8.0/System.Text.Json.dll
+lib/net9.0/System.Text.Json.dll
+lib/netstandard2.0/System.Text.Json.dll
+
+
+############################################################################
+# API COMMAND
+############################################################################
+
+================================================================================
+COMMAND: api --package System.Text.Json@10.0.2 -n 10
+================================================================================
+# System.Text.Json
+
+**Types:** 80  
+**Methods:** 882  
+**Properties:** 293  
+**TFM:** net10.0  
+**Repository:** https://github.com/dotnet/dotnet  
+
+| Type | Kind | Members |
+|------|------|---------|
+| System.Runtime.InteropServices.JsonMarshal | class | 2 |
+| System.Text.Json.JsonNamingPolicy | class | 7 |
+| System.Text.Json.JsonCommentHandling | enum | 4 |
+| System.Text.Json.JsonSerializerDefaults | enum | 4 |
+| System.Text.Json.JsonDocument | class | 56 |
+| System.Text.Json.JsonDocumentOptions | struct | 5 |
+| System.Text.Json.JsonElement | struct | 74 |
+| ArrayEnumerator | struct | 6 |
+| ObjectEnumerator | struct | 6 |
+| System.Text.Json.JsonProperty | struct | 11 |
+
+*... and 70 more types*
+
+================================================================================
+COMMAND: api JsonSerializer --package System.Text.Json@10.0.2
+================================================================================
+# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+
+**Kind:** class
+**Modifiers:** static, abstract, sealed
+**Assembly:** System.Text.Json.dll
+**Package:** system.text.json
+**Version:** 10.0.2
+**Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
+**Source Resolution:** SourceLink
+**Partial Type:** 20 source files
+
+**Fields:** FlushThreshold, IdPropertyName, RefPropertyName, SerializationRequiresDynamicCodeMessage, SerializationUnreferencedCodeMessage, TypePropertyName, ValuesPropertyName, s_metadataId, s_metadataRef, s_metadataType, s_metadataValues
+**Properties:** IsReflectionEnabledByDefault
+**Methods:**
+- **CreateExtensionDataProperty**
+- **Deserialize**: 40 overloads (JsonDocument, JsonElement, JsonNode, ReadOnlySpan, ...)
+- **DeserializeAsync**: 10 overloads (PipeReader, Stream, ...)
+- **DeserializeAsyncEnumerable**: 8 overloads (PipeReader, Stream, ...)
+- **GetMetadataPropertyName**
+- **GetPropertyName**
+- **IsMetadataPropertyName**
+- **IsValidCreationHandlingValue**
+- **IsValidNumberHandlingValue**
+- **IsValidUnmappedMemberHandlingValue**
+- **LookupProperty**
+- **ResolveReferenceId**
+- **Serialize**: 15 overloads (Stream, TValue, object, Utf8JsonWriter, ...)
+- **SerializeAsync**: 10 overloads (Stream, PipeWriter, ...)
+- **SerializeToDocument**: 5 overloads (TValue, object, ...)
+- **SerializeToElement**: 5 overloads (TValue, object, ...)
+- **SerializeToNode**: 5 overloads (TValue, object, ...)
+- **SerializeToUtf8Bytes**: 5 overloads (TValue, object, ...)
+- **TryGetReferenceForValue**
+- **TryHandleReferenceFromJsonElement**
+- **TryHandleReferenceFromJsonNode**
+- **TryReadMetadata**
+- **UnboxOnRead**
+- **UnboxOnWrite**
+- **ValidateMetadataForArrayConverter**
+- **ValidateMetadataForObjectConverter**
+- **WriteMetadataForCollection**
+- **WriteMetadataForObject**
+
+================================================================================
+COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 -m Serialize
+================================================================================
+# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+
+**Kind:** class
+**Modifiers:** static, abstract, sealed
+**Assembly:** System.Text.Json.dll
+**Package:** system.text.json
+**Version:** 10.0.2
+**Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
+**Source Resolution:** SourceLink
+**Partial Type:** 20 source files
+
+**Methods:**
+- **Serialize**: 15 overloads (Stream, TValue, object, Utf8JsonWriter, ...)
+
+================================================================================
+COMMAND: api JsonSerializerOptions --package System.Text.Json@10.0.2 --ctor
+================================================================================
+# System.Text.Json.JsonSerializerOptions (system.text.json 10.0.2)
+
+**Kind:** class
+**Modifiers:** sealed
+**Assembly:** System.Text.Json.dll
+**Package:** system.text.json
+**Version:** 10.0.2
+**Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializerOptions.cs
+**Source Resolution:** SourceLink
+**Partial Type:** 3 source files
+
+**Constructors:**
+- **.ctor**: 3 overloads (JsonSerializerOptions, JsonSerializerDefaults, ...)
+
+================================================================================
+COMMAND: api 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1
+================================================================================
+# System.CommandLine.Option`1 (system.commandline 2.0.0-beta4.22272.1)
+
+**Kind:** class
+**Base:** System.CommandLine.Option
+**Assembly:** System.CommandLine.dll
+**Package:** system.commandline
+**Version:** 2.0.0-beta4.22272.1
+**Source:** https://github.com/dotnet/command-line-api/raw/209b724a3c843253d3071e8348c353b297b0b8b5/src/System.CommandLine/Option{T}.cs
+**Source Resolution:** SourceLink
+
+**Constructors:**
+- **.ctor**: 6 overloads (string, string[], ...)
+**Properties:** Arity
+
+================================================================================
+COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 --signatures-only -n 10
+================================================================================
+# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+
+**Kind:** class
+**Modifiers:** static, abstract, sealed
+**Assembly:** System.Text.Json.dll
+**Package:** system.text.json
+**Version:** 10.0.2
+**Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
+**Source Resolution:** SourceLink
+**Partial Type:** 20 source files
+
+**Fields:** FlushThreshold, IdPropertyName, RefPropertyName, SerializationRequiresDynamicCodeMessage, SerializationUnreferencedCodeMessage, TypePropertyName, ValuesPropertyName, s_metadataId, s_metadataRef, s_metadataType, s_metadataValues
+**Properties:** IsReflectionEnabledByDefault
+**Methods:**
+- **CreateExtensionDataProperty**
+- **Deserialize**: 40 overloads (JsonDocument, JsonElement, JsonNode, ReadOnlySpan, ...)
+- **DeserializeAsync**: 10 overloads (PipeReader, Stream, ...)
+- **DeserializeAsyncEnumerable**: 8 overloads (PipeReader, Stream, ...)
+- **GetMetadataPropertyName**
+- **GetPropertyName**
+- **IsMetadataPropertyName**
+- **IsValidCreationHandlingValue**
+- **IsValidNumberHandlingValue**
+- **IsValidUnmappedMemberHandlingValue**
+- **LookupProperty**
+- **ResolveReferenceId**
+- **Serialize**: 15 overloads (Stream, TValue, object, Utf8JsonWriter, ...)
+- **SerializeAsync**: 10 overloads (Stream, PipeWriter, ...)
+- **SerializeToDocument**: 5 overloads (TValue, object, ...)
+- **SerializeToElement**: 5 overloads (TValue, object, ...)
+- **SerializeToNode**: 5 overloads (TValue, object, ...)
+- **SerializeToUtf8Bytes**: 5 overloads (TValue, object, ...)
+- **TryGetReferenceForValue**
+- **TryHandleReferenceFromJsonElement**
+- **TryHandleReferenceFromJsonNode**
+- **TryReadMetadata**
+- **UnboxOnRead**
+- **UnboxOnWrite**
+- **ValidateMetadataForArrayConverter**
+- **ValidateMetadataForObjectConverter**
+- **WriteMetadataForCollection**
+- **WriteMetadataForObject**
+
+================================================================================
+COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 -v:q
+================================================================================
+# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+
+**Kind:** class
+**Modifiers:** static, abstract, sealed
+**Assembly:** System.Text.Json.dll
+**Package:** system.text.json
+**Version:** 10.0.2
+**Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
+**Source Resolution:** SourceLink
+**Partial Type:** 20 source files
+
+**Fields:** FlushThreshold, IdPropertyName, RefPropertyName, SerializationRequiresDynamicCodeMessage, SerializationUnreferencedCodeMessage, TypePropertyName, ValuesPropertyName, s_metadataId, s_metadataRef, s_metadataType, s_metadataValues
+**Properties:** IsReflectionEnabledByDefault
+**Methods:** CreateExtensionDataProperty, Deserialize, DeserializeAsync, DeserializeAsyncEnumerable, GetMetadataPropertyName, GetPropertyName, IsMetadataPropertyName, IsValidCreationHandlingValue, IsValidNumberHandlingValue, IsValidUnmappedMemberHandlingValue, LookupProperty, ResolveReferenceId, Serialize, SerializeAsync, SerializeToDocument, SerializeToElement, SerializeToNode, SerializeToUtf8Bytes, TryGetReferenceForValue, TryHandleReferenceFromJsonElement, TryHandleReferenceFromJsonNode, TryReadMetadata, UnboxOnRead, UnboxOnWrite, ValidateMetadataForArrayConverter, ValidateMetadataForObjectConverter, WriteMetadataForCollection, WriteMetadataForObject
+
+================================================================================
+COMMAND: api JsonSerializer --package Newtonsoft.Json@13.0.3 --fields-only
+================================================================================
+# Newtonsoft.Json.JsonSerializer (newtonsoft.json 13.0.3)
+
+**Kind:** class
+**Assembly:** Newtonsoft.Json.dll
+**Package:** newtonsoft.json
+**Version:** 13.0.3
+**Source:** https://github.com/JamesNK/Newtonsoft.Json/raw/0a2e291c0d9c0c7675d445703e51750363a549ef/Src/Newtonsoft.Json/JsonSerializer.cs
+**Source Resolution:** SourceLink
+
+================================================================================
+COMMAND: api --platform System.Text.Json -n 10
+================================================================================
+# System.Text.Json
+
+**Types:** 78  
+**Methods:** 569  
+**Properties:** 188  
+
+| Type | Kind | Members |
+|------|------|---------|
+| System.Text.Json.JsonCommentHandling | enum | 4 |
+| System.Text.Json.JsonDocument | class | 12 |
+| System.Text.Json.JsonDocumentOptions | struct | 4 |
+| System.Text.Json.JsonElement | struct | 57 |
+| System.Text.Json.JsonEncodedText | struct | 9 |
+| System.Text.Json.JsonException | class | 9 |
+| System.Text.Json.JsonNamingPolicy | class | 7 |
+| System.Text.Json.JsonProperty | struct | 7 |
+| System.Text.Json.JsonReaderOptions | struct | 4 |
+| System.Text.Json.JsonReaderState | struct | 2 |
+
+*... and 68 more types*
+
+
+############################################################################
+# ASSEMBLY COMMAND
+############################################################################
+
+================================================================================
+COMMAND: assembly --package System.Text.Json@10.0.2 --tfm net10.0
+================================================================================
+# System.Text.Json.dll
+
+## Assembly Info
+
+| Property | Value |
+|----------|-------|
+| Name | System.Text.Json |
+| Version | 10.0.0.0 |
+| Target Framework | .NETCoreApp,Version=v10.0 |
+| Architecture | AnyCPU |
+| Compilation | CoreCLR |
+| Informational Version | 10.0.2+44525024595742ebe09023abe709df51de65009b |
+| Signed | Yes |
+| Public Key Token | 1d05d9bed22b38cb |
+
+================================================================================
+COMMAND: assembly --package System.Text.Json@10.0.2 --tfm net10.0 --audit
+================================================================================
+# System.Text.Json.dll
+
+## Assembly Info
+
+| Property | Value |
+|----------|-------|
+| Name | System.Text.Json |
+| Version | 10.0.0.0 |
+| Target Framework | .NETCoreApp,Version=v10.0 |
+| Architecture | AnyCPU |
+| Compilation | CoreCLR |
+| Informational Version | 10.0.2+44525024595742ebe09023abe709df51de65009b |
+| Signed | Yes |
+| Public Key Token | 1d05d9bed22b38cb |
+
+## Build Audit
+
+| Check | Status |
+|-------|--------|
+| Deterministic | ✓ |
+| Reproducible Flag | ✓ |
+| SourceLink | ✓ |
+
+## PDB
+
+| Property | Value |
+|----------|-------|
+| Format | Portable |
+| Location | Symbol Package |
+| Server | msdl.microsoft.com |
+| Path | /_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.pdb |
+
+
+############################################################################
+# TYPE COMMAND
+############################################################################
+
+================================================================================
+COMMAND: type JsonSerializer --package System.Text.Json@10.0.2
+================================================================================
+## System.Text.Json.JsonSerializer
+*class*
+
+
+├─ Inherits
+│  └─ System.Object
+├─ Properties (1)
+│  └─ bool IsReflectionEnabledByDefault { get; }
+└─ Methods (122)
+   ├─ void CreateExtensionDataProperty(object obj, JsonPropertyInfo jsonPropertyInfo, JsonSerializerOptions options)
+   ├─ TValue Deserialize(JsonDocument document, JsonSerializerOptions options)
+   ├─ object Deserialize(JsonDocument document, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(JsonDocument document, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(JsonDocument document, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(JsonDocument document, Type returnType, JsonSerializerContext context)
+   ├─ TValue Deserialize(JsonElement element, JsonSerializerOptions options)
+   ├─ object Deserialize(JsonElement element, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(JsonElement element, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(JsonElement element, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(JsonElement element, Type returnType, JsonSerializerContext context)
+   ├─ TValue Deserialize(JsonNode node, JsonSerializerOptions options)
+   ├─ object Deserialize(JsonNode node, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(JsonNode node, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(JsonNode node, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(JsonNode node, Type returnType, JsonSerializerContext context)
+   ├─ TValue Deserialize(ReadOnlySpan<byte> utf8Json, JsonSerializerOptions options)
+   ├─ object Deserialize(ReadOnlySpan<byte> utf8Json, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(ReadOnlySpan<byte> utf8Json, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(ReadOnlySpan<byte> utf8Json, Type returnType, JsonSerializerContext context)
+   ├─ TValue Deserialize(Stream utf8Json, JsonSerializerOptions options)
+   ├─ object Deserialize(Stream utf8Json, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(Stream utf8Json, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(Stream utf8Json, Type returnType, JsonSerializerContext context)
+   ├─ TValue Deserialize(string json, JsonSerializerOptions options)
+   ├─ TValue Deserialize(ReadOnlySpan<char> json, JsonSerializerOptions options)
+   ├─ object Deserialize(string json, Type returnType, JsonSerializerOptions options)
+   ├─ object Deserialize(ReadOnlySpan<char> json, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(string json, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ TValue Deserialize(ReadOnlySpan<char> json, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(string json, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(ReadOnlySpan<char> json, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(string json, Type returnType, JsonSerializerContext context)
+   ├─ object Deserialize(ReadOnlySpan<char> json, Type returnType, JsonSerializerContext context)
+   ├─ TValue Deserialize(ref Utf8JsonReader reader, JsonSerializerOptions options)
+   ├─ object Deserialize(ref Utf8JsonReader reader, Type returnType, JsonSerializerOptions options)
+   ├─ TValue Deserialize(ref Utf8JsonReader reader, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ object Deserialize(ref Utf8JsonReader reader, JsonTypeInfo jsonTypeInfo)
+   ├─ object Deserialize(ref Utf8JsonReader reader, Type returnType, JsonSerializerContext context)
+   ├─ ValueTask<TValue> DeserializeAsync(PipeReader utf8Json, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ ValueTask<TValue> DeserializeAsync(PipeReader utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ ValueTask<object> DeserializeAsync(PipeReader utf8Json, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ ValueTask<object> DeserializeAsync(PipeReader utf8Json, Type returnType, JsonSerializerContext context, CancellationToken cancellationToken)
+   ├─ ValueTask<object> DeserializeAsync(PipeReader utf8Json, Type returnType, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ ValueTask<TValue> DeserializeAsync(Stream utf8Json, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ ValueTask<object> DeserializeAsync(Stream utf8Json, Type returnType, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ ValueTask<TValue> DeserializeAsync(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ ValueTask<object> DeserializeAsync(Stream utf8Json, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ ValueTask<object> DeserializeAsync(Stream utf8Json, Type returnType, JsonSerializerContext context, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, bool topLevelValues, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, bool topLevelValues, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(Stream utf8Json, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(Stream utf8Json, bool topLevelValues, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, bool topLevelValues, CancellationToken cancellationToken)
+   ├─ MetadataPropertyName GetMetadataPropertyName(ReadOnlySpan<byte> propertyName, PolymorphicTypeResolver resolver)
+   ├─ ReadOnlySpan<byte> GetPropertyName(ref ReadStack state, ref Utf8JsonReader reader, JsonSerializerOptions options, ref bool isAlreadyReadMetadataProperty)
+   ├─ bool IsMetadataPropertyName(ReadOnlySpan<byte> propertyName, PolymorphicTypeResolver resolver)
+   ├─ bool IsValidCreationHandlingValue(JsonObjectCreationHandling handling)
+   ├─ bool IsValidNumberHandlingValue(JsonNumberHandling handling)
+   ├─ bool IsValidUnmappedMemberHandlingValue(JsonUnmappedMemberHandling handling)
+   ├─ JsonPropertyInfo LookupProperty(object obj, ReadOnlySpan<byte> unescapedPropertyName, ref ReadStack state, JsonSerializerOptions options, ref bool useExtensionProperty, bool createExtensionProperty)
+   ├─ T ResolveReferenceId(ref ReadStack state)
+   ├─ void Serialize(Stream utf8Json, TValue value, JsonSerializerOptions options)
+   ├─ void Serialize(Stream utf8Json, object value, Type inputType, JsonSerializerOptions options)
+   ├─ void Serialize(Stream utf8Json, TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ void Serialize(Stream utf8Json, object value, JsonTypeInfo jsonTypeInfo)
+   ├─ void Serialize(Stream utf8Json, object value, Type inputType, JsonSerializerContext context)
+   ├─ string Serialize(TValue value, JsonSerializerOptions options)
+   ├─ string Serialize(object value, Type inputType, JsonSerializerOptions options)
+   ├─ string Serialize(TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ string Serialize(object value, JsonTypeInfo jsonTypeInfo)
+   ├─ string Serialize(object value, Type inputType, JsonSerializerContext context)
+   ├─ void Serialize(Utf8JsonWriter writer, TValue value, JsonSerializerOptions options)
+   ├─ void Serialize(Utf8JsonWriter writer, object value, Type inputType, JsonSerializerOptions options)
+   ├─ void Serialize(Utf8JsonWriter writer, TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ void Serialize(Utf8JsonWriter writer, object value, JsonTypeInfo jsonTypeInfo)
+   ├─ void Serialize(Utf8JsonWriter writer, object value, Type inputType, JsonSerializerContext context)
+   ├─ Task SerializeAsync(Stream utf8Json, TValue value, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(Stream utf8Json, object value, Type inputType, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(Stream utf8Json, TValue value, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(Stream utf8Json, object value, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(Stream utf8Json, object value, Type inputType, JsonSerializerContext context, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(PipeWriter utf8Json, TValue value, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(PipeWriter utf8Json, TValue value, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(PipeWriter utf8Json, object value, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(PipeWriter utf8Json, object value, Type inputType, JsonSerializerContext context, CancellationToken cancellationToken)
+   ├─ Task SerializeAsync(PipeWriter utf8Json, object value, Type inputType, JsonSerializerOptions options, CancellationToken cancellationToken)
+   ├─ JsonDocument SerializeToDocument(TValue value, JsonSerializerOptions options)
+   ├─ JsonDocument SerializeToDocument(object value, Type inputType, JsonSerializerOptions options)
+   ├─ JsonDocument SerializeToDocument(TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ JsonDocument SerializeToDocument(object value, JsonTypeInfo jsonTypeInfo)
+   ├─ JsonDocument SerializeToDocument(object value, Type inputType, JsonSerializerContext context)
+   ├─ JsonElement SerializeToElement(TValue value, JsonSerializerOptions options)
+   ├─ JsonElement SerializeToElement(object value, Type inputType, JsonSerializerOptions options)
+   ├─ JsonElement SerializeToElement(TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ JsonElement SerializeToElement(object value, JsonTypeInfo jsonTypeInfo)
+   ├─ JsonElement SerializeToElement(object value, Type inputType, JsonSerializerContext context)
+   ├─ JsonNode SerializeToNode(TValue value, JsonSerializerOptions options)
+   ├─ JsonNode SerializeToNode(object value, Type inputType, JsonSerializerOptions options)
+   ├─ JsonNode SerializeToNode(TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ JsonNode SerializeToNode(object value, JsonTypeInfo jsonTypeInfo)
+   ├─ JsonNode SerializeToNode(object value, Type inputType, JsonSerializerContext context)
+   ├─ byte[] SerializeToUtf8Bytes(TValue value, JsonSerializerOptions options)
+   ├─ byte[] SerializeToUtf8Bytes(object value, Type inputType, JsonSerializerOptions options)
+   ├─ byte[] SerializeToUtf8Bytes(TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+   ├─ byte[] SerializeToUtf8Bytes(object value, JsonTypeInfo jsonTypeInfo)
+   ├─ byte[] SerializeToUtf8Bytes(object value, Type inputType, JsonSerializerContext context)
+   ├─ bool TryGetReferenceForValue(object currentValue, ref WriteStack state, Utf8JsonWriter writer)
+   ├─ bool TryHandleReferenceFromJsonElement(ref Utf8JsonReader reader, ref ReadStack state, JsonElement element, ref object referenceValue)
+   ├─ bool TryHandleReferenceFromJsonNode(ref Utf8JsonReader reader, ref ReadStack state, JsonNode jsonNode, ref object referenceValue)
+   ├─ bool TryReadMetadata(JsonConverter converter, JsonTypeInfo jsonTypeInfo, ref Utf8JsonReader reader, ref ReadStack state)
+   ├─ T UnboxOnRead(object value)
+   ├─ T UnboxOnWrite(object value)
+   ├─ void ValidateMetadataForArrayConverter(JsonConverter converter, ref Utf8JsonReader reader, ref ReadStack state)
+   ├─ void ValidateMetadataForObjectConverter(ref ReadStack state)
+   ├─ MetadataPropertyName WriteMetadataForCollection(JsonConverter jsonConverter, ref WriteStack state, Utf8JsonWriter writer)
+   └─ MetadataPropertyName WriteMetadataForObject(JsonConverter jsonConverter, ref WriteStack state, Utf8JsonWriter writer)
+
+
+############################################################################
+# DIFF COMMAND
+############################################################################
+
+================================================================================
+COMMAND: diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
+================================================================================
+## API Diff: JsonSerializer
+
+**9.0.0** → **10.0.2**
+
+**Summary:** +9 added, -0 removed
+
+### Added
+
++ `IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, JsonSerializerOptions options, CancellationToken cancellationToken)`
++ `IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)`
++ `IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, bool topLevelValues, CancellationToken cancellationToken)`
++ `IAsyncEnumerable<TValue> DeserializeAsyncEnumerable(PipeReader utf8Json, bool topLevelValues, JsonSerializerOptions options, CancellationToken cancellationToken)`
++ `ValueTask<TValue> DeserializeAsync(PipeReader utf8Json, JsonSerializerOptions options, CancellationToken cancellationToken)`
++ `ValueTask<TValue> DeserializeAsync(PipeReader utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken)`
++ `ValueTask<object> DeserializeAsync(PipeReader utf8Json, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)`
++ `ValueTask<object> DeserializeAsync(PipeReader utf8Json, Type returnType, JsonSerializerContext context, CancellationToken cancellationToken)`
++ `ValueTask<object> DeserializeAsync(PipeReader utf8Json, Type returnType, JsonSerializerOptions options, CancellationToken cancellationToken)`
+
+
+############################################################################
+# PLATFORM COMMAND
+############################################################################
+
+================================================================================
+COMMAND: platform
+================================================================================
+# Installed Frameworks
+
+**Packs Directory:** /usr/local/share/dotnet/packs
+
+| Framework | Version | Assemblies |
+|-----------|---------|------------|
+| runtime | 10.0.2 | 167 |
+| aspnetcore | 10.0.2 | 140 |
+| netstandard | 2.1.0 | 121 |
+
+================================================================================
+COMMAND: platform --list-versions
+================================================================================
+# Installed Versions
+
+## runtime
+
+- 10.0.2
+- 10.0.0-preview.7.25380.108
+- 10.0.0-preview.6.25358.103
+- 10.0.0-preview.5.25277.114
+- 10.0.0-rc.2.25502.107
+- 10.0.0-rc.1.25451.107
+- 10.0.0
+- 9.0.12
+- 9.0.6
+- 8.0.23
+
+## aspnetcore
+
+- 10.0.2
+- 10.0.0-preview.7.25380.108
+- 10.0.0-preview.6.25358.103
+- 10.0.0-preview.5.25277.114
+- 10.0.0-rc.2.25502.107
+- 10.0.0-rc.1.25451.107
+- 10.0.0
+- 9.0.12
+- 9.0.6
+- 8.0.23
+
+## netstandard
+
+- 2.1.0
+
+================================================================================
+COMMAND: platform --framework runtime -n 10
+================================================================================
+## runtime (10.0.2)
+
+| Assembly |
+|----------|
+| Microsoft.CSharp.dll |
+| Microsoft.VisualBasic.Core.dll |
+| Microsoft.VisualBasic.dll |
+| Microsoft.Win32.Primitives.dll |
+| Microsoft.Win32.Registry.dll |
+| mscorlib.dll |
+| netstandard.dll |
+| System.AppContext.dll |
+| System.Buffers.dll |
+| System.Collections.Concurrent.dll |
+
+*... and 157 more assemblies*
+
