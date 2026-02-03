@@ -29,19 +29,11 @@ public class FindCommand
             }
 
             var results = new List<TypeSearchResult>();
-            var seen = new HashSet<string>(); // For deduplication: "FullName|Assembly"
 
-            // Helper to add results with deduplication
+            // Helper to add results (no deduplication - show all sources)
             void AddResults(IEnumerable<TypeSearchResult> types)
             {
-                foreach (var t in types)
-                {
-                    var key = $"{t.FullName}|{t.Assembly}";
-                    if (seen.Add(key))
-                    {
-                        results.Add(t);
-                    }
-                }
+                results.AddRange(types);
             }
 
             // Check if we've hit the limit
