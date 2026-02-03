@@ -26,6 +26,16 @@ public record FindOptions
     public string? PlatformFramework { get; init; }
 
     /// <summary>
+    /// Project file path (.csproj). Searches all transitive dependencies via project.assets.json.
+    /// </summary>
+    public string? ProjectPath { get; init; }
+
+    /// <summary>
+    /// Binary output directory path (e.g., bin/Debug/net8.0). Searches all DLLs in the directory.
+    /// </summary>
+    public string? BinPath { get; init; }
+
+    /// <summary>
     /// Target framework moniker (e.g., net8.0).
     /// </summary>
     public string? Tfm { get; init; }

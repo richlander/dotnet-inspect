@@ -191,7 +191,9 @@ public static class CommandLineBuilder
         var assemblyOption = new Option<string?>("--assembly") { Description = "Search in assembly file" };
         var platformOption = new Option<string?>("--platform") { Description = "Search in platform assembly (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Search all assemblies in framework (runtime, aspnetcore, netstandard)" };
-        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
+        var projectOption = new Option<string?>("--project") { Description = "Search project dependencies via project.assets.json (path to .csproj)" };
+        var binOption = new Option<string?>("--bin") { Description = "Search all DLLs in output directory (e.g., bin/Debug/net8.0)" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
 
@@ -200,6 +202,8 @@ public static class CommandLineBuilder
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(frameworkOption);
+        findCommand.Options.Add(projectOption);
+        findCommand.Options.Add(binOption);
         findCommand.Options.Add(tfmOption);
         findCommand.Options.Add(allOption);
         findCommand.Options.Add(limitOption);
@@ -216,6 +220,8 @@ public static class CommandLineBuilder
                 AssemblyPath = parseResult.GetValue(assemblyOption),
                 PlatformAssembly = parseResult.GetValue(platformOption),
                 PlatformFramework = parseResult.GetValue(frameworkOption),
+                ProjectPath = parseResult.GetValue(projectOption),
+                BinPath = parseResult.GetValue(binOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = parseResult.GetValue(limitOption),

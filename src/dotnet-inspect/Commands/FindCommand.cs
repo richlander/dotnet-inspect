@@ -127,9 +127,106 @@ public class FindCommand
                         break;
                 }
             }
+            else if (!string.IsNullOrEmpty(options.BinPath))
+            {
+                // Search all DLLs in the output directory
+                if (!Directory.Exists(options.BinPath))
+                {
+                    Console.Error.WriteLine($"Error: Directory not found: {options.BinPath}");
+                    return 1;
+                }
+
+                var dlls = Directory.GetFiles(options.BinPath, "*.dll", SearchOption.TopDirectoryOnly);
+                logger.Log($"Searching {dlls.Length} assemblies in {options.BinPath}");
+                
+                foreach (var dll in dlls)
+                {
+                    var types = SearchAssembly(dll, pattern, options.IncludeAll, logger);
+                    foreach (var t in types)
+                    {
+                        t.Source = Path.GetFileName(options.BinPath);
+                    }
+                    results.AddRange(types);
+
+                    if (options.Limit.HasValue && results.Count >= options.Limit.Value)
+                        break;
+                }
+            }
+            else if (!string.IsNullOrEmpty(options.ProjectPath))
+            {
+                // Search project dependencies via project.assets.json
+                var projectPath = Path.GetFullPath(options.ProjectPath);
+                var projectDir = Path.GetDirectoryName(projectPath);
+                var projectName = Path.GetFileNameWithoutExtension(projectPath);
+                
+                if (projectDir == null || !File.Exists(projectPath))
+                {
+                    Console.Error.WriteLine($"Error: Project file not found: {options.ProjectPath}");
+                    return 1;
+                }
+
+                // Look for project.assets.json in multiple locations
+                // 1. Standard: obj/project.assets.json
+                // 2. SDK artifacts: artifacts/obj/<ProjectName>/project.assets.json
+                var candidatePaths = new[]
+                {
+                    Path.Combine(projectDir, "obj", "project.assets.json"),
+                    Path.Combine(projectDir, "..", "..", "artifacts", "obj", projectName, "project.assets.json"),
+                    Path.Combine(projectDir, "artifacts", "obj", projectName, "project.assets.json")
+                };
+
+                string? assetsPath = null;
+                foreach (var candidate in candidatePaths)
+                {
+                    var normalized = Path.GetFullPath(candidate);
+                    if (File.Exists(normalized))
+                    {
+                        assetsPath = normalized;
+                        break;
+                    }
+                }
+
+                if (assetsPath == null)
+                {
+                    Console.Error.WriteLine($"Error: project.assets.json not found. Run 'dotnet restore' first.");
+                    Console.Error.WriteLine("Searched locations:");
+                    foreach (var candidate in candidatePaths)
+                    {
+                        Console.Error.WriteLine($"  {Path.GetFullPath(candidate)}");
+                    }
+                    return 1;
+                }
+
+                logger.Log($"Using assets file: {assetsPath}");
+                var assemblies = ParseProjectAssets(assetsPath, options.Tfm, logger);
+                if (assemblies.Count == 0)
+                {
+                    Console.Error.WriteLine("Error: No assemblies found in project.assets.json.");
+                    if (!string.IsNullOrEmpty(options.Tfm))
+                    {
+                        Console.Error.WriteLine($"Check that TFM '{options.Tfm}' exists in the project.");
+                    }
+                    return 1;
+                }
+
+                logger.Log($"Searching {assemblies.Count} assemblies from project dependencies");
+                foreach (var (asmPath, packageName, packageVersion) in assemblies)
+                {
+                    var types = SearchAssembly(asmPath, pattern, options.IncludeAll, logger);
+                    foreach (var t in types)
+                    {
+                        t.Source = packageName;
+                        t.SourceVersion = packageVersion;
+                    }
+                    results.AddRange(types);
+
+                    if (options.Limit.HasValue && results.Count >= options.Limit.Value)
+                        break;
+                }
+            }
             else
             {
-                Console.Error.WriteLine("Error: Must specify --package, --assembly, --platform, or --framework.");
+                Console.Error.WriteLine("Error: Must specify --package, --assembly, --platform, --framework, --project, or --bin.");
                 Console.Error.WriteLine("Run 'dotnet-inspect find --help' for usage.");
                 return 1;
             }
@@ -498,6 +595,116 @@ public class FindCommand
         }
 
         return 0;
+    }
+
+    #endregion
+
+    #region Project Assets Parsing
+
+    private static List<(string Path, string PackageName, string Version)> ParseProjectAssets(string assetsPath, string? tfmFilter, VerboseLogger logger)
+    {
+        var results = new List<(string Path, string PackageName, string Version)>();
+        var nugetCache = NuGetCache.GetNuGetCachePath();
+
+        try
+        {
+            var json = File.ReadAllText(assetsPath);
+            using var doc = JsonDocument.Parse(json);
+
+            // Get targets - contains TFM-specific dependency info
+            if (!doc.RootElement.TryGetProperty("targets", out var targets))
+                return results;
+
+            // Find the target TFM
+            string? selectedTfm = null;
+            foreach (var target in targets.EnumerateObject())
+            {
+                var tfmName = target.Name;
+                // Target names can be "net8.0" or "net8.0/win-x64"
+                var baseTfm = tfmName.Contains('/') ? tfmName[..tfmName.IndexOf('/')] : tfmName;
+
+                if (!string.IsNullOrEmpty(tfmFilter))
+                {
+                    if (baseTfm.Equals(tfmFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedTfm = tfmName;
+                        break;
+                    }
+                }
+                else
+                {
+                    // Pick the highest priority TFM
+                    if (selectedTfm == null || GetTfmPriority(baseTfm) > GetTfmPriority(selectedTfm.Contains('/') ? selectedTfm[..selectedTfm.IndexOf('/')] : selectedTfm))
+                    {
+                        selectedTfm = tfmName;
+                    }
+                }
+            }
+
+            if (selectedTfm == null)
+                return results;
+
+            logger.Log($"Using target framework: {selectedTfm}");
+
+            // Get libraries for package paths
+            if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
+                return results;
+
+            var targetDeps = targets.GetProperty(selectedTfm);
+
+            foreach (var dep in targetDeps.EnumerateObject())
+            {
+                // dep.Name is "PackageName/Version"
+                var parts = dep.Name.Split('/');
+                if (parts.Length != 2) continue;
+
+                var packageName = parts[0];
+                var version = parts[1];
+
+                // Get the library path from libraries section
+                if (!libraries.TryGetProperty(dep.Name, out var libInfo))
+                    continue;
+
+                // Skip project references
+                if (libInfo.TryGetProperty("type", out var typeElem) && typeElem.GetString() == "project")
+                    continue;
+
+                // Get the package path
+                if (!libInfo.TryGetProperty("path", out var pathElem))
+                    continue;
+
+                var packagePath = pathElem.GetString();
+                if (string.IsNullOrEmpty(packagePath))
+                    continue;
+
+                // Get compile-time assemblies
+                if (dep.Value.TryGetProperty("compile", out var compile))
+                {
+                    foreach (var asm in compile.EnumerateObject())
+                    {
+                        // asm.Name is like "lib/net8.0/Package.dll"
+                        if (!asm.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        // Skip placeholder assemblies
+                        if (asm.Name.Contains("_._"))
+                            continue;
+
+                        var fullPath = Path.Combine(nugetCache, packagePath, asm.Name.Replace('/', Path.DirectorySeparatorChar));
+                        if (File.Exists(fullPath))
+                        {
+                            results.Add((fullPath, packageName, version));
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Failed to parse project.assets.json: {ex.Message}");
+        }
+
+        return results;
     }
 
     #endregion
