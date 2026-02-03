@@ -7,7 +7,6 @@
     <Nullable>enable</Nullable>
     <LangVersion>13.0</LangVersion>
     <IsAotCompatible>true</IsAotCompatible>
-    <PublishAot>true</PublishAot>
     <RollForward>LatestMajor</RollForward>
     <!-- Size optimizations for Native AOT (11M → 9.8M) -->
     <StackTraceSupport>false</StackTraceSupport>
@@ -24,7 +23,7 @@
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.1.8</VersionPrefix>
+    <VersionPrefix>0.1.9</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
