@@ -65,6 +65,16 @@ dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
 dotnet-inspect type JsonSerializer --package System.Text.Json     # Inheritance tree
 ```
 
+### samples (experimental)
+
+Fetch code samples via SourceLink for packages with embedded sample references:
+
+```bash
+dotnet-inspect samples --package Newtonsoft.Json --list           # List available samples
+dotnet-inspect samples JsonConvert --package Newtonsoft.Json      # Fetch samples for type
+dotnet-inspect samples --package Markout --list                   # Works with SourceLink-enabled packages
+```
+
 ### platform
 
 ```bash

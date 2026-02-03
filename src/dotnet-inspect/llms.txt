@@ -93,13 +93,6 @@ dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework
 dotnet-inspect type JsonSerializer --package System.Text.Json     # Tree view
 ```
 
-### samples
-
-```bash
-dotnet-inspect samples JsonSerializer --package System.Text.Json  # Code samples from SourceLink
-dotnet-inspect samples --package System.Text.Json --list          # List available samples
-```
-
 ### platform
 
 ```bash
