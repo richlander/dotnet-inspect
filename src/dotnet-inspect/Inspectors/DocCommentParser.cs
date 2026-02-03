@@ -119,11 +119,15 @@ public partial class DocCommentParser
             
             while (idx >= 0)
             {
-                // Found potential member, search backwards for /// comments
-                var commentBlock = ExtractPrecedingDocComment(sourceContent, idx);
-                if (commentBlock != null)
+                // Check if this is inside a doc comment or string (skip if so)
+                if (!IsInsideDocComment(sourceContent, idx))
                 {
-                    return ParseXmlDocComment(commentBlock);
+                    // Found potential member, search backwards for /// comments
+                    var commentBlock = ExtractPrecedingDocComment(sourceContent, idx);
+                    if (commentBlock != null)
+                    {
+                        return ParseXmlDocComment(commentBlock);
+                    }
                 }
                 
                 // Keep searching for other occurrences
@@ -132,6 +136,23 @@ public partial class DocCommentParser
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks if the given index is inside a doc comment line (starts with ///).
+    /// </summary>
+    private static bool IsInsideDocComment(string sourceContent, int index)
+    {
+        // Find the start of the line containing this index
+        var lineStart = sourceContent.LastIndexOf('\n', index);
+        if (lineStart < 0) lineStart = 0;
+        else lineStart++; // Skip the newline char
+        
+        // Get the line content up to the index
+        var linePrefix = sourceContent.Substring(lineStart, index - lineStart).TrimStart();
+        
+        // If the line starts with ///, we're inside a doc comment
+        return linePrefix.StartsWith("///") || linePrefix.StartsWith("//");
     }
 
     // Known C# modifiers that can appear before type/member declarations

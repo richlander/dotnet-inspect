@@ -542,12 +542,12 @@ COMMAND: api --package System.Text.Json@10.0.2 -n 10
 ================================================================================
 COMMAND: api JsonSerializer --package System.Text.Json@10.0.2
 ================================================================================
-# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 **Kind:** class
 **Modifiers:** static, abstract, sealed
 **Assembly:** System.Text.Json.dll
-**Package:** system.text.json
+**Package:** System.Text.Json
 **Version:** 10.0.2
 **Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
 **Source Resolution:** SourceLink
@@ -588,12 +588,12 @@ COMMAND: api JsonSerializer --package System.Text.Json@10.0.2
 ================================================================================
 COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 -m Serialize
 ================================================================================
-# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 **Kind:** class
 **Modifiers:** static, abstract, sealed
 **Assembly:** System.Text.Json.dll
-**Package:** system.text.json
+**Package:** System.Text.Json
 **Version:** 10.0.2
 **Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
 **Source Resolution:** SourceLink
@@ -605,12 +605,12 @@ COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 -m Serialize
 ================================================================================
 COMMAND: api JsonSerializerOptions --package System.Text.Json@10.0.2 --ctor
 ================================================================================
-# System.Text.Json.JsonSerializerOptions (system.text.json 10.0.2)
+# System.Text.Json.JsonSerializerOptions (System.Text.Json 10.0.2)
 
 **Kind:** class
 **Modifiers:** sealed
 **Assembly:** System.Text.Json.dll
-**Package:** system.text.json
+**Package:** System.Text.Json
 **Version:** 10.0.2
 **Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializerOptions.cs
 **Source Resolution:** SourceLink
@@ -622,12 +622,12 @@ COMMAND: api JsonSerializerOptions --package System.Text.Json@10.0.2 --ctor
 ================================================================================
 COMMAND: api 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1
 ================================================================================
-# System.CommandLine.Option`1 (system.commandline 2.0.0-beta4.22272.1)
+# System.CommandLine.Option`1 (System.CommandLine 2.0.0-beta4.22272.1)
 
 **Kind:** class
 **Base:** System.CommandLine.Option
 **Assembly:** System.CommandLine.dll
-**Package:** system.commandline
+**Package:** System.CommandLine
 **Version:** 2.0.0-beta4.22272.1
 **Source:** https://github.com/dotnet/command-line-api/raw/209b724a3c843253d3071e8348c353b297b0b8b5/src/System.CommandLine/Option{T}.cs
 **Source Resolution:** SourceLink
@@ -639,12 +639,12 @@ COMMAND: api 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1
 ================================================================================
 COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 --signatures-only -n 10
 ================================================================================
-# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 **Kind:** class
 **Modifiers:** static, abstract, sealed
 **Assembly:** System.Text.Json.dll
-**Package:** system.text.json
+**Package:** System.Text.Json
 **Version:** 10.0.2
 **Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
 **Source Resolution:** SourceLink
@@ -685,12 +685,12 @@ COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 --signatures-only 
 ================================================================================
 COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 -v:q
 ================================================================================
-# System.Text.Json.JsonSerializer (system.text.json 10.0.2)
+# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 **Kind:** class
 **Modifiers:** static, abstract, sealed
 **Assembly:** System.Text.Json.dll
-**Package:** system.text.json
+**Package:** System.Text.Json
 **Version:** 10.0.2
 **Source:** https://github.com/dotnet/dotnet/raw/44525024595742ebe09023abe709df51de65009b/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Helpers.cs
 **Source Resolution:** SourceLink
@@ -703,11 +703,11 @@ COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 -v:q
 ================================================================================
 COMMAND: api JsonSerializer --package Newtonsoft.Json@13.0.3 --fields-only
 ================================================================================
-# Newtonsoft.Json.JsonSerializer (newtonsoft.json 13.0.3)
+# Newtonsoft.Json.JsonSerializer (Newtonsoft.Json 13.0.3)
 
 **Kind:** class
 **Assembly:** Newtonsoft.Json.dll
-**Package:** newtonsoft.json
+**Package:** Newtonsoft.Json
 **Version:** 13.0.3
 **Source:** https://github.com/JamesNK/Newtonsoft.Json/raw/0a2e291c0d9c0c7675d445703e51750363a549ef/Src/Newtonsoft.Json/JsonSerializer.cs
 **Source Resolution:** SourceLink
