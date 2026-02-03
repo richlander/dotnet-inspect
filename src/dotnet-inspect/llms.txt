@@ -6,6 +6,7 @@ CLI tool for inspecting .NET assemblies and NuGet packages.
 dotnet-inspect <package>[@version]           # Package metadata
 dotnet-inspect api <type> --package <pkg>    # API from package
 dotnet-inspect api --platform <assembly>     # API from installed SDK
+dotnet-inspect find <pattern>                # Search types in runtime
 dotnet-inspect assembly path/to/file.dll     # Local assembly
 dotnet-inspect diff <type> --package         # Version comparison
 ```
@@ -56,6 +57,35 @@ dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit
 ```bash
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
 ```
+
+### find
+
+Search for types across packages, assemblies, and frameworks.
+
+```bash
+dotnet-inspect find HttpClient                          # Search runtime (default)
+dotnet-inspect find "*Stream*" -n 10                    # Glob pattern, limit results
+dotnet-inspect find "*Json*" --package System.Text.Json # Search in package
+dotnet-inspect find "*Serializer*" --package System.Text.Json --package Newtonsoft.Json  # Multiple packages
+dotnet-inspect find "*Command*" --project ./MyApp.csproj  # Project dependencies
+dotnet-inspect find "*Service*" --bin ./bin/Debug/net8.0  # Built output directory
+dotnet-inspect find ILogger --framework aspnetcore      # ASP.NET Core framework
+```
+
+Scopes can be combined:
+```bash
+dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework aspnetcore
+```
+
+| Scope | Description |
+|-------|-------------|
+| (none) | Defaults to `--framework runtime` |
+| `--package` | NuGet package (name or name@version) |
+| `--assembly` | Local assembly file |
+| `--platform` | Specific platform assembly |
+| `--framework` | All assemblies in framework (runtime, aspnetcore, netstandard) |
+| `--project` | Project dependencies via project.assets.json |
+| `--bin` | All DLLs in output directory |
 
 ### type
 
