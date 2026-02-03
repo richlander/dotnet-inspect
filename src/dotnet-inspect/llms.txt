@@ -158,5 +158,6 @@ dotnet-inspect System.Text.Json -v:d -s:1,2        # Include only sections 1 and
 ## Tips
 
 - Generic types: `'Option<T>'` or `'Option\`1'`
+- Glob patterns must be quoted: `"*Stream*"` (prevents shell expansion)
 - Member filter is case-insensitive
 - Uses NuGet cache; `--verbose` shows cache activity
