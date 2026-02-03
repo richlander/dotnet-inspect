@@ -1,76 +1,82 @@
 using System.Text;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 
 namespace DotnetInspector.Commands;
 
 /// <summary>
-/// Compares API surfaces between two package versions.
+/// Compares API surfaces between two package or platform versions.
 /// </summary>
 public class DiffCommand
 {
     public static async Task<int> ExecuteAsync(string? typeName, DiffOptions options)
     {
-        if (string.IsNullOrEmpty(options.PackageVersionRange))
+        var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
+        var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
+
+        if (!hasPlatform && !hasPackage)
         {
-            Console.Error.WriteLine("Error: --package with version range required (e.g., System.Text.Json@9.0.0..10.0.2)");
+            Console.Error.WriteLine("Error: --package or --platform with version range required.");
+            Console.Error.WriteLine("Examples:");
+            Console.Error.WriteLine("  --package System.Text.Json@9.0.0..10.0.2");
+            Console.Error.WriteLine("  --platform System.Text.Json@8.0.23..10.0.2");
             return 1;
         }
 
-        // Parse version range: Package@v1..v2
-        var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange);
-        if (packageName == null || fromVersion == null || toVersion == null)
+        if (hasPlatform && hasPackage)
         {
-            Console.Error.WriteLine("Error: Invalid version range. Use format: Package@v1..v2");
-            Console.Error.WriteLine("Example: System.Text.Json@9.0.0..10.0.2");
+            Console.Error.WriteLine("Error: Cannot specify both --package and --platform.");
             return 1;
         }
 
+        if (string.IsNullOrEmpty(typeName))
+        {
+            Console.Error.WriteLine("Error: Type name required for diff command.");
+            Console.Error.WriteLine("Usage: dotnet-inspect diff <type> --package Package@v1..v2");
+            Console.Error.WriteLine("       dotnet-inspect diff <type> --platform Assembly@v1..v2");
+            return 1;
+        }
+
+        typeName = ApiCommand.ConvertGenericTypeName(typeName);
         var logger = new VerboseLogger(options.Verbose);
-        logger.Log($"Comparing {packageName} v{fromVersion} → v{toVersion}");
 
         try
         {
-            // Extract API from both versions
-            var fromOptions = new ApiOptions
+            ApiType? fromType;
+            ApiType? toType;
+            string fromVersion;
+            string toVersion;
+
+            if (hasPackage)
             {
-                PackagePath = $"{packageName}@{fromVersion}",
-                Tfm = options.Tfm,
-                IncludeAll = options.IncludeAll,
-                Verbose = options.Verbose
-            };
-
-            var toOptions = new ApiOptions
-            {
-                PackagePath = $"{packageName}@{toVersion}",
-                Tfm = options.Tfm,
-                IncludeAll = options.IncludeAll,
-                Verbose = options.Verbose
-            };
-
-            ApiType? fromType = null;
-            ApiType? toType = null;
-
-            if (!string.IsNullOrEmpty(typeName))
-            {
-                // Compare specific type
-                typeName = ApiCommand.ConvertGenericTypeName(typeName);
-                
-                var (fromResult, _) = await ApiCommand.ExtractTypeAsync(typeName, fromOptions, logger);
-                var (toResult, _) = await ApiCommand.ExtractTypeAsync(typeName, toOptions, logger);
-
-                fromType = fromResult;
-                toType = toResult;
-
-                if (fromType == null && toType == null)
+                var result = await ExecutePackageDiffAsync(typeName, options, logger);
+                if (result.error != null)
                 {
-                    Console.Error.WriteLine($"Error: Type '{typeName}' not found in either version.");
+                    Console.Error.WriteLine(result.error);
                     return 1;
                 }
+                fromType = result.fromType;
+                toType = result.toType;
+                fromVersion = result.fromVersion!;
+                toVersion = result.toVersion!;
             }
             else
             {
-                Console.Error.WriteLine("Error: Type name required for diff command.");
-                Console.Error.WriteLine("Usage: dotnet-inspect diff <type> --package Package@v1..v2");
+                var result = await ExecutePlatformDiffAsync(typeName, options, logger);
+                if (result.error != null)
+                {
+                    Console.Error.WriteLine(result.error);
+                    return 1;
+                }
+                fromType = result.fromType;
+                toType = result.toType;
+                fromVersion = result.fromVersion!;
+                toVersion = result.toVersion!;
+            }
+
+            if (fromType == null && toType == null)
+            {
+                Console.Error.WriteLine($"Error: Type '{typeName}' not found in either version.");
                 return 1;
             }
 
@@ -85,6 +91,95 @@ public class DiffCommand
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
         }
+    }
+
+    private static async Task<(ApiType? fromType, ApiType? toType, string? fromVersion, string? toVersion, string? error)>
+        ExecutePackageDiffAsync(string typeName, DiffOptions options, VerboseLogger logger)
+    {
+        var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
+        if (packageName == null || fromVersion == null || toVersion == null)
+        {
+            return (null, null, null, null, "Error: Invalid version range. Use format: Package@v1..v2");
+        }
+
+        logger.Log($"Comparing {packageName} v{fromVersion} → v{toVersion}");
+
+        var fromOptions = new ApiOptions
+        {
+            PackagePath = $"{packageName}@{fromVersion}",
+            Tfm = options.Tfm,
+            IncludeAll = options.IncludeAll,
+            Verbose = options.Verbose
+        };
+
+        var toOptions = new ApiOptions
+        {
+            PackagePath = $"{packageName}@{toVersion}",
+            Tfm = options.Tfm,
+            IncludeAll = options.IncludeAll,
+            Verbose = options.Verbose
+        };
+
+        var (fromType, _) = await ApiCommand.ExtractTypeAsync(typeName, fromOptions, logger);
+        var (toType, _) = await ApiCommand.ExtractTypeAsync(typeName, toOptions, logger);
+
+        return (fromType, toType, fromVersion, toVersion, null);
+    }
+
+    private static async Task<(ApiType? fromType, ApiType? toType, string? fromVersion, string? toVersion, string? error)>
+        ExecutePlatformDiffAsync(string typeName, DiffOptions options, VerboseLogger logger)
+    {
+        var (assemblyName, fromVersion, toVersion) = ParseVersionRange(options.PlatformVersionRange!);
+        if (assemblyName == null || fromVersion == null || toVersion == null)
+        {
+            return (null, null, null, null, "Error: Invalid version range. Use format: Assembly@v1..v2");
+        }
+
+        var framework = options.Framework ?? "runtime";
+        logger.Log($"Comparing {assemblyName} in {framework} v{fromVersion} → v{toVersion}");
+
+        // Resolve assemblies for both versions
+        var (fromPath, _, _, fromError) = PlatformResolver.ResolveAssembly(
+            assemblyName,
+            $"{framework}@{fromVersion}",
+            packsDirectory: null,
+            useRuntimeAssemblies: false);
+
+        if (fromError != null)
+        {
+            return (null, null, null, null, $"Error resolving v{fromVersion}: {fromError}");
+        }
+
+        var (toPath, _, _, toError) = PlatformResolver.ResolveAssembly(
+            assemblyName,
+            $"{framework}@{toVersion}",
+            packsDirectory: null,
+            useRuntimeAssemblies: false);
+
+        if (toError != null)
+        {
+            return (null, null, null, null, $"Error resolving v{toVersion}: {toError}");
+        }
+
+        // Extract types from both assemblies
+        var fromOptions = new ApiOptions
+        {
+            AssemblyPath = fromPath,
+            IncludeAll = options.IncludeAll,
+            Verbose = options.Verbose
+        };
+
+        var toOptions = new ApiOptions
+        {
+            AssemblyPath = toPath,
+            IncludeAll = options.IncludeAll,
+            Verbose = options.Verbose
+        };
+
+        var (fromType, _) = await ApiCommand.ExtractTypeAsync(typeName, fromOptions, logger);
+        var (toType, _) = await ApiCommand.ExtractTypeAsync(typeName, toOptions, logger);
+
+        return (fromType, toType, fromVersion, toVersion, null);
     }
 
     private static (string? package, string? fromVersion, string? toVersion) ParseVersionRange(string input)
@@ -204,6 +299,8 @@ public class DiffCommand
 public record DiffOptions
 {
     public string? PackageVersionRange { get; init; }
+    public string? PlatformVersionRange { get; init; }
+    public string? Framework { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public bool Verbose { get; init; }

@@ -136,7 +136,7 @@ public static class CommandLineBuilder
 
     private static Command CreateDiffCommand(Option<bool> verboseOption)
     {
-        var diffCommand = new Command("diff", "Compare API surfaces between package versions");
+        var diffCommand = new Command("diff", "Compare API surfaces between package or platform versions");
 
         var typeNameArg = new Argument<string?>("type")
         {
@@ -149,11 +149,21 @@ public static class CommandLineBuilder
         {
             Description = "Package with version range (e.g., System.Text.Json@9.0.0..10.0.2)"
         };
+        var platformOption = new Option<string?>("--platform")
+        {
+            Description = "Platform assembly with version range (e.g., System.Text.Json@8.0.23..10.0.2)"
+        };
+        var frameworkOption = new Option<string?>("--framework")
+        {
+            Description = "Framework for platform diff (runtime, aspnetcore). Default: runtime"
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
 
         diffCommand.Arguments.Add(typeNameArg);
         diffCommand.Options.Add(packageOption);
+        diffCommand.Options.Add(platformOption);
+        diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
         diffCommand.Options.Add(verboseOption);
@@ -164,6 +174,8 @@ public static class CommandLineBuilder
             var options = new DiffOptions
             {
                 PackageVersionRange = parseResult.GetValue(packageOption),
+                PlatformVersionRange = parseResult.GetValue(platformOption),
+                Framework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Verbose = parseResult.GetValue(verboseOption)
