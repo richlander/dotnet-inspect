@@ -182,33 +182,25 @@ public class AssemblyCommand
                 string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
                 logger.Log($"Downloading: {packageName} {version}");
 
-                try
-                {
-                    byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
-                    string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                    await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                    ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-                    logger.Log("Package downloaded successfully.");
-
-                    // Cache the package for future use
-                    var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
-                    if (newCachePath != null)
-                    {
-                        logger.Log($"Cached to: {newCachePath}");
-                    }
-                }
-                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+                byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
+                if (packageBytes == null)
                 {
                     Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
                     Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
                     try { Directory.Delete(tempDir, recursive: true); } catch { }
                     return null;
                 }
-                catch (HttpRequestException ex)
+
+                string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+                await File.WriteAllBytesAsync(nupkgPath, packageBytes);
+                ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+                logger.Log("Package downloaded successfully.");
+
+                // Cache the package for future use
+                var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
+                if (newCachePath != null)
                 {
-                    Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
-                    return null;
+                    logger.Log($"Cached to: {newCachePath}");
                 }
             }
         }

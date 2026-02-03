@@ -127,7 +127,12 @@ public class PackageCommand
                     string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
                     logger.Log($"Downloading: {nupkgUrl}");
 
-                    byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
+                    byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
+                    if (packageBytes == null)
+                    {
+                        Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found or download failed.");
+                        return 1;
+                    }
                     string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
                     await File.WriteAllBytesAsync(nupkgPath, packageBytes);
                     ZipFile.ExtractToDirectory(nupkgPath, extractPath);

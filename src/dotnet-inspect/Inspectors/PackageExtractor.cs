@@ -1,0 +1,227 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
+using System.IO.Compression;
+using DotnetInspector.Output;
+
+namespace DotnetInspector.Inspectors;
+
+/// <summary>
+/// Result of a package extraction operation.
+/// </summary>
+/// <param name="ExtractPath">Path to the extracted package contents</param>
+/// <param name="TempDir">Temporary directory to clean up (null if using cache)</param>
+/// <param name="PackageName">Package name</param>
+/// <param name="Version">Package version (may be null for local files)</param>
+public record PackageExtractionResult(
+    string ExtractPath,
+    string? TempDir,
+    string? PackageName,
+    string? Version);
+
+/// <summary>
+/// Shared utility for extracting NuGet packages from local files or nuget.org.
+/// </summary>
+public static class PackageExtractor
+{
+    /// <summary>
+    /// Extracts a package from a local .nupkg file or downloads from nuget.org.
+    /// </summary>
+    /// <param name="packageSource">Local .nupkg path or package reference (name or name@version)</param>
+    /// <param name="logger">Logger for verbose output</param>
+    /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
+    /// <returns>Extraction result or null if failed</returns>
+    public static async Task<PackageExtractionResult?> ExtractPackageAsync(
+        string packageSource,
+        VerboseLogger logger,
+        string tempDirPrefix = "inspect-pkg")
+    {
+        bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+
+        if (isLocalFile)
+        {
+            return ExtractLocalPackage(packageSource, logger, tempDirPrefix);
+        }
+
+        return await DownloadAndExtractPackageAsync(packageSource, logger, tempDirPrefix);
+    }
+
+    private static PackageExtractionResult? ExtractLocalPackage(
+        string packageSource,
+        VerboseLogger logger,
+        string tempDirPrefix)
+    {
+        if (!File.Exists(packageSource))
+        {
+            Console.Error.WriteLine($"Error: Package not found: {packageSource}");
+            return null;
+        }
+
+        string tempDir = Path.Combine(Path.GetTempPath(), $"{tempDirPrefix}-{Guid.NewGuid():N}");
+        string extractPath = Path.Combine(tempDir, "extracted");
+        Directory.CreateDirectory(tempDir);
+
+        logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
+        ZipFile.ExtractToDirectory(packageSource, extractPath);
+
+        var (pkgName, pkgVersion) = ParsePackageReference(packageSource);
+        return new PackageExtractionResult(extractPath, tempDir, pkgName, pkgVersion);
+    }
+
+    private static async Task<PackageExtractionResult?> DownloadAndExtractPackageAsync(
+        string packageSource,
+        VerboseLogger logger,
+        string tempDirPrefix)
+    {
+        using HttpClient client = HttpClientFactory.Create();
+
+        var (packageName, version) = ParsePackageReference(packageSource);
+
+        // Get version if not specified
+        if (version == null)
+        {
+            version = await GetLatestVersionAsync(client, packageName, logger);
+            if (version == null)
+            {
+                Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
+                return null;
+            }
+        }
+
+        // Normalize to lowercase for NuGet API
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+
+        // Check NuGet cache first
+        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+        {
+            logger.Log($"Using cached package: {cachedPath}");
+            return new PackageExtractionResult(cachedPath, null, packageName, version);
+        }
+
+        string tempDir = Path.Combine(Path.GetTempPath(), $"{tempDirPrefix}-{Guid.NewGuid():N}");
+        string extractPath = Path.Combine(tempDir, "extracted");
+        Directory.CreateDirectory(tempDir);
+
+        string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{normalizedVersion}/{normalizedName}.{normalizedVersion}.nupkg";
+        logger.Log($"Downloading: {packageName} {version}");
+
+        try
+        {
+            byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
+            if (packageBytes == null)
+            {
+                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
+                Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                return null;
+            }
+
+            string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+            await File.WriteAllBytesAsync(nupkgPath, packageBytes);
+            ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+            logger.Log("Package downloaded successfully.");
+
+            // Cache the package for future use
+            var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
+            if (newCachePath != null)
+            {
+                logger.Log($"Cached to: {newCachePath}");
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            return null;
+        }
+
+        return new PackageExtractionResult(extractPath, tempDir, packageName, version);
+    }
+
+    /// <summary>
+    /// Parses a package reference string into name and optional version.
+    /// Handles formats: "PackageName", "PackageName@1.0.0", "Package.Name.1.0.0.nupkg"
+    /// </summary>
+    public static (string name, string? version) ParsePackageReference(string packageSource)
+    {
+        // Handle local .nupkg files
+        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+        {
+            string fileName = Path.GetFileNameWithoutExtension(packageSource);
+            // Try to parse name.version pattern (e.g., "System.Text.Json.8.0.0")
+            int lastDotIndex = fileName.LastIndexOf('.');
+            while (lastDotIndex > 0)
+            {
+                string potentialVersion = fileName[(lastDotIndex + 1)..];
+                if (char.IsDigit(potentialVersion.FirstOrDefault()))
+                {
+                    // Found version start
+                    return (fileName[..lastDotIndex], fileName[(lastDotIndex + 1)..]);
+                }
+                lastDotIndex = fileName.LastIndexOf('.', lastDotIndex - 1);
+            }
+            return (fileName, null);
+        }
+
+        // Handle package@version format
+        int atIndex = packageSource.IndexOf('@');
+        if (atIndex > 0)
+        {
+            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
+        }
+
+        return (packageSource, null);
+    }
+
+    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
+    {
+        string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName.ToLowerInvariant()}/index.json";
+        logger.Log($"Fetching versions from: {indexUrl}");
+
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
+        if (json == null)
+            return null;
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var versions = doc.RootElement.GetProperty("versions");
+            if (versions.GetArrayLength() > 0)
+            {
+                // Get latest non-prerelease version, or latest overall
+                string? latestStable = null;
+                string? latestAny = null;
+                foreach (var v in versions.EnumerateArray())
+                {
+                    var ver = v.GetString();
+                    if (ver != null)
+                    {
+                        latestAny = ver;
+                        if (!ver.Contains('-'))
+                            latestStable = ver;
+                    }
+                }
+                return latestStable ?? latestAny;
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Cleans up temporary directory if it exists.
+    /// </summary>
+    public static void Cleanup(string? tempDir)
+    {
+        if (tempDir != null)
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+}

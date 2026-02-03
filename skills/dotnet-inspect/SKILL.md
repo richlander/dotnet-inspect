@@ -41,6 +41,7 @@ dnx dotnet-inspect -y -- llmstxt
 | `assembly <path>` | Inspect .NET assembly info, SourceLink/determinism audit |
 | `api <type>` | View public API surface of a type |
 | `type <type>` | Show type shape with hierarchy and members (tree view) |
+| `find <pattern>` | Search for types across packages, assemblies, or frameworks |
 | `diff <type>` | Compare API surfaces between package versions |
 | `llmstxt` | Show complete usage examples |
 
@@ -61,11 +62,16 @@ dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..1
 
 # Type hierarchy
 dnx dotnet-inspect -y -- type Command --package System.CommandLine
+
+# Search for types
+dnx dotnet-inspect -y -- find "*Logger*" --framework runtime
+dnx dotnet-inspect -y -- find JsonSerializer --package System.Text.Json
 ```
 
 ## When to Use This Skill
 
 - Exploring what types/APIs a NuGet package provides
+- Searching for types by pattern across packages or frameworks
 - Understanding method signatures and overloads
 - Comparing API changes between package versions
 - Auditing assemblies for SourceLink and determinism

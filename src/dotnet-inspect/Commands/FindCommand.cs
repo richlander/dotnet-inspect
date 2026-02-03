@@ -44,14 +44,14 @@ public class FindCommand
             {
                 if (ReachedLimit()) break;
 
-                var extracted = await ExtractPackageAsync(pkg, logger);
+                var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger, "inspect-find");
                 if (extracted == null)
                 {
                     Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
                     continue;
                 }
 
-                var (searchPath, tempDir, packageName, packageVersion) = extracted.Value;
+                var (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
                 if (tempDir != null) tempDirs.Add(tempDir);
 
                 // Auto-select TFM or use specified one
@@ -380,132 +380,6 @@ public class FindCommand
         Console.WriteLine(sb.ToString().TrimEnd());
     }
 
-    #region Package Extraction (adapted from ApiCommand)
-
-    private static async Task<(string extractPath, string? tempDir, string? packageName, string? version)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
-    {
-        bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-
-        if (isLocalFile)
-        {
-            if (!File.Exists(packageSource))
-            {
-                Console.Error.WriteLine($"Error: File not found: {packageSource}");
-                return null;
-            }
-
-            var tempDir = Path.Combine(Path.GetTempPath(), $"inspect-find-{Guid.NewGuid():N}");
-            var extractPath = Path.Combine(tempDir, "extracted");
-            Directory.CreateDirectory(tempDir);
-
-            logger.Log($"Extracting {Path.GetFileName(packageSource)}...");
-            System.IO.Compression.ZipFile.ExtractToDirectory(packageSource, extractPath);
-
-            var packageName = Path.GetFileNameWithoutExtension(packageSource);
-            return (extractPath, tempDir, packageName, null);
-        }
-        else
-        {
-            // NuGet package reference
-            using var client = HttpClientFactory.Create();
-
-            var (packageName, version) = ParsePackageReference(packageSource);
-            
-            // Get version if not specified
-            if (version == null)
-            {
-                version = await GetLatestVersionAsync(client, packageName, logger);
-                if (version == null)
-                {
-                    Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
-                    return null;
-                }
-            }
-
-            // Check NuGet cache first
-            var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
-            if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
-            {
-                logger.Log($"Using cached package: {cachedPath}");
-                return (cachedPath, null, packageName, version);
-            }
-
-            var tempDir = Path.Combine(Path.GetTempPath(), $"inspect-find-{Guid.NewGuid():N}");
-            var extractPath = Path.Combine(tempDir, "extracted");
-            Directory.CreateDirectory(tempDir);
-
-            var nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName.ToLowerInvariant()}/{version.ToLowerInvariant()}/{packageName.ToLowerInvariant()}.{version.ToLowerInvariant()}.nupkg";
-            logger.Log($"Downloading: {packageName} {version}");
-
-            try
-            {
-                var packageBytes = await client.GetByteArrayAsync(nupkgUrl);
-                var nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                System.IO.Compression.ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-                logger.Log("Package downloaded successfully.");
-
-                // Cache for future use
-                var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
-                if (newCachePath != null)
-                {
-                    logger.Log($"Cached to: {newCachePath}");
-                }
-
-                return (extractPath, tempDir, packageName, version);
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return null;
-            }
-        }
-    }
-
-    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
-    {
-        try
-        {
-            var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName.ToLowerInvariant()}/index.json";
-            var response = await client.GetStringAsync(indexUrl);
-            using var doc = JsonDocument.Parse(response);
-            var versions = doc.RootElement.GetProperty("versions");
-            if (versions.GetArrayLength() > 0)
-            {
-                // Get latest non-prerelease version, or latest overall
-                string? latestStable = null;
-                string? latestAny = null;
-                foreach (var v in versions.EnumerateArray())
-                {
-                    var ver = v.GetString();
-                    if (ver != null)
-                    {
-                        latestAny = ver;
-                        if (!ver.Contains('-'))
-                            latestStable = ver;
-                    }
-                }
-                return latestStable ?? latestAny;
-            }
-        }
-        catch
-        {
-            // Package not found
-        }
-        return null;
-    }
-
-    private static (string name, string? version) ParsePackageReference(string reference)
-    {
-        var atIndex = reference.LastIndexOf('@');
-        if (atIndex > 0)
-        {
-            return (reference[..atIndex], reference[(atIndex + 1)..]);
-        }
-        return (reference, null);
-    }
-
     private static List<string> GetPackageDlls(string extractPath)
     {
         var result = new List<string>();
@@ -603,8 +477,6 @@ public class FindCommand
 
         return 0;
     }
-
-    #endregion
 
     #region Project Assets Parsing
 

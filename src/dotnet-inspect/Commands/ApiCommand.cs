@@ -38,12 +38,12 @@ public class ApiCommand
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extracted = await ExtractPackageAsync(options.PackagePath, logger);
+                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
                 if (extracted == null)
                 {
                     return 1;
                 }
-                (searchPath, tempDir, packageName, packageVersion) = extracted.Value;
+                (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
 
                 // If --tfm is specified, find assembly by TFM
                 if (!string.IsNullOrEmpty(options.Tfm))
@@ -264,11 +264,11 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await ExtractPackageAsync(options.PackagePath, logger);
+                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
                 if (extracted == null)
                     return (null, null, null);
                 
-                (searchPath, tempDir, _, _) = extracted.Value;
+                (searchPath, tempDir, _, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
@@ -334,10 +334,10 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await ExtractPackageAsync(options.PackagePath, logger);
+                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
                 if (extracted == null)
                     return (null, null);
-                (searchPath, tempDir, packageName, _) = extracted.Value;
+                (searchPath, tempDir, packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
@@ -2290,135 +2290,6 @@ public class ApiCommand
             return "()";
 
         return signature[parenStart..];
-    }
-
-    private static async Task<(string extractPath, string? tempDir, string? packageName, string? version)?> ExtractPackageAsync(string packageSource, VerboseLogger logger)
-    {
-        bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-
-        if (isLocalFile)
-        {
-            if (!File.Exists(packageSource))
-            {
-                Console.Error.WriteLine($"Error: Package not found: {packageSource}");
-                return null;
-            }
-
-            string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-api-{Guid.NewGuid():N}");
-            string extractPath = Path.Combine(tempDir, "extracted");
-            Directory.CreateDirectory(tempDir);
-
-            logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
-            ZipFile.ExtractToDirectory(packageSource, extractPath);
-            
-            // Parse package name and version from filename
-            var (pkgName, pkgVersion) = ParsePackageReference(packageSource);
-            return (extractPath, tempDir, pkgName, pkgVersion);
-        }
-        else
-        {
-            using HttpClient client = HttpClientFactory.Create();
-
-            string packageName;
-            string? version;
-
-            int atIndex = packageSource.IndexOf('@');
-            if (atIndex > 0)
-            {
-                packageName = packageSource[..atIndex].ToLowerInvariant();
-                version = packageSource[(atIndex + 1)..].ToLowerInvariant();
-                logger.Log($"Using specified version: {version}");
-            }
-            else
-            {
-                packageName = packageSource.ToLowerInvariant();
-                version = await GetLatestVersionAsync(client, packageName, logger);
-                if (version == null)
-                {
-                    Console.Error.WriteLine($"Error: Package '{packageSource}' not found on nuget.org");
-                    return null;
-                }
-            }
-
-            // Check NuGet cache first
-            var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
-            if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
-            {
-                logger.Log($"Using cached package: {cachedPath}");
-                return (cachedPath, null, packageName, version); // null tempDir means don't delete
-            }
-
-            string tempDir = Path.Combine(Path.GetTempPath(), $"inspect-api-{Guid.NewGuid():N}");
-            string extractPath = Path.Combine(tempDir, "extracted");
-            Directory.CreateDirectory(tempDir);
-
-            string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-            logger.Log($"Downloading: {packageName} {version}");
-
-            try
-            {
-                byte[] packageBytes = await client.GetByteArrayAsync(nupkgUrl);
-                string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-                logger.Log("Package downloaded successfully.");
-
-                // Cache the package for future use
-                var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
-                if (newCachePath != null)
-                {
-                    logger.Log($"Cached to: {newCachePath}");
-                }
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
-                Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return null;
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return null;
-            }
-
-            return (extractPath, tempDir, packageName, version);
-        }
-    }
-
-    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
-    {
-        try
-        {
-            string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
-            logger.Log($"Fetching versions from: {indexUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
-            if (json == null)
-                return null;
-            using var doc = JsonDocument.Parse(json);
-
-            if (doc.RootElement.TryGetProperty("versions", out var versions))
-            {
-                var versionList = versions.EnumerateArray().Select(v => v.GetString()).ToList();
-                if (versionList.Count > 0)
-                {
-                    // Prefer stable versions (those without a hyphen)
-                    var stableVersions = versionList.Where(v => v != null && !v.Contains('-')).ToList();
-                    string? latest = stableVersions.Count > 0 ? stableVersions[^1] : versionList[^1];
-                    logger.Log($"Latest version: {latest}");
-                    return latest;
-                }
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.Log($"Error fetching versions: {ex.Message}");
-        }
-
-        return null;
     }
 
     /// <summary>

@@ -189,6 +189,29 @@ public static class HttpRetryHelper
     }
 
     /// <summary>
+    /// Executes an HTTP GET and returns the response body as a byte array, with retry logic.
+    /// </summary>
+    /// <param name="client">HTTP client to use</param>
+    /// <param name="url">URL to fetch</param>
+    /// <param name="retryCount">Maximum number of retries (default: 3)</param>
+    /// <param name="log">Optional logging callback</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Response body as byte array, or null if failed</returns>
+    public static async Task<byte[]?> GetBytesWithRetryAsync(
+        HttpClient client,
+        string url,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
+        if (response == null)
+            return null;
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Executes an HTTP HEAD request with retry logic.
     /// </summary>
     /// <param name="client">HTTP client to use</param>
