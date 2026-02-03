@@ -54,9 +54,22 @@ dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit
 
 ### diff
 
+Compare API surfaces between versions.
+
 ```bash
+# Package versions
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
+
+# Platform versions (installed SDK)
+dotnet-inspect diff JsonSerializer --platform System.Text.Json@8.0.23..10.0.2
+dotnet-inspect diff HttpClient --platform System.Net.Http@9.0.0..10.0.0 --framework runtime
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--package` | Package with version range (Package@v1..v2) |
+| `--platform` | Platform assembly with version range (Assembly@v1..v2) |
+| `--framework` | Framework for platform diff (runtime, aspnetcore). Default: runtime |
 
 ### find
 

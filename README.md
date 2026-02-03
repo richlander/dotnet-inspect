@@ -57,6 +57,7 @@ dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit  # Sourc
 
 ```bash
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
+dotnet-inspect diff JsonSerializer --platform System.Text.Json@8.0.23..10.0.2
 ```
 
 ### type
