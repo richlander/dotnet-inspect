@@ -21,12 +21,11 @@ public class FindCommand
 
         try
         {
+            // Default to runtime framework if no scope specified
             if (!options.HasAnyScope)
             {
-                Console.Error.WriteLine("Error: Must specify at least one search scope.");
-                Console.Error.WriteLine("Use --package, --assembly, --platform, --framework, --project, or --bin.");
-                Console.Error.WriteLine("Run 'dotnet-inspect find --help' for usage.");
-                return 1;
+                logger.Log("No scope specified, defaulting to --framework runtime");
+                options = options with { PlatformFrameworks = ["runtime"] };
             }
 
             var results = new List<TypeSearchResult>();
