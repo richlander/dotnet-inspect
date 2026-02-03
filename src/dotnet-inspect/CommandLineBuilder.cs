@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "samples", "platform", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "find", "samples", "platform", "llmstxt", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -59,6 +59,10 @@ public static class CommandLineBuilder
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption);
         rootCommand.Subcommands.Add(diffCommand);
+
+        // Find command
+        var findCommand = CreateFindCommand(jsonOption, verboseOption, limitOption);
+        rootCommand.Subcommands.Add(findCommand);
 
         // Package command
         var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption);
@@ -169,6 +173,91 @@ public static class CommandLineBuilder
         });
 
         return diffCommand;
+    }
+
+    private static Command CreateFindCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<int?> limitOption)
+    {
+        var findCommand = new Command("find", "Search for types across packages and assemblies");
+
+        var patternArg = new Argument<string>("pattern")
+        {
+            Description = "Type name or glob pattern (e.g., JsonSerializer, *Json*, ILogger)"
+        };
+
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description = "Search in package(s) (name or name@version). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var assemblyOption = new Option<string[]>("--assembly")
+        {
+            Description = "Search in assembly file(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var platformOption = new Option<string[]>("--platform")
+        {
+            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var frameworkOption = new Option<string[]>("--framework")
+        {
+            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var projectOption = new Option<string[]>("--project")
+        {
+            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var binOption = new Option<string[]>("--bin")
+        {
+            Description = "Search all DLLs in output directory(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly or target framework by TFM (e.g., net8.0)" };
+        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        findCommand.Arguments.Add(patternArg);
+        findCommand.Options.Add(packageOption);
+        findCommand.Options.Add(assemblyOption);
+        findCommand.Options.Add(platformOption);
+        findCommand.Options.Add(frameworkOption);
+        findCommand.Options.Add(projectOption);
+        findCommand.Options.Add(binOption);
+        findCommand.Options.Add(tfmOption);
+        findCommand.Options.Add(allOption);
+        findCommand.Options.Add(limitOption);
+        findCommand.Options.Add(jsonOption);
+        findCommand.Options.Add(compactOption);
+        findCommand.Options.Add(verboseOption);
+
+        findCommand.SetAction(async (parseResult, ct) =>
+        {
+            var pattern = parseResult.GetValue(patternArg);
+            var options = new FindOptions
+            {
+                Packages = parseResult.GetValue(packageOption) ?? [],
+                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
+                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                Projects = parseResult.GetValue(projectOption) ?? [],
+                BinPaths = parseResult.GetValue(binOption) ?? [],
+                Tfm = parseResult.GetValue(tfmOption),
+                IncludeAll = parseResult.GetValue(allOption),
+                Limit = parseResult.GetValue(limitOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await FindCommand.ExecuteAsync(pattern!, options);
+        });
+
+        return findCommand;
     }
 
     private static Command CreateSamplesCommand(Option<bool> verboseOption)
