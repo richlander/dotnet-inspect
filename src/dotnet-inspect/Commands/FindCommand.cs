@@ -17,157 +17,164 @@ public class FindCommand
     public static async Task<int> ExecuteAsync(string pattern, FindOptions options)
     {
         var logger = new VerboseLogger(options.Verbose);
-        string? tempDir = null;
+        var tempDirs = new List<string>();
 
         try
         {
-            var results = new List<TypeSearchResult>();
-
-            if (!string.IsNullOrEmpty(options.PackagePath))
+            if (!options.HasAnyScope)
             {
-                // Search in a package
-                var extracted = await ExtractPackageAsync(options.PackagePath, logger);
-                if (extracted == null)
-                    return 1;
+                Console.Error.WriteLine("Error: Must specify at least one search scope.");
+                Console.Error.WriteLine("Use --package, --assembly, --platform, --framework, --project, or --bin.");
+                Console.Error.WriteLine("Run 'dotnet-inspect find --help' for usage.");
+                return 1;
+            }
 
-                (var searchPath, tempDir, var packageName, var packageVersion) = extracted.Value;
+            var results = new List<TypeSearchResult>();
+            var seen = new HashSet<string>(); // For deduplication: "FullName|Assembly"
+
+            // Helper to add results with deduplication
+            void AddResults(IEnumerable<TypeSearchResult> types)
+            {
+                foreach (var t in types)
+                {
+                    var key = $"{t.FullName}|{t.Assembly}";
+                    if (seen.Add(key))
+                    {
+                        results.Add(t);
+                    }
+                }
+            }
+
+            // Check if we've hit the limit
+            bool ReachedLimit() => options.Limit.HasValue && results.Count >= options.Limit.Value;
+
+            // 1. Search packages
+            foreach (var pkg in options.Packages)
+            {
+                if (ReachedLimit()) break;
+
+                var extracted = await ExtractPackageAsync(pkg, logger);
+                if (extracted == null)
+                {
+                    Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
+                    continue;
+                }
+
+                var (searchPath, tempDir, packageName, packageVersion) = extracted.Value;
+                if (tempDir != null) tempDirs.Add(tempDir);
 
                 // Auto-select TFM or use specified one
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
                     var tfmAssembly = ApiCommand.FindAssemblyByTfm(searchPath, options.Tfm);
-                    if (tfmAssembly != null)
-                        searchPath = tfmAssembly;
+                    if (tfmAssembly != null) searchPath = tfmAssembly;
                 }
                 else
                 {
                     var dlls = GetPackageDlls(searchPath);
                     var (highestPath, _) = SelectHighestTfmAssembly(dlls, searchPath);
-                    if (highestPath != null)
-                        searchPath = highestPath;
+                    if (highestPath != null) searchPath = highestPath;
                 }
 
                 var types = SearchAssemblyOrDirectory(searchPath, pattern, options.IncludeAll, logger);
                 foreach (var t in types)
                 {
-                    t.Source = packageName ?? options.PackagePath;
+                    t.Source = packageName ?? pkg;
                     t.SourceVersion = packageVersion;
                 }
-                results.AddRange(types);
+                AddResults(types);
             }
-            else if (!string.IsNullOrEmpty(options.AssemblyPath))
+
+            // 2. Search assemblies
+            foreach (var asmPath in options.Assemblies)
             {
-                // Search in a local assembly
-                if (!File.Exists(options.AssemblyPath))
+                if (ReachedLimit()) break;
+
+                if (!File.Exists(asmPath))
                 {
-                    Console.Error.WriteLine($"Error: File not found: {options.AssemblyPath}");
-                    return 1;
+                    Console.Error.WriteLine($"Warning: Assembly not found '{asmPath}', skipping.");
+                    continue;
                 }
 
-                var types = SearchAssembly(options.AssemblyPath, pattern, options.IncludeAll, logger);
+                var types = SearchAssembly(asmPath, pattern, options.IncludeAll, logger);
                 foreach (var t in types)
                 {
-                    t.Source = Path.GetFileName(options.AssemblyPath);
+                    t.Source = Path.GetFileName(asmPath);
                 }
-                results.AddRange(types);
+                AddResults(types);
             }
-            else if (!string.IsNullOrEmpty(options.PlatformAssembly))
+
+            // 3. Search platform assemblies
+            foreach (var platformAsm in options.PlatformAssemblies)
             {
-                // Search in a specific platform assembly
-                var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(
-                    options.PlatformAssembly,
-                    options.PlatformFramework,
-                    packsDirectory: null,
-                    useRuntimeAssemblies: false);
+                if (ReachedLimit()) break;
+
+                // Use the first framework specified, or null
+                var framework = options.PlatformFrameworks.Length > 0 ? options.PlatformFrameworks[0] : null;
+                var (assemblyPath, resolvedFramework, version, error) = PlatformResolver.ResolveAssembly(
+                    platformAsm, framework, packsDirectory: null, useRuntimeAssemblies: false);
 
                 if (error != null)
                 {
-                    Console.Error.WriteLine($"Error: {error}");
-                    return 1;
+                    Console.Error.WriteLine($"Warning: {error}, skipping.");
+                    continue;
                 }
 
-                logger.Log($"Searching platform ref assembly: {framework} {version}");
+                logger.Log($"Searching platform assembly: {platformAsm} ({resolvedFramework} {version})");
                 var types = SearchAssembly(assemblyPath!, pattern, options.IncludeAll, logger);
                 foreach (var t in types)
                 {
-                    t.Source = $"{framework}@{version}";
+                    t.Source = resolvedFramework;
+                    t.SourceVersion = version;
                 }
-                results.AddRange(types);
+                AddResults(types);
             }
-            else if (!string.IsNullOrEmpty(options.PlatformFramework))
+
+            // 4. Search platform frameworks
+            foreach (var framework in options.PlatformFrameworks)
             {
-                // Search across all assemblies in a framework
-                var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(options.PlatformFramework);
+                if (ReachedLimit()) break;
+
+                var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
                 if (error != null)
                 {
-                    Console.Error.WriteLine($"Error: {error}");
-                    return 1;
+                    Console.Error.WriteLine($"Warning: {error}, skipping.");
+                    continue;
                 }
 
                 var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-                if (frameworkAssemblies.Count == 0)
-                {
-                    Console.Error.WriteLine($"Error: No assemblies found in framework '{options.PlatformFramework}'.");
-                    return 1;
-                }
+                logger.Log($"Searching {frameworkAssemblies.Count} assemblies in {framework}@{resolvedVersion}");
 
-                logger.Log($"Searching {frameworkAssemblies.Count} assemblies in {options.PlatformFramework}@{resolvedVersion}");
                 foreach (var asmInfo in frameworkAssemblies)
                 {
+                    if (ReachedLimit()) break;
+
                     var types = SearchAssembly(asmInfo.Path, pattern, options.IncludeAll, logger);
                     foreach (var t in types)
                     {
-                        t.Source = options.PlatformFramework;
+                        t.Source = framework;
                         t.SourceVersion = resolvedVersion;
                     }
-                    results.AddRange(types);
-
-                    // Check limit for early exit
-                    if (options.Limit.HasValue && results.Count >= options.Limit.Value)
-                        break;
+                    AddResults(types);
                 }
             }
-            else if (!string.IsNullOrEmpty(options.BinPath))
-            {
-                // Search all DLLs in the output directory
-                if (!Directory.Exists(options.BinPath))
-                {
-                    Console.Error.WriteLine($"Error: Directory not found: {options.BinPath}");
-                    return 1;
-                }
 
-                var dlls = Directory.GetFiles(options.BinPath, "*.dll", SearchOption.TopDirectoryOnly);
-                logger.Log($"Searching {dlls.Length} assemblies in {options.BinPath}");
-                
-                foreach (var dll in dlls)
-                {
-                    var types = SearchAssembly(dll, pattern, options.IncludeAll, logger);
-                    foreach (var t in types)
-                    {
-                        t.Source = Path.GetFileName(options.BinPath);
-                    }
-                    results.AddRange(types);
-
-                    if (options.Limit.HasValue && results.Count >= options.Limit.Value)
-                        break;
-                }
-            }
-            else if (!string.IsNullOrEmpty(options.ProjectPath))
+            // 5. Search projects
+            foreach (var projectPath in options.Projects)
             {
-                // Search project dependencies via project.assets.json
-                var projectPath = Path.GetFullPath(options.ProjectPath);
-                var projectDir = Path.GetDirectoryName(projectPath);
-                var projectName = Path.GetFileNameWithoutExtension(projectPath);
-                
-                if (projectDir == null || !File.Exists(projectPath))
+                if (ReachedLimit()) break;
+
+                var fullPath = Path.GetFullPath(projectPath);
+                var projectDir = Path.GetDirectoryName(fullPath);
+                var projectName = Path.GetFileNameWithoutExtension(fullPath);
+
+                if (projectDir == null || !File.Exists(fullPath))
                 {
-                    Console.Error.WriteLine($"Error: Project file not found: {options.ProjectPath}");
-                    return 1;
+                    Console.Error.WriteLine($"Warning: Project not found '{projectPath}', skipping.");
+                    continue;
                 }
 
                 // Look for project.assets.json in multiple locations
-                // 1. Standard: obj/project.assets.json
-                // 2. SDK artifacts: artifacts/obj/<ProjectName>/project.assets.json
                 var candidatePaths = new[]
                 {
                     Path.Combine(projectDir, "obj", "project.assets.json"),
@@ -188,47 +195,53 @@ public class FindCommand
 
                 if (assetsPath == null)
                 {
-                    Console.Error.WriteLine($"Error: project.assets.json not found. Run 'dotnet restore' first.");
-                    Console.Error.WriteLine("Searched locations:");
-                    foreach (var candidate in candidatePaths)
-                    {
-                        Console.Error.WriteLine($"  {Path.GetFullPath(candidate)}");
-                    }
-                    return 1;
+                    Console.Error.WriteLine($"Warning: project.assets.json not found for '{projectPath}'. Run 'dotnet restore'.");
+                    continue;
                 }
 
-                logger.Log($"Using assets file: {assetsPath}");
+                logger.Log($"Using assets: {assetsPath}");
                 var assemblies = ParseProjectAssets(assetsPath, options.Tfm, logger);
-                if (assemblies.Count == 0)
-                {
-                    Console.Error.WriteLine("Error: No assemblies found in project.assets.json.");
-                    if (!string.IsNullOrEmpty(options.Tfm))
-                    {
-                        Console.Error.WriteLine($"Check that TFM '{options.Tfm}' exists in the project.");
-                    }
-                    return 1;
-                }
+                logger.Log($"Searching {assemblies.Count} assemblies from {projectName}");
 
-                logger.Log($"Searching {assemblies.Count} assemblies from project dependencies");
                 foreach (var (asmPath, packageName, packageVersion) in assemblies)
                 {
+                    if (ReachedLimit()) break;
+
                     var types = SearchAssembly(asmPath, pattern, options.IncludeAll, logger);
                     foreach (var t in types)
                     {
                         t.Source = packageName;
                         t.SourceVersion = packageVersion;
                     }
-                    results.AddRange(types);
-
-                    if (options.Limit.HasValue && results.Count >= options.Limit.Value)
-                        break;
+                    AddResults(types);
                 }
             }
-            else
+
+            // 6. Search bin directories
+            foreach (var binPath in options.BinPaths)
             {
-                Console.Error.WriteLine("Error: Must specify --package, --assembly, --platform, --framework, --project, or --bin.");
-                Console.Error.WriteLine("Run 'dotnet-inspect find --help' for usage.");
-                return 1;
+                if (ReachedLimit()) break;
+
+                if (!Directory.Exists(binPath))
+                {
+                    Console.Error.WriteLine($"Warning: Directory not found '{binPath}', skipping.");
+                    continue;
+                }
+
+                var dlls = Directory.GetFiles(binPath, "*.dll", SearchOption.TopDirectoryOnly);
+                logger.Log($"Searching {dlls.Length} assemblies in {binPath}");
+
+                foreach (var dll in dlls)
+                {
+                    if (ReachedLimit()) break;
+
+                    var types = SearchAssembly(dll, pattern, options.IncludeAll, logger);
+                    foreach (var t in types)
+                    {
+                        t.Source = Path.GetFileName(binPath);
+                    }
+                    AddResults(types);
+                }
             }
 
             // Apply limit
@@ -252,9 +265,12 @@ public class FindCommand
         }
         finally
         {
-            if (tempDir != null && Directory.Exists(tempDir))
+            foreach (var tempDir in tempDirs)
             {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, recursive: true); } catch { }
+                }
             }
         }
     }

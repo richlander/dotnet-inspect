@@ -6,34 +6,34 @@ namespace DotnetInspector.Options;
 public record FindOptions
 {
     /// <summary>
-    /// Package to search (name or name@version).
+    /// Packages to search (name or name@version). Can specify multiple.
     /// </summary>
-    public string? PackagePath { get; init; }
+    public string[] Packages { get; init; } = [];
 
     /// <summary>
-    /// Assembly path to search.
+    /// Assembly paths to search. Can specify multiple.
     /// </summary>
-    public string? AssemblyPath { get; init; }
+    public string[] Assemblies { get; init; } = [];
 
     /// <summary>
-    /// Platform assembly name to search (e.g., System.Text.Json).
+    /// Platform assembly names to search (e.g., System.Text.Json). Can specify multiple.
     /// </summary>
-    public string? PlatformAssembly { get; init; }
+    public string[] PlatformAssemblies { get; init; } = [];
 
     /// <summary>
-    /// Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version.
+    /// Platform frameworks to search (runtime, aspnetcore, netstandard). Can specify multiple.
     /// </summary>
-    public string? PlatformFramework { get; init; }
+    public string[] PlatformFrameworks { get; init; } = [];
 
     /// <summary>
-    /// Project file path (.csproj). Searches all transitive dependencies via project.assets.json.
+    /// Project file paths (.csproj). Searches transitive dependencies. Can specify multiple.
     /// </summary>
-    public string? ProjectPath { get; init; }
+    public string[] Projects { get; init; } = [];
 
     /// <summary>
-    /// Binary output directory path (e.g., bin/Debug/net8.0). Searches all DLLs in the directory.
+    /// Binary output directory paths. Searches all DLLs. Can specify multiple.
     /// </summary>
-    public string? BinPath { get; init; }
+    public string[] BinPaths { get; init; } = [];
 
     /// <summary>
     /// Target framework moniker (e.g., net8.0).
@@ -64,4 +64,15 @@ public record FindOptions
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
+
+    /// <summary>
+    /// Returns true if any search scope is specified.
+    /// </summary>
+    public bool HasAnyScope =>
+        Packages.Length > 0 ||
+        Assemblies.Length > 0 ||
+        PlatformAssemblies.Length > 0 ||
+        PlatformFrameworks.Length > 0 ||
+        Projects.Length > 0 ||
+        BinPaths.Length > 0;
 }

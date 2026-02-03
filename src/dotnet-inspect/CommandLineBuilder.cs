@@ -187,12 +187,36 @@ public static class CommandLineBuilder
             Description = "Type name or glob pattern (e.g., JsonSerializer, *Json*, ILogger)"
         };
 
-        var packageOption = new Option<string?>("--package") { Description = "Search in package (name or name@version)" };
-        var assemblyOption = new Option<string?>("--assembly") { Description = "Search in assembly file" };
-        var platformOption = new Option<string?>("--platform") { Description = "Search in platform assembly (e.g., System.Text.Json)" };
-        var frameworkOption = new Option<string?>("--framework") { Description = "Search all assemblies in framework (runtime, aspnetcore, netstandard)" };
-        var projectOption = new Option<string?>("--project") { Description = "Search project dependencies via project.assets.json (path to .csproj)" };
-        var binOption = new Option<string?>("--bin") { Description = "Search all DLLs in output directory (e.g., bin/Debug/net8.0)" };
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description = "Search in package(s) (name or name@version). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var assemblyOption = new Option<string[]>("--assembly")
+        {
+            Description = "Search in assembly file(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var platformOption = new Option<string[]>("--platform")
+        {
+            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var frameworkOption = new Option<string[]>("--framework")
+        {
+            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var projectOption = new Option<string[]>("--project")
+        {
+            Description = "Search project dependencies via project.assets.json. Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var binOption = new Option<string[]>("--bin")
+        {
+            Description = "Search all DLLs in output directory(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
@@ -216,12 +240,12 @@ public static class CommandLineBuilder
             var pattern = parseResult.GetValue(patternArg);
             var options = new FindOptions
             {
-                PackagePath = parseResult.GetValue(packageOption),
-                AssemblyPath = parseResult.GetValue(assemblyOption),
-                PlatformAssembly = parseResult.GetValue(platformOption),
-                PlatformFramework = parseResult.GetValue(frameworkOption),
-                ProjectPath = parseResult.GetValue(projectOption),
-                BinPath = parseResult.GetValue(binOption),
+                Packages = parseResult.GetValue(packageOption) ?? [],
+                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
+                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                Projects = parseResult.GetValue(projectOption) ?? [],
+                BinPaths = parseResult.GetValue(binOption) ?? [],
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = parseResult.GetValue(limitOption),
