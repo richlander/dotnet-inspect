@@ -67,13 +67,15 @@ dotnet-inspect type JsonSerializer --package System.Text.Json     # Inheritance 
 
 ### samples (experimental)
 
-Fetch code samples via SourceLink for packages with embedded sample references:
+Fetch code samples via SourceLink for packages with `<code source=...>` doc references:
 
 ```bash
 dotnet-inspect samples --package Newtonsoft.Json --list           # List available samples
 dotnet-inspect samples JsonConvert --package Newtonsoft.Json      # Fetch samples for type
 dotnet-inspect samples --package Markout --list                   # Works with SourceLink-enabled packages
 ```
+
+Note: Platform assemblies (dotnet/runtime) use inline examples and are not supported.
 
 ### platform
 
