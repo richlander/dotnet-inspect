@@ -1,7 +1,7 @@
 {
   "name": "dotnet-inspect",
   "description": "Inspect .NET assemblies and NuGet packages",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "author": {
     "name": "Rich"
   },

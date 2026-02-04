@@ -150,19 +150,61 @@ By default, `[EditorBrowsable(Never)]` and `[Obsolete]` members are excluded to 
 
 ## Self-Documentation
 
-LLMs need to know how to use tools. The `llmstxt` command outputs a comprehensive usage guide:
+LLMs need to know how to use tools. dotnet-inspect provides two layers of documentation, each optimized for different contexts.
 
-```bash
-dotnet-inspect llmstxt
-```
+### SKILL.md vs llmstxt
 
-This outputs an embedded text file with:
-- Command examples for common workflows
-- Output format options
-- Filtering and verbosity controls
-- Tips for version comparison and member lookup
+| Aspect | SKILL.md | llmstxt |
+|--------|----------|---------|
+| **When loaded** | Automatically, on skill activation | On-demand, when LLM runs the command |
+| **Token cost** | Always paid | Only when needed |
+| **Goal** | Get productive in 30 seconds | Complete reference |
+| **Content** | 80% use cases, copy-paste patterns | 100% coverage, edge cases, test fixtures |
+| **Length** | ~80 lines | ~300 lines |
 
-Include this in your LLM's context to enable effective tool usage.
+**SKILL.md** is loaded into the LLM's context when the skill activates. It should contain:
+
+- Installation and invocation syntax
+- Quick patterns for the most common workflows
+- Key flags table (the ones LLMs frequently need)
+- Command overview with one-line descriptions
+- Pointer to `llmstxt` for complete documentation
+
+**llmstxt** is run on-demand when the LLM needs deeper information. It should contain:
+
+- All options for every command
+- Test packages for experimentation
+- Advanced patterns (generic types, platform assemblies, version ranges)
+- Verbosity examples showing output at each level
+- Edge cases and less common workflows
+
+### Why Two Layers?
+
+Empirical observation: LLMs often skip `llmstxt` even when instructed to "run this first." They start copying patterns immediately from whatever context they have. This is rational behavior—why spend tokens on documentation when you can just try things?
+
+The two-layer approach accommodates this:
+
+1. **SKILL.md provides immediate productivity.** The LLM can start working with just the skill context. Common patterns are right there to copy.
+
+2. **llmstxt is the escape hatch.** When the LLM hits an edge case or needs complete option coverage, they can run `llmstxt` and get the full reference.
+
+This means SKILL.md must be self-sufficient for the 80% case. If an LLM never runs `llmstxt`, they should still be productive.
+
+### Keeping Them in Sync
+
+SKILL.md lives in `skills/dotnet-inspect/SKILL.md` and should be identical across repositories where the skill is published. The skill is maintained in two places:
+
+| Repository | Purpose |
+|------------|---------|
+| `dotnet-inspect` | Source repository, local development |
+| `dotnet-skills` | Marketplace distribution |
+
+When updating the skill:
+
+1. Edit SKILL.md in `dotnet-inspect` (the source)
+2. Copy to `dotnet-skills`: `cp skills/dotnet-inspect/SKILL.md ../dotnet-skills/skills/dotnet-inspect/`
+3. Bump `.claude-plugin/plugin.json` version in **both** repositories (keep version numbers identical)
+4. Ensure examples in SKILL.md are a subset of examples in llmstxt
 
 ## Practical LLM Workflows
 

@@ -23,49 +23,55 @@ dnx dotnet-inspect -y -- <command>
 - Always use `-y` to skip the interactive confirmation prompt (which breaks LLM tool use). New package versions also trigger this prompt.
 - Always use `--` to separate dnx options from tool arguments. Without it, `--help` shows dnx help, not dotnet-inspect help.
 
-## Getting Started
+## Quick Patterns
 
-Run this command for complete usage instructions:
+Start with these common workflows:
 
 ```bash
-dnx dotnet-inspect -y -- llmstxt
+# Understand a type's API shape (start here - most useful for learning APIs)
+dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
+
+# Compare API changes between versions (essential for migrations)
+dnx dotnet-inspect -y -- diff Command --package System.CommandLine@2.0.0-beta4..2.0.2
+dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
+
+# Search for types by pattern
+dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
+dnx dotnet-inspect -y -- find "*Logger*" --framework runtime
+
+# Package metadata and versions
+dnx dotnet-inspect -y -- package System.Text.Json
+dnx dotnet-inspect -y -- package System.Text.Json --versions
 ```
 
-**DO THIS FIRST.** The `llmstxt` command provides comprehensive examples for all commands and workflows.
+## Key Flags
 
-## Quick Reference
+| Flag | Purpose |
+|------|---------|
+| `-v:d` | Detailed output (full signatures, more info) |
+| `--docs` | Include XML documentation from source |
+| `-m Name` | Filter to specific member(s) |
+| `-n 10` | Limit results |
+| `--signatures-only` | Plain text output (no formatting) |
+
+## Command Reference
 
 | Command | Purpose |
 |---------|---------|
-| `package <name>` | Inspect NuGet package metadata, files, versions, dependencies |
-| `assembly <path>` | Inspect .NET assembly info, SourceLink/determinism audit |
-| `api <type>` | View public API surface of a type |
-| `type <type>` | Show type shape with hierarchy and members (tree view) |
-| `find <pattern>` | Search for types across packages, assemblies, or frameworks |
+| `type <type>` | **Start here.** Type shape with hierarchy and members (tree view) |
 | `diff <type>` | Compare API surfaces between package versions |
-| `llmstxt` | Show complete usage examples |
+| `api <type>` | View public API surface (table format) |
+| `find <pattern>` | Search for types across packages, assemblies, or frameworks |
+| `package <name>` | Package metadata, files, versions, dependencies |
+| `assembly <path>` | Assembly info, SourceLink/determinism audit |
+| `llmstxt` | Complete usage examples for all commands |
 
-## Example Usage
+## Full Documentation
+
+For comprehensive examples and edge cases:
 
 ```bash
-# Package exploration
-dnx dotnet-inspect -y -- package System.Text.Json
-dnx dotnet-inspect -y -- package System.CommandLine --files
-dnx dotnet-inspect -y -- package System.Text.Json --versions
-
-# View type APIs
-dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json
-dnx dotnet-inspect -y -- api Command --package System.CommandLine -m SetAction
-
-# Compare versions
-dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
-
-# Type hierarchy
-dnx dotnet-inspect -y -- type Command --package System.CommandLine
-
-# Search for types
-dnx dotnet-inspect -y -- find "*Logger*" --framework runtime
-dnx dotnet-inspect -y -- find JsonSerializer --package System.Text.Json
+dnx dotnet-inspect -y -- llmstxt
 ```
 
 ## When to Use This Skill
