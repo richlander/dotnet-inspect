@@ -112,6 +112,12 @@ public static class OutputFormatter
                 sb.AppendLine($"| Compilation | {info.CompilationType} |");
             if (!string.IsNullOrEmpty(info.InformationalVersion))
                 sb.AppendLine($"| Informational Version | {info.InformationalVersion} |");
+            if (!string.IsNullOrEmpty(info.Product))
+                sb.AppendLine($"| Product | {info.Product} |");
+            if (!string.IsNullOrEmpty(info.Company))
+                sb.AppendLine($"| Company | {info.Company} |");
+            if (!string.IsNullOrEmpty(info.Copyright))
+                sb.AppendLine($"| Copyright | {info.Copyright} |");
             if (info.IsSigned)
                 sb.AppendLine($"| Signed | Yes |");
             if (!string.IsNullOrEmpty(info.PublicKeyToken))

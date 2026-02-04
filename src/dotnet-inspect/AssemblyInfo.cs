@@ -17,6 +17,19 @@ public class AssemblyInfo
     [MarkoutPropertyName("Informational Version")]
     public string? InformationalVersion { get; set; }
 
+    // Assembly identity attributes
+    [MarkoutPropertyName("Product")]
+    public string? Product { get; set; }
+
+    [MarkoutPropertyName("Company")]
+    public string? Company { get; set; }
+
+    [MarkoutPropertyName("Copyright")]
+    public string? Copyright { get; set; }
+
+    [MarkoutPropertyName("Description")]
+    public string? Description { get; set; }
+
     [MarkoutPropertyName("Target Framework")]
     public string? TargetFramework { get; set; }
 

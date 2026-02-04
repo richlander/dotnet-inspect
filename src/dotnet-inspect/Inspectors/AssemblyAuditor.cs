@@ -489,6 +489,22 @@ public static class AssemblyAuditor
             {
                 info.InformationalVersion = GetAttributeStringValue(metadataReader, attr);
             }
+            else if (attrName == "System.Reflection.AssemblyProductAttribute")
+            {
+                info.Product = GetAttributeStringValue(metadataReader, attr);
+            }
+            else if (attrName == "System.Reflection.AssemblyCompanyAttribute")
+            {
+                info.Company = GetAttributeStringValue(metadataReader, attr);
+            }
+            else if (attrName == "System.Reflection.AssemblyCopyrightAttribute")
+            {
+                info.Copyright = GetAttributeStringValue(metadataReader, attr);
+            }
+            else if (attrName == "System.Reflection.AssemblyDescriptionAttribute")
+            {
+                info.Description = GetAttributeStringValue(metadataReader, attr);
+            }
         }
 
         return info;
