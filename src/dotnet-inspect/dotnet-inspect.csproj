@@ -23,7 +23,7 @@
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.1.11</VersionPrefix>
+    <VersionPrefix>0.1.12</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

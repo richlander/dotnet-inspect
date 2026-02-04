@@ -223,24 +223,24 @@ The `find` command is the best starting point when you're unsure where a type li
 
 ### Generic Type Syntax
 
-Use backtick notation for generic types:
-- `List\`1` (not `List<T>`)
-- `Dictionary\`2` (not `Dictionary<K,V>`)
-- `Action\`3` for 3 type parameters
+Use C# generic syntax - the tool automatically converts to metadata format:
+- `"List<T>"` → `List\`1`
+- `"Dictionary<TKey, TValue>"` → `Dictionary\`2`
+- `"Func<T1, T2, TResult>"` → `Func\`3`
 
-The backtick number indicates how many type parameters.
+Quote the type name to prevent shell interpretation (angle brackets or backticks).
 
 ### Command Selection
 
 **To see interfaces a type implements:**
 ```bash
-dotnet-inspect api "List\`1" --platform System.Collections --json
+dotnet-inspect api "List<T>" --platform System.Collections --json
 # Check "interfaces" array in output
 ```
 
 **To see type hierarchy with members (tree view):**
 ```bash
-dotnet-inspect type "List\`1" --platform System.Collections
+dotnet-inspect type "List<T>" --platform System.Collections
 ```
 
 **To search for a type by name:**
@@ -276,13 +276,16 @@ dotnet-inspect find "*List*" --framework runtime
 dotnet-inspect find "*List*" --framework runtime
 
 # Get interfaces implemented by a type
-dotnet-inspect api "List\`1" --platform System.Collections --interfaces
+dotnet-inspect api "List<T>" --platform System.Collections --interfaces
 
 # Get full type shape with members
-dotnet-inspect type "Dictionary\`2" --platform System.Collections
+dotnet-inspect type "Dictionary<TKey, TValue>" --platform System.Collections
 
 # See all overloads of a method with full signatures
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:d
+
+# Check package for vulnerabilities
+dotnet-inspect package System.Text.Json 8.0.0
 
 # Compare versions
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0

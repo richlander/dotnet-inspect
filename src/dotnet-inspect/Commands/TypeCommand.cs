@@ -11,6 +11,9 @@ public class TypeCommand
 {
     public static async Task<int> ExecuteAsync(string typeName, TypeOptions options)
     {
+        // Convert C# generic syntax (List<T>) to metadata format (List`1)
+        typeName = ApiCommand.ConvertGenericTypeName(typeName);
+
         // Leverage ApiCommand's infrastructure for package extraction
         var apiOptions = new ApiOptions
         {

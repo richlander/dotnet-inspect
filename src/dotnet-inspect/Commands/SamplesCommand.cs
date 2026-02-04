@@ -38,6 +38,9 @@ public class SamplesCommand
         string? packageVersion,
         VerboseLogger logger)
     {
+        // Convert C# generic syntax (List<T>) to metadata format (List`1)
+        typeName = ApiCommand.ConvertGenericTypeName(typeName);
+
         var apiOptions = new ApiOptions
         {
             PackagePath = options.PackagePath,
