@@ -62,6 +62,23 @@ public static class PlatformResolver
 
     private static IEnumerable<string> GetSharedDirectoryCandidates()
     {
+        // DOTNET_ROOT environment variable takes highest priority (works on all platforms)
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrEmpty(dotnetRoot))
+        {
+            yield return Path.Combine(dotnetRoot, "shared");
+        }
+
+        // Check /etc/dotnet/install_location on non-Windows (distro-configured path)
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            var installLocation = ReadInstallLocation();
+            if (!string.IsNullOrEmpty(installLocation))
+            {
+                yield return Path.Combine(installLocation, "shared");
+            }
+        }
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             yield return @"C:\Program Files\dotnet\shared";
@@ -86,6 +103,7 @@ public static class PlatformResolver
         }
         else // Linux and others
         {
+            yield return "/usr/lib/dotnet/shared";
             yield return "/usr/share/dotnet/shared";
             yield return "/usr/local/share/dotnet/shared";
             yield return "/opt/dotnet/shared";
@@ -96,13 +114,6 @@ public static class PlatformResolver
                 yield return Path.Combine(home, ".dotnet", "shared");
                 yield return Path.Combine(home, "dotnet", "shared");
             }
-        }
-
-        // DOTNET_ROOT environment variable (works on all platforms)
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        if (!string.IsNullOrEmpty(dotnetRoot))
-        {
-            yield return Path.Combine(dotnetRoot, "shared");
         }
     }
 
@@ -117,6 +128,23 @@ public static class PlatformResolver
 
     private static IEnumerable<string> GetPacksDirectoryCandidates()
     {
+        // DOTNET_ROOT environment variable takes highest priority (works on all platforms)
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrEmpty(dotnetRoot))
+        {
+            yield return Path.Combine(dotnetRoot, "packs");
+        }
+
+        // Check /etc/dotnet/install_location on non-Windows (distro-configured path)
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            var installLocation = ReadInstallLocation();
+            if (!string.IsNullOrEmpty(installLocation))
+            {
+                yield return Path.Combine(installLocation, "packs");
+            }
+        }
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             yield return @"C:\Program Files\dotnet\packs";
@@ -141,6 +169,7 @@ public static class PlatformResolver
         }
         else // Linux and others
         {
+            yield return "/usr/lib/dotnet/packs";
             yield return "/usr/share/dotnet/packs";
             yield return "/usr/local/share/dotnet/packs";
             yield return "/opt/dotnet/packs";
@@ -151,13 +180,6 @@ public static class PlatformResolver
                 yield return Path.Combine(home, ".dotnet", "packs");
                 yield return Path.Combine(home, "dotnet", "packs");
             }
-        }
-
-        // DOTNET_ROOT environment variable (works on all platforms)
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        if (!string.IsNullOrEmpty(dotnetRoot))
-        {
-            yield return Path.Combine(dotnetRoot, "packs");
         }
     }
 
@@ -509,6 +531,26 @@ public static class PlatformResolver
         {
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Reads the .NET install location from /etc/dotnet/install_location (Linux/macOS distro packages).
+    /// </summary>
+    private static string? ReadInstallLocation()
+    {
+        const string installLocationFile = "/etc/dotnet/install_location";
+        try
+        {
+            if (File.Exists(installLocationFile))
+            {
+                return File.ReadAllText(installLocationFile).Trim();
+            }
+        }
+        catch
+        {
+            // Ignore errors reading the file
+        }
+        return null;
     }
 
     private static Version ParseVersion(string versionString)

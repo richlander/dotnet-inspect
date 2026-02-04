@@ -6,6 +6,7 @@ CLI tool for inspecting .NET assemblies and NuGet packages.
 dotnet-inspect <package>[@version]           # Package metadata
 dotnet-inspect api <type> --package <pkg>    # API from package
 dotnet-inspect api --platform <assembly>     # API from installed SDK
+dotnet-inspect platform                      # List installed frameworks
 dotnet-inspect find <pattern>                # Search types in runtime
 dotnet-inspect assembly path/to/file.dll     # Local assembly
 dotnet-inspect diff <type> --package         # Version comparison
@@ -108,9 +109,15 @@ dotnet-inspect type JsonSerializer --package System.Text.Json     # Tree view
 
 ### platform
 
+List installed frameworks and inspect platform assemblies.
+
 ```bash
-dotnet-inspect platform --list-versions            # Installed SDKs
-dotnet-inspect platform --framework runtime        # Runtime assemblies
+dotnet-inspect platform                            # List installed frameworks
+dotnet-inspect platform --list-versions            # Installed SDK versions
+dotnet-inspect platform --framework runtime        # List runtime assemblies
+dotnet-inspect platform --framework aspnetcore     # List ASP.NET Core assemblies
+dotnet-inspect api --platform System.Text.Json     # API from platform assembly
+dotnet-inspect api JsonSerializer --platform System.Text.Json --interfaces  # With interfaces
 ```
 
 ## Output
@@ -160,6 +167,42 @@ dotnet-inspect System.Text.Json -v:d -s:1,2        # Include only sections 1 and
 | `--unsafe` | Filter to pointer methods |
 | `--audit` | SourceLink/determinism check |
 | `--deps` | Show runtime dependencies |
+
+## Package vs Platform
+
+Some assemblies exist in both NuGet packages and the .NET platform (installed SDK):
+
+| Assembly | Package | Platform |
+|----------|---------|----------|
+| System.Text.Json | `--package System.Text.Json` | `--platform System.Text.Json` |
+| System.Net.Http | `--package System.Net.Http` | `--platform System.Net.Http` |
+
+**When to use each:**
+- **Package**: Third-party libraries, specific versions, packages not in the SDK
+- **Platform**: .NET runtime/SDK assemblies, comparing SDK versions, no network needed
+
+**Example: System.Text.Json works with both:**
+```bash
+# From NuGet package (downloads if needed)
+dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0
+
+# From installed SDK (no download, uses local SDK)
+dotnet-inspect api JsonSerializer --platform System.Text.Json
+```
+
+**Use `find` to search across both:**
+```bash
+# Search platform runtime (default)
+dotnet-inspect find JsonSerializer
+
+# Search a package
+dotnet-inspect find JsonSerializer --package System.Text.Json
+
+# Search both platform and package together
+dotnet-inspect find JsonSerializer --framework runtime --package Newtonsoft.Json
+```
+
+The `find` command is the best starting point when you're unsure where a type lives.
 
 ## Tips
 
