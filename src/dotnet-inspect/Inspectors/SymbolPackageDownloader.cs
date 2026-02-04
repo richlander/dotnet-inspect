@@ -66,15 +66,38 @@ public class SymbolPackageDownloader(HttpClient? client = null)
         }
 
         // 3. Try to get CodeView info for symbol server lookup
+        // Look for all CodeView entries, preferring Portable PDB (0x504d) over Windows PDB
         CodeViewDebugDirectoryData? codeView = null;
         DebugDirectoryEntry? codeViewEntry = null;
+        CodeViewDebugDirectoryData? windowsCodeView = null;
+        DebugDirectoryEntry? windowsCodeViewEntry = null;
+        
         foreach (var entry in peReader.ReadDebugDirectory())
         {
             if (entry.Type == DebugDirectoryEntryType.CodeView)
             {
-                codeView = peReader.ReadCodeViewDebugDirectoryData(entry);
-                codeViewEntry = entry;
-                break;
+                var cv = peReader.ReadCodeViewDebugDirectoryData(entry);
+                bool isPortable = entry.MinorVersion == 0x504d;
+                
+                if (isPortable)
+                {
+                    // Prefer Portable PDB entries
+                    codeView = cv;
+                    codeViewEntry = entry;
+                }
+                else if (codeView == null)
+                {
+                    // Keep Windows PDB as fallback if no Portable PDB found yet
+                    codeView = cv;
+                    codeViewEntry = entry;
+                }
+                
+                // Also track Windows PDB entry separately for detection
+                if (!isPortable)
+                {
+                    windowsCodeView = cv;
+                    windowsCodeViewEntry = entry;
+                }
             }
         }
 
@@ -86,6 +109,12 @@ public class SymbolPackageDownloader(HttpClient? client = null)
 
         // Check if this is a Portable PDB (MinorVersion == 0x504d means "PM" for Portable Metadata)
         bool isPortablePdb = codeViewEntry.Value.MinorVersion == 0x504d;
+        
+        // If we have both Windows and Portable PDB entries, log it
+        if (windowsCodeView != null && isPortablePdb)
+        {
+            log?.Invoke($"Found both Windows (.ni.pdb) and Portable PDB entries, using Portable");
+        }
 
         // 4. For Microsoft packages or platform assemblies, try MSDL symbol server first (they typically don't publish snupkg)
         bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
@@ -408,7 +437,7 @@ public class SymbolPackageDownloader(HttpClient? client = null)
             if (result.isWindowsPdb)
             {
                 windowsPdbDetected = true;
-                log?.Invoke("MSDL returned a Windows PDB (not supported on this platform)");
+                log?.Invoke("MSDL returned a Windows PDB (not supported)");
             }
         }
         catch (Exception ex)
