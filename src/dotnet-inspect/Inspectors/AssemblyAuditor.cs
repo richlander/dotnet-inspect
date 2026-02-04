@@ -160,18 +160,12 @@ public static class AssemblyAuditor
         audit.AssemblyInfo = ExtractAssemblyInfo(peReader);
 
         // Determine reason for missing SourceLink
-        if (!audit.HasSourceLink && audit.AssemblyInfo != null)
+        // Note: AssemblyAuditor is used for package inspection where we have the PDB available
+        // For assemblies without embedded PDB and no standalone PDB found, SourceLink won't be available
+        if (!audit.HasSourceLink && !audit.HasEmbeddedPdb && audit.PdbPath != null)
         {
-            if (audit.AssemblyInfo.IsReadyToRun && !audit.HasEmbeddedPdb)
-            {
-                // ReadyToRun without embedded PDB is typically a distro build
-                audit.SourceLinkUnavailableReason = "distro build";
-            }
-            else if (!audit.HasEmbeddedPdb && audit.PdbPath != null)
-            {
-                // External PDB that wasn't found/loaded
-                audit.SourceLinkUnavailableReason = "external PDB";
-            }
+            // External PDB referenced but not found in the package
+            audit.SourceLinkUnavailableReason = "PDB not in package";
         }
 
         // Extract API surface only if requested

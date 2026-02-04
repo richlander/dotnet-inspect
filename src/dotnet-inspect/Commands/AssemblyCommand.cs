@@ -522,17 +522,22 @@ public class AssemblyCommand
         audit.IsDeterministic = audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
 
         // Determine reason for missing SourceLink
-        if (!audit.HasSourceLink && audit.AssemblyInfo != null)
+        if (!audit.HasSourceLink)
         {
-            if (audit.AssemblyInfo.IsReadyToRun && !audit.HasEmbeddedPdb)
+            if (audit.WindowsPdbDetected)
             {
-                // ReadyToRun without embedded PDB is typically a distro build
-                audit.SourceLinkUnavailableReason = "distro build";
+                // Windows PDB format found but not supported
+                audit.SourceLinkUnavailableReason = "Windows PDB";
+            }
+            else if (audit.PdbLocation == null && audit.PdbPath != null)
+            {
+                // PDB path exists in assembly but we couldn't locate/download the actual PDB
+                audit.SourceLinkUnavailableReason = "no symbols";
             }
             else if (!audit.HasEmbeddedPdb && audit.PdbPath != null)
             {
-                // External PDB that wasn't found/loaded
-                audit.SourceLinkUnavailableReason = "external PDB";
+                // External PDB referenced but not found
+                audit.SourceLinkUnavailableReason = "external PDB not found";
             }
         }
     }
