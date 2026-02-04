@@ -7,5 +7,5 @@
   },
   "license": "MIT",
   "keywords": ["dotnet", "nuget", "package", "assembly", "api"],
-  "skills": "./skills/"
+  "skills": "../skills/"
 }

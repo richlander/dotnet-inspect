@@ -546,6 +546,7 @@ public static class CommandLineBuilder
         };
         memberOption.Aliases.Add("--member");
         var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
+        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Use XML doc files from packs directory (offline, implies --docs)" };
         var samplesOption = new Option<bool>("--samples") { Description = "Fetch and display code samples from source" };
         var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter to types with sourcelink resolution" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
@@ -568,6 +569,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(ctorOption);
         apiCommand.Options.Add(limitOption);
         apiCommand.Options.Add(docsOption);
+        apiCommand.Options.Add(useLocalDocsOption);
         apiCommand.Options.Add(samplesOption);
         apiCommand.Options.Add(sourcelinkOnlyOption);
         apiCommand.Options.Add(browsableUrlsOption);
@@ -609,7 +611,8 @@ public static class CommandLineBuilder
                 TypeFilter = parseResult.GetValue(filterOption),
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
-                ShowDocs = parseResult.GetValue(docsOption),
+                ShowDocs = parseResult.GetValue(docsOption) || parseResult.GetValue(useLocalDocsOption),
+                UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
                 ShowSamples = parseResult.GetValue(samplesOption),
                 SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),

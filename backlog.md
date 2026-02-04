@@ -152,18 +152,24 @@ Needs investigation:
 - Determine the right mechanism (FD3, temp file, named pipe)
 - Consider how LLM tooling would consume the secondary channel
 
-## Framework/Platform Documentation Accuracy
+## On-Demand Ref Pack Downloads
 
-Investigate and document how the framework/platform feature works for version-specific documentation:
+Download reference packs from NuGet on-demand, similar to how regular packages are handled.
 
-Questions to answer:
+Benefits:
+- Inspect framework versions not installed locally
+- Consistent behavior between `--package` and `--platform`
+- Access to older framework versions without SDK installation
 
-- Does accurate ref pack information require a matching SDK installed?
-- How do we resolve documentation for types that changed between framework versions?
-- What happens when inspecting code targeting a framework version not installed locally?
-- Should we download ref packs on-demand like we do for NuGet packages?
+Implementation:
+- Ref packs are published to nuget.org (e.g., `Microsoft.NETCore.App.Ref`)
+- Download and cache in `~/.local/share/dotnet-inspect/packs/`
+- Fall back to local SDK packs when available
 
-Document findings in `docs/` and update help text to set correct expectations.
+```bash
+# Inspect .NET 8 BCL without having .NET 8 SDK installed
+dotnet-inspect api JsonSerializer --platform System.Text.Json --framework runtime@8.0
+```
 
 ## Performance Optimization Review
 

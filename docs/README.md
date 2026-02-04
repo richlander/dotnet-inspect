@@ -38,6 +38,7 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 |----------|-------------|
 | [Architecture](architecture.md) | Tool overview, commands, and design philosophy |
 | [LLM Design](llm-design.md) | Why output is structured for AI-assisted development |
+| [Platform Components](platform-components.md) | Accessing SDK assemblies vs NuGet packages |
 | [Assembly Audit](assembly-audit.md) | Understanding `--audit` output and build verification |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs |

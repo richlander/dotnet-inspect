@@ -656,6 +656,13 @@ public class ApiCommand
 
     private static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger)
     {
+        // If --use-local-docs is specified for platform assemblies, use XML docs directly
+        if (options.UseLocalDocs && !string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            await EnrichFromXmlDocFileAsync(apiType, typeName, options, logger);
+            return;
+        }
+
         try
         {
             using FileStream stream = File.OpenRead(dllPath);
@@ -689,6 +696,14 @@ public class ApiCommand
 
             if (pdbResult.Reader == null || pdbResult.Provider == null)
             {
+                // For platform assemblies, fall back to XML docs from packs directory
+                if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
+                {
+                    logger.Log("No PDB available, falling back to XML documentation from packs directory");
+                    await EnrichFromXmlDocFileAsync(apiType, typeName, options, logger);
+                    return;
+                }
+
                 // Show warning about PDB issue
                 Console.Error.WriteLine();
                 if (pdbResult.WindowsPdbDetected)
@@ -846,6 +861,88 @@ public class ApiCommand
         {
             logger.Log($"Error enriching source info: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Enriches a type with documentation from XML doc files in the packs directory.
+    /// Used as fallback when SourceLink/PDB is not available for platform assemblies.
+    /// </summary>
+    private static async Task EnrichFromXmlDocFileAsync(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
+    {
+        await Task.CompletedTask; // Sync operation but keep async signature for consistency
+
+        if (string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            logger.Log("XML doc fallback only available for platform assemblies");
+            return;
+        }
+
+        // Resolve the XML doc file path from the packs directory
+        var (refPath, version, error) = PlatformResolver.ResolveFramework(
+            options.PlatformFramework ?? "runtime");
+
+        if (error != null || refPath == null)
+        {
+            logger.Log($"Could not resolve framework for XML docs: {error}");
+            return;
+        }
+
+        // XML doc file is next to the DLL in the ref directory
+        var xmlDocPath = Path.Combine(refPath, $"{options.PlatformAssembly}.xml");
+        if (!File.Exists(xmlDocPath))
+        {
+            logger.Log($"XML doc file not found: {xmlDocPath}");
+            return;
+        }
+
+        logger.Log($"Loading XML documentation from: {xmlDocPath}");
+
+        var xmlParser = new XmlDocFileParser();
+        if (!xmlParser.Load(xmlDocPath))
+        {
+            logger.Log("Failed to load XML documentation file");
+            return;
+        }
+
+        // Get the full type name including namespace
+        var fullTypeName = string.IsNullOrEmpty(apiType.Namespace) 
+            ? apiType.Name 
+            : $"{apiType.Namespace}.{apiType.Name}";
+
+        // Get type documentation
+        var typeDoc = xmlParser.GetTypeDocumentation(fullTypeName);
+        if (typeDoc != null)
+        {
+            apiType.Documentation = new DocComment
+            {
+                Summary = typeDoc.Summary,
+                Remarks = typeDoc.Remarks
+            };
+            logger.Log($"Found type documentation for {fullTypeName}");
+        }
+
+        // Get member documentation if ShowDocs is enabled
+        if (options.ShowDocs && apiType.Members != null)
+        {
+            foreach (var member in apiType.Members)
+            {
+                var memberDoc = xmlParser.GetMemberDocumentation(fullTypeName, member.Name, member.Kind);
+                if (memberDoc != null)
+                {
+                    member.Documentation = new DocComment
+                    {
+                        Summary = memberDoc.Summary,
+                        Remarks = memberDoc.Remarks,
+                        Parameters = memberDoc.Parameters,
+                        Returns = memberDoc.Returns
+                    };
+                }
+            }
+            logger.Log($"Enriched {apiType.Members.Count} members with documentation");
+        }
+
+        // Set source resolution to indicate XML docs were used
+        apiType.SourceResolution = "XmlDoc";
     }
     
     /// <summary>
@@ -2623,6 +2720,7 @@ public record ApiOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string>? MemberFilter { get; init; }
     public bool ShowDocs { get; init; }
+    public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
     public bool SourceLinkOnly { get; init; }
     public bool BrowsableUrls { get; init; }
