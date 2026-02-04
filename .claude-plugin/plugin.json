@@ -1,0 +1,11 @@
+{
+  "name": "dotnet-inspect",
+  "description": "Inspect .NET assemblies and NuGet packages",
+  "version": "1.0.0",
+  "author": {
+    "name": "Rich"
+  },
+  "license": "MIT",
+  "keywords": ["dotnet", "nuget", "package", "assembly", "api"],
+  "skills": "./skills/"
+}
