@@ -76,6 +76,17 @@ public class TypeCommand
             nodes.Add(new TreeNode("Implements", type.Interfaces));
         }
 
+        // Type parameters with constraints
+        if (type.TypeParameters is { Count: > 0 })
+        {
+            var typeParamDescriptions = type.TypeParameters
+                .Select(tp => tp.Constraints.Count > 0
+                    ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                    : tp.DisplayName)
+                .ToList();
+            nodes.Add(new TreeNode("Type Parameters", typeParamDescriptions));
+        }
+
         // Group members by kind
         if (type.Members is { Count: > 0 })
         {

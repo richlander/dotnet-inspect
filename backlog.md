@@ -14,30 +14,6 @@ Add a "Derived Types" section to `api` output that displays:
 
 This would help LLMs understand type relationships and inheritance patterns at a glance.
 
-## Generic Constraints Table
-
-Add a "Generic Constraints" section for generic types and methods:
-
-```
-## Type Parameters
-
-| Parameter | Constraints |
-|-----------|-------------|
-| T | class, IDisposable, new() |
-| TKey | notnull |
-| TValue | struct |
-```
-
-Would expose:
-
-- `where T : class` / `struct` / `notnull` / `unmanaged`
-- Interface constraints
-- Base class constraints
-- `new()` constructor constraint
-- Variance (`in`/`out` for interface type parameters)
-
-Currently generic constraints are not visible in the API surface, making it hard for LLMs to understand what types can be used as type arguments.
-
 ## Source URLs Per-Member
 
 Consider adding source URLs for individual members in the API member table. Currently only type-level source URLs are shown. Per-member URLs would enable:
@@ -96,10 +72,6 @@ When inspecting a type like `JsonSerializer`, suggest related types that are com
 
 This would help LLMs understand the ecosystem around a type without multiple exploratory queries.
 
-## Skill Plugin
-
-Add a skill plugin to this repo. (User-requested feature - needs investigation to understand what this means in context. Possibly related to Copilot Extensions, Semantic Kernel skills, or another plugin system.)
-
 ## Style Guide Review
 
 Audit all command outputs to ensure they follow the style guide in `docs/style-guide.md`:
@@ -153,31 +125,6 @@ Needs investigation:
 - Measure the cost of always computing detailed output
 - Determine the right mechanism (FD3, temp file, named pipe)
 - Consider how LLM tooling would consume the secondary channel
-
-## Type Search Command
-
-A `find` verb for searching types across packages and assemblies:
-
-```bash
-dotnet-inspect find JsonSerializer
-dotnet-inspect find "Json*" --package System.Text.Json
-dotnet-inspect find ILogger --namespaces Microsoft.Extensions.Logging,Serilog
-```
-
-Scope options:
-
-- Single package (`--package`)
-- Application's bin directory (`--bin ./bin/Debug/net8.0`)
-- Full package graph of an application (`--project ./MyApp.csproj`)
-- Platform/framework reference assemblies (`--framework net8.0`)
-- Combination of the above
-
-Use cases:
-
-- Resolving "type not found" errors by searching available assemblies
-- Discovering which package provides a type seen in documentation or samples
-- Finding types when only partial name is known (glob patterns)
-- Providing namespace context from `using` statements to disambiguate
 
 ## Framework/Platform Documentation Accuracy
 
@@ -239,27 +186,6 @@ Could also support filtering the main `api` output by namespace:
 ```bash
 dotnet-inspect api --package System.Text.Json --namespace "*.Serialization"
 ```
-
-## API Diff Between Versions
-
-Compare API surfaces between two versions of a package:
-
-```bash
-dotnet-inspect diff System.Text.Json@7.0.0 System.Text.Json@8.0.0
-```
-
-Output would show:
-
-- Added types and members
-- Removed types and members (breaking changes)
-- Changed signatures
-- New/removed interfaces on types
-
-Useful for:
-
-- Understanding what changed in a dependency upgrade
-- Detecting breaking changes before upgrading
-- Generating changelogs
 
 ## Extension Methods Discovery
 

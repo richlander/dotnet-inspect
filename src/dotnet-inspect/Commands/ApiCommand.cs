@@ -1721,6 +1721,18 @@ public class ApiCommand
             sb.AppendLine($"**Base:** {type.BaseType}");
         }
 
+        // Type parameters with constraints (compact inline format for q/m verbosity)
+        // At n/d verbosity, a table section is shown instead
+        if (type.TypeParameters is { Count: > 0 } && 
+            (options.Verbosity == Verbosity.Quiet || options.Verbosity == Verbosity.Minimal))
+        {
+            var paramDescriptions = type.TypeParameters
+                .Select(tp => tp.Constraints.Count > 0
+                    ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                    : tp.DisplayName);
+            sb.AppendLine($"**Type Parameters:** {string.Join(", ", paramDescriptions)}");
+        }
+
         // Interfaces
         if (options.ShowInterfaces && type.Interfaces is { Count: > 0 })
         {
@@ -1969,6 +1981,12 @@ public class ApiCommand
         // Skip member output in fields-only mode
         if (options.FieldsOnly) return sb.ToString().TrimEnd();
 
+        // Render type parameters table for generic types
+        if (!options.SignaturesOnly && type.TypeParameters is { Count: > 0 })
+        {
+            sb.Append(RenderTypeParametersTable(type.TypeParameters));
+        }
+
         if (type.Members is { Count: > 0 })
         {
             // Filter out compiler-generated members and sort by kind for readability
@@ -2069,6 +2087,27 @@ public class ApiCommand
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Renders a table of generic type parameters with their constraints.
+    /// </summary>
+    private static string RenderTypeParametersTable(List<TypeParameter> typeParameters)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("## Type Parameters");
+        sb.AppendLine();
+        sb.AppendLine("| Parameter | Constraints |");
+        sb.AppendLine("|-----------|-------------|");
+
+        foreach (var param in typeParameters)
+        {
+            var constraints = param.ConstraintsSummary ?? "";
+            sb.AppendLine($"| {param.DisplayName} | {constraints} |");
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>

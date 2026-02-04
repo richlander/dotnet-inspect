@@ -72,6 +72,55 @@ public static class ApiSurfaceExtractor
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
 
+            // Get generic type parameters with constraints
+            var genericParams = typeDef.GetGenericParameters();
+            if (genericParams.Count > 0)
+            {
+                apiType.TypeParameters = [];
+                foreach (var paramHandle in genericParams)
+                {
+                    var param = reader.GetGenericParameter(paramHandle);
+                    var typeParam = new TypeParameter
+                    {
+                        Name = reader.GetString(param.Name)
+                    };
+
+                    // Get variance (only applies to interfaces and delegates)
+                    var attrs = param.Attributes;
+                    if ((attrs & GenericParameterAttributes.Covariant) != 0)
+                        typeParam.Variance = "out";
+                    else if ((attrs & GenericParameterAttributes.Contravariant) != 0)
+                        typeParam.Variance = "in";
+
+                    // Get special constraints
+                    if ((attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
+                        typeParam.Constraints.Add("class");
+                    if ((attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0)
+                        typeParam.Constraints.Add("struct");
+                    if ((attrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0 &&
+                        (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) == 0)
+                        // new() is implied by struct constraint, only show if not struct
+                        typeParam.Constraints.Add("new()");
+                    if ((attrs & GenericParameterAttributes.AllowByRefLike) != 0)
+                        typeParam.Constraints.Add("allows ref struct");
+
+                    // Get type constraints (interfaces and base class)
+                    foreach (var constraintHandle in param.GetConstraints())
+                    {
+                        var constraint = reader.GetGenericParameterConstraint(constraintHandle);
+                        string? constraintTypeName = GetTypeName(reader, constraint.Type, typeContext);
+                        if (constraintTypeName != null)
+                        {
+                            // Skip System.ValueType (shown as 'struct' above) and System.Object
+                            if (constraintTypeName != "System.ValueType" && constraintTypeName != "System.Object")
+                                typeParam.Constraints.Add(constraintTypeName);
+                        }
+                    }
+
+                    apiType.TypeParameters.Add(typeParam);
+                }
+            }
+
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
             if (interfaces.Count > 0)

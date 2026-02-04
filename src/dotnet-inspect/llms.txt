@@ -45,6 +45,7 @@ dotnet-inspect api 'Option<T>' --package System.CommandLine       # Generic type
 dotnet-inspect api Command --package System.CommandLine --ctor    # Constructors
 dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # With documentation
 dotnet-inspect api --platform System.Text.Json                    # Platform assembly
+dotnet-inspect api 'IEnumerable<T>' --platform System.Runtime -v n  # Type parameters with constraints
 ```
 
 ### assembly
@@ -134,8 +135,12 @@ Verbosity controls output density:
 |------|--------|
 | `-v:q` | Title + compact line |
 | `-v:m` | + description (default) |
-| `-v:n` | + Metadata table |
+| `-v:n` | + Metadata table, Type Parameters table |
 | `-v:d` | + Full member signatures, Statistics, Dependencies |
+
+For generic types, type parameters with constraints are shown:
+- At `-v:q`/`-v:m`: Inline field (e.g., `**Type Parameters:** out T : allows ref struct`)
+- At `-v:n`/`-v:d`: Structured table with Parameter and Constraints columns
 
 For `api` command with `-m` filter:
 - Default (`-v:m`): Summarizes overloads (e.g., "Deserialize: 40 overloads")

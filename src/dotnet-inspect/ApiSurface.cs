@@ -143,6 +143,47 @@ public class TypeForwarder
     public string TargetAssembly { get; set; } = "";
 }
 
+/// <summary>
+/// Represents a generic type parameter with its constraints.
+/// </summary>
+[MarkoutSerializable]
+public class TypeParameter
+{
+    /// <summary>
+    /// The name of the type parameter (e.g., "T", "TKey").
+    /// </summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>
+    /// Variance modifier: "out" (covariant), "in" (contravariant), or null.
+    /// </summary>
+    public string? Variance { get; set; }
+
+    /// <summary>
+    /// List of constraints on this type parameter.
+    /// Includes special constraints (class, struct, notnull, unmanaged, new())
+    /// and type constraints (interfaces, base class).
+    /// </summary>
+    [MarkoutIgnore]
+    public List<string> Constraints { get; set; } = [];
+
+    /// <summary>
+    /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public string DisplayName => Variance != null ? $"{Variance} {Name}" : Name;
+
+    /// <summary>
+    /// Returns constraints as a comma-separated string, or null if none.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public string? ConstraintsSummary => Constraints.Count > 0
+        ? string.Join(", ", Constraints)
+        : null;
+}
+
 [MarkoutSerializable]
 public class ApiType
 {
@@ -170,6 +211,12 @@ public class ApiType
     public string? InterfacesSummary => Interfaces is { Count: > 0 }
         ? string.Join(", ", Interfaces)
         : null;
+
+    /// <summary>
+    /// Generic type parameters with their constraints.
+    /// </summary>
+    [MarkoutIgnore]
+    public List<TypeParameter>? TypeParameters { get; set; }
 
     [MarkoutIgnore]
     public List<ApiMember>? Members { get; set; }
