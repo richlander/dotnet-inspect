@@ -598,7 +598,7 @@ public class AssemblyCommand
         // Microsoft metadata but no symbols - can't verify, likely distro build
         if (audit.SourceLinkUnavailableReason == "no symbols")
         {
-            return "Unknown (not on Microsoft symbol servers)";
+            return "Unknown";
         }
 
         // Can't determine (e.g., Windows PDB case)
