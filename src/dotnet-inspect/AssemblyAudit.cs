@@ -44,6 +44,26 @@ public class AssemblyAudit
     [MarkoutBoolFormat("✓", "✗")]
     public bool HasSourceLink { get; set; }
 
+    /// <summary>
+    /// Explanation for why SourceLink is unavailable (e.g., "Distro build (ReadyToRun)").
+    /// Only set when HasSourceLink is false and we can determine the reason.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("source_link_unavailable_reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceLinkUnavailableReason { get; set; }
+
+    /// <summary>
+    /// Returns SourceLink status with explanation if unavailable.
+    /// </summary>
+    [MarkoutPropertyName("SourceLink Status")]
+    [JsonIgnore]
+    public string SourceLinkStatus => HasSourceLink
+        ? "✓"
+        : SourceLinkUnavailableReason != null
+            ? $"✗ ({SourceLinkUnavailableReason})"
+            : "✗";
+
     [MarkoutBoolFormat("✓", "✗")]
     public bool IsDeterministic { get; set; }
 

@@ -147,7 +147,7 @@ public static class OutputFormatter
             sb.AppendLine("|-------|--------|");
             sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
             sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
-            sb.AppendLine($"| SourceLink | {(audit.HasSourceLink ? "✓" : "✗")} |");
+            sb.AppendLine($"| SourceLink | {audit.SourceLinkStatus} |");
 
             // PDB section
             sb.AppendLine();

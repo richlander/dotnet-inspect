@@ -520,6 +520,21 @@ public class AssemblyCommand
         }
 
         audit.IsDeterministic = audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
+
+        // Determine reason for missing SourceLink
+        if (!audit.HasSourceLink && audit.AssemblyInfo != null)
+        {
+            if (audit.AssemblyInfo.IsReadyToRun && !audit.HasEmbeddedPdb)
+            {
+                // ReadyToRun without embedded PDB is typically a distro build
+                audit.SourceLinkUnavailableReason = "distro build";
+            }
+            else if (!audit.HasEmbeddedPdb && audit.PdbPath != null)
+            {
+                // External PDB that wasn't found/loaded
+                audit.SourceLinkUnavailableReason = "external PDB";
+            }
+        }
     }
 
     private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
