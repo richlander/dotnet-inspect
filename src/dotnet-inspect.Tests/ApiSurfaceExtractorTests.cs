@@ -67,6 +67,26 @@ public class ApiSurfaceExtractorTests
         // Should have both the generic type and parameter name
         Assert.Contains("T item", method.Signature);
     }
+
+    [Fact]
+    public void Extract_ShowsGenericInterfaceNamesWithTypeParameters()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleGenericClass`1");
+        Assert.NotNull(testType);
+        Assert.NotNull(testType.Interfaces);
+
+        // Should show IEnumerable<T> not "(generic)" or "IEnumerable`1"
+        Assert.Contains(testType.Interfaces, i => i.Contains("IEnumerable<T>"));
+        
+        // Should not contain "(generic)" placeholder
+        Assert.DoesNotContain(testType.Interfaces, i => i.Contains("(generic)"));
+    }
 }
 
 /// <summary>
@@ -77,4 +97,13 @@ public class SampleClassForTesting
     public void MethodWithParameters(int count, string name) { }
     public void MethodWithNoParameters() { }
     public void GenericMethod<T>(T item) { }
+}
+
+/// <summary>
+/// Sample generic class implementing generic interfaces for testing interface extraction.
+/// </summary>
+public class SampleGenericClass<T> : IEnumerable<T>
+{
+    public IEnumerator<T> GetEnumerator() => throw new NotImplementedException();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw new NotImplementedException();
 }

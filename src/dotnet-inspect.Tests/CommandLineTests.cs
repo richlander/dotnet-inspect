@@ -128,6 +128,23 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void TypeCommand_WithPlatform_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("type", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void TypeCommand_WithPlatformAndFramework_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--framework", "runtime"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void AssemblyCommand_WithPackage_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "--package", "System.Text.Json"]);

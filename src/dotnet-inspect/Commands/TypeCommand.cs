@@ -16,6 +16,8 @@ public class TypeCommand
         {
             PackagePath = options.PackagePath,
             AssemblyPath = options.AssemblyPath,
+            PlatformAssembly = options.PlatformAssembly,
+            PlatformFramework = options.PlatformFramework,
             Tfm = options.Tfm,
             IncludeAll = options.IncludeAll,
             Verbose = options.Verbose,
@@ -143,6 +145,8 @@ public record TypeOptions
 {
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
+    public string? PlatformAssembly { get; init; }
+    public string? PlatformFramework { get; init; }
     public string? Tfm { get; init; }
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }

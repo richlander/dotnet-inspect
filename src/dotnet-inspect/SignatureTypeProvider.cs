@@ -43,7 +43,9 @@ public class SignatureTypeProvider : ISignatureTypeProvider<string, object?>
 
     public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        return "(generic)";
+        // Decode the type specification to get the actual generic type
+        var typeSpec = reader.GetTypeSpecification(handle);
+        return typeSpec.DecodeSignature(this, genericContext);
     }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";

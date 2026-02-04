@@ -69,6 +69,9 @@ public static class ApiSurfaceExtractor
 
             apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
 
+            // Get type's generic context for resolving interface type parameters
+            var typeContext = GenericContext.ForType(reader, typeDef);
+
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
             if (interfaces.Count > 0)
@@ -77,7 +80,7 @@ public static class ApiSurfaceExtractor
                 foreach (var ifaceHandle in interfaces)
                 {
                     var iface = reader.GetInterfaceImplementation(ifaceHandle);
-                    string? ifaceName = GetTypeName(reader, iface.Interface);
+                    string? ifaceName = GetTypeName(reader, iface.Interface, typeContext);
                     if (ifaceName != null)
                         apiType.Interfaces.Add(ifaceName);
                 }
@@ -319,7 +322,7 @@ public static class ApiSurfaceExtractor
         return null;
     }
 
-    private static string? GetTypeName(MetadataReader reader, EntityHandle handle)
+    private static string? GetTypeName(MetadataReader reader, EntityHandle handle, GenericContext? context = null)
     {
         if (handle.Kind == HandleKind.TypeReference)
         {
@@ -337,7 +340,9 @@ public static class ApiSurfaceExtractor
         }
         else if (handle.Kind == HandleKind.TypeSpecification)
         {
-            return "(generic)";
+            // Decode generic type specifications (e.g., IList<T>, IEnumerable<T>)
+            var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)handle);
+            return typeSpec.DecodeSignature(new SignatureTypeProvider(), context);
         }
         return null;
     }

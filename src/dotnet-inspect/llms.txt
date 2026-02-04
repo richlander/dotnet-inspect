@@ -103,8 +103,12 @@ dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework
 
 ### type
 
+Show type shape with hierarchy and members in tree format.
+
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json     # Tree view
+dotnet-inspect type JsonSerializer --package System.Text.Json     # From package
+dotnet-inspect type "List\`1" --platform System.Collections        # From platform
+dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
 ```
 
 ### platform
@@ -129,9 +133,13 @@ Verbosity controls output density:
 | Flag | Output |
 |------|--------|
 | `-v:q` | Title + compact line |
-| `-v:m` | + description |
+| `-v:m` | + description (default) |
 | `-v:n` | + Metadata table |
-| `-v:d` | + Statistics, Dependencies, Files, Vulnerabilities |
+| `-v:d` | + Full member signatures, Statistics, Dependencies |
+
+For `api` command with `-m` filter:
+- Default (`-v:m`): Summarizes overloads (e.g., "Deserialize: 40 overloads")
+- Detailed (`-v:d`): Shows full signature table for each overload
 
 The compact line summarizes key metadata:
 ```
@@ -210,3 +218,88 @@ The `find` command is the best starting point when you're unsure where a type li
 - Glob patterns must be quoted: `"*Stream*"` (prevents shell expansion)
 - Member filter is case-insensitive
 - Uses NuGet cache; `--verbose` shows cache activity
+
+## LLM Usage Guide
+
+### Generic Type Syntax
+
+Use backtick notation for generic types:
+- `List\`1` (not `List<T>`)
+- `Dictionary\`2` (not `Dictionary<K,V>`)
+- `Action\`3` for 3 type parameters
+
+The backtick number indicates how many type parameters.
+
+### Command Selection
+
+**To see interfaces a type implements:**
+```bash
+dotnet-inspect api "List\`1" --platform System.Collections --json
+# Check "interfaces" array in output
+```
+
+**To see type hierarchy with members (tree view):**
+```bash
+dotnet-inspect type "List\`1" --platform System.Collections
+```
+
+**To search for a type by name:**
+```bash
+dotnet-inspect find "*List*" --framework runtime
+```
+
+### Flag Compatibility Matrix
+
+| Flag | api | type | find | diff |
+|------|-----|------|------|------|
+| `--package` | ✓ | ✓ | ✓ | ✓ |
+| `--platform` | ✓ | ✓ | ✓ | ✓ |
+| `--assembly` | ✓ | ✓ | ✓ | |
+| `--framework` | ✓ | ✓ | ✓ | ✓ |
+
+### Common Assembly Names
+
+| Type | Platform Assembly |
+|------|-------------------|
+| List, Dictionary, Queue | System.Collections |
+| String, Int32, Object, Span | System.Runtime |
+| JsonSerializer, JsonDocument | System.Text.Json |
+| HttpClient, HttpRequestMessage | System.Net.Http |
+| Regex, Match | System.Text.RegularExpressions |
+| Task, Async | System.Threading.Tasks |
+| File, Stream, Path | System.IO |
+
+### Query Examples
+
+```bash
+# Find a type by partial name
+dotnet-inspect find "*List*" --framework runtime
+
+# Get interfaces implemented by a type
+dotnet-inspect api "List\`1" --platform System.Collections --interfaces
+
+# Get full type shape with members
+dotnet-inspect type "Dictionary\`2" --platform System.Collections
+
+# See all overloads of a method with full signatures
+dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:d
+
+# Compare versions
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
+```
+
+### Discovery Workflow
+
+When you don't know where a type lives:
+
+```bash
+# Step 1: Find the type
+dotnet-inspect find "JsonSerializer" --framework runtime
+# Shows: System.Text.Json.JsonSerializer in System.Text.Json.dll
+
+# Step 2: Get overview with type command
+dotnet-inspect type JsonSerializer --platform System.Text.Json
+
+# Step 3: Drill into specific members
+dotnet-inspect api JsonSerializer --platform System.Text.Json -m Serialize -v:d
+```

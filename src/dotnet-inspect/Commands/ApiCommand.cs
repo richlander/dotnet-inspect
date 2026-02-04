@@ -287,6 +287,24 @@ public class ApiCommand
             {
                 searchPath = options.AssemblyPath;
             }
+            else if (!string.IsNullOrEmpty(options.PlatformAssembly))
+            {
+                // Resolve platform assembly
+                var (assemblyPath, framework, version, error) = Inspectors.PlatformResolver.ResolveAssembly(
+                    options.PlatformAssembly,
+                    options.PlatformFramework,
+                    packsDirectory: null,
+                    useRuntimeAssemblies: false);
+
+                if (error != null)
+                {
+                    Console.Error.WriteLine($"Error: {error}");
+                    return (null, null, null);
+                }
+
+                searchPath = assemblyPath!;
+                logger.Log($"Using platform ref assembly: {framework} {version}");
+            }
             else
             {
                 return (null, null, null);

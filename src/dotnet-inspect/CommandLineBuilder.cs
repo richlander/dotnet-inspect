@@ -101,6 +101,8 @@ public static class CommandLineBuilder
 
         var typePackageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
         var typeAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
+        var typePlatformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
+        var typeFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
         var typeTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
         var typeAllOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
@@ -108,6 +110,8 @@ public static class CommandLineBuilder
         typeCommand.Arguments.Add(typeNameArg);
         typeCommand.Options.Add(typePackageOption);
         typeCommand.Options.Add(typeAssemblyOption);
+        typeCommand.Options.Add(typePlatformOption);
+        typeCommand.Options.Add(typeFrameworkOption);
         typeCommand.Options.Add(typeTfmOption);
         typeCommand.Options.Add(typeAllOption);
         typeCommand.Options.Add(jsonOption);
@@ -121,6 +125,8 @@ public static class CommandLineBuilder
             {
                 PackagePath = parseResult.GetValue(typePackageOption),
                 AssemblyPath = parseResult.GetValue(typeAssemblyOption),
+                PlatformAssembly = parseResult.GetValue(typePlatformOption),
+                PlatformFramework = parseResult.GetValue(typeFrameworkOption),
                 Tfm = parseResult.GetValue(typeTfmOption),
                 IncludeAll = parseResult.GetValue(typeAllOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
