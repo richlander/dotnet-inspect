@@ -112,6 +112,8 @@ dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude Package Dependencie
 
 This tool is [designed for LLM-driven development](docs/llm-design.md). Run `dotnet-inspect llmstxt` for detailed usage patterns.
 
+A skill for use with GitHub Copilot agent mode is available at [dotnet-skills](https://github.com/richlander/dotnet-skills).
+
 ## Requirements
 
 .NET 10.0 SDK or later

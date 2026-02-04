@@ -24,16 +24,10 @@ public record PdbLookupResult(
 /// https://github.com/dotnet/symstore/blob/d66992e7c2f32288fbf1acf08cdea43098025c7c/src/Microsoft.SymbolStore/KeyGenerators/PortablePDBFileKeyGenerator.cs
 /// Portable PDBs use {GUID}FFFFFFFF, Windows PDBs use {GUID}{age:x}.
 /// </remarks>
-public class SymbolPackageDownloader
+public class SymbolPackageDownloader(HttpClient? client = null)
 {
-    private readonly HttpClient _client;
-    private readonly string _cachePath;
-
-    public SymbolPackageDownloader(HttpClient? client = null)
-    {
-        _client = client ?? HttpClientFactory.Create();
-        _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
-    }
+    private readonly HttpClient _client = client ?? HttpClientFactory.Create();
+    private readonly string _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
 
     /// <summary>
     /// Tries to get a PDB reader for an assembly, checking embedded PDB first, then external sources.
