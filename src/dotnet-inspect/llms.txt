@@ -97,7 +97,7 @@ dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework
 | `--package` | NuGet package (name or name@version) |
 | `--assembly` | Local assembly file |
 | `--platform` | Specific platform assembly |
-| `--framework` | All assemblies in framework (runtime, aspnetcore, netstandard) |
+| `--framework` | All assemblies in framework (runtime, aspnetcore) |
 | `--project` | Project dependencies via project.assets.json |
 | `--bin` | All DLLs in output directory |
 

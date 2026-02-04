@@ -14,13 +14,21 @@ dotnet-inspect platform --framework runtime
 dotnet-inspect platform --framework runtime --json | jq '.assemblies[].name'
 ```
 
+## Why This Command
+
+Use `platform` to list **assemblies** (DLL files) in a framework.
+Use `find` to search for **types** (classes, interfaces) by name pattern.
+
+❌ Wrong: `dotnet-inspect find "*" --framework runtime` — searches for types, not assemblies
+✓ Right: `dotnet-inspect platform --framework runtime` — lists all assembly files
+
 ## Discovery Path (Learning)
 
 ```bash
 # Step 1: See what frameworks are installed
 dotnet-inspect platform
 
-# Output: Lists runtime, aspnetcore, netstandard with versions
+# Output: Lists runtime and aspnetcore with versions and assembly counts
 
 # Step 2: List assemblies in runtime
 dotnet-inspect platform --framework runtime
@@ -52,5 +60,4 @@ dotnet-inspect platform --framework aspnetcore
 - `platform` with no args shows installed frameworks
 - `--framework runtime` lists all runtime assemblies
 - `--framework aspnetcore` lists ASP.NET Core assemblies
-- `--framework netstandard` lists .NET Standard assemblies
 - Use `--json` for machine-parseable output
