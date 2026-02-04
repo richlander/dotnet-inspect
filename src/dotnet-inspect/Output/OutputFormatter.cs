@@ -154,6 +154,10 @@ public static class OutputFormatter
             sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
             sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
             sb.AppendLine($"| SourceLink | {audit.SourceLinkStatus} |");
+            if (!string.IsNullOrEmpty(audit.Builder))
+            {
+                sb.AppendLine($"| Builder | {audit.Builder} |");
+            }
 
             // PDB section
             sb.AppendLine();

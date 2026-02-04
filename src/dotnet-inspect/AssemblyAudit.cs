@@ -83,6 +83,14 @@ public class AssemblyAudit
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SymbolServer { get; set; }
 
+    /// <summary>
+    /// Inferred builder of the assembly based on symbol availability and SourceLink.
+    /// </summary>
+    [MarkoutPropertyName("Builder")]
+    [JsonPropertyName("builder")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Builder { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [MarkoutIgnore]
     public string? SourceLinkJson { get; set; }

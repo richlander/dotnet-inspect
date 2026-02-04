@@ -540,6 +540,9 @@ public class AssemblyCommand
                 audit.SourceLinkUnavailableReason = "external PDB not found";
             }
         }
+
+        // Infer builder based on symbol availability and SourceLink
+        audit.Builder = InferBuilder(audit);
     }
 
     private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
@@ -557,6 +560,48 @@ public class AssemblyCommand
                 return System.Text.Encoding.UTF8.GetString(bytes);
             }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Infers who built the assembly based on symbol availability and SourceLink.
+    /// Only meaningful for Microsoft-branded assemblies where we distinguish
+    /// between genuine Microsoft builds and distro rebuilds.
+    /// </summary>
+    private static string? InferBuilder(AssemblyAudit audit)
+    {
+        var company = audit.AssemblyInfo?.Company;
+        bool isMicrosoftAssembly = company?.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) == true;
+
+        // Only relevant for Microsoft-branded assemblies
+        if (!isMicrosoftAssembly)
+        {
+            return null;
+        }
+
+        // If we got symbols from MSDL with SourceLink, it's a verified Microsoft build
+        if (audit.SymbolServer == "msdl.microsoft.com" && audit.HasSourceLink)
+        {
+            return "Microsoft";
+        }
+
+        // If SourceLink points to a dotnet repo, it's Microsoft
+        if (audit.HasSourceLink && audit.SourceLinkJson != null)
+        {
+            if (audit.SourceLinkJson.Contains("github.com/dotnet/", StringComparison.OrdinalIgnoreCase) ||
+                audit.SourceLinkJson.Contains("raw.githubusercontent.com/dotnet/", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Microsoft";
+            }
+        }
+
+        // Microsoft metadata but no symbols - can't verify, likely distro build
+        if (audit.SourceLinkUnavailableReason == "no symbols")
+        {
+            return "Unknown (not on Microsoft symbol servers)";
+        }
+
+        // Can't determine (e.g., Windows PDB case)
         return null;
     }
 
