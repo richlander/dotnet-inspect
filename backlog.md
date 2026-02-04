@@ -4,6 +4,32 @@ Ideas for improving dotnet-inspect for LLM-driven C# development.
 
 > **Note:** Completed features are removed from this backlog. See git history for implemented items.
 
+## NuGet Package Signature Verification
+
+Add cryptographic verification of NuGet packages to prove provenance:
+
+```bash
+dotnet-inspect assembly --package Newtonsoft.Json --audit
+```
+
+Would show in Build Audit:
+```
+| Publisher | Json.NET (.NET Foundation) (verified) |
+```
+
+Implementation approach:
+- Run `dotnet nuget verify` on the `.nupkg` file (~250-350ms)
+- Parse author signature CN (Common Name) for publisher identity
+- Repository signature proves package came from NuGet.org
+- `.nupkg` is available in `~/.nuget/packages/{id}/{version}/` for cached packages
+
+Platform considerations:
+- ✅ Linux: Full verification works
+- ✅ Windows: Full verification works  
+- ⚠️ macOS: Verification skipped (see dotnet/sdk#52630), fall back to metadata
+
+This provides strong verification for NuGet packages, complementing the MSDL-based verification we already have for Microsoft platform assemblies.
+
 ## Derived Types Table
 
 Add a "Derived Types" section to `api` output that displays:
