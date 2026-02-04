@@ -475,11 +475,15 @@ public static class CommandLineBuilder
 
         var auditOption = new Option<bool>("--audit") { Description = "Include SourceLink and determinism audit" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Extract assembly from package (file, name, or name@version)" };
+        var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
+        var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(auditOption);
         assemblyCommand.Options.Add(asmPackageOption);
+        assemblyCommand.Options.Add(asmPlatformOption);
+        assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(jsonOption);
         assemblyCommand.Options.Add(markoutOption);
@@ -495,6 +499,8 @@ public static class CommandLineBuilder
             {
                 IncludeAudit = parseResult.GetValue(auditOption),
                 PackagePath = parseResult.GetValue(asmPackageOption),
+                PlatformAssembly = parseResult.GetValue(asmPlatformOption),
+                PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),

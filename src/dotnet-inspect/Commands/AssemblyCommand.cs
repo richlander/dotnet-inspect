@@ -15,10 +15,12 @@ public class AssemblyCommand
 {
     public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
     {
-        // If --package is specified without assembly path, we'll auto-detect
-        if (string.IsNullOrEmpty(assemblyPath) && string.IsNullOrEmpty(options.PackagePath))
+        // Check for valid input source
+        if (string.IsNullOrEmpty(assemblyPath) && 
+            string.IsNullOrEmpty(options.PackagePath) && 
+            string.IsNullOrEmpty(options.PlatformAssembly))
         {
-            Console.Error.WriteLine("Error: Assembly path required.");
+            Console.Error.WriteLine("Error: Assembly path, --package, or --platform required.");
             Console.Error.WriteLine("Run 'dotnet-inspect assembly --help' for usage.");
             return 1;
         }
@@ -36,7 +38,34 @@ public class AssemblyCommand
                 (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
             }
 
-            if (!string.IsNullOrEmpty(options.PackagePath))
+            if (!string.IsNullOrEmpty(options.PlatformAssembly))
+            {
+                // Resolve platform assembly - use runtime assemblies for full debug info
+                var (resolvedPath, framework, version, error) = PlatformResolver.ResolveAssembly(
+                    options.PlatformAssembly,
+                    options.PlatformFramework,
+                    packsDirectory: null,
+                    useRuntimeAssemblies: true);  // Use runtime for audit (has debug info)
+
+                if (error != null)
+                {
+                    Console.Error.WriteLine($"Error: {error}");
+                    return 1;
+                }
+
+                logger.Log($"Using platform runtime assembly: {framework} {version}");
+                
+                var audit = await InspectAssemblyAsync(resolvedPath!, options, logger, null, null, isPlatformAssembly: true);
+                if (audit == null)
+                {
+                    Console.Error.WriteLine($"Error: Could not read assembly: {resolvedPath}");
+                    return 1;
+                }
+
+                OutputFormatter.WriteAssemblyResult(audit, options);
+                return 0;
+            }
+            else if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, options.Tfm, logger);
@@ -347,7 +376,8 @@ public class AssemblyCommand
         AssemblyOptions options,
         VerboseLogger logger,
         string? packageName,
-        string? packageVersion)
+        string? packageVersion,
+        bool isPlatformAssembly = false)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -374,7 +404,7 @@ public class AssemblyCommand
             // Audit if requested
             if (options.IncludeAudit)
             {
-                await AuditAssemblyAsync(peReader, audit, path, packageName, packageVersion, logger);
+                await AuditAssemblyAsync(peReader, audit, path, packageName, packageVersion, logger, isPlatformAssembly);
             }
 
             return audit;
@@ -423,7 +453,8 @@ public class AssemblyCommand
         string assemblyPath,
         string? packageName,
         string? packageVersion,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool isPlatformAssembly = false)
     {
         foreach (var entry in peReader.ReadDebugDirectory())
         {
@@ -493,7 +524,7 @@ public class AssemblyCommand
                 // No local PDB - try to fetch from symbol package or symbol server
                 var symbolDownloader = new SymbolPackageDownloader();
                 var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-                    peReader, assemblyPath, packageName, packageVersion, logger.Log);
+                    peReader, assemblyPath, packageName, packageVersion, logger.Log, isPlatformAssembly);
 
                 if (pdbResult.Reader != null && pdbResult.Provider != null)
                 {

@@ -114,20 +114,17 @@ public class ApiCommand
                 searchPath = assemblyPath!;
                 logger.Log($"Using platform ref assembly: {framework} {version}");
                 
-                // When --docs or --samples is requested, also resolve runtime assembly for PDB lookup
-                if (options.ShowDocs || options.ShowSamples)
+                // Always resolve runtime assembly for PDB lookup (ref assemblies have no debug info)
+                var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
+                    options.PlatformAssembly,
+                    options.PlatformFramework,
+                    packsDirectory: null,
+                    useRuntimeAssemblies: true);
+                
+                if (runtimeError == null && runtimePath != null)
                 {
-                    var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
-                        options.PlatformAssembly,
-                        options.PlatformFramework,
-                        packsDirectory: null,
-                        useRuntimeAssemblies: true);
-                    
-                    if (runtimeError == null && runtimePath != null)
-                    {
-                        runtimeAssemblyPath = runtimePath;
-                        logger.Log($"Using runtime assembly for PDB lookup: {runtimePath}");
-                    }
+                    runtimeAssemblyPath = runtimePath;
+                    logger.Log($"Using runtime assembly for PDB lookup: {runtimePath}");
                 }
             }
             else
@@ -258,6 +255,7 @@ public class ApiCommand
     internal static async Task<(ApiType? type, string? foundIn, string? dllPath)> ExtractTypeWithPathAsync(string typeName, ApiOptions options, VerboseLogger logger)
     {
         string? tempDir = null;
+        string? runtimeAssemblyPath = null;  // For platform assemblies, use runtime path for PDB lookup
         try
         {
             string searchPath;
@@ -289,7 +287,7 @@ public class ApiCommand
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
-                // Resolve platform assembly
+                // Resolve platform assembly (ref assembly for API extraction)
                 var (assemblyPath, framework, version, error) = Inspectors.PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
                     options.PlatformFramework,
@@ -304,6 +302,19 @@ public class ApiCommand
 
                 searchPath = assemblyPath!;
                 logger.Log($"Using platform ref assembly: {framework} {version}");
+                
+                // Always resolve runtime assembly for PDB lookup (ref assemblies have no debug info)
+                var (runtimePath, _, _, runtimeError) = Inspectors.PlatformResolver.ResolveAssembly(
+                    options.PlatformAssembly,
+                    options.PlatformFramework,
+                    packsDirectory: null,
+                    useRuntimeAssemblies: true);
+                
+                if (runtimeError == null && runtimePath != null)
+                {
+                    runtimeAssemblyPath = runtimePath;
+                    logger.Log($"Using runtime assembly for PDB lookup: {runtimePath}");
+                }
             }
             else
             {
@@ -313,9 +324,11 @@ public class ApiCommand
             var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger, options.IncludeAll);
             
             // Enrich with source info and docs if requested
+            // Use runtime assembly path for PDB lookup if available
             if (apiType != null && dllPath != null && options.ShowDocs)
             {
-                await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger);
+                var pdbLookupPath = runtimeAssemblyPath ?? dllPath;
+                await EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger);
             }
             
             return (apiType, foundIn, dllPath);

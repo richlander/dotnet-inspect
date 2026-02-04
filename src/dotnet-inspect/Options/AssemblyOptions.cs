@@ -17,6 +17,18 @@ public record AssemblyOptions
     public string? PackagePath { get; init; }
 
     /// <summary>
+    /// Platform assembly name (e.g., System.Text.Json).
+    /// Resolves to installed .NET runtime assembly.
+    /// </summary>
+    public string? PlatformAssembly { get; init; }
+
+    /// <summary>
+    /// Platform framework (runtime, aspnetcore, netstandard).
+    /// Use @version for specific version (e.g., runtime@9.0.12).
+    /// </summary>
+    public string? PlatformFramework { get; init; }
+
+    /// <summary>
     /// Target framework moniker to select assembly from package.
     /// Alternative to specifying full assembly path.
     /// </summary>
