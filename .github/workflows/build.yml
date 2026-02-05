@@ -1,0 +1,214 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # Build the pointer package (once, on any platform)
+  build-pointer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      - name: Build
+        run: dotnet build src/dotnet-inspect -c Release
+      
+      - name: Run unit tests
+        run: dotnet test src/dotnet-inspect.Tests -c Release --no-build
+      
+      - name: Pack pointer package
+        run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
+      
+      - name: Upload pointer package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-pointer
+          path: artifacts/packages/dotnet-inspect/release/*.nupkg
+          if-no-files-found: error
+
+  # Build RID-specific Native AOT packages
+  build-rid:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            aot: true
+          - rid: win-arm64
+            os: windows-latest
+            aot: true
+          - rid: linux-x64
+            os: ubuntu-latest
+            aot: true
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            aot: true
+          - rid: osx-arm64
+            os: macos-latest
+            aot: true
+          - rid: any
+            os: ubuntu-latest
+            aot: false
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      - name: Pack RID-specific package
+        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:PublishAot=${{ matrix.aot }} -p:OfficialBuild=true
+      
+      - name: Upload RID package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: artifacts/packages/dotnet-inspect/release/*.nupkg
+          if-no-files-found: error
+
+  # Smoke test installed tool on each platform
+  smoke-test:
+    needs: [build-pointer, build-rid]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+          - rid: osx-arm64
+            os: macos-latest
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
+      
+      - name: List packages
+        run: ls -la packages/
+        shell: bash
+      
+      - name: Install tool from local packages
+        run: dotnet tool install --global dotnet-inspect --add-source ./packages --no-cache
+      
+      - name: Smoke test - version
+        run: dotnet-inspect --version
+      
+      - name: Smoke test - help
+        run: dotnet-inspect --help
+      
+      - name: Smoke test - package info
+        run: dotnet-inspect System.Text.Json 10.0.0 -v:q
+      
+      - name: Smoke test - api command
+        run: dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5
+      
+      - name: Smoke test - platform command
+        run: dotnet-inspect platform
+      
+      - name: Uninstall tool
+        run: dotnet tool uninstall --global dotnet-inspect
+
+  # Publish to NuGet (only on version tags, after all tests pass)
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [smoke-test]
+    runs-on: ubuntu-latest
+    environment: nuget-publish
+    
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
+      
+      - name: List packages
+        run: ls -la packages/
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      # Publish RID-specific packages first (in parallel conceptually, but sequentially here)
+      - name: Publish RID-specific packages
+        run: |
+          for pkg in packages/dotnet-inspect.*.nupkg; do
+            if [[ ! "$pkg" =~ packages/dotnet-inspect\.[0-9] ]]; then
+              echo "Publishing $pkg"
+              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+            fi
+          done
+        shell: bash
+      
+      # Wait for NuGet to index the RID packages
+      - name: Wait for NuGet indexing
+        run: sleep 60
+      
+      # Publish the pointer package last
+      - name: Publish pointer package
+        run: |
+          for pkg in packages/dotnet-inspect.*.nupkg; do
+            if [[ "$pkg" =~ packages/dotnet-inspect\.[0-9] ]]; then
+              echo "Publishing pointer package: $pkg"
+              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+            fi
+          done
+        shell: bash
+
+  # Create GitHub Release
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*.nupkg
+          generate_release_notes: true
