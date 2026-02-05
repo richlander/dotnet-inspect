@@ -164,26 +164,28 @@ jobs:
         run: dotnet tool install --global dotnet-inspect --add-source ./packages --no-cache
       
       - name: Add .NET tools to PATH
-        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+        run: |
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+          echo "$USERPROFILE\\.dotnet\\tools" >> $GITHUB_PATH
         shell: bash
       
       - name: Smoke test - version
         run: |
-          OUTPUT=$(dotnet-inspect --version)
+          OUTPUT=$("$HOME/.dotnet/tools/dotnet-inspect" --version 2>/dev/null || dotnet-inspect --version)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
         shell: bash
       
       - name: Smoke test - help
         run: |
-          OUTPUT=$(dotnet-inspect --help)
+          OUTPUT=$("$HOME/.dotnet/tools/dotnet-inspect" --help 2>/dev/null || dotnet-inspect --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "dotnet-inspect"
         shell: bash
       
       - name: Smoke test - package info
         run: |
-          dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
+          "$HOME/.dotnet/tools/dotnet-inspect" System.Text.Json 10.0.0 -v:q > smoke-package.md 2>/dev/null || dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
           cat smoke-package.md
           grep -q "System.Text.Json" smoke-package.md
           grep -q "Library" smoke-package.md
@@ -191,7 +193,7 @@ jobs:
       
       - name: Smoke test - api command
         run: |
-          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
+          "$HOME/.dotnet/tools/dotnet-inspect" api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md 2>/dev/null || dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
           cat smoke-api.md
           grep -q "JsonSerializer" smoke-api.md
           grep -q "Serialize" smoke-api.md
@@ -200,7 +202,7 @@ jobs:
       
       - name: Smoke test - platform command
         run: |
-          dotnet-inspect platform > smoke-platform.md
+          "$HOME/.dotnet/tools/dotnet-inspect" platform > smoke-platform.md 2>/dev/null || dotnet-inspect platform > smoke-platform.md
           cat smoke-platform.md
           grep -q "runtime" smoke-platform.md
         shell: bash
