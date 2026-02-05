@@ -1,6 +1,6 @@
 # dotnet-inspect
 
-CLI tool for inspecting .NET assemblies and NuGet packages. View metadata, APIs, vulnerabilities, and compare versions.
+CLI tool for inspecting .NET assemblies and NuGet packages. View metadata, APIs, vulnerabilities, audit provenance, and compare versions.
 
 ## Installation
 
@@ -8,53 +8,87 @@ CLI tool for inspecting .NET assemblies and NuGet packages. View metadata, APIs,
 dotnet tool install -g dotnet-inspect
 ```
 
-## Test Packages
+## Quick Reference
 
-Use `System.Text.Json` versions to explore different scenarios:
+| Command | Purpose |
+|---------|---------|
+| `package X` | Package metadata, dependencies, files |
+| `platform X` | Inspect SDK/runtime assembly |
+| `assembly ./path` | Inspect local file |
+| `audit X` | Verify provenance (SourceLink, determinism) |
+| `api X` | Public API surface |
+| `type X` | Type hierarchy and members |
+| `diff X` | Compare versions |
+| `find X` | Search for types |
 
-| Version | Scenario |
-| ------- | -------- |
-| 10.0.2 | Latest, multi-targeting (net462, net8.0, net9.0, net10.0, netstandard2.0) |
-| 8.0.4 | Vulnerable (CVE-2024-43485) |
-| 5.0.0 | Deprecated |
+### Common Flags
 
-Other useful test packages:
-
-- `dotnet-ef` - Tool package with commands
-- `Azure.Mcp` - RID-specific tool (shows RID Packages section)
-- `Microsoft.Data.SqlClient` - Library with native runtimes
+| Flag | Description |
+|------|-------------|
+| `--audit` | Full provenance verification (always strict) |
+| `--sourcelink` | Show SourceLink presence/URL (fast, no HTTP) |
+| `--json` | JSON output |
+| `-v:q/m/n/d` | Verbosity: quiet, minimal, normal, detailed |
 
 ## Commands
 
 ### package
 
+Inspect NuGet packages. This is the default command.
+
 ```bash
 dotnet-inspect System.Text.Json                    # Metadata (latest version)
-dotnet-inspect System.Text.Json 8.0.4 -v:d         # Detailed view (shows vulnerability)
-dotnet-inspect System.Text.Json 5.0.0              # Shows deprecation notice
+dotnet-inspect System.Text.Json@8.0.4 -v:d         # Detailed (shows vulnerability)
 dotnet-inspect System.Text.Json --versions         # List available versions
-dotnet-inspect dotnet-ef --files --all             # Tool package file structure
-dotnet-inspect package --discover                  # List available sections
+dotnet-inspect System.Text.Json --audit            # Provenance verification
+dotnet-inspect System.Text.Json --files --all      # File structure
+```
+
+### audit
+
+Verify package/assembly provenance. Always runs strict verification.
+
+```bash
+dotnet-inspect audit Markout@0.1.4                 # Package
+dotnet-inspect audit ./bin/MyLib.dll               # Local file
+dotnet-inspect audit ./artifacts/*.nupkg           # Multiple nupkgs
+dotnet-inspect audit Markout@0.1.4 -v:q            # Quiet (pass/fail)
+```
+
+### platform
+
+List frameworks or inspect platform assemblies.
+
+```bash
+dotnet-inspect platform                            # List frameworks
+dotnet-inspect platform --framework runtime        # List runtime assemblies
+dotnet-inspect platform System.Text.Json           # Inspect assembly
+dotnet-inspect platform System.Text.Json --audit   # Audit platform assembly
 ```
 
 ### api
 
+Extract public API surface.
+
 ```bash
-dotnet-inspect api --package System.Text.Json                     # List all types
+dotnet-inspect api --package System.Text.Json                     # All types
 dotnet-inspect api JsonSerializer --package System.Text.Json      # Specific type
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
-dotnet-inspect api 'Option<T>' --package System.CommandLine       # Generic types
-dotnet-inspect api Command --package System.CommandLine --ctor    # Constructors with details
-dotnet-inspect api --platform System.Text.Json                    # Platform assembly (no download)
+dotnet-inspect api --platform System.Text.Json                    # Platform assembly
 ```
 
 ### assembly
 
+Inspect a specific assembly file.
+
 ```bash
-dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit  # SourceLink audit
+dotnet-inspect assembly ./bin/MyLib.dll            # Local file
+dotnet-inspect assembly ./bin/MyLib.dll --audit    # With provenance check
 ```
 
 ### diff
+
+Compare API surfaces between versions.
 
 ```bash
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
@@ -63,52 +97,37 @@ dotnet-inspect diff JsonSerializer --platform System.Text.Json@8.0.23..10.0.2
 
 ### type
 
+Show type hierarchy with members.
+
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json     # Inheritance tree
+dotnet-inspect type JsonSerializer --package System.Text.Json
 ```
 
-### samples (experimental)
-
-Fetch code samples via SourceLink for packages with `<code source=...>` doc references:
+## Custom NuGet Sources
 
 ```bash
-dotnet-inspect samples --package Newtonsoft.Json --list           # List available samples
-dotnet-inspect samples JsonConvert --package Newtonsoft.Json      # Fetch samples for type
-dotnet-inspect samples --package Markout --list                   # Works with SourceLink-enabled packages
-```
-
-Note: Platform assemblies (dotnet/runtime) use inline examples and are not supported.
-
-### platform
-
-```bash
-dotnet-inspect platform --list-versions            # Installed SDK versions
-dotnet-inspect platform --framework runtime        # List runtime assemblies
+dotnet-inspect package MyPackage --source https://my-feed/v3/index.json
+dotnet-inspect package MyPackage --add-source https://dev-feed/v3/index.json
+dotnet-inspect package MyPackage --nugetconfig ./nuget.config
 ```
 
 ## Output Control
 
 **Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed)
 
+<<<<<<< HEAD
 Each level includes a **compact summary line** with key metadata:
 
 ```text
 Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 ```
 
-**Sections**: Use `--discover` to list sections, then filter with `-s:1,2` (include) or `-x:3` (exclude)
+**Sections**: Use `--discover` to list, then `-s:1,2` (include) or `-x:3` (exclude)
 
 ```bash
 dotnet-inspect System.Text.Json -v:d               # All sections
-dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude Package Dependencies and Files
+dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude sections 3,4
 ```
-
-## Output Formats
-
-- Markdown tables (default)
-- `--signatures-only` - Plain signatures
-- `--json` - JSON output
-- `--json --compact` - Minified JSON
 
 ## LLM Integration
 
