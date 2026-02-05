@@ -182,7 +182,7 @@ jobs:
       - name: Smoke test - help (Windows)
         if: runner.os == 'Windows'
         run: |
-          $output = dotnet-inspect --help
+          $output = dotnet-inspect --help | Out-String
           Write-Output $output
           if ($output -notmatch 'dotnet-inspect') { exit 1 }
         shell: pwsh
