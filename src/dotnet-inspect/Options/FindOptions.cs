@@ -1,9 +1,11 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
 /// Configuration options for the find command.
 /// </summary>
-public record FindOptions
+public record FindOptions : IAssemblySourceOptions
 {
     /// <summary>
     /// Packages to search (name or name@version). Can specify multiple.
@@ -79,6 +81,11 @@ public record FindOptions
     /// Show only type names, one per line.
     /// </summary>
     public bool NameOnly { get; init; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
     /// Returns true if any search scope is specified.

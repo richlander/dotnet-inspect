@@ -13,7 +13,8 @@ public class PlatformCommand
 {
     public static Task<int> ExecuteAsync(PlatformOptions options)
     {
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
 
         var packsDir = PlatformResolver.GetPacksDirectory();
         if (packsDir == null)

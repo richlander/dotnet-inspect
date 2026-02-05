@@ -4,6 +4,25 @@ Ideas for improving dotnet-inspect for LLM-driven C# development.
 
 > **Note:** Completed features are removed from this backlog. See git history for implemented items.
 
+## Audit Command
+
+A dedicated `audit` subcommand for streamlined package provenance checks:
+
+```bash
+dotnet-inspect audit Markout@0.1.4                      # NuGet package
+dotnet-inspect audit System.Text.Json                   # platform assembly
+dotnet-inspect audit ./bin/MyLib.dll                    # local file
+dotnet-inspect audit Markout@0.1.3 Markout@0.1.4        # batch/compare
+```
+
+Currently requires `assembly --package X --audit` which isn't intuitive to discover. A top-level `audit` command would:
+
+- Provide a clear entry point for security/provenance workflows
+- Support batch mode for auditing multiple versions at once
+- Surface SourceLink, determinism, and PDB status in one view
+
+Feedback: "Took a couple attempts to find the right command - I first tried `package X --assembly`"
+
 ## Migration Hints
 
 When diffing versions, suggest code transformations:
@@ -51,14 +70,6 @@ Challenges:
 - Would significantly increase output size
 - Requires resolving line numbers for each member from PDB
 - May need to be opt-in (`--member-source-urls` or similar)
-
-## NuGet.config Support
-
-Add support for reading `NuGet.config` files when resolving packages. Currently package resolution only uses the default NuGet cache and nuget.org. This would enable:
-
-- Using local package sources for development/testing
-- Using private feeds (Azure Artifacts, GitHub Packages, etc.)
-- Respecting repository-specific package configurations
 
 ## Inherited Members Option
 

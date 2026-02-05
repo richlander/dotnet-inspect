@@ -130,6 +130,58 @@ public class AssemblyAudit
     [MarkoutIgnore]
     public List<string>? NonNormalizedPaths { get; set; }
 
+    // Strict audit: source verification results
+    /// <summary>
+    /// Total number of source documents in the PDB.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("total_source_files")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int TotalSourceFiles { get; set; }
+
+    /// <summary>
+    /// Number of source files accessible via SourceLink (HTTP 200).
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("accessible_source_files")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int AccessibleSourceFiles { get; set; }
+
+    /// <summary>
+    /// Number of source files embedded in the PDB.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("embedded_source_files")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int EmbeddedSourceFiles { get; set; }
+
+    /// <summary>
+    /// Source files that are neither accessible via SourceLink nor embedded.
+    /// Only populated in strict audit mode.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("missing_source_files")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? MissingSourceFiles { get; set; }
+
+    /// <summary>
+    /// Whether all source files are accessible (via SourceLink or embedded).
+    /// Only set in strict audit mode.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("all_sources_accessible")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllSourcesAccessible { get; set; }
+
+    /// <summary>
+    /// Human-readable source coverage summary for display.
+    /// </summary>
+    [MarkoutPropertyName("Source Coverage")]
+    [JsonIgnore]
+    public string? SourceCoverageSummary => TotalSourceFiles > 0
+        ? $"{AccessibleSourceFiles + EmbeddedSourceFiles}/{TotalSourceFiles} files"
+        : null;
+
     // Assembly metadata
     [MarkoutIgnore]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

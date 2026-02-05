@@ -44,6 +44,10 @@ dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.Comm
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
 
+# Find types implementing an interface or extending a class
+dnx dotnet-inspect -y -- implements IDisposable --framework runtime
+dnx dotnet-inspect -y -- implements Stream --framework runtime
+
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json
 dnx dotnet-inspect -y -- package System.Text.Json --versions
@@ -79,6 +83,7 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 | `api <type>` | View public API surface (table format) |
 | `find <pattern>` | Search for types across packages, assemblies, or frameworks |
 | `extensions <type>` | Find extension methods for a type |
+| `implements <type>` | Find types implementing an interface or extending a class |
 | `package <name>` | Package metadata, files, versions, dependencies |
 | `assembly <path>` | Assembly info, SourceLink/determinism audit |
 | `llmstxt` | Complete usage examples for all commands |
@@ -95,6 +100,7 @@ dnx dotnet-inspect -y -- llmstxt
 
 - Exploring what types/APIs a NuGet package provides
 - Searching for types by pattern across packages or frameworks
+- Finding types that implement an interface or extend a base class
 - Understanding method signatures and overloads
 - Comparing API changes between package versions
 - Auditing assemblies for SourceLink and determinism

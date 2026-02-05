@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -9,6 +11,12 @@ public record AssemblyOptions
     /// Include SourceLink and determinism audit.
     /// </summary>
     public bool IncludeAudit { get; init; }
+
+    /// <summary>
+    /// Enable strict audit mode: verify SourceLink URLs are fetchable
+    /// and all source files are accessible or embedded.
+    /// </summary>
+    public bool StrictAudit { get; init; }
 
     /// <summary>
     /// Path to a NuGet package to extract the assembly from.
@@ -58,6 +66,11 @@ public record AssemblyOptions
     /// Sections to exclude (1-indexed).
     /// </summary>
     public HashSet<int>? ExcludeSections { get; init; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
     /// Default options: basic assembly info only.

@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -79,6 +81,11 @@ public record InspectionOptions
     /// Sections to exclude (1-indexed).
     /// </summary>
     public HashSet<int>? ExcludeSections { get; init; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
     /// Default options: metadata only.

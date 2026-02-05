@@ -1,6 +1,6 @@
 using System.Reflection.Metadata;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Metadata;
 
 /// <summary>
 /// Context for resolving generic type parameter names during signature decoding.
@@ -16,6 +16,9 @@ public class GenericContext
         MethodParameters = methodParameters;
     }
 
+    /// <summary>
+    /// Creates a context for a type definition (type parameters only).
+    /// </summary>
     public static GenericContext ForType(MetadataReader reader, TypeDefinition typeDef)
     {
         var typeParams = typeDef.GetGenericParameters()
@@ -24,6 +27,9 @@ public class GenericContext
         return new GenericContext(typeParams, []);
     }
 
+    /// <summary>
+    /// Creates a context for a method definition (type + method parameters).
+    /// </summary>
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
     {
         var typeParams = typeDef.GetGenericParameters()

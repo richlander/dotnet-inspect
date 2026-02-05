@@ -2,9 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO.Compression;
-using DotnetInspector.Output;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Result of a package extraction operation.
@@ -22,40 +21,43 @@ public record PackageExtractionResult(
     string? NupkgPath = null);
 
 /// <summary>
-/// Shared utility for extracting NuGet packages from local files or nuget.org.
+/// Shared utility for extracting NuGet packages from local files or NuGet feeds.
 /// </summary>
 public static class PackageExtractor
 {
     /// <summary>
-    /// Extracts a package from a local .nupkg file or downloads from nuget.org.
+    /// Extracts a package from a local .nupkg file or downloads from NuGet sources.
     /// </summary>
+    /// <param name="client">HTTP client for downloading packages</param>
     /// <param name="packageSource">Local .nupkg path or package reference (name or name@version)</param>
-    /// <param name="logger">Logger for verbose output</param>
+    /// <param name="log">Optional logging callback</param>
     /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
+    /// <param name="sourceOptions">NuGet source configuration (defaults to nuget.org)</param>
     /// <returns>Extraction result or null if failed</returns>
     public static async Task<PackageExtractionResult?> ExtractPackageAsync(
+        HttpClient client,
         string packageSource,
-        VerboseLogger logger,
-        string tempDirPrefix = "inspect-pkg")
+        Action<string>? log = null,
+        string tempDirPrefix = "inspect-pkg",
+        NuGetSourceOptions? sourceOptions = null)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
         if (isLocalFile)
         {
-            return ExtractLocalPackage(packageSource, logger, tempDirPrefix);
+            return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(packageSource, logger, tempDirPrefix);
+        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions);
     }
 
     private static PackageExtractionResult? ExtractLocalPackage(
         string packageSource,
-        VerboseLogger logger,
+        Action<string>? log,
         string tempDirPrefix)
     {
         if (!File.Exists(packageSource))
         {
-            Console.Error.WriteLine($"Error: Package not found: {packageSource}");
             return null;
         }
 
@@ -63,7 +65,7 @@ public static class PackageExtractor
         string extractPath = Path.Combine(tempDir, "extracted");
         Directory.CreateDirectory(tempDir);
 
-        logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
+        log?.Invoke($"Extracting package: {Path.GetFileName(packageSource)}");
         ZipFile.ExtractToDirectory(packageSource, extractPath);
 
         var (pkgName, pkgVersion) = ParsePackageReference(packageSource);
@@ -71,21 +73,23 @@ public static class PackageExtractor
     }
 
     private static async Task<PackageExtractionResult?> DownloadAndExtractPackageAsync(
+        HttpClient client,
         string packageSource,
-        VerboseLogger logger,
-        string tempDirPrefix)
+        Action<string>? log,
+        string tempDirPrefix,
+        NuGetSourceOptions? sourceOptions)
     {
-        using HttpClient client = HttpClientFactory.Create();
-
         var (packageName, version) = ParsePackageReference(packageSource);
+
+        // Resolve NuGet sources
+        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
         // Get version if not specified
         if (version == null)
         {
-            version = await GetLatestVersionAsync(client, packageName, logger);
+            version = await GetLatestVersionAsync(client, packageName, sources, log);
             if (version == null)
             {
-                Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
                 return null;
             }
         }
@@ -98,7 +102,7 @@ public static class PackageExtractor
         var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
-            logger.Log($"Using cached package: {cachedPath}");
+            log?.Invoke($"Using cached package: {cachedPath}");
             // Try to find .nupkg in cache directory
             var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
             return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg);
@@ -108,41 +112,140 @@ public static class PackageExtractor
         string extractPath = Path.Combine(tempDir, "extracted");
         Directory.CreateDirectory(tempDir);
 
-        string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{normalizedVersion}/{normalizedName}.{normalizedVersion}.nupkg";
-        logger.Log($"Downloading: {packageName} {version}");
+        // Try each source in order
+        byte[]? packageBytes = null;
+        string? successfulSource = null;
+
+        foreach (var source in sources)
+        {
+            var nupkgUrl = await GetPackageDownloadUrlAsync(client, source, normalizedName, normalizedVersion, log);
+            if (nupkgUrl == null)
+                continue;
+
+            log?.Invoke($"Downloading: {packageName} {version} from {source.Name}");
+
+            try
+            {
+                packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
+                if (packageBytes != null)
+                {
+                    successfulSource = source.Name;
+                    break;
+                }
+            }
+            catch (HttpRequestException)
+            {
+                // Try next source
+                continue;
+            }
+        }
+
+        if (packageBytes == null)
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            return null;
+        }
 
         string? nupkgPath = null;
         try
         {
-            byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
-            if (packageBytes == null)
-            {
-                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
-                Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return null;
-            }
-
             nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
             await File.WriteAllBytesAsync(nupkgPath, packageBytes);
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-            logger.Log("Package downloaded successfully.");
+            log?.Invoke($"Package downloaded successfully from {successfulSource}.");
 
             // Cache the package for future use
             var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
             if (newCachePath != null)
             {
-                logger.Log($"Cached to: {newCachePath}");
+                log?.Invoke($"Cached to: {newCachePath}");
             }
         }
-        catch (HttpRequestException ex)
+        catch (Exception)
         {
-            Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
             try { Directory.Delete(tempDir, recursive: true); } catch { }
             return null;
         }
 
         return new PackageExtractionResult(extractPath, tempDir, packageName, version, nupkgPath);
+    }
+
+    /// <summary>
+    /// Gets the download URL for a package from a specific source.
+    /// </summary>
+    private static async Task<string?> GetPackageDownloadUrlAsync(
+        HttpClient client,
+        NuGetSource source,
+        string packageName,
+        string version,
+        Action<string>? log)
+    {
+        // Check for well-known flat-container URL (nuget.org optimization)
+        var flatContainerUrl = source.GetFlatContainerUrl();
+        if (flatContainerUrl != null)
+        {
+            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.{version}.nupkg";
+        }
+
+        // Query V3 service index to discover PackageBaseAddress (flat-container) endpoint
+        var baseAddress = await GetPackageBaseAddressAsync(client, source, log);
+        if (baseAddress != null)
+        {
+            // Ensure trailing slash
+            if (!baseAddress.EndsWith('/'))
+                baseAddress += "/";
+
+            return $"{baseAddress}{packageName}/{version}/{packageName}.{version}.nupkg";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Discovers the PackageBaseAddress (flat-container) endpoint from a V3 service index.
+    /// </summary>
+    private static async Task<string?> GetPackageBaseAddressAsync(
+        HttpClient client,
+        NuGetSource source,
+        Action<string>? log)
+    {
+        // The source URL should be the V3 index.json
+        var indexUrl = source.Url;
+        if (!indexUrl.EndsWith("index.json", StringComparison.OrdinalIgnoreCase))
+        {
+            // Try appending /v3/index.json for common feed patterns
+            if (indexUrl.EndsWith('/'))
+                indexUrl += "v3/index.json";
+            else
+                indexUrl += "/v3/index.json";
+        }
+
+        log?.Invoke($"Querying service index: {indexUrl}");
+
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
+        if (json == null)
+            return null;
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var resources = doc.RootElement.GetProperty("resources");
+
+            foreach (var resource in resources.EnumerateArray())
+            {
+                var type = resource.GetProperty("@type").GetString();
+                if (type != null && type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
+                {
+                    return resource.GetProperty("@id").GetString();
+                }
+            }
+        }
+        catch
+        {
+            // Invalid service index
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -200,11 +303,62 @@ public static class PackageExtractor
         return (packageSource, null);
     }
 
-    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
+    private static async Task<string?> GetLatestVersionAsync(
+        HttpClient client,
+        string packageName,
+        List<NuGetSource> sources,
+        Action<string>? log)
     {
-        string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName.ToLowerInvariant()}/index.json";
-        logger.Log($"Fetching versions from: {indexUrl}");
+        string normalizedName = packageName.ToLowerInvariant();
 
+        foreach (var source in sources)
+        {
+            var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log);
+            if (version != null)
+                return version;
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> GetLatestVersionFromSourceAsync(
+        HttpClient client,
+        string packageName,
+        NuGetSource source,
+        Action<string>? log)
+    {
+        // Try flat-container index first (faster)
+        var flatContainerUrl = source.GetFlatContainerUrl();
+        if (flatContainerUrl != null)
+        {
+            string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
+            log?.Invoke($"Fetching versions from: {indexUrl}");
+
+            var version = await ParseVersionIndexAsync(client, indexUrl);
+            if (version != null)
+                return version;
+        }
+
+        // Fall back to V3 service index discovery
+        var baseAddress = await GetPackageBaseAddressAsync(client, source, log);
+        if (baseAddress != null)
+        {
+            if (!baseAddress.EndsWith('/'))
+                baseAddress += "/";
+
+            string indexUrl = $"{baseAddress}{packageName}/index.json";
+            log?.Invoke($"Fetching versions from: {indexUrl}");
+
+            var version = await ParseVersionIndexAsync(client, indexUrl);
+            if (version != null)
+                return version;
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> ParseVersionIndexAsync(HttpClient client, string indexUrl)
+    {
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
         if (json == null)
             return null;

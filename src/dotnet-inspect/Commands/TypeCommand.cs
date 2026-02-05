@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -28,10 +29,11 @@ public class TypeCommand
             CompactJson = options.CompactJson
         };
 
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         
         // Use ApiCommand's extraction to get the type
-        (ApiType? type, string? _) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger);
+        (ApiType? type, string? _) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger, context.HttpClient);
         
         if (type == null)
         {
@@ -178,4 +180,5 @@ public record TypeOptions
     public bool CompactJson { get; init; }
     public bool Verbose { get; init; }
     public bool IncludeAll { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

@@ -202,6 +202,40 @@ public static class OutputFormatter
                 sb.AppendLine("Only Portable PDBs (embedded or in .snupkg) can be read.");
                 sb.AppendLine("Consider asking the package maintainer to publish Portable PDBs.");
             }
+
+            // Source Coverage section (shown when strict audit was run)
+            if (audit.TotalSourceFiles > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Source Coverage");
+                sb.AppendLine();
+
+                int accessible = audit.AccessibleSourceFiles + audit.EmbeddedSourceFiles;
+                string status = audit.AllSourcesAccessible == true ? "✓" : "✗";
+                sb.AppendLine($"**Status:** {status} {accessible}/{audit.TotalSourceFiles} files accessible");
+
+                if (audit.EmbeddedSourceFiles > 0)
+                {
+                    sb.AppendLine($"**Embedded:** {audit.EmbeddedSourceFiles} files");
+                }
+
+                if (audit.MissingSourceFiles is { Count: > 0 })
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("**Missing sources:**");
+                    // Show first 10 missing files, truncate if more
+                    int shown = 0;
+                    foreach (var file in audit.MissingSourceFiles.Take(10))
+                    {
+                        sb.AppendLine($"- `{file}`");
+                        shown++;
+                    }
+                    if (audit.MissingSourceFiles.Count > 10)
+                    {
+                        sb.AppendLine($"- ... and {audit.MissingSourceFiles.Count - 10} more");
+                    }
+                }
+            }
         }
 
         return sb.ToString().TrimEnd();

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.Packages;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -25,7 +26,8 @@ public class ApiCommand
             return 1;
         }
 
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         string? tempDir = null;
 
         try
@@ -38,7 +40,7 @@ public class ApiCommand
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
                 if (extracted == null)
                 {
                     return 1;
@@ -195,7 +197,7 @@ public class ApiCommand
                 var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                 if (pdbLookupPath != null)
                 {
-                    api.RepositoryUrl = await ExtractRepositoryUrlAsync(pdbLookupPath, options, logger);
+                    api.RepositoryUrl = await ExtractRepositoryUrlAsync(pdbLookupPath, options, logger, context.HttpClient);
                 }
                 api.Tfm = selectedTfm;
 
@@ -206,7 +208,7 @@ public class ApiCommand
                     foreach (var type in api.Types)
                     {
                         var fullTypeName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-                        await EnrichTypeWithSourceInfoAsync(type, fullTypeName, pdbLookupPath, options, logger);
+                        await EnrichTypeWithSourceInfoAsync(type, fullTypeName, pdbLookupPath, options, logger, context.HttpClient);
                     }
                 }
 
@@ -234,7 +236,7 @@ public class ApiCommand
                 // Enrich with source info (SourceLink URL, docs)
                 // Use runtime assembly path for PDB lookup if available
                 var pdbLookupPath = runtimeAssemblyPath ?? dllPath;
-                await EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger);
+                await EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
 
                 WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
             }
@@ -258,7 +260,7 @@ public class ApiCommand
     /// <summary>
     /// Extracts a specific type from a package or assembly. Used by TypeCommand and SamplesCommand.
     /// </summary>
-    internal static async Task<(ApiType? type, string? foundIn, string? dllPath)> ExtractTypeWithPathAsync(string typeName, ApiOptions options, VerboseLogger logger)
+    internal static async Task<(ApiType? type, string? foundIn, string? dllPath)> ExtractTypeWithPathAsync(string typeName, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         string? tempDir = null;
         string? runtimeAssemblyPath = null;  // For platform assemblies, use runtime path for PDB lookup
@@ -268,7 +270,7 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
                 if (extracted == null)
                     return (null, null, null);
                 
@@ -340,7 +342,7 @@ public class ApiCommand
             if (apiType != null && dllPath != null && options.ShowDocs)
             {
                 var pdbLookupPath = runtimeAssemblyPath ?? dllPath;
-                await EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger);
+                await EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, httpClient);
             }
             
             return (apiType, foundIn, dllPath);
@@ -357,9 +359,9 @@ public class ApiCommand
     /// <summary>
     /// Extracts a specific type from a package or assembly. Used by TypeCommand.
     /// </summary>
-    internal static async Task<(ApiType? type, string? foundIn)> ExtractTypeAsync(string typeName, ApiOptions options, VerboseLogger logger)
+    internal static async Task<(ApiType? type, string? foundIn)> ExtractTypeAsync(string typeName, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
-        var (type, foundIn, _) = await ExtractTypeWithPathAsync(typeName, options, logger);
+        var (type, foundIn, _) = await ExtractTypeWithPathAsync(typeName, options, logger, httpClient);
         return (type, foundIn);
     }
 
@@ -367,7 +369,7 @@ public class ApiCommand
     /// Extracts the full API surface from a package or assembly, enriching types with source info.
     /// Used by SamplesCommand for assembly-wide sample collection.
     /// </summary>
-    internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractApiSurfaceAsync(ApiOptions options, VerboseLogger logger)
+    internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractApiSurfaceAsync(ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         string? tempDir = null;
         try
@@ -377,7 +379,7 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
                 if (extracted == null)
                     return (null, null);
                 (searchPath, tempDir, packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
@@ -423,7 +425,7 @@ public class ApiCommand
             // Enrich types with source info if docs or samples requested
             if (options.ShowDocs || options.ShowSamples)
             {
-                await EnrichTypesWithSourceInfoBatchedAsync(api.Types.ToList(), dllPath, options, logger);
+                await EnrichTypesWithSourceInfoBatchedAsync(api.Types.ToList(), dllPath, options, logger, httpClient);
             }
 
             return (api, selectedTfm);
@@ -447,7 +449,8 @@ public class ApiCommand
         List<ApiType> types, 
         string dllPath, 
         ApiOptions options, 
-        VerboseLogger logger)
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
@@ -473,7 +476,7 @@ public class ApiCommand
             return;
         }
 
-        var symbolDownloader = new SymbolPackageDownloader();
+        var symbolDownloader = new SymbolPackageDownloader(httpClient);
         var pdbResult = await symbolDownloader.GetPdbReaderAsync(
             peReader, dllPath, packageName, packageVersion, logger.Log,
             isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
@@ -533,7 +536,7 @@ public class ApiCommand
         logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allUrlsToFetch.Count} unique source URLs ({stopwatch.ElapsedMilliseconds}ms)");
 
         // Phase 2: Batch parallel fetch all source content
-        var fetcher = new SourceFetcher();
+        var fetcher = new SourceFetcher(httpClient);
         var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
         var contentCache = new Dictionary<string, string?>();
 
@@ -666,7 +669,7 @@ public class ApiCommand
         return (null, null, null, null);
     }
 
-    private static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger)
+    private static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         // If --use-local-docs is specified for platform assemblies, use XML docs directly
         if (options.UseLocalDocs && !string.IsNullOrEmpty(options.PlatformAssembly))
@@ -701,7 +704,7 @@ public class ApiCommand
             }
 
             // Try to get PDB reader (embedded, standalone, or from symbol package)
-            var symbolDownloader = new SymbolPackageDownloader();
+            var symbolDownloader = new SymbolPackageDownloader(httpClient);
             var pdbResult = await symbolDownloader.GetPdbReaderAsync(
                 peReader, dllPath, packageName, packageVersion, logger.Log,
                 isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
@@ -759,7 +762,7 @@ public class ApiCommand
                     
                     // Try to resolve the target assembly and get docs from there
                     var forwardedResult = await TryEnrichFromForwardedAssemblyAsync(
-                        apiType, typeName, forwardTarget, dllPath, options, logger);
+                        apiType, typeName, forwardTarget, dllPath, options, logger, httpClient);
                     if (forwardedResult)
                         return;
                 }
@@ -798,7 +801,7 @@ public class ApiCommand
             // Fetch docs/samples if requested
             if ((options.ShowDocs || options.ShowSamples) && sourceInfo?.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher();
+                var fetcher = new SourceFetcher(httpClient);
                 var parser = new DocCommentParser();
                 
                 // Collect all source files to fetch (primary + additional for partial types)
@@ -1087,7 +1090,7 @@ public class ApiCommand
     /// <summary>
     /// Extracts the repository URL from SourceLink information in the assembly's PDB.
     /// </summary>
-    private static async Task<string?> ExtractRepositoryUrlAsync(string dllPath, ApiOptions options, VerboseLogger logger)
+    private static async Task<string?> ExtractRepositoryUrlAsync(string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         try
         {
@@ -1110,7 +1113,7 @@ public class ApiCommand
             }
 
             // Try to get PDB reader
-            var symbolDownloader = new SymbolPackageDownloader();
+            var symbolDownloader = new SymbolPackageDownloader(httpClient);
             var pdbResult = await symbolDownloader.GetPdbReaderAsync(
                 peReader, dllPath, packageName, packageVersion, logger.Log,
                 isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
@@ -1219,7 +1222,8 @@ public class ApiCommand
         string targetAssemblyName,
         string originalDllPath,
         ApiOptions options,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
         // Resolve the target assembly in the same runtime directory
         var runtimeDir = Path.GetDirectoryName(originalDllPath);
@@ -1236,7 +1240,7 @@ public class ApiCommand
         logger.Log($"Following type forwarder to '{targetAssemblyName}'...");
 
         // Recursively call the enrichment with the target assembly
-        await EnrichTypeWithSourceInfoAsync(apiType, typeName, targetDllPath, options, logger);
+        await EnrichTypeWithSourceInfoAsync(apiType, typeName, targetDllPath, options, logger, httpClient);
         return true;
     }
 
@@ -2799,4 +2803,5 @@ public record ApiOptions
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
     public bool FieldsOnly { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

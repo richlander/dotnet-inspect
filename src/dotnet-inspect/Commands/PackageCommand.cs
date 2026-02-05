@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.Packages;
 using System.Text.Json;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -31,19 +32,20 @@ public class PackageCommand
             return 1;
         }
 
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
 
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
-            return await ListVersionsAsync(packageArgs[0], options.IncludePrerelease, options.Limit, logger);
+            return await ListVersionsAsync(packageArgs[0], options.IncludePrerelease, options.Limit, logger, context.HttpClient);
         }
 
         // Check if first argument is a local file path
         bool isLocalFile = packageArgs.Length >= 1 &&
             packageArgs[0].EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
-        using HttpClient client = HttpClientFactory.Create();
+        var client = context.HttpClient;
 
         string packageName;
         string version;
@@ -464,9 +466,8 @@ public class PackageCommand
         return 0;
     }
 
-    private static async Task<int> ListVersionsAsync(string packageName, bool includePrerelease, int? limit, VerboseLogger logger)
+    private static async Task<int> ListVersionsAsync(string packageName, bool includePrerelease, int? limit, VerboseLogger logger, HttpClient client)
     {
-        using HttpClient client = HttpClientFactory.Create();
         string normalizedName = packageName.ToLowerInvariant();
 
         try

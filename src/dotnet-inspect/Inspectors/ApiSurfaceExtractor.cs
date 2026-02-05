@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 
@@ -33,7 +34,7 @@ public static class ApiSurfaceExtractor
                 continue;
 
             // Skip EditorBrowsable(Never) and Obsolete types unless --all
-            if (!includeAll && HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+            if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
                 continue;
 
             var apiType = new ApiType
@@ -51,7 +52,7 @@ public static class ApiSurfaceExtractor
             }
             else if (!typeDef.BaseType.IsNil)
             {
-                string? baseTypeName = GetTypeName(reader, typeDef.BaseType);
+                string? baseTypeName = TypeResolver.GetTypeName(reader, typeDef.BaseType);
                 apiType.BaseType = baseTypeName;
 
                 apiType.Kind = baseTypeName switch
@@ -70,10 +71,10 @@ public static class ApiSurfaceExtractor
             apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
 
             // Check if this is an extension class (static class with [Extension] attribute)
-            bool isExtensionClass = apiType.IsStatic && HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
+            bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
 
             // Get type's generic context for resolving interface type parameters
-            var typeContext = GenericContext.ForType(reader, typeDef);
+            var typeContext = Metadata.GenericContext.ForType(reader, typeDef);
 
             // Get generic type parameters with constraints
             var genericParams = typeDef.GetGenericParameters();
@@ -111,7 +112,7 @@ public static class ApiSurfaceExtractor
                     foreach (var constraintHandle in param.GetConstraints())
                     {
                         var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                        string? constraintTypeName = GetTypeName(reader, constraint.Type, typeContext);
+                        string? constraintTypeName = TypeResolver.GetTypeName(reader, constraint.Type, typeContext);
                         if (constraintTypeName != null)
                         {
                             // Skip System.ValueType (shown as 'struct' above) and System.Object
@@ -132,7 +133,7 @@ public static class ApiSurfaceExtractor
                 foreach (var ifaceHandle in interfaces)
                 {
                     var iface = reader.GetInterfaceImplementation(ifaceHandle);
-                    string? ifaceName = GetTypeName(reader, iface.Interface, typeContext);
+                    string? ifaceName = TypeResolver.GetTypeName(reader, iface.Interface, typeContext);
                     if (ifaceName != null)
                         apiType.Interfaces.Add(ifaceName);
                 }
@@ -156,7 +157,7 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete methods unless --all
-                if (!includeAll && HasHiddenAttribute(reader, method.GetCustomAttributes()))
+                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
                 var signature = GetMethodSignature(reader, typeDef, method);
@@ -172,7 +173,7 @@ public static class ApiSurfaceExtractor
                 };
 
                 // Check for extension method
-                if (isExtensionClass && member.IsStatic && HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                if (isExtensionClass && member.IsStatic && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
                 {
                     member.IsExtension = true;
                     member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
@@ -205,7 +206,7 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete properties unless --all
-                if (!includeAll && HasHiddenAttribute(reader, prop.GetCustomAttributes()))
+                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, prop.GetCustomAttributes()))
                     continue;
 
                 var member = new ApiMember
@@ -232,7 +233,7 @@ public static class ApiSurfaceExtractor
                     continue; // Skip backing fields
 
                 // Skip EditorBrowsable(Never) and Obsolete fields unless --all
-                if (!includeAll && HasHiddenAttribute(reader, field.GetCustomAttributes()))
+                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, field.GetCustomAttributes()))
                     continue;
 
                 var member = new ApiMember
@@ -284,7 +285,7 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete events unless --all
-                if (!includeAll && HasHiddenAttribute(reader, evt.GetCustomAttributes()))
+                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, evt.GetCustomAttributes()))
                     continue;
 
                 var member = new ApiMember
@@ -379,99 +380,11 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    /// <summary>
-    /// Checks if the member has EditorBrowsable(Never) or Obsolete attribute.
-    /// </summary>
-    private static bool HasHiddenAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-    {
-        foreach (var attrHandle in attributes)
-        {
-            var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-
-            if (attrTypeName == "System.ComponentModel.EditorBrowsableAttribute")
-            {
-                // Check if the value is EditorBrowsableState.Never (value = 1)
-                var value = reader.GetBlobBytes(attr.Value);
-                // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32
-                if (value.Length >= 6)
-                {
-                    int enumValue = value[2] | (value[3] << 8) | (value[4] << 16) | (value[5] << 24);
-                    if (enumValue == 1) // EditorBrowsableState.Never
-                        return true;
-                }
-            }
-            else if (attrTypeName == "System.ObsoleteAttribute")
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if the member has ExtensionAttribute.
-    /// </summary>
-    private static bool HasExtensionAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-    {
-        foreach (var attrHandle in attributes)
-        {
-            var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == "System.Runtime.CompilerServices.ExtensionAttribute")
-                return true;
-        }
-        return false;
-    }
-
-    private static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
-    {
-        if (constructorHandle.Kind == HandleKind.MemberReference)
-        {
-            var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
-            return GetTypeName(reader, memberRef.Parent);
-        }
-        else if (constructorHandle.Kind == HandleKind.MethodDefinition)
-        {
-            var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
-            var typeDef = reader.GetTypeDefinition(methodDef.GetDeclaringType());
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-        }
-        return null;
-    }
-
-    private static string? GetTypeName(MetadataReader reader, EntityHandle handle, GenericContext? context = null)
-    {
-        if (handle.Kind == HandleKind.TypeReference)
-        {
-            var typeRef = reader.GetTypeReference((TypeReferenceHandle)handle);
-            string ns = reader.GetString(typeRef.Namespace);
-            string name = reader.GetString(typeRef.Name);
-            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-        }
-        else if (handle.Kind == HandleKind.TypeDefinition)
-        {
-            var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-        }
-        else if (handle.Kind == HandleKind.TypeSpecification)
-        {
-            // Decode generic type specifications (e.g., IList<T>, IEnumerable<T>)
-            var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)handle);
-            return typeSpec.DecodeSignature(new SignatureTypeProvider(), context);
-        }
-        return null;
-    }
-
     private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         string name = reader.GetString(method.Name);
-        var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
+        var context = Metadata.GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
 
         // Get parameter names from metadata
         var paramHandles = method.GetParameters().ToList();
@@ -505,8 +418,8 @@ public static class ApiSurfaceExtractor
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors)
     {
         string name = reader.GetString(prop.Name);
-        var context = GenericContext.ForType(reader, typeDef);
-        var signature = prop.DecodeSignature(new SignatureTypeProvider(), context);
+        var context = Metadata.GenericContext.ForType(reader, typeDef);
+        var signature = prop.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
 
         // Determine accessor visibility
         bool hasPublicGetter = false;
@@ -547,8 +460,8 @@ public static class ApiSurfaceExtractor
     /// </summary>
     private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
-        var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
+        var context = Metadata.GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
         return signature.ParameterTypes.Length > 0 ? signature.ParameterTypes[0] : null;
     }
 

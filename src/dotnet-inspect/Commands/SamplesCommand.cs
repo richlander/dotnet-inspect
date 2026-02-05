@@ -1,6 +1,7 @@
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Commands;
 
@@ -11,7 +12,8 @@ public class SamplesCommand
 {
     public static async Task<int> ExecuteAsync(string? typeName, SamplesOptions options)
     {
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         
         // Get package info from options
         string? packageName = null;
@@ -24,11 +26,11 @@ public class SamplesCommand
         // If type name is specified, get samples for that type only
         if (!string.IsNullOrEmpty(typeName))
         {
-            return await ExecuteForTypeAsync(typeName, options, packageName, packageVersion, logger);
+            return await ExecuteForTypeAsync(typeName, options, packageName, packageVersion, logger, context.HttpClient);
         }
 
         // No type specified - get samples for entire assembly
-        return await ExecuteForAssemblyAsync(options, packageName, packageVersion, logger);
+        return await ExecuteForAssemblyAsync(options, packageName, packageVersion, logger, context.HttpClient);
     }
 
     private static async Task<int> ExecuteForTypeAsync(
@@ -36,7 +38,8 @@ public class SamplesCommand
         SamplesOptions options, 
         string? packageName, 
         string? packageVersion,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
         // Convert C# generic syntax (List<T>) to metadata format (List`1)
         typeName = ApiCommand.ConvertGenericTypeName(typeName);
@@ -55,7 +58,7 @@ public class SamplesCommand
             FieldsOnly = true
         };
 
-        var (apiType, foundIn) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger);
+        var (apiType, foundIn) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger, httpClient);
         if (apiType == null)
         {
             Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
@@ -72,14 +75,15 @@ public class SamplesCommand
             .Select(s => new TypedSample(apiType.Name, apiType.Namespace, s))
             .ToList();
 
-        return await ProcessSamplesAsync(samples, options, packageName, packageVersion, null, logger);
+        return await ProcessSamplesAsync(samples, options, packageName, packageVersion, null, logger, httpClient);
     }
 
     private static async Task<int> ExecuteForAssemblyAsync(
         SamplesOptions options, 
         string? packageName, 
         string? packageVersion,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
         // Use ApiCommand to extract all types with docs
         var apiOptions = new ApiOptions
@@ -98,7 +102,7 @@ public class SamplesCommand
         };
 
         logger.Log("Extracting samples from all types in assembly...");
-        var (api, selectedTfm) = await ApiCommand.ExtractApiSurfaceAsync(apiOptions, logger);
+        var (api, selectedTfm) = await ApiCommand.ExtractApiSurfaceAsync(apiOptions, logger, httpClient);
         
         if (api == null)
         {
@@ -127,7 +131,7 @@ public class SamplesCommand
 
         logger.Log($"Found {allSamples.Count} samples across {api.Types.Count(t => t.Documentation?.Samples?.Count > 0)} types");
 
-        return await ProcessSamplesAsync(allSamples, options, packageName, packageVersion, api.Name, logger);
+        return await ProcessSamplesAsync(allSamples, options, packageName, packageVersion, api.Name, logger, httpClient);
     }
 
     private static async Task<int> ProcessSamplesAsync(
@@ -136,7 +140,8 @@ public class SamplesCommand
         string? packageName,
         string? packageVersion,
         string? assemblyName,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
         // Sort samples by URL for consistent ordering between --list and full output
         samples = samples
@@ -146,7 +151,7 @@ public class SamplesCommand
         // Handle --print N: print specific sample as raw code
         if (options.PrintSample.HasValue)
         {
-            return await PrintSingleSampleAsync(samples, options.PrintSample.Value, logger);
+            return await PrintSingleSampleAsync(samples, options.PrintSample.Value, logger, httpClient);
         }
 
         // Handle --list: show numbered list only
@@ -158,10 +163,10 @@ public class SamplesCommand
         }
 
         // Default: fetch and print all samples with numbered sections
-        return await PrintAllSamplesAsync(samples, packageName, packageVersion, assemblyName, logger);
+        return await PrintAllSamplesAsync(samples, packageName, packageVersion, assemblyName, logger, httpClient);
     }
 
-    private static async Task<int> PrintSingleSampleAsync(List<TypedSample> samples, int sampleNumber, VerboseLogger logger)
+    private static async Task<int> PrintSingleSampleAsync(List<TypedSample> samples, int sampleNumber, VerboseLogger logger, HttpClient httpClient)
     {
         if (sampleNumber < 1 || sampleNumber > samples.Count)
         {
@@ -169,7 +174,7 @@ public class SamplesCommand
             return 1;
         }
 
-        var fetcher = new SourceFetcher();
+        var fetcher = new SourceFetcher(httpClient);
         var sample = samples[sampleNumber - 1].Sample;
         var content = await FetchSampleContentAsync(fetcher, sample, logger);
         
@@ -191,9 +196,10 @@ public class SamplesCommand
         string? packageName, 
         string? packageVersion,
         string? assemblyName,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
-        var fetcher = new SourceFetcher();
+        var fetcher = new SourceFetcher(httpClient);
 
         // H1 title - output immediately
         var title = assemblyName ?? packageName ?? "Samples";
@@ -416,4 +422,5 @@ public record SamplesOptions
     public bool Verbose { get; init; }
     public bool ListOnly { get; init; }
     public int? PrintSample { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

@@ -1,44 +1,97 @@
-# Command progression
+# Command Progression
 
-`dotnet-inspect` arguments are intended to progress or transform from one command to another in a coherent and inuitive way.
+`dotnet-inspect` uses a consistent command model where three sources (package, platform, assembly) can be inspected with common flags.
 
-These examples will target System.Text.Json since it is both a platform and a package type. That will enable the examples to focus on the commands more than the target and there is also functionality for types in both camps.
+## Input Sources
 
-The tool can be run multiple ways, depending on how it is installed:
+| Command | Source | Example |
+|---------|--------|---------|
+| `package X` | NuGet package | `package System.Text.Json@9.0.0` |
+| `platform X` | Local SDK/runtime | `platform System.Text.Json` |
+| `assembly ./path` | Local file | `assembly ./bin/MyLib.dll` |
 
-- `dotnet inspect`
-- `dotnet-inspect`
-- `dnx dotnet-inspect -y --`
-- `dotnet run --project src/dotnet-inspect --`
+## Common Inspection Flags
 
-These are all equivalent. The first two assume the tool was installed via `dotnet tool install -g`, the third via `dnx`, and last is a build-from-source scenario. THe examples use the `dotnet inspect`, but can be trivially and correctly be transformed to the other pattern. Note that `--` needs to be used for the last two examples as some flags are the same as `dnx` and `dotnet` and will be interpreted/swallowed by those tools.
+These flags work with `package`, `platform`, and `assembly` commands:
 
-The tool differientates output by verbosity. This document will stick to the default verbosity.
+| Flag | Description |
+|------|-------------|
+| `--assembly` | Show assembly metadata (version, TFM, architecture) |
+| `--sourcelink` | Show SourceLink presence and URL (fast, no HTTP) |
+| `--audit` | Full provenance verification (always strict) |
 
-## Package inspection
+## The `audit` Command
 
-```bash
-$ dotnet inspect System.Text.Json
-# System.Text.Json (10.0.2)
-
-Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
-
-The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
-
-Type: Library | TFM: net10.0 | Updated: 2026-01-13
-```
-
-The default command is `package`. Specifying `package` explicitly results in the same output.
+For quick provenance checks, use the opinionated `audit` command:
 
 ```bash
-$ dotnet inspect package System.Text.Json
-# System.Text.Json (10.0.2)
-
-Provides high-performance and low-allocating types that serialize objects to JavaScript Object Notation (JSON) text and deserialize JSON text to objects, with UTF-8 support built-in. Also provides types to read and write JSON text encoded as UTF-8, and to create an in-memory document object model (DOM), that is read-only, for random access of the JSON elements within a structured view of the data.
-
-The System.Text.Json library is built-in as part of the shared framework in .NET Runtime. The package can be installed when you need to use it in other target frameworks.
-
-Type: Library | TFM: net10.0 | Updated: 2026-01-13
+dotnet inspect audit Markout@0.1.4           # package
+dotnet inspect audit ./bin/MyLib.dll         # file
+dotnet inspect audit ./artifacts/*.nupkg     # multiple nupkgs
 ```
 
-## Platform inspect
+`audit` always runs strict verification. Verbosity controls output detail:
+
+| Verbosity | Output |
+|-----------|--------|
+| `-v:q` | One-line pass/fail |
+| `-v:n` | Audit table + source coverage |
+| `-v:d` | Full details including missing sources |
+
+## Progression Examples
+
+### Package inspection → assembly details
+
+```bash
+# Start with package metadata
+dotnet inspect package System.Text.Json
+
+# Add assembly info
+dotnet inspect package System.Text.Json --assembly
+
+# Full provenance audit
+dotnet inspect package System.Text.Json --audit
+```
+
+### Platform inspection
+
+```bash
+# List installed frameworks
+dotnet inspect platform
+
+# Inspect a platform assembly
+dotnet inspect platform System.Text.Json
+
+# Audit a platform assembly
+dotnet inspect platform System.Text.Json --audit
+```
+
+### Quick audit for CI
+
+```bash
+# Simple pass/fail
+dotnet inspect audit Markout@0.1.4 -v:q
+
+# Audit build output
+dotnet inspect audit ./artifacts/release/*.nupkg
+```
+
+## Equivalences
+
+Some patterns are equivalent:
+
+```bash
+# These produce the same output
+dotnet inspect audit Markout@0.1.4
+dotnet inspect package Markout@0.1.4 --audit
+
+# Platform shorthand
+dotnet inspect platform System.Text.Json
+dotnet inspect assembly System.Text.Json --platform
+```
+
+## Deprecations
+
+| Deprecated | Use Instead |
+|------------|-------------|
+| `assembly --package X` | `package X --assembly` |

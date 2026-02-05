@@ -3,12 +3,12 @@ using DotnetInspector.Packages;
 namespace DotnetInspector.Options;
 
 /// <summary>
-/// Configuration options for the extensions command.
+/// Configuration options for the implements command.
 /// </summary>
-public record ExtensionsOptions : IAssemblySourceOptions
+public record ImplementsOptions : IAssemblySourceOptions
 {
     /// <summary>
-    /// Target type to find extensions for (e.g., "HttpClient", "IEnumerable&lt;T&gt;").
+    /// Target interface or base type to find implementers for.
     /// </summary>
     public string TargetType { get; init; } = "";
 
@@ -33,27 +33,17 @@ public record ExtensionsOptions : IAssemblySourceOptions
     public string[] PlatformFrameworks { get; init; } = [];
 
     /// <summary>
-    /// Include extensions on types reachable via properties/methods.
-    /// </summary>
-    public bool Reachable { get; init; }
-
-    /// <summary>
-    /// Maximum depth for reachable type traversal (default: 2).
-    /// </summary>
-    public int Depth { get; init; } = 2;
-
-    /// <summary>
     /// Target framework moniker (e.g., net8.0).
     /// </summary>
     public string? Tfm { get; init; }
 
     /// <summary>
-    /// Include hidden (EditorBrowsable.Never) and obsolete members.
+    /// Include hidden (EditorBrowsable.Never) and obsolete types.
     /// </summary>
     public bool IncludeAll { get; init; }
 
     /// <summary>
-    /// Limit number of results per source.
+    /// Limit number of results.
     /// </summary>
     public int? Limit { get; init; }
 

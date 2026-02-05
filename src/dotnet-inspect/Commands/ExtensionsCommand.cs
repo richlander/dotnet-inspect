@@ -1,10 +1,12 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 
@@ -15,11 +17,10 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class ExtensionsCommand
 {
-    private const string ExtensionAttributeName = "System.Runtime.CompilerServices.ExtensionAttribute";
-
     public static async Task<int> ExecuteAsync(string targetType, ExtensionsOptions options)
     {
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         var tempDirs = new List<string>();
 
         try
@@ -32,19 +33,18 @@ public class ExtensionsCommand
             }
 
             var results = new List<ExtensionMethodResult>();
-            var assemblyPaths = new List<(string path, string source, string? version)>();
 
             // Collect all assembly paths from various sources
-            await CollectAssemblyPathsAsync(options, assemblyPaths, tempDirs, logger);
+            var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-ext");
 
             // Scan assemblies for extension methods
-            foreach (var (asmPath, source, version) in assemblyPaths)
+            foreach (var asmInfo in assemblyInfos)
             {
-                var extensions = ScanForExtensions(asmPath, targetType, options.IncludeAll, logger);
+                var extensions = ScanForExtensions(asmInfo.Path, targetType, options.IncludeAll, logger);
                 foreach (var ext in extensions)
                 {
-                    ext.Source = source;
-                    ext.SourceVersion = version;
+                    ext.Source = asmInfo.Source;
+                    ext.SourceVersion = asmInfo.Version;
                 }
                 results.AddRange(extensions);
             }
@@ -52,18 +52,18 @@ public class ExtensionsCommand
             // If --reachable, find extensions on reachable types
             if (options.Reachable && results.Count > 0)
             {
-                var reachableTypes = FindReachableTypes(targetType, assemblyPaths, options.Depth, logger);
+                var reachableTypes = FindReachableTypes(targetType, assemblyInfos, options.Depth, logger);
                 foreach (var (reachableType, path) in reachableTypes)
                 {
                     if (reachableType == targetType) continue;
                     
-                    foreach (var (asmPath, source, version) in assemblyPaths)
+                    foreach (var asmInfo in assemblyInfos)
                     {
-                        var extensions = ScanForExtensions(asmPath, reachableType, options.IncludeAll, logger);
+                        var extensions = ScanForExtensions(asmInfo.Path, reachableType, options.IncludeAll, logger);
                         foreach (var ext in extensions)
                         {
-                            ext.Source = source;
-                            ext.SourceVersion = version;
+                            ext.Source = asmInfo.Source;
+                            ext.SourceVersion = asmInfo.Version;
                             ext.ReachablePath = path;
                             ext.ReachableFromType = reachableType;
                         }
@@ -92,85 +92,7 @@ public class ExtensionsCommand
         }
         finally
         {
-            CleanupTempDirs(tempDirs);
-        }
-    }
-
-    private static async Task CollectAssemblyPathsAsync(
-        ExtensionsOptions options,
-        List<(string path, string source, string? version)> assemblyPaths,
-        List<string> tempDirs,
-        VerboseLogger logger)
-    {
-        // 1. Packages
-        foreach (var pkg in options.Packages)
-        {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger, "inspect-ext");
-            if (extracted == null)
-            {
-                Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
-                continue;
-            }
-
-            if (extracted.TempDir != null) tempDirs.Add(extracted.TempDir);
-
-            var searchPath = extracted.ExtractPath;
-            if (!string.IsNullOrEmpty(options.Tfm))
-            {
-                var tfmAssembly = ApiCommand.FindAssemblyByTfm(searchPath, options.Tfm);
-                if (tfmAssembly != null) searchPath = tfmAssembly;
-            }
-
-            // Find all DLLs in the package
-            var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-                .Where(p => !p.Contains("/runtimes/") && !p.Contains("\\runtimes\\"));
-            
-            foreach (var dll in dlls)
-            {
-                assemblyPaths.Add((dll, extracted.PackageName ?? pkg, extracted.Version));
-            }
-        }
-
-        // 2. Direct assemblies
-        foreach (var asmPath in options.Assemblies)
-        {
-            if (!File.Exists(asmPath))
-            {
-                Console.Error.WriteLine($"Warning: Assembly not found '{asmPath}', skipping.");
-                continue;
-            }
-            assemblyPaths.Add((asmPath, Path.GetFileName(asmPath), null));
-        }
-
-        // 3. Platform assemblies
-        foreach (var platformAsm in options.PlatformAssemblies)
-        {
-            var (assemblyPath, version, resolvedFramework, error) = PlatformResolver.ResolveAssembly(platformAsm);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-            assemblyPaths.Add((assemblyPath!, resolvedFramework ?? "platform", version));
-        }
-
-        // 4. Platform frameworks
-        foreach (var framework in options.PlatformFrameworks)
-        {
-            var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-
-            var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            logger.Log($"Scanning {frameworkAssemblies.Count} assemblies in {framework}@{resolvedVersion}");
-
-            foreach (var asmInfo in frameworkAssemblies)
-            {
-                assemblyPaths.Add((asmInfo.Path, framework, resolvedVersion));
-            }
+            AssemblyCollector.CleanupTempDirs(tempDirs);
         }
     }
 
@@ -181,7 +103,7 @@ public class ExtensionsCommand
         VerboseLogger logger)
     {
         var results = new List<ExtensionMethodResult>();
-        var normalizedTarget = NormalizeTypeName(targetType);
+        var normalizedTarget = TypeMatcher.Normalize(targetType);
 
         try
         {
@@ -204,7 +126,7 @@ public class ExtensionsCommand
                 if (!isStatic) continue;
 
                 // Class must have [Extension] attribute
-                if (!HasExtensionAttribute(reader, typeDef.GetCustomAttributes())) continue;
+                if (!AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())) continue;
 
                 string className = reader.GetString(typeDef.Name);
                 string classNs = reader.GetString(typeDef.Namespace);
@@ -215,17 +137,17 @@ public class ExtensionsCommand
                     var method = reader.GetMethodDefinition(methodHandle);
                     if ((method.Attributes & MethodAttributes.Public) == 0) continue;
                     if ((method.Attributes & MethodAttributes.Static) == 0) continue;
-                    if (!HasExtensionAttribute(reader, method.GetCustomAttributes())) continue;
+                    if (!AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes())) continue;
 
                     // Decode signature to get first parameter type
                     var signature = method.DecodeSignature(provider, null);
                     if (signature.ParameterTypes.Length == 0) continue;
 
                     var extendedType = signature.ParameterTypes[0];
-                    var normalizedExtended = NormalizeTypeName(extendedType);
+                    var normalizedExtended = TypeMatcher.Normalize(extendedType);
 
                     // Match against target
-                    if (MatchesTargetType(normalizedExtended, normalizedTarget))
+                    if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))
                     {
                         string methodName = reader.GetString(method.Name);
                         results.Add(new ExtensionMethodResult
@@ -248,38 +170,9 @@ public class ExtensionsCommand
         return results;
     }
 
-    private static bool MatchesTargetType(string extendedType, string targetType)
-    {
-        // Exact match
-        if (extendedType.Equals(targetType, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // Match without namespace (e.g., "HttpClient" matches "System.Net.Http.HttpClient")
-        if (extendedType.EndsWith("." + targetType, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // Match generic base (e.g., "IEnumerable" matches "IEnumerable`1")
-        var extBase = extendedType.Split('`')[0];
-        var targetBase = targetType.Split('`')[0];
-        if (extBase.Equals(targetBase, StringComparison.OrdinalIgnoreCase) ||
-            extBase.EndsWith("." + targetBase, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return false;
-    }
-
-    private static string NormalizeTypeName(string typeName)
-    {
-        // Remove generic type arguments for matching: IEnumerable<T> → IEnumerable
-        var angleIdx = typeName.IndexOf('<');
-        if (angleIdx > 0) typeName = typeName.Substring(0, angleIdx);
-        
-        return typeName;
-    }
-
     private static List<(string type, string path)> FindReachableTypes(
         string targetType,
-        List<(string path, string source, string? version)> assemblyPaths,
+        List<AssemblyCollector.AssemblyInfo> assemblyPaths,
         int maxDepth,
         VerboseLogger logger)
     {
@@ -297,11 +190,11 @@ public class ExtensionsCommand
             if (remainingDepth <= 0) continue;
 
             // Find this type in any assembly
-            foreach (var (asmPath, _, _) in assemblyPaths)
+            foreach (var asmInfo in assemblyPaths)
             {
                 try
                 {
-                    using var stream = File.OpenRead(asmPath);
+                    using var stream = File.OpenRead(asmInfo.Path);
                     using var peReader = new PEReader(stream);
                     if (!peReader.HasMetadata) continue;
                     
@@ -438,34 +331,6 @@ public class ExtensionsCommand
         return $"{signature.ReturnType} {name}({string.Join(", ", parameters)})";
     }
 
-    private static bool HasExtensionAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-    {
-        foreach (var attrHandle in attributes)
-        {
-            var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == ExtensionAttributeName)
-                return true;
-        }
-        return false;
-    }
-
-    private static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
-    {
-        if (constructorHandle.Kind == HandleKind.MemberReference)
-        {
-            var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
-            if (memberRef.Parent.Kind == HandleKind.TypeReference)
-            {
-                var typeRef = reader.GetTypeReference((TypeReferenceHandle)memberRef.Parent);
-                string ns = reader.GetString(typeRef.Namespace);
-                string name = reader.GetString(typeRef.Name);
-                return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-            }
-        }
-        return null;
-    }
-
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
     {
         var typeInfo = compact
@@ -526,14 +391,6 @@ public class ExtensionsCommand
                     : ext.Source;
                 Console.WriteLine($"| {ext.MethodName} | {ext.ExtensionClass} | {ext.Assembly} | {sourceDisplay} |");
             }
-        }
-    }
-
-    private static void CleanupTempDirs(List<string> tempDirs)
-    {
-        foreach (var dir in tempDirs)
-        {
-            try { Directory.Delete(dir, true); } catch { }
         }
     }
 }
