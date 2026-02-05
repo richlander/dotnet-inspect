@@ -140,18 +140,9 @@ public class FindCommand
                 var (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
                 if (tempDir != null) tempDirs.Add(tempDir);
 
-                // Auto-select TFM or use specified one
-                if (!string.IsNullOrEmpty(options.Tfm))
-                {
-                    var tfmAssembly = ApiCommand.FindAssemblyByTfm(searchPath, options.Tfm);
-                    if (tfmAssembly != null) searchPath = tfmAssembly;
-                }
-                else
-                {
-                    var dlls = GetPackageDlls(searchPath);
-                    var (highestPath, _) = SelectHighestTfmAssembly(dlls, searchPath);
-                    if (highestPath != null) searchPath = highestPath;
-                }
+                // Use TfmResolver to select TFM (specific or auto-select highest)
+                var tfmPath = TfmResolver.ResolvePackagePath(searchPath, options.Tfm);
+                if (tfmPath != null) searchPath = tfmPath;
 
                 var types = SearchAssemblyOrDirectory(searchPath, pattern, options.IncludeAll, logger);
                 foreach (var t in types)
@@ -369,18 +360,9 @@ public class FindCommand
             var (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
             if (tempDir != null) tempDirs.Add(tempDir);
 
-            // Auto-select TFM or use specified one
-            if (!string.IsNullOrEmpty(options.Tfm))
-            {
-                var tfmAssembly = ApiCommand.FindAssemblyByTfm(searchPath, options.Tfm);
-                if (tfmAssembly != null) searchPath = tfmAssembly;
-            }
-            else
-            {
-                var dlls = GetPackageDlls(searchPath);
-                var (highestPath, _) = SelectHighestTfmAssembly(dlls, searchPath);
-                if (highestPath != null) searchPath = highestPath;
-            }
+            // Use TfmResolver to select TFM (specific or auto-select highest)
+            var tfmPath = TfmResolver.ResolvePackagePath(searchPath, options.Tfm);
+            if (tfmPath != null) searchPath = tfmPath;
 
             var types = CollectTypesFromPath(searchPath, options.IncludeAll, logger);
             foreach (var t in types)
@@ -781,104 +763,6 @@ public class FindCommand
         Console.WriteLine(sb.ToString().TrimEnd());
     }
 
-    private static List<string> GetPackageDlls(string extractPath)
-    {
-        var result = new List<string>();
-        var libDir = Path.Combine(extractPath, "lib");
-        var toolsDir = Path.Combine(extractPath, "tools");
-
-        if (Directory.Exists(libDir))
-        {
-            result.AddRange(Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories));
-        }
-        if (Directory.Exists(toolsDir))
-        {
-            result.AddRange(Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories));
-        }
-        // Root level DLLs
-        result.AddRange(Directory.GetFiles(extractPath, "*.dll", SearchOption.TopDirectoryOnly));
-
-        return result;
-    }
-
-    private static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string basePath)
-    {
-        if (dlls.Count == 0) return (null, null);
-        if (dlls.Count == 1) return (dlls[0], ExtractTfmFromPath(Path.GetRelativePath(basePath, dlls[0]).Replace('\\', '/')));
-
-        var tfmGroups = dlls
-            .Select(d => (path: d, tfm: ExtractTfmFromPath(Path.GetRelativePath(basePath, d).Replace('\\', '/'))))
-            .Where(x => x.tfm != null)
-            .GroupBy(x => x.tfm)
-            .OrderByDescending(g => GetTfmPriority(g.Key!))
-            .FirstOrDefault();
-
-        if (tfmGroups != null)
-        {
-            var selected = tfmGroups.First();
-            return (selected.path, selected.tfm);
-        }
-
-        return (dlls[0], null);
-    }
-
-    private static string? ExtractTfmFromPath(string relativePath)
-    {
-        // e.g., "lib/net8.0/Foo.dll" -> "net8.0"
-        var parts = relativePath.Split('/');
-        if (parts.Length >= 2)
-        {
-            var potential = parts[^2];
-            if (IsTfmLike(potential))
-                return potential;
-        }
-        return null;
-    }
-
-    private static bool IsTfmLike(string s)
-    {
-        var lower = s.ToLowerInvariant();
-        return lower.StartsWith("net") || lower.StartsWith("netstandard") || lower.StartsWith("netcoreapp");
-    }
-
-    private static int GetTfmPriority(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && !lower.StartsWith("netcoreapp"))
-        {
-            var versionPart = lower[3..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 10000 + (version.Major * 100) + version.Minor;
-            }
-            if (int.TryParse(versionPart.Replace(".", ""), out var legacyVersion))
-            {
-                return 1000 + legacyVersion;
-            }
-        }
-
-        if (lower.StartsWith("netcoreapp"))
-        {
-            var versionPart = lower[10..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 5000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        if (lower.StartsWith("netstandard"))
-        {
-            var versionPart = lower[11..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 3000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        return 0;
-    }
-
     #region Project Assets Parsing
 
     private static List<(string Path, string PackageName, string Version)> ParseProjectAssets(string assetsPath, string? tfmFilter, VerboseLogger logger)
@@ -914,7 +798,7 @@ public class FindCommand
                 else
                 {
                     // Pick the highest priority TFM
-                    if (selectedTfm == null || GetTfmPriority(baseTfm) > GetTfmPriority(selectedTfm.Contains('/') ? selectedTfm[..selectedTfm.IndexOf('/')] : selectedTfm))
+                    if (selectedTfm == null || TfmResolver.GetTfmPriority(baseTfm) > TfmResolver.GetTfmPriority(selectedTfm.Contains('/') ? selectedTfm[..selectedTfm.IndexOf('/')] : selectedTfm))
                     {
                         selectedTfm = tfmName;
                     }
