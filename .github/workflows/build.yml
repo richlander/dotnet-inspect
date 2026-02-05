@@ -2,8 +2,7 @@ name: Build and Release
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [main, release]
   pull_request:
     branches: [main]
 
@@ -142,9 +141,9 @@ jobs:
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
 
-  # Publish to NuGet (only on version tags, after all tests pass)
+  # Publish to NuGet (only on release branch, after all tests pass)
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/release'
     needs: [smoke-test]
     runs-on: ubuntu-latest
     environment: nuget-publish
@@ -165,41 +164,43 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       
-      # Publish RID-specific packages first (in parallel conceptually, but sequentially here)
-      - name: Publish RID-specific packages
+      # Publish RID-specific packages first, then pointer package last
+      - name: Publish packages
         run: |
-          for pkg in packages/dotnet-inspect.*.nupkg; do
-            if [[ ! "$pkg" =~ packages/dotnet-inspect\.[0-9] ]]; then
+          # Publish RID-specific packages first (any package with a RID in the name)
+          for pkg in packages/dotnet-inspect.win-*.nupkg packages/dotnet-inspect.linux-*.nupkg packages/dotnet-inspect.osx-*.nupkg packages/dotnet-inspect.any.*.nupkg; do
+            if [[ -f "$pkg" ]]; then
               echo "Publishing $pkg"
               dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
             fi
           done
-        shell: bash
-      
-      # Wait for NuGet to index the RID packages
-      - name: Wait for NuGet indexing
-        run: sleep 60
-      
-      # Publish the pointer package last
-      - name: Publish pointer package
-        run: |
-          for pkg in packages/dotnet-inspect.*.nupkg; do
-            if [[ "$pkg" =~ packages/dotnet-inspect\.[0-9] ]]; then
+          
+          # Publish pointer package last (the one without a RID, just version number)
+          for pkg in packages/dotnet-inspect.[0-9]*.nupkg; do
+            if [[ -f "$pkg" ]]; then
               echo "Publishing pointer package: $pkg"
               dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
             fi
           done
         shell: bash
 
-  # Create GitHub Release
+  # Create GitHub Release (on release branch after publishing)
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/release'
     needs: [publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     
     steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/dotnet-inspect/dotnet-inspect.csproj)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
       - name: Download all packages
         uses: actions/download-artifact@v4
         with:
@@ -210,5 +211,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
           files: packages/*.nupkg
           generate_release_notes: true

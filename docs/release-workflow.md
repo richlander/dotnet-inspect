@@ -20,13 +20,29 @@ dotnet-inspect is distributed as a .NET tool with RID-specific Native AOT packag
 
 When users install the tool, the .NET CLI automatically selects the best package for their platform.
 
+## Branch Strategy
+
+```
+feature/* ──PR──▶ main ──merge──▶ release
+                   │                  │
+                   ▼                  ▼
+              Build & Test      Build, Test, Publish
+```
+
+| Branch | Purpose | CI Actions |
+|--------|---------|------------|
+| `feature/*` | Development work | - |
+| `main` | Integration branch, always releasable | Build, test, smoke test |
+| `release` | Triggers NuGet publishing | Build, test, smoke test, publish, GitHub release |
+
+### Why This Model?
+
+- **Intentional releases**: Publishing only happens when you explicitly merge to `release`, not on every PR
+- **Safe main branch**: All PRs are tested before merge; `main` should always be in a releasable state
+- **Simple workflow**: No tags to manage, no version bumping automation needed
+- **Review opportunity**: The merge to `release` is a deliberate action that can be reviewed
+
 ## Development Workflow
-
-### Branch Strategy
-
-- **`main`**: Protected branch containing release-ready code
-- **Feature branches**: All development happens in feature branches
-- **Pull Requests**: Required for all changes to `main`
 
 ### Making Changes
 
@@ -43,26 +59,73 @@ When users install the tool, the .NET CLI automatically selects the best package
    git commit -m "Description of changes"
    ```
 
-3. Push and create a Pull Request:
+3. Push and create a Pull Request to `main`:
    ```bash
    git push -u origin feature/my-change
    ```
 
-4. Wait for CI to pass all checks before merging.
+4. Wait for CI to pass all checks, then merge the PR.
 
-## Continuous Integration
+### CI Checks on Pull Requests
 
-### PR Checks
+When a PR is opened against `main`, GitHub Actions runs:
 
-When a Pull Request is opened or updated, GitHub Actions runs:
-
-1. **Build**: Compile all RID-specific variants
+1. **Build**: Compile the pointer package and all RID-specific variants
 2. **Unit Tests**: Run xUnit tests
-3. **Smoke Tests**: Install the tool from the built package and verify core commands work
+3. **Smoke Tests**: Install the tool from built packages on each platform and verify core commands work
 
 All checks must pass before the PR can be merged.
 
-### Build Matrix
+## Release Process
+
+### Preparing a Release
+
+1. Ensure `main` has all the changes you want to release
+2. Update the version in `src/dotnet-inspect/dotnet-inspect.csproj`:
+   ```xml
+   <VersionPrefix>0.3.0</VersionPrefix>
+   ```
+3. Commit and push to `main` (via PR or direct if you have access)
+
+### Publishing a Release
+
+Merge `main` into `release`:
+
+```bash
+git checkout release
+git pull origin release
+git merge main
+git push origin release
+```
+
+Or create a PR from `main` to `release` for additional review.
+
+### What Happens on Release
+
+When changes are pushed to the `release` branch:
+
+1. **Build** all packages on their respective platforms
+2. **Run smoke tests** on each platform
+3. **Publish to NuGet**:
+   - RID-specific packages first (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, any)
+   - Pointer package last (must be published after RID packages are available)
+4. **Create GitHub Release** with version tag and attached packages
+
+### Publishing Order
+
+The pointer package references RID-specific packages, so the order matters:
+
+```
+1. dotnet-inspect.win-x64.0.3.0.nupkg
+2. dotnet-inspect.win-arm64.0.3.0.nupkg
+3. dotnet-inspect.linux-x64.0.3.0.nupkg
+4. dotnet-inspect.linux-arm64.0.3.0.nupkg
+5. dotnet-inspect.osx-arm64.0.3.0.nupkg
+6. dotnet-inspect.any.0.3.0.nupkg
+7. dotnet-inspect.0.3.0.nupkg  ← pointer package, published last
+```
+
+## Build Matrix
 
 | Runner | RID | Build Type |
 |--------|-----|------------|
@@ -73,98 +136,15 @@ All checks must pass before the PR can be merged.
 | `macos-latest` | osx-arm64 | Native AOT |
 | `ubuntu-latest` | any | CoreCLR |
 
-### Smoke Tests
-
-Each platform runs smoke tests after building:
-
-```bash
-# Install from local package
-dotnet tool install --global dotnet-inspect --add-source ./artifacts/packages
-
-# Verify core functionality
-dotnet-inspect --version
-dotnet-inspect --help
-dotnet-inspect System.Text.Json
-dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0
-dotnet-inspect platform
-```
-
-The tool is uninstalled after testing to keep the runner clean.
-
-## Release Process
-
-### Triggering a Release
-
-Releases are triggered by pushing a version tag:
-
-```bash
-# Ensure you're on main with latest changes
-git checkout main
-git pull origin main
-
-# Create and push a version tag
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-### Release Pipeline
-
-When a version tag is pushed:
-
-1. **Build all packages** on their respective platforms
-2. **Run smoke tests** on each platform
-3. **Upload packages** as workflow artifacts
-4. **Publish to NuGet** (if all tests pass):
-   - Publish RID-specific packages first (in parallel)
-   - Wait for all RID packages to be available
-   - Publish the pointer package last
-5. **Create GitHub Release** with the packages attached
-
-### Publishing Order
-
-The publishing order is critical:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ 1. Publish RID-specific packages (parallel)             │
-│    - dotnet-inspect.win-x64.x.y.z.nupkg                │
-│    - dotnet-inspect.win-arm64.x.y.z.nupkg              │
-│    - dotnet-inspect.linux-x64.x.y.z.nupkg              │
-│    - dotnet-inspect.linux-arm64.x.y.z.nupkg            │
-│    - dotnet-inspect.osx-arm64.x.y.z.nupkg              │
-│    - dotnet-inspect.any.x.y.z.nupkg                    │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│ 2. Wait for packages to be indexed                      │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│ 3. Publish pointer package                              │
-│    - dotnet-inspect.x.y.z.nupkg                        │
-└─────────────────────────────────────────────────────────┘
-```
-
-The pointer package must be published last because it references the RID-specific packages. If published first, users would get installation errors.
-
 ## Version Management
-
-### Version Number
 
 The version is defined in `src/dotnet-inspect/dotnet-inspect.csproj`:
 
 ```xml
-<VersionPrefix>0.2.0</VersionPrefix>
+<VersionPrefix>0.3.0</VersionPrefix>
 ```
 
-### Updating the Version
-
-1. Update `VersionPrefix` in the csproj file
-2. Commit the change: `git commit -am "Bump version to 0.2.0"`
-3. Create a PR and merge to main
-4. Tag the release: `git tag v0.2.0 && git push origin v0.2.0`
+Update this before merging to `release`. The GitHub Release will automatically be tagged with `v{version}`.
 
 ## Local Development
 
@@ -189,6 +169,9 @@ dotnet test src/dotnet-inspect.Tests
 
 # Update baseline after intentional changes
 ./scripts/baseline-test.sh --update
+
+# Smoke tests (requires tool to be installed)
+./scripts/smoke-test.sh
 ```
 
 ### Creating Local Packages
@@ -208,7 +191,7 @@ dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false
 
 ```bash
 # Install from local artifacts
-dotnet tool install --global dotnet-inspect --add-source ./artifacts/packages/Release
+dotnet tool install --global dotnet-inspect --add-source ./artifacts/package/release --no-cache
 
 # Test it
 dotnet-inspect --version
@@ -216,6 +199,22 @@ dotnet-inspect --version
 # Uninstall when done
 dotnet tool uninstall --global dotnet-inspect
 ```
+
+## Repository Setup
+
+### Required Secrets
+
+In GitHub repository settings, configure:
+
+- **`NUGET_API_KEY`**: API key for publishing to nuget.org
+
+### Environment Protection (Optional)
+
+You can add protection rules to the `nuget-publish` environment:
+
+1. Go to Settings → Environments → nuget-publish
+2. Add required reviewers for manual approval before publishing
+3. Add deployment branch rules to restrict to `release` branch
 
 ## Troubleshooting
 
@@ -231,5 +230,6 @@ dotnet tool uninstall --global dotnet-inspect
 
 ### Publishing Failures
 
-- **NuGet API key issues**: Ensure the `NUGET_API_KEY` secret is set in GitHub repository settings
+- **NuGet API key issues**: Ensure `NUGET_API_KEY` secret is set in GitHub repository settings
 - **Package already exists**: Version numbers cannot be reused; bump the version
+- **Pointer package fails**: RID-specific packages may not be indexed yet; the workflow publishes them first to avoid this
