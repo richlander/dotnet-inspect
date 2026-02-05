@@ -15,7 +15,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -73,6 +73,10 @@ public static class CommandLineBuilder
         // API command
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
+
+        // Audit command (opinionated, always strict)
+        var auditCommand = CreateAuditCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
+        rootCommand.Subcommands.Add(auditCommand);
 
         // Assembly command
         var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -727,6 +731,10 @@ public static class CommandLineBuilder
         var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
         var discoverOption = new Option<bool>("--discover") { Description = "List available sections and exit" };
+        var assemblyOption = new Option<bool>("--assembly") { Description = "Show assembly info (version, TFM, architecture)" };
+        var auditOption = new Option<bool>("--audit") { Description = "Verify SourceLink, determinism, and signature (always strict)" };
+        var sourcelinkOption = new Option<bool>("--sourcelink") { Description = "Show SourceLink presence and URL (fast, no verification)" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(depsOption);
@@ -736,6 +744,10 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(readmeOption);
+        packageCommand.Options.Add(assemblyOption);
+        packageCommand.Options.Add(auditOption);
+        packageCommand.Options.Add(sourcelinkOption);
+        packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(outOption);
         packageCommand.Options.Add(discoverOption);
         packageCommand.Options.Add(limitOption);
@@ -752,6 +764,37 @@ public static class CommandLineBuilder
         packageCommand.SetAction(async (parseResult, ct) =>
         {
             var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
+            
+            // Handle --assembly, --audit, or --sourcelink: delegate to AssemblyCommand
+            bool showAssembly = parseResult.GetValue(assemblyOption);
+            bool runAudit = parseResult.GetValue(auditOption);
+            bool showSourcelink = parseResult.GetValue(sourcelinkOption);
+            
+            if (showAssembly || runAudit || showSourcelink)
+            {
+                if (packageArgs.Length < 1)
+                {
+                    Console.Error.WriteLine("Error: Package name required.");
+                    return 1;
+                }
+
+                var assemblyOptions = new AssemblyOptions
+                {
+                    PackagePath = packageArgs[0],
+                    Tfm = parseResult.GetValue(tfmOption),
+                    IncludeAudit = runAudit || showSourcelink,
+                    StrictAudit = runAudit, // --audit is always strict
+                    JsonOutput = parseResult.GetValue(jsonOption),
+                    Verbose = parseResult.GetValue(verboseOption),
+                    Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                    IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
+                    ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                    SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                };
+
+                return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
+            }
+            
             var options = new InspectionOptions
             {
                 IncludeDeps = parseResult.GetValue(depsOption),
@@ -778,6 +821,85 @@ public static class CommandLineBuilder
         return packageCommand;
     }
 
+    private static Command CreateAuditCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
+    {
+        var auditCommand = new Command("audit", "Verify package/assembly provenance (SourceLink, determinism, signature)");
+
+        var targetArg = new Argument<string[]>("target")
+        {
+            Description = "Package name, file path, or .nupkg path (can specify multiple)",
+            Arity = ArgumentArity.OneOrMore
+        };
+
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
+
+        auditCommand.Arguments.Add(targetArg);
+        auditCommand.Options.Add(tfmOption);
+        auditCommand.Options.Add(jsonOption);
+        auditCommand.Options.Add(verboseOption);
+        auditCommand.Options.Add(verbosityOption);
+        auditCommand.Options.Add(sourceOption);
+        auditCommand.Options.Add(addSourceOption);
+        auditCommand.Options.Add(nugetConfigOption);
+
+        auditCommand.SetAction(async (parseResult, ct) =>
+        {
+            var targets = parseResult.GetValue(targetArg) ?? [];
+            if (targets.Length == 0)
+            {
+                Console.Error.WriteLine("Error: At least one target required (package name, file path, or .nupkg).");
+                return 1;
+            }
+
+            var tfm = parseResult.GetValue(tfmOption);
+            var verbose = parseResult.GetValue(verboseOption);
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var jsonOutput = parseResult.GetValue(jsonOption);
+            var sourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
+
+            int failures = 0;
+
+            foreach (var target in targets)
+            {
+                // Determine input type and create appropriate options
+                bool isFilePath = target.Contains('/') || target.Contains('\\') || 
+                                  target.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                                  target.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+
+                var options = new AssemblyOptions
+                {
+                    IncludeAudit = true,
+                    StrictAudit = true, // audit always runs strict verification
+                    PackagePath = isFilePath ? null : target,
+                    Tfm = tfm,
+                    JsonOutput = jsonOutput,
+                    Verbose = verbose,
+                    Verbosity = verbosity,
+                    SourceOptions = sourceOptions
+                };
+
+                // For file paths, pass as assemblyPath; for packages, pass as PackagePath
+                string? assemblyPath = isFilePath ? target : null;
+
+                int result = await AssemblyCommand.ExecuteAsync(assemblyPath, options);
+                if (result != 0)
+                {
+                    failures++;
+                }
+            }
+
+            return failures > 0 ? 1 : 0;
+        });
+
+        return auditCommand;
+    }
+
     private static Command CreateAssemblyCommand(
         Option<bool> jsonOption,
         Option<bool> markoutOption,
@@ -798,16 +920,16 @@ public static class CommandLineBuilder
         };
         assemblyPathArg.DefaultValueFactory = _ => null;
 
-        var auditOption = new Option<bool>("--audit") { Description = "Include SourceLink and determinism audit" };
-        var strictOption = new Option<bool>("--strict") { Description = "Verify SourceLink URLs are fetchable and all sources are accessible" };
-        var asmPackageOption = new Option<string?>("--package") { Description = "Extract assembly from package (file, name, or name@version)" };
+        var auditOption = new Option<bool>("--audit") { Description = "Full provenance verification (SourceLink, determinism)" };
+        var sourcelinkOption = new Option<bool>("--sourcelink") { Description = "Show SourceLink presence and URL (fast, no verification)" };
+        var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --assembly'] Extract from package" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(auditOption);
-        assemblyCommand.Options.Add(strictOption);
+        assemblyCommand.Options.Add(sourcelinkOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
@@ -825,11 +947,22 @@ public static class CommandLineBuilder
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
             var assemblyPath = parseResult.GetValue(assemblyPathArg);
+            var packagePath = parseResult.GetValue(asmPackageOption);
+            
+            // Emit deprecation warning for --package
+            if (!string.IsNullOrEmpty(packagePath))
+            {
+                Console.Error.WriteLine("Warning: 'assembly --package X' is deprecated. Use 'package X --assembly' instead.");
+            }
+            
+            bool runAudit = parseResult.GetValue(auditOption);
+            bool showSourcelink = parseResult.GetValue(sourcelinkOption);
+            
             var options = new AssemblyOptions
             {
-                IncludeAudit = parseResult.GetValue(auditOption) || parseResult.GetValue(strictOption),
-                StrictAudit = parseResult.GetValue(strictOption),
-                PackagePath = parseResult.GetValue(asmPackageOption),
+                IncludeAudit = runAudit || showSourcelink,
+                StrictAudit = runAudit, // --audit is always strict, --sourcelink is not
+                PackagePath = packagePath,
                 PlatformAssembly = parseResult.GetValue(asmPlatformOption),
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
