@@ -9,7 +9,7 @@ Ideas for improving dotnet-inspect for LLM-driven C# development.
 Support diffing an entire package without specifying a type name:
 
 ```bash
-dotnet-inspect diff --package System.CommandLine@2.0.0-beta4..2.0.2
+dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
 ```
 
 Would show all changed types across the package:
@@ -67,7 +67,7 @@ This enables quick type landscape discovery before targeted `type` queries. LLM 
 When diffing versions, suggest code transformations:
 
 ```bash
-dotnet-inspect diff Command --package System.CommandLine@2.0.0-beta4..2.0.2 --migrate
+dotnet-inspect diff Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2 --migrate
 ```
 
 Would add a section:

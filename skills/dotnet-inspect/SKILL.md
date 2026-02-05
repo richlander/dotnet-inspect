@@ -32,7 +32,7 @@ Start with these common workflows:
 dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 
 # Compare API changes between versions (essential for migrations)
-dnx dotnet-inspect -y -- diff Command --package System.CommandLine@2.0.0-beta4..2.0.2
+dnx dotnet-inspect -y -- diff Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
 dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 
 # Search for types by pattern (single or batch with comma-separated patterns)
@@ -49,14 +49,14 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 
 ## Key Flags
 
-| Flag | Purpose |
-|------|---------|
-| `-v:d` | Detailed output (full signatures, more info) |
-| `--docs` | Include XML documentation from source |
-| `-m Name` | Filter to specific member(s) |
-| `-n 10` | Limit results |
-| `--terse`, `-t` | One line per pattern (for batch find) |
-| `--signatures-only` | Plain text output (no formatting) |
+| Flag | Purpose | Commands |
+|------|---------|----------|
+| `-v:d` | Detailed output (full signatures, more info) | `package`, `assembly`, `api` |
+| `--docs` | Include XML documentation from source | `type`, `api` |
+| `-m Name` | Filter to specific member(s) | `api` |
+| `-n 10` | Limit results | `find`, `package --versions` |
+| `--terse`, `-t` | One line per pattern (for batch find) | `find` |
+| `--prerelease` | Include prerelease versions | `package --versions` |
 
 **Generic types:** Use quotes around generic types: `'Option<T>'`, `'IEnumerable<T>'`
 
