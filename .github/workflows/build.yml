@@ -205,8 +205,8 @@ jobs:
         run: |
           npm install -g markdownlint-cli2
           # Use relaxed rules for tool output (bare URLs, list spacing, table alignment are OK)
-          echo '{"MD013":false,"MD032":false,"MD034":false,"MD060":false}' > .markdownlint-smoke.json
-          markdownlint-cli2 --config .markdownlint-smoke.json smoke-*.md
+          echo '{"MD013":false,"MD032":false,"MD034":false,"MD060":false}' > .markdownlint-cli2.jsonc
+          markdownlint-cli2 smoke-*.md
         shell: bash
       
       - name: Uninstall tool
