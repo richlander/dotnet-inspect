@@ -163,6 +163,10 @@ jobs:
       - name: Install tool from local packages
         run: dotnet tool install --global dotnet-inspect --add-source ./packages --no-cache
       
+      - name: Add .NET tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+        shell: bash
+      
       - name: Smoke test - version
         run: |
           OUTPUT=$(dotnet-inspect --version)
