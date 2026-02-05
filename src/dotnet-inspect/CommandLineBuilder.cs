@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -60,6 +60,10 @@ public static class CommandLineBuilder
         // Assembly command
         var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption);
         rootCommand.Subcommands.Add(assemblyCommand);
+
+        // Cache command
+        var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption);
+        rootCommand.Subcommands.Add(cacheCommand);
 
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption, verbosityOption);
@@ -156,6 +160,29 @@ public static class CommandLineBuilder
         });
 
         return typeCommand;
+    }
+
+    private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
+    {
+        var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
+
+        var cleanOption = new Option<bool>("--clean") { Description = "Clear the cache" };
+
+        cacheCommand.Options.Add(cleanOption);
+        cacheCommand.Options.Add(verboseOption);
+        cacheCommand.Options.Add(verbosityOption);
+
+        cacheCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var options = new CacheOptions(
+                Clean: parseResult.GetValue(cleanOption),
+                Verbose: parseResult.GetValue(verboseOption) || verbosity >= Verbosity.Detailed);
+
+            return await CacheCommand.ExecuteAsync(options);
+        });
+
+        return cacheCommand;
     }
 
     private static Command CreateDiffCommand(Option<bool> verboseOption, Option<string?> verbosityOption)

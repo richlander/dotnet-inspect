@@ -19,7 +19,8 @@ public class ExtensionsCommand
 {
     public static async Task<int> ExecuteAsync(string targetType, ExtensionsOptions options)
     {
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         var tempDirs = new List<string>();
 
         try
@@ -34,7 +35,7 @@ public class ExtensionsCommand
             var results = new List<ExtensionMethodResult>();
 
             // Collect all assembly paths from various sources
-            var assemblyInfos = await AssemblyCollector.CollectAsync(options, tempDirs, logger, "inspect-ext");
+            var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-ext");
 
             // Scan assemblies for extension methods
             foreach (var asmInfo in assemblyInfos)

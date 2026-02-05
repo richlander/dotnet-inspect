@@ -5,10 +5,10 @@ namespace DotnetInspector.Inspectors;
 /// <summary>
 /// Fetches source files from URLs with persistent disk caching and in-memory caching.
 /// </summary>
-public class SourceFetcher(HttpClient? httpClient = null)
+public class SourceFetcher(HttpClient httpClient)
 {
     private readonly Dictionary<string, string> _memoryCache = new();
-    private readonly HttpClient _httpClient = httpClient ?? HttpClientFactory.Create(TimeSpan.FromSeconds(10));
+    private readonly HttpClient _httpClient = httpClient;
 
     /// <summary>
     /// Fetches source content from a URL, with caching.

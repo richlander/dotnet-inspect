@@ -72,7 +72,7 @@ public static class NuGetCache
         if (Directory.Exists(nugetCachePath))
         {
             var nugetPackageDir = Path.Combine(nugetCachePath, normalizedName, normalizedVersion);
-            if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir))
+            if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
             {
                 return nugetPackageDir;
             }
@@ -83,7 +83,7 @@ public static class NuGetCache
         if (Directory.Exists(appCachePath))
         {
             var appPackageDir = Path.Combine(appCachePath, normalizedName, normalizedVersion);
-            if (Directory.Exists(appPackageDir) && IsCachedPackageValid(appPackageDir))
+            if (Directory.Exists(appPackageDir) && IsCachedPackageValid(appPackageDir, normalizedName))
             {
                 return appPackageDir;
             }
@@ -150,13 +150,29 @@ public static class NuGetCache
     /// <summary>
     /// Checks if a cached package has the expected structure.
     /// </summary>
-    public static bool IsCachedPackageValid(string cachedPath)
+    public static bool IsCachedPackageValid(string cachedPath) => IsCachedPackageValid(cachedPath, null);
+
+    /// <summary>
+    /// Checks if a cached package has the expected structure.
+    /// When packageName is provided, uses direct file check instead of directory scan.
+    /// </summary>
+    public static bool IsCachedPackageValid(string cachedPath, string? packageName)
     {
         if (!Directory.Exists(cachedPath))
             return false;
 
         // Valid if it contains a .nuspec file (extracted) or lib/tools directory
-        var hasNuspec = Directory.GetFiles(cachedPath, "*.nuspec").Length > 0;
+        bool hasNuspec;
+        if (packageName != null)
+        {
+            // Fast path: check for expected nuspec name directly
+            hasNuspec = File.Exists(Path.Combine(cachedPath, $"{packageName}.nuspec"));
+        }
+        else
+        {
+            // Fallback: scan for any nuspec file
+            hasNuspec = Directory.GetFiles(cachedPath, "*.nuspec").Length > 0;
+        }
         var hasLib = Directory.Exists(Path.Combine(cachedPath, "lib"));
         var hasTools = Directory.Exists(Path.Combine(cachedPath, "tools"));
 

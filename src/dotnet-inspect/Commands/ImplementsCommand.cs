@@ -16,7 +16,8 @@ public class ImplementsCommand
 {
     public static async Task<int> ExecuteAsync(string targetType, ImplementsOptions options)
     {
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         var tempDirs = new List<string>();
 
         try
@@ -31,7 +32,7 @@ public class ImplementsCommand
             var results = new List<ImplementerResult>();
 
             // Collect all assembly paths from various sources
-            var assemblyInfos = await AssemblyCollector.CollectAsync(options, tempDirs, logger, "inspect-impl");
+            var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-impl");
 
             logger.Log($"Scanning {assemblyInfos.Count} assemblies for types implementing {targetType}");
 

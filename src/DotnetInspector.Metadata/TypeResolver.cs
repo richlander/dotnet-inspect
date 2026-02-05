@@ -33,7 +33,7 @@ public static class TypeResolver
         var typeRef = reader.GetTypeReference(handle);
         string ns = reader.GetString(typeRef.Namespace);
         string name = reader.GetString(typeRef.Name);
-        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        return GetFullName(ns, name);
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ public static class TypeResolver
         var typeDef = reader.GetTypeDefinition(handle);
         string ns = reader.GetString(typeDef.Namespace);
         string name = reader.GetString(typeDef.Name);
-        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        return GetFullName(ns, name);
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ public static class TypeResolver
     {
         string ns = reader.GetString(typeDef.Namespace);
         string name = reader.GetString(typeDef.Name);
-        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        return GetFullName(ns, name);
     }
 
     /// <summary>

@@ -24,9 +24,9 @@ public record PdbLookupResult(
 /// https://github.com/dotnet/symstore/blob/d66992e7c2f32288fbf1acf08cdea43098025c7c/src/Microsoft.SymbolStore/KeyGenerators/PortablePDBFileKeyGenerator.cs
 /// Portable PDBs use {GUID}FFFFFFFF, Windows PDBs use {GUID}{age:x}.
 /// </remarks>
-public class SymbolPackageDownloader(HttpClient? client = null)
+public class SymbolPackageDownloader(HttpClient client)
 {
-    private readonly HttpClient _client = client ?? HttpClientFactory.Create();
+    private readonly HttpClient _client = client;
     private readonly string _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
 
     /// <summary>

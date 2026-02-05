@@ -28,11 +28,13 @@ public static class PackageExtractor
     /// <summary>
     /// Extracts a package from a local .nupkg file or downloads from nuget.org.
     /// </summary>
+    /// <param name="client">HTTP client for downloading packages</param>
     /// <param name="packageSource">Local .nupkg path or package reference (name or name@version)</param>
     /// <param name="log">Optional logging callback</param>
     /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
     /// <returns>Extraction result or null if failed</returns>
     public static async Task<PackageExtractionResult?> ExtractPackageAsync(
+        HttpClient client,
         string packageSource,
         Action<string>? log = null,
         string tempDirPrefix = "inspect-pkg")
@@ -44,7 +46,7 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(packageSource, log, tempDirPrefix);
+        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix);
     }
 
     private static PackageExtractionResult? ExtractLocalPackage(
@@ -69,12 +71,11 @@ public static class PackageExtractor
     }
 
     private static async Task<PackageExtractionResult?> DownloadAndExtractPackageAsync(
+        HttpClient client,
         string packageSource,
         Action<string>? log,
         string tempDirPrefix)
     {
-        using HttpClient client = HttpClientFactory.Create();
-
         var (packageName, version) = ParsePackageReference(packageSource);
 
         // Get version if not specified

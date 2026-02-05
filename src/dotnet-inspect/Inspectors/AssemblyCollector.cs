@@ -17,12 +17,14 @@ public static class AssemblyCollector
     /// <summary>
     /// Collects assembly paths from packages, direct assemblies, and platform sources.
     /// </summary>
+    /// <param name="httpClient">HTTP client for downloading packages</param>
     /// <param name="options">Source options specifying where to look for assemblies</param>
     /// <param name="tempDirs">List to track temporary directories for cleanup</param>
     /// <param name="logger">Logger for verbose output</param>
     /// <param name="tempDirPrefix">Prefix for temporary directories</param>
     /// <returns>List of assembly paths with source information</returns>
     public static async Task<List<AssemblyInfo>> CollectAsync(
+        HttpClient httpClient,
         IAssemblySourceOptions options,
         List<string> tempDirs,
         VerboseLogger logger,
@@ -33,7 +35,7 @@ public static class AssemblyCollector
         // 1. Packages
         foreach (var pkg in options.Packages)
         {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, tempDirPrefix);
+            var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, tempDirPrefix);
             if (extracted == null)
             {
                 Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");

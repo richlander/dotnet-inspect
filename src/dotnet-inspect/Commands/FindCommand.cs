@@ -17,7 +17,8 @@ public class FindCommand
 {
     public static async Task<int> ExecuteAsync(string patternInput, FindOptions options)
     {
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         var tempDirs = new List<string>();
 
         try
@@ -33,11 +34,11 @@ public class FindCommand
             // For oneline/name-only/multi-pattern mode, collect results per pattern
             if (options.OneLine || options.NameOnly || patterns.Length > 1)
             {
-                return await ExecuteMultiPatternAsync(patterns, options, logger, tempDirs);
+                return await ExecuteMultiPatternAsync(patterns, options, logger, tempDirs, context.HttpClient);
             }
 
             // Single pattern - use original logic
-            return await ExecuteSinglePatternAsync(patterns[0], options, logger, tempDirs);
+            return await ExecuteSinglePatternAsync(patterns[0], options, logger, tempDirs, context.HttpClient);
         }
         finally
         {
@@ -45,7 +46,7 @@ public class FindCommand
         }
     }
 
-    private static async Task<int> ExecuteMultiPatternAsync(string[] patterns, FindOptions options, VerboseLogger logger, List<string> tempDirs)
+    private static async Task<int> ExecuteMultiPatternAsync(string[] patterns, FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
     {
         // Default to runtime framework if no scope specified
         if (!options.HasAnyScope)
@@ -55,7 +56,7 @@ public class FindCommand
         }
 
         // Collect all types first (without pattern filtering)
-        var allTypes = await CollectAllTypesAsync(options, logger, tempDirs);
+        var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
 
         // Match types against each pattern
         var resultsByPattern = new Dictionary<string, List<TypeSearchResult>>();
@@ -106,7 +107,7 @@ public class FindCommand
         Console.WriteLine(FormatNameOnlyOutput(resultsByPattern));
     }
 
-    private static async Task<int> ExecuteSinglePatternAsync(string pattern, FindOptions options, VerboseLogger logger, List<string> tempDirs)
+    private static async Task<int> ExecuteSinglePatternAsync(string pattern, FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
     {
             // Default to runtime framework if no scope specified
             if (!options.HasAnyScope)
@@ -131,7 +132,7 @@ public class FindCommand
             {
                 if (ReachedLimit()) break;
 
-                var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-find");
+                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find");
                 if (extracted == null)
                 {
                     Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
@@ -333,14 +334,14 @@ public class FindCommand
             return 0;
     }
 
-    private static async Task<List<TypeSearchResult>> CollectAllTypesAsync(FindOptions options, VerboseLogger logger, List<string> tempDirs)
+    private static async Task<List<TypeSearchResult>> CollectAllTypesAsync(FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
     {
         var results = new List<TypeSearchResult>();
 
         // 1. Search packages
         foreach (var pkg in options.Packages)
         {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-find");
+            var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find");
             if (extracted == null)
             {
                 Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");

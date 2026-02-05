@@ -83,20 +83,15 @@ public static class HttpRetryHelper
     }
 
     /// <summary>
-    /// Executes an HTTP GET with retry logic for transient failures.
+    /// Core retry loop that handles transient failures with exponential backoff.
     /// </summary>
-    /// <param name="client">HTTP client to use</param>
-    /// <param name="url">URL to fetch</param>
-    /// <param name="retryCount">Maximum number of retries (default: 3)</param>
-    /// <param name="log">Optional logging callback</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Response if successful, null if failed or not found</returns>
-    public static async Task<HttpResponseMessage?> GetWithRetryAsync(
-        HttpClient client,
+    private static async Task<HttpResponseMessage?> ExecuteWithRetryAsync(
+        Func<CancellationToken, Task<HttpResponseMessage>> requestFactory,
         string url,
-        int retryCount = DefaultRetryCount,
-        Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        string methodName,
+        int retryCount,
+        Action<string>? log,
+        CancellationToken cancellationToken)
     {
         int attempts = 0;
 
@@ -104,7 +99,7 @@ public static class HttpRetryHelper
         {
             try
             {
-                var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+                var response = await requestFactory(cancellationToken).ConfigureAwait(false);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -123,11 +118,11 @@ public static class HttpRetryHelper
                 // Check if retryable
                 if (!IsRetryableStatus(statusCode))
                 {
-                    log?.Invoke($"HTTP {(int)statusCode} (not retryable): {url}");
+                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
                     return null;
                 }
 
-                log?.Invoke($"HTTP {(int)statusCode} (retryable): {url}");
+                log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {url}");
             }
             catch (HttpRequestException ex)
             {
@@ -135,7 +130,7 @@ public static class HttpRetryHelper
 
                 if (!isRetryable)
                 {
-                    log?.Invoke($"HTTP error (not retryable): {ex.Message}");
+                    log?.Invoke($"HTTP {methodName} error (not retryable): {ex.Message}");
                     return null;
                 }
 
@@ -148,7 +143,7 @@ public static class HttpRetryHelper
             catch (TaskCanceledException)
             {
                 // Timeout - treat as retryable
-                log?.Invoke($"Request timeout (retryable): {url}");
+                log?.Invoke($"{methodName} request timeout (retryable): {url}");
             }
 
             // Check retry limit
@@ -163,6 +158,31 @@ public static class HttpRetryHelper
             log?.Invoke($"Retry #{attempts} after {delay.TotalMilliseconds:F0}ms");
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Executes an HTTP GET with retry logic for transient failures.
+    /// </summary>
+    /// <param name="client">HTTP client to use</param>
+    /// <param name="url">URL to fetch</param>
+    /// <param name="retryCount">Maximum number of retries (default: 3)</param>
+    /// <param name="log">Optional logging callback</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Response if successful, null if failed or not found</returns>
+    public static Task<HttpResponseMessage?> GetWithRetryAsync(
+        HttpClient client,
+        string url,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteWithRetryAsync(
+            ct => client.GetAsync(url, ct),
+            url,
+            "GET",
+            retryCount,
+            log,
+            cancellationToken);
     }
 
     /// <summary>
@@ -220,73 +240,23 @@ public static class HttpRetryHelper
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Response if successful, null if failed or not found</returns>
-    public static async Task<HttpResponseMessage?> HeadWithRetryAsync(
+    public static Task<HttpResponseMessage?> HeadWithRetryAsync(
         HttpClient client,
         string url,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
-        int attempts = 0;
-
-        while (true)
-        {
-            try
+        return ExecuteWithRetryAsync(
+            async ct =>
             {
                 using var request = new HttpRequestMessage(HttpMethod.Head, url);
-                var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return response;
-                }
-
-                var statusCode = response.StatusCode;
-                response.Dispose();
-
-                if (statusCode == HttpStatusCode.NotFound)
-                {
-                    return null;
-                }
-
-                if (!IsRetryableStatus(statusCode))
-                {
-                    log?.Invoke($"HTTP HEAD {(int)statusCode} (not retryable): {url}");
-                    return null;
-                }
-
-                log?.Invoke($"HTTP HEAD {(int)statusCode} (retryable): {url}");
-            }
-            catch (HttpRequestException ex)
-            {
-                var (isRetryable, socketError) = GetSocketError(ex);
-
-                if (!isRetryable)
-                {
-                    log?.Invoke($"HTTP HEAD error (not retryable): {ex.Message}");
-                    return null;
-                }
-
-                log?.Invoke($"Socket error {socketError} (retryable): {url}");
-            }
-            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (TaskCanceledException)
-            {
-                log?.Invoke($"HEAD request timeout (retryable): {url}");
-            }
-
-            if (attempts++ >= retryCount)
-            {
-                log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
-                return null;
-            }
-
-            var delay = GetRetryDelay(attempts);
-            log?.Invoke($"Retry #{attempts} after {delay.TotalMilliseconds:F0}ms");
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-        }
+                return await client.SendAsync(request, ct).ConfigureAwait(false);
+            },
+            url,
+            "HEAD",
+            retryCount,
+            log,
+            cancellationToken);
     }
 }

@@ -42,7 +42,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         var typeDef = reader.GetTypeDefinition(handle);
         string ns = reader.GetString(typeDef.Namespace);
         string name = reader.GetString(typeDef.Name);
-        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        return TypeResolver.GetFullName(ns, name);
     }
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
@@ -50,7 +50,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         var typeRef = reader.GetTypeReference(handle);
         string ns = reader.GetString(typeRef.Namespace);
         string name = reader.GetString(typeRef.Name);
-        return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        return TypeResolver.GetFullName(ns, name);
     }
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)

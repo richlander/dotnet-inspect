@@ -26,7 +26,8 @@ public class AssemblyCommand
             return 1;
         }
 
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
         string? tempDir = null;
 
         try
@@ -56,7 +57,7 @@ public class AssemblyCommand
 
                 logger.Log($"Using platform runtime assembly: {framework} {version}");
                 
-                var audit = await InspectAssemblyAsync(resolvedPath!, options, logger, null, null, isPlatformAssembly: true);
+                var audit = await InspectAssemblyAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
                 if (audit == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read assembly: {resolvedPath}");
@@ -69,7 +70,7 @@ public class AssemblyCommand
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, options.Tfm, logger);
+                var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, options.Tfm, logger, context.HttpClient);
                 if (extractResult == null)
                 {
                     return 1;
@@ -93,7 +94,7 @@ public class AssemblyCommand
                     // Extract version from path if not already known
                     var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
 
-                    var audit = await InspectAssemblyAsync(targetPath, options, logger, packageName, version);
+                    var audit = await InspectAssemblyAsync(targetPath, options, logger, packageName, version, context.HttpClient);
                     if (audit == null)
                     {
                         logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
@@ -129,7 +130,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                var audit = await InspectAssemblyAsync(assemblyPath!, options, logger, null, null);
+                var audit = await InspectAssemblyAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
                 if (audit == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read assembly: {assemblyPath}");
@@ -162,7 +163,7 @@ public class AssemblyCommand
         }
     }
 
-    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger)
+    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
     {
         // Check if it's a local file or a NuGet package name
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
@@ -191,7 +192,7 @@ public class AssemblyCommand
         {
             // Treat as NuGet package name - download from nuget.org
             // Support format: PackageName or PackageName@version
-            using HttpClient client = new();
+            var client = httpClient;
 
             string packageName;
             string? version;
@@ -400,6 +401,7 @@ public class AssemblyCommand
         VerboseLogger logger,
         string? packageName,
         string? packageVersion,
+        HttpClient httpClient,
         bool isPlatformAssembly = false)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
@@ -427,7 +429,7 @@ public class AssemblyCommand
             // Audit if requested
             if (options.IncludeAudit)
             {
-                await AuditAssemblyAsync(peReader, audit, path, packageName, packageVersion, logger, isPlatformAssembly);
+                await AuditAssemblyAsync(peReader, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly);
             }
 
             return audit;
@@ -477,6 +479,7 @@ public class AssemblyCommand
         string? packageName,
         string? packageVersion,
         VerboseLogger logger,
+        HttpClient httpClient,
         bool isPlatformAssembly = false)
     {
         foreach (var entry in peReader.ReadDebugDirectory())
@@ -545,7 +548,7 @@ public class AssemblyCommand
             else
             {
                 // No local PDB - try to fetch from symbol package or symbol server
-                var symbolDownloader = new SymbolPackageDownloader();
+                var symbolDownloader = new SymbolPackageDownloader(httpClient);
                 var pdbResult = await symbolDownloader.GetPdbReaderAsync(
                     peReader, assemblyPath, packageName, packageVersion, logger.Log, isPlatformAssembly);
 

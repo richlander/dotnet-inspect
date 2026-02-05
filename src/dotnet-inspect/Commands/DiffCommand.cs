@@ -31,7 +31,8 @@ public class DiffCommand
             return 1;
         }
 
-        var logger = new VerboseLogger(options.Verbose);
+        var context = new CommandContext(options.Verbose);
+        var logger = context.Logger;
 
         try
         {
@@ -43,7 +44,7 @@ public class DiffCommand
 
             if (hasPackage)
             {
-                var result = await ExecutePackageDiffAsync(options, logger);
+                var result = await ExecutePackageDiffAsync(options, logger, context.HttpClient);
                 if (result.error != null)
                 {
                     Console.Error.WriteLine(result.error);
@@ -57,7 +58,7 @@ public class DiffCommand
             }
             else
             {
-                var result = await ExecutePlatformDiffAsync(options, logger);
+                var result = await ExecutePlatformDiffAsync(options, logger, context.HttpClient);
                 if (result.error != null)
                 {
                     Console.Error.WriteLine(result.error);
@@ -84,7 +85,7 @@ public class DiffCommand
     }
 
     private static async Task<(ApiSurface? fromSurface, ApiSurface? toSurface, string? fromVersion, string? toVersion, string? name, string? error)>
-        ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger)
+        ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
         if (packageName == null || fromVersion == null || toVersion == null)
@@ -110,8 +111,8 @@ public class DiffCommand
             Verbose = options.Verbose
         };
 
-        var (fromSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(fromOptions, logger);
-        var (toSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(toOptions, logger);
+        var (fromSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(fromOptions, logger, httpClient);
+        var (toSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(toOptions, logger, httpClient);
 
         if (fromSurface == null || toSurface == null)
         {
@@ -122,7 +123,7 @@ public class DiffCommand
     }
 
     private static async Task<(ApiSurface? fromSurface, ApiSurface? toSurface, string? fromVersion, string? toVersion, string? name, string? error)>
-        ExecutePlatformDiffAsync(DiffOptions options, VerboseLogger logger)
+        ExecutePlatformDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         var (assemblyName, fromVersion, toVersion) = ParseVersionRange(options.PlatformVersionRange!);
         if (assemblyName == null || fromVersion == null || toVersion == null)
