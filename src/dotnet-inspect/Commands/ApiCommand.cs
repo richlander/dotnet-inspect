@@ -218,11 +218,17 @@ public class ApiCommand
                 typeName = ConvertGenericTypeName(typeName);
 
                 // Find specific type
-                var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger, options.IncludeAll);
+                var (apiType, foundIn, dllPath, surface) = FindType(typeName, searchPath, logger, options.IncludeAll);
                 if (apiType == null || dllPath == null)
                 {
                     Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
                     return 1;
+                }
+
+                // Populate derived types if --hierarchy is enabled
+                if (options.ShowHierarchy && surface != null)
+                {
+                    ApiSurfaceExtractor.PopulateDerivedTypes(surface, apiType);
                 }
 
                 // Enrich with source info (SourceLink URL, docs)
@@ -321,8 +327,14 @@ public class ApiCommand
                 return (null, null, null);
             }
 
-            var (apiType, foundIn, dllPath) = FindType(typeName, searchPath, logger, options.IncludeAll);
+            var (apiType, foundIn, dllPath, surface) = FindType(typeName, searchPath, logger, options.IncludeAll);
             
+            // Populate derived types if --hierarchy is enabled
+            if (options.ShowHierarchy && surface != null && apiType != null)
+            {
+                ApiSurfaceExtractor.PopulateDerivedTypes(surface, apiType);
+            }
+
             // Enrich with source info and docs if requested
             // Use runtime assembly path for PDB lookup if available
             if (apiType != null && dllPath != null && options.ShowDocs)
@@ -602,7 +614,7 @@ public class ApiCommand
         logger.Log($"Phase 3: Parsed docs for {typeSourceInfo.Count} types ({stopwatch.ElapsedMilliseconds}ms total)");
     }
 
-    private static (ApiType? type, string? assembly, string? dllPath) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
+    private static (ApiType? type, string? assembly, string? dllPath, ApiSurface? surface) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory
         string[] dllFiles;
@@ -616,7 +628,7 @@ public class ApiCommand
         }
         else
         {
-            return (null, null, null);
+            return (null, null, null, null);
         }
 
         foreach (var dllFile in dllFiles)
@@ -642,7 +654,7 @@ public class ApiCommand
                 if (match != null)
                 {
                     logger.Log($"Found in: {Path.GetFileName(dllFile)}");
-                    return (match, Path.GetFileName(dllFile), dllFile);
+                    return (match, Path.GetFileName(dllFile), dllFile, api);
                 }
             }
             catch
@@ -651,7 +663,7 @@ public class ApiCommand
             }
         }
 
-        return (null, null, null);
+        return (null, null, null, null);
     }
 
     private static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger)
@@ -2012,6 +2024,12 @@ public class ApiCommand
         // Skip member output in fields-only mode
         if (options.FieldsOnly) return sb.ToString().TrimEnd();
 
+        // Render type hierarchy when --hierarchy is enabled
+        if (options.ShowHierarchy)
+        {
+            sb.Append(RenderTypeHierarchy(type));
+        }
+
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return sb.ToString().TrimEnd();
 
@@ -2095,6 +2113,12 @@ public class ApiCommand
         if (!options.SignaturesOnly && type.TypeParameters is { Count: > 0 })
         {
             sb.Append(RenderTypeParametersTable(type.TypeParameters));
+        }
+
+        // Render type hierarchy when --hierarchy is enabled
+        if (!options.SignaturesOnly && options.ShowHierarchy)
+        {
+            sb.Append(RenderTypeHierarchy(type));
         }
 
         if (type.Members is { Count: > 0 })
@@ -2215,6 +2239,49 @@ public class ApiCommand
         {
             var constraints = param.ConstraintsSummary ?? "";
             sb.AppendLine($"| {param.DisplayName} | {constraints} |");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string RenderTypeHierarchy(ApiType type)
+    {
+        var hasBase = !string.IsNullOrEmpty(type.BaseType) && 
+                      type.BaseType != "System.Object" && 
+                      type.BaseType != "System.ValueType" && 
+                      type.BaseType != "System.Enum";
+        var hasInterfaces = type.Interfaces is { Count: > 0 };
+        var hasDerived = type.DerivedTypes is { Count: > 0 };
+
+        if (!hasBase && !hasInterfaces && !hasDerived)
+            return "";
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("## Type Hierarchy");
+        sb.AppendLine();
+        sb.AppendLine("| Relationship | Type |");
+        sb.AppendLine("|--------------|------|");
+
+        if (hasBase)
+        {
+            sb.AppendLine($"| Base | {type.BaseType} |");
+        }
+
+        if (hasInterfaces)
+        {
+            foreach (var iface in type.Interfaces!)
+            {
+                sb.AppendLine($"| Implements | {iface} |");
+            }
+        }
+
+        if (hasDerived)
+        {
+            foreach (var derived in type.DerivedTypes!)
+            {
+                sb.AppendLine($"| Derived | {derived} |");
+            }
         }
 
         return sb.ToString();
@@ -2725,6 +2792,7 @@ public record ApiOptions
     public bool SourceLinkOnly { get; init; }
     public bool BrowsableUrls { get; init; }
     public bool ShowInterfaces { get; init; }
+    public bool ShowHierarchy { get; init; }
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
     public bool SignaturesOnly { get; init; }

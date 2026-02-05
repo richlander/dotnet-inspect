@@ -324,6 +324,52 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// Populates DerivedTypes for a specific type by scanning all types in the surface.
+    /// </summary>
+    public static void PopulateDerivedTypes(ApiSurface surface, ApiType targetType)
+    {
+        var fullName = string.IsNullOrEmpty(targetType.Namespace) 
+            ? targetType.Name 
+            : $"{targetType.Namespace}.{targetType.Name}";
+
+        var derivedTypes = new List<string>();
+
+        foreach (var type in surface.Types)
+        {
+            if (type == targetType)
+                continue;
+
+            // Check if this type's base is our target
+            if (type.BaseType == fullName)
+            {
+                var derivedFullName = string.IsNullOrEmpty(type.Namespace)
+                    ? type.Name
+                    : $"{type.Namespace}.{type.Name}";
+                derivedTypes.Add(derivedFullName);
+            }
+
+            // Check if this type implements our target (if target is an interface)
+            if (targetType.Kind == "interface" && type.Interfaces != null)
+            {
+                if (type.Interfaces.Contains(fullName))
+                {
+                    var derivedFullName = string.IsNullOrEmpty(type.Namespace)
+                        ? type.Name
+                        : $"{type.Namespace}.{type.Name}";
+                    if (!derivedTypes.Contains(derivedFullName))
+                        derivedTypes.Add(derivedFullName);
+                }
+            }
+        }
+
+        if (derivedTypes.Count > 0)
+        {
+            derivedTypes.Sort(StringComparer.Ordinal);
+            targetType.DerivedTypes = derivedTypes;
+        }
+    }
+
+    /// <summary>
     /// Checks if the member has EditorBrowsable(Never) or Obsolete attribute.
     /// </summary>
     private static bool HasHiddenAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)

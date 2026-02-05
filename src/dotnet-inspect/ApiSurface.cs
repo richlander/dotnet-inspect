@@ -213,6 +213,12 @@ public class ApiType
         : null;
 
     /// <summary>
+    /// Known derived types within the same assembly.
+    /// </summary>
+    [MarkoutIgnore]
+    public List<string>? DerivedTypes { get; set; }
+
+    /// <summary>
     /// Generic type parameters with their constraints.
     /// </summary>
     [MarkoutIgnore]

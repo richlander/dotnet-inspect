@@ -348,4 +348,194 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
     }
+
+    [Fact]
+    public void DiffCommand_WithPackageVersionRange_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("diff", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void DiffCommand_WithPlatformVersionRange_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--platform", "System.Text.Json@9.0..10.0"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("diff", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTypeArgument_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "JsonSerializer", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTypeFilter_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "-t", "JsonSerializer", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithMultipleTypeFilters_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "-t", "JsonSerializer", "-t", "JsonSerializerOptions", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTypeFilterLongForm_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--type", "JsonSerializer", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithAllFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--all"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithFramework_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--platform", "System.Text.Json@9.0..10.0", "--framework", "runtime"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTfm_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--tfm", "net8.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTypeArgAndTypeFilter_ParsesCorrectly()
+    {
+        // Both positional type and -t should be allowed (merged together)
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "JsonSerializer", "-t", "JsonSerializerOptions", "--package", "System.Text.Json@8.0.0..9.0.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithPattern_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("find", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void FindCommand_WithOneLine_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--oneline"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithOneLineGrouped_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--oneline", "--grouped"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithFramework_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--framework", "runtime"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithMultiplePatterns_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Option*,Argument*,Command*", "--package", "System.CommandLine"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithLimit_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--framework", "runtime", "-n", "10"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithNameOnly_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--name-only"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithStat_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--stat"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithNameOnly_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--name-only"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void SearchCommand_IsAliasForFind()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["search", "Json*", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("find", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void PreprocessArgs_WithSearchCommand_ReturnsUnchanged()
+    {
+        var args = new[] { "search", "Json*", "--package", "Foo" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(args, result);
+    }
+
+    [Fact]
+    public void ApiCommand_WithHierarchy_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--hierarchy"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ApiCommand_WithInterfacesAndHierarchy_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--interfaces", "--hierarchy"]);
+
+        Assert.Empty(result.Errors);
+    }
 }

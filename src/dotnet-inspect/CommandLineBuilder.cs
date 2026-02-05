@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "find", "samples", "platform", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -175,6 +175,14 @@ public static class CommandLineBuilder
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
+        var typeFilterOption = new Option<string[]>("-t")
+        {
+            Description = "Filter to specific type(s)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        typeFilterOption.Aliases.Add("--type");
+        var statOption = new Option<bool>("--stat") { Description = "Show only statistics per type (no member details)" };
+        var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
 
         diffCommand.Arguments.Add(typeNameArg);
         diffCommand.Options.Add(packageOption);
@@ -182,12 +190,31 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(typeFilterOption);
+        diffCommand.Options.Add(statOption);
+        diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(verboseOption);
         diffCommand.Options.Add(verbosityOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
             var typeName = parseResult.GetValue(typeNameArg);
+            var typeFilterValues = parseResult.GetValue(typeFilterOption);
+
+            // Merge positional type name with -t filter for backward compatibility
+            HashSet<string>? typeFilter = null;
+            if (typeFilterValues?.Length > 0 || !string.IsNullOrEmpty(typeName))
+            {
+                typeFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrEmpty(typeName))
+                    typeFilter.Add(typeName);
+                if (typeFilterValues != null)
+                {
+                    foreach (var t in typeFilterValues)
+                        typeFilter.Add(t);
+                }
+            }
+
             var options = new DiffOptions
             {
                 PackageVersionRange = parseResult.GetValue(packageOption),
@@ -195,10 +222,13 @@ public static class CommandLineBuilder
                 Framework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                TypeFilter = typeFilter,
+                Stat = parseResult.GetValue(statOption),
+                NameOnly = parseResult.GetValue(nameOnlyOption)
             };
 
-            return await DiffCommand.ExecuteAsync(typeName, options);
+            return await DiffCommand.ExecuteAsync(options);
         });
 
         return diffCommand;
@@ -211,6 +241,7 @@ public static class CommandLineBuilder
         Option<int?> limitOption)
     {
         var findCommand = new Command("find", "Search for types across packages and assemblies");
+        findCommand.Aliases.Add("search");
 
         var patternArg = new Argument<string>("pattern")
         {
@@ -250,7 +281,9 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var terseOption = new Option<bool>("--terse", ["-t"]) { Description = "One line per pattern with matching type names" };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "Space-separated type names on one line" };
+        var groupedOption = new Option<bool>("--grouped") { Description = "Group results by pattern (use with --oneline)" };
+        var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names, one per line" };
 
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
@@ -264,7 +297,9 @@ public static class CommandLineBuilder
         findCommand.Options.Add(limitOption);
         findCommand.Options.Add(jsonOption);
         findCommand.Options.Add(compactOption);
-        findCommand.Options.Add(terseOption);
+        findCommand.Options.Add(oneLineOption);
+        findCommand.Options.Add(groupedOption);
+        findCommand.Options.Add(nameOnlyOption);
         findCommand.Options.Add(verboseOption);
         findCommand.Options.Add(verbosityOption);
 
@@ -284,7 +319,9 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                Terse = parseResult.GetValue(terseOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                Grouped = parseResult.GetValue(groupedOption),
+                NameOnly = parseResult.GetValue(nameOnlyOption),
                 Verbose = parseResult.GetValue(verboseOption)
             };
 
@@ -556,6 +593,7 @@ public static class CommandLineBuilder
         var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
         var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
         var interfacesOption = new Option<bool>("--interfaces") { Description = "Show implemented interfaces" };
+        var hierarchyOption = new Option<bool>("--hierarchy") { Description = "Show type hierarchy (base, interfaces, derived types)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
         var filterOption = new Option<string?>("--filter") { Description = "Filter type names by glob pattern (e.g., *Json*, Progress*)" };
         var memberOption = new Option<string[]>("-m")
@@ -582,6 +620,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(apiFrameworkOption);
         apiCommand.Options.Add(apiTfmOption);
         apiCommand.Options.Add(interfacesOption);
+        apiCommand.Options.Add(hierarchyOption);
         apiCommand.Options.Add(allOption);
         apiCommand.Options.Add(filterOption);
         apiCommand.Options.Add(memberOption);
@@ -626,6 +665,7 @@ public static class CommandLineBuilder
                 PlatformFramework = parseResult.GetValue(apiFrameworkOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
                 ShowInterfaces = parseResult.GetValue(interfacesOption),
+                ShowHierarchy = parseResult.GetValue(hierarchyOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 TypeFilter = parseResult.GetValue(filterOption),
                 MemberFilter = memberFilter,

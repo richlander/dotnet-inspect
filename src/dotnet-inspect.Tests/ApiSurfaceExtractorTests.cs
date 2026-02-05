@@ -286,6 +286,61 @@ public class ApiSurfaceExtractorTests
 
         Assert.Equal("T", param.DisplayName);
     }
+
+    [Fact]
+    public void PopulateDerivedTypes_FindsDerivedClasses()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var baseType = surface.Types.FirstOrDefault(t => t.Name == "SampleBaseClass");
+        Assert.NotNull(baseType);
+
+        ApiSurfaceExtractor.PopulateDerivedTypes(surface, baseType);
+
+        Assert.NotNull(baseType.DerivedTypes);
+        Assert.Contains("DotnetInspector.Tests.SampleDerivedClass", baseType.DerivedTypes);
+        Assert.Contains("DotnetInspector.Tests.AnotherDerivedClass", baseType.DerivedTypes);
+    }
+
+    [Fact]
+    public void PopulateDerivedTypes_FindsInterfaceImplementors()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var interfaceType = surface.Types.FirstOrDefault(t => t.Name == "ISampleInterface");
+        Assert.NotNull(interfaceType);
+
+        ApiSurfaceExtractor.PopulateDerivedTypes(surface, interfaceType);
+
+        Assert.NotNull(interfaceType.DerivedTypes);
+        Assert.Contains("DotnetInspector.Tests.SampleImplementation", interfaceType.DerivedTypes);
+    }
+
+    [Fact]
+    public void PopulateDerivedTypes_ReturnsNullWhenNoDerivedTypes()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        // SampleDerivedClass has no derived types
+        var leafType = surface.Types.FirstOrDefault(t => t.Name == "SampleDerivedClass");
+        Assert.NotNull(leafType);
+
+        ApiSurfaceExtractor.PopulateDerivedTypes(surface, leafType);
+
+        Assert.Null(leafType.DerivedTypes);
+    }
 }
 
 /// <summary>
@@ -361,4 +416,44 @@ public interface ISampleCovariant<out T>
 public interface ISampleContravariant<in T>
 {
     void Set(T value);
+}
+
+/// <summary>
+/// Base class for testing derived type detection.
+/// </summary>
+public abstract class SampleBaseClass
+{
+    public abstract void DoSomething();
+}
+
+/// <summary>
+/// Derived class for testing derived type detection.
+/// </summary>
+public class SampleDerivedClass : SampleBaseClass
+{
+    public override void DoSomething() { }
+}
+
+/// <summary>
+/// Another derived class for testing derived type detection.
+/// </summary>
+public class AnotherDerivedClass : SampleBaseClass
+{
+    public override void DoSomething() { }
+}
+
+/// <summary>
+/// Interface for testing interface implementation detection.
+/// </summary>
+public interface ISampleInterface
+{
+    void Execute();
+}
+
+/// <summary>
+/// Class implementing ISampleInterface for testing.
+/// </summary>
+public class SampleImplementation : ISampleInterface
+{
+    public void Execute() { }
 }
