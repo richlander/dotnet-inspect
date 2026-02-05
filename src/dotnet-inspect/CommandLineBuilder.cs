@@ -35,7 +35,12 @@ public static class CommandLineBuilder
     /// </summary>
     public static RootCommand CreateRootCommand()
     {
-        var rootCommand = new RootCommand($"dotnet-inspect {VersionInfo.Version} - A CLI tool for inspecting .NET assemblies and NuGet packages");
+        var rootCommand = new RootCommand($"""
+            dotnet-inspect {VersionInfo.Version} - A CLI tool for inspecting .NET assemblies and NuGet packages
+            
+            Tip: Use -v:d for detailed output, --docs for XML documentation, --terse for compact find results.
+            Run 'dotnet-inspect llmstxt' for complete usage examples.
+            """);
 
         // Shared options (defined once, reused across commands)
         var jsonOption = new Option<bool>("--json") { Description = "Output as JSON" };
