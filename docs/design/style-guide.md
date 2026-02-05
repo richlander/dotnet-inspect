@@ -48,12 +48,14 @@ Structured metadata as `**Label:** value` pairs, one per line. These fields form
 **Line break handling:** Each field line ends with two trailing spaces to force a `<br>` in rendered markdown. Without the double space, consecutive field lines would collapse into a single paragraph.
 
 **When to use fields vs tables:**
+
 - Use **fields** for top-level metadata about the subject (type, assembly, package)
 - Use **tables** within named H2 sections for collections of related items (members, files, audit results)
 
 Fields describe "what this thing is"; tables list "what this thing contains".
 
 **Standard fields for type output:**
+
 - `**Kind:** class` / `interface` / `struct` / `enum`
 - `**Modifiers:** static, sealed` (only if modifiers exist)
 - `**Assembly:** Markout.dll`
@@ -95,7 +97,7 @@ When there is only a single table, the H2 heading may be omitted for brevity.
 Verbosity controls which H2 sections appear, not which fields appear:
 
 | Level | Description | Sections |
-|-------|-------------|----------|
+| ----- | ----------- | -------- |
 | Quiet | Title and fields only | None |
 | Minimal | Compact section view (default) | Summary sections only |
 | Normal | Full output | All standard sections |
@@ -116,12 +118,14 @@ Tables use pipe-delimited markdown:
 ```
 
 **Conventions:**
+
 - Header row with column names
 - Separator row with dashes
 - Pipes in cell content escaped as `\|`
 - Boolean values: `✓` (yes) and `✗` (no)
 
 **Common table formats:**
+
 - Member tables: `| Member | Kind | Signature |` (+ `| Description |` with `--docs`)
 - Metadata tables: `| Property | Value |`
 - Audit tables: `| File | Deterministic | SourceLink |`
@@ -141,6 +145,7 @@ Triple-backtick code blocks are not used for signatures. This keeps output compa
 ## Links
 
 All links in output should be **raw URLs**, not markdown-formatted links. This ensures:
+
 - LLMs can directly fetch and process the content
 - Users can copy/paste URLs without extraction
 - No ambiguity about what the link points to
@@ -148,7 +153,7 @@ All links in output should be **raw URLs**, not markdown-formatted links. This e
 ### GitHub Link Formats
 
 | Format | Example | Commit-Specific | Content | Redirect |
-|--------|---------|-----------------|---------|----------|
+| ------ | ------- | --------------- | ------- | -------- |
 | HTML blob (branch) | `github.com/.../blob/main/file.cs` | ❌ No | HTML page | None |
 | HTML blob (commit) | `github.com/.../blob/{sha}/file.cs` | ✅ Yes | HTML page | None |
 | raw.githubusercontent | `raw.githubusercontent.com/.../{sha}/file.cs` | ✅ Yes | Raw file | None |
@@ -157,22 +162,26 @@ All links in output should be **raw URLs**, not markdown-formatted links. This e
 #### Comparison
 
 **HTML blob (branch)** - `https://github.com/richlander/markout/blob/main/src/Markout/TreeNode.cs`
+
 - ❌ Not commit-specific (may drift from package version)
 - ❌ Returns HTML page, not raw content
 - ❌ Useless for programmatic access (`curl` returns HTML/CSS/JS garbage)
 
 **HTML blob (commit)** - `https://github.com/richlander/markout/blob/{sha}/src/Markout/TreeNode.cs`
+
 - ✅ Commit-specific (matches package exactly)
 - ❌ Returns HTML page, not raw content
 - ❌ Useless for programmatic access (`curl` returns HTML/CSS/JS garbage)
 
 **raw.githubusercontent** - `https://raw.githubusercontent.com/richlander/markout/{sha}/src/Markout/TreeNode.cs`
+
 - ✅ Commit-specific
 - ✅ Returns raw file content
 - ✅ Direct link (no redirect)
 - ❌ Harder to convert to browsable URL (different domain)
 
 **GitHub raw (Preferred)** - `https://github.com/richlander/markout/raw/{sha}/src/Markout/TreeNode.cs`
+
 - ✅ Commit-specific
 - ✅ Returns raw file content (via 302 redirect to raw.githubusercontent.com)
 - ⚠️ 302 (temporary) redirect - not 301 (permanent), so caching behavior is appropriate
@@ -183,13 +192,15 @@ All links in output should be **raw URLs**, not markdown-formatted links. This e
 Use `github.com/.../raw/{sha}/path` format for all source links.
 
 **Rationale:**
+
 1. Returns raw content (via redirect), suitable for LLMs and `curl`
 2. Commit-specific, ensuring exact match with package version
 3. Easy conversion to browsable URL by replacing `raw` with `blob`
 4. Stays on github.com domain for consistency
 
 **Example transformation to browsable link:**
-```
+
+```text
 https://github.com/richlander/markout/raw/4bfea7c.../TreeNode.cs
                                       ^^^
                                        ↓
@@ -208,6 +219,7 @@ Links should appear as raw URLs, not markdown links. Line numbers are omitted fo
 ```
 
 Not:
+
 ```markdown
 **Source:** [TreeNode.cs:15](https://github.com/...)
 

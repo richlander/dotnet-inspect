@@ -6,7 +6,7 @@ This document describes the NuGet APIs used by `dotnet-inspect` for fetching pac
 
 All NuGet API endpoints are discovered via the service index:
 
-```
+```text
 https://api.nuget.org/v3/index.json
 ```
 
@@ -19,8 +19,9 @@ https://api.nuget.org/v3/index.json
 **Endpoint:** `https://api.nuget.org/v3/registration5-semver1/{id-lower}/{version-lower}.json`
 
 **Fields returned:**
+
 | Field | Description |
-|-------|-------------|
+| ----- | ----------- |
 | `published` | Publication date |
 | `listed` | Whether package is listed |
 | `packageContent` | URL to download .nupkg |
@@ -28,6 +29,7 @@ https://api.nuget.org/v3/index.json
 | `registration` | URL to package registration index |
 
 **Notes:**
+
 - This is static Azure Blob storage (fast, cacheable)
 - Does NOT include: deprecation, downloads, owners, verified status
 - The `catalogEntry` is a URL, not embedded data
@@ -39,8 +41,9 @@ https://api.nuget.org/v3/index.json
 **Endpoint:** `https://azuresearch-usnc.nuget.org/query?q=packageid:{id}&take=1`
 
 **Fields returned:**
+
 | Field | Description |
-|-------|-------------|
+| ----- | ----------- |
 | `totalDownloads` | Lifetime download count |
 | `verified` | Whether owner is verified |
 | `owners` | List of package owners |
@@ -55,6 +58,7 @@ https://api.nuget.org/v3/index.json
 | `iconUrl` | Icon URL |
 
 **Notes:**
+
 - Backed by Azure Search (dynamic, always current)
 - Best source for: deprecation, downloads, verified status, owners
 - Returns data for latest version only (not version-specific deprecation)
@@ -66,6 +70,7 @@ https://api.nuget.org/v3/index.json
 **Index:** `https://api.nuget.org/v3/vulnerabilities/index.json`
 
 **Structure:**
+
 ```json
 {
   "pages": [
@@ -76,6 +81,7 @@ https://api.nuget.org/v3/index.json
 ```
 
 Each page is a gzipped JSON dictionary keyed by lowercase package name:
+
 ```json
 {
   "system.text.json": [
@@ -89,8 +95,9 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 ```
 
 **Severity levels:**
+
 | Value | Meaning |
-|-------|---------|
+| ----- | ------- |
 | 0 | Low |
 | 1 | Moderate |
 | 2 | High |
@@ -99,6 +106,7 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 **Version ranges:** NuGet range format (e.g., `[8.0.0, 8.0.5)` = 8.0.0 ≤ v < 8.0.5)
 
 **Notes:**
+
 - Must check if package version falls within affected range
 - Advisory URL typically points to GitHub Security Advisory (GHSA)
 - To get CVE ID, fetch the GHSA from GitHub Advisory API
@@ -112,6 +120,7 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 **Package download:** `https://api.nuget.org/v3-flatcontainer/{id-lower}/{version-lower}/{id-lower}.{version-lower}.nupkg`
 
 **Notes:**
+
 - Used for downloading packages and listing available versions
 - Static blob storage (fast)
 
@@ -126,8 +135,9 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 **Example:** `https://api.nuget.org/v3/catalog0/data/2024.07.10.16.09.35/system.text.json.5.0.0.json`
 
 **Fields returned (in catalog entry):**
+
 | Field | Description |
-|-------|-------------|
+| ----- | ----------- |
 | `deprecation` | Version-specific deprecation (reasons, message, alternatePackage) |
 | `authors` | Package authors |
 | `description` | Package description |
@@ -138,6 +148,7 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 | `listed` | Whether version is listed |
 
 **Notes:**
+
 - Contains full history of package publishes, unlists, deprecations
 - **Critical:** This is the only source for version-specific deprecation
 - The catalog index is designed for mirroring, but individual entries can be fetched directly
@@ -148,11 +159,12 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 NuGet supports two levels of deprecation:
 
 | Level | Source | Example |
-|-------|--------|---------|
+| ----- | ------ | ------- |
 | **Package-level** | Search API | Entire package deprecated (e.g., EntityFramework.MappingAPI) |
 | **Version-specific** | Catalog Entry | Old versions deprecated but package still active (e.g., System.Text.Json 5.0.0) |
 
 **Version-specific deprecation example (System.Text.Json 5.0.0):**
+
 ```json
 {
   "deprecation": {
@@ -163,6 +175,7 @@ NuGet supports two levels of deprecation:
 ```
 
 **Access pattern for version-specific deprecation:**
+
 1. Fetch Registration API: `https://api.nuget.org/v3/registration5-semver1/{package}/{version}.json`
 2. Extract `catalogEntry` URL from response
 3. Fetch catalog entry to get `deprecation` field
@@ -172,7 +185,7 @@ The Search API only returns deprecation for the latest version, so it won't show
 ## Data Source Summary
 
 | Data Point | Best Source | Notes |
-|------------|-------------|-------|
+| ---------- | ----------- | ----- |
 | Published date | Registration API | Version-specific |
 | Downloads | Search API | Aggregate across all versions |
 | Verified status | Search API | Owner verification |
@@ -191,8 +204,9 @@ The Search API only returns deprecation for the latest version, so it won't show
 **Endpoint:** `https://api.github.com/advisories/{ghsa-id}`
 
 **Fields returned:**
+
 | Field | Description |
-|-------|-------------|
+| ----- | ----------- |
 | `cve_id` | CVE identifier (e.g., CVE-2024-43485) |
 | `ghsa_id` | GitHub Security Advisory ID |
 | `summary` | Brief description |
@@ -202,6 +216,7 @@ The Search API only returns deprecation for the latest version, so it won't show
 | `updated_at` | Last update date |
 
 **Notes:**
+
 - Requires User-Agent header
 - Rate limited (60 requests/hour unauthenticated)
 - GHSA ID extracted from vulnerability advisory URL
@@ -215,6 +230,7 @@ The dotnet/core repository publishes structured CVE data:
 **CVE files:** `https://raw.githubusercontent.com/dotnet/core/refs/heads/release-index/release-notes/timeline/{year}/{month}/cve.json`
 
 **Additional fields not in NuGet/GitHub APIs:**
+
 - CVSS score and vector
 - Fixed versions
 - Commit URLs for fixes

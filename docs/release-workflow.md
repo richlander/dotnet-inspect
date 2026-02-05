@@ -9,7 +9,7 @@ dotnet-inspect is distributed as a .NET tool with RID-specific Native AOT packag
 ### Package Structure
 
 | Package | Platform | Type |
-|---------|----------|------|
+| ------- | -------- | ---- |
 | `dotnet-inspect` | - | Pointer package (references all variants) |
 | `dotnet-inspect.win-x64` | Windows x64 | Native AOT, self-contained |
 | `dotnet-inspect.win-arm64` | Windows ARM64 | Native AOT, self-contained |
@@ -22,7 +22,7 @@ When users install the tool, the .NET CLI automatically selects the best package
 
 ## Branch Strategy
 
-```
+```text
 feature/* ──PR──▶ main ──merge──▶ release
                    │                  │
                    ▼                  ▼
@@ -30,7 +30,7 @@ feature/* ──PR──▶ main ──merge──▶ release
 ```
 
 | Branch | Purpose | CI Actions |
-|--------|---------|------------|
+| ------ | ------- | ---------- |
 | `feature/*` | Development work | - |
 | `main` | Integration branch, always releasable | Build, test, smoke test |
 | `release` | Triggers NuGet publishing | Build, test, smoke test, publish, GitHub release |
@@ -38,7 +38,7 @@ feature/* ──PR──▶ main ──merge──▶ release
 ### Artifacts vs Releases
 
 | Source | Workflow Artifacts | NuGet Packages | GitHub Release |
-|--------|-------------------|----------------|----------------|
+| ------ | ------------------ | -------------- | -------------- |
 | Pull Request | ✓ Downloadable | ✗ | ✗ |
 | Push to `main` | ✓ Downloadable | ✗ | ✗ |
 | Push to `release` | ✓ Downloadable | ✓ Published | ✓ Created |
@@ -59,6 +59,7 @@ feature/* ──PR──▶ main ──merge──▶ release
 ### Making Changes
 
 1. Create a feature branch from `main`:
+
    ```bash
    git checkout main
    git pull origin main
@@ -66,12 +67,14 @@ feature/* ──PR──▶ main ──merge──▶ release
    ```
 
 2. Make your changes and commit:
+
    ```bash
    git add .
    git commit -m "Description of changes"
    ```
 
 3. Push and create a Pull Request to `main`:
+
    ```bash
    git push -u origin feature/my-change
    ```
@@ -94,9 +97,11 @@ All checks must pass before the PR can be merged.
 
 1. Ensure `main` has all the changes you want to release
 2. Update the version in `src/dotnet-inspect/dotnet-inspect.csproj`:
+
    ```xml
    <VersionPrefix>0.3.0</VersionPrefix>
    ```
+
 3. Commit and push to `main` (via PR or direct if you have access)
 
 ### Publishing a Release
@@ -127,7 +132,7 @@ When changes are pushed to the `release` branch:
 
 The pointer package references RID-specific packages, so the order matters:
 
-```
+```text
 1. dotnet-inspect.win-x64.0.3.0.nupkg
 2. dotnet-inspect.win-arm64.0.3.0.nupkg
 3. dotnet-inspect.linux-x64.0.3.0.nupkg
@@ -140,7 +145,7 @@ The pointer package references RID-specific packages, so the order matters:
 ## Build Matrix
 
 | Runner | RID | Build Type |
-|--------|-----|------------|
+| ------ | --- | ---------- |
 | `windows-latest` | win-x64 | Native AOT |
 | `windows-latest` | win-arm64 | Native AOT (cross-compile) |
 | `ubuntu-latest` | linux-x64 | Native AOT |

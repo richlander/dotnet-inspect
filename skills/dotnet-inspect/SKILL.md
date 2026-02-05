@@ -20,6 +20,7 @@ dnx dotnet-inspect -y -- <command>
 ```
 
 **Important**:
+
 - Always use `-y` to skip the interactive confirmation prompt (which breaks LLM tool use). New package versions also trigger this prompt.
 - Always use `--` to separate dnx options from tool arguments. Without it, `--help` shows dnx help, not dotnet-inspect help.
 
@@ -54,7 +55,7 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 ## Key Flags
 
 | Flag | Purpose | Commands |
-|------|---------|----------|
+| ---- | ------- | -------- |
 | `-v:d` | Detailed output (full signatures, more info) | all commands |
 | `--docs` | Include XML documentation from source | `type`, `api` |
 | `-m Name` | Filter to specific member(s) | `type`, `api` |
@@ -72,7 +73,7 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 ## Command Reference
 
 | Command | Purpose |
-|---------|---------|
+| ------- | ------- |
 | `type <type>` | **Start here.** Type shape with hierarchy and members (tree view) |
 | `diff` | Compare API surfaces between package versions (whole-package or filtered) |
 | `api <type>` | View public API surface (table format) |

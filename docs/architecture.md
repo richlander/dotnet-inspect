@@ -15,7 +15,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 
 The tool is organized around seven commands plus a meta command, each targeting a different level of abstraction:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        package                               │
 │  NuGet package metadata, dependencies, file structure        │
@@ -43,6 +43,7 @@ The tool is organized around seven commands plus a meta command, each targeting 
 ### package
 
 Inspects NuGet package metadata without extracting assemblies:
+
 - Package ID, version, authors, license
 - Target frameworks and dependencies per TFM
 - File listing (DLLs or all files with `--all`)
@@ -51,6 +52,7 @@ Inspects NuGet package metadata without extracting assemblies:
 ### assembly
 
 Inspects .NET assembly files (PE/COFF format):
+
 - Assembly identity (name, version, public key token)
 - PE characteristics (architecture, compilation type)
 - SourceLink and determinism audit
@@ -59,6 +61,7 @@ Inspects .NET assembly files (PE/COFF format):
 ### api
 
 Extracts public API surface using reflection metadata:
+
 - All public types or filtered by glob pattern
 - Full method signatures with parameter names
 - Filtering by member name, unsafe signatures, hidden/obsolete
@@ -67,6 +70,7 @@ Extracts public API surface using reflection metadata:
 ### type
 
 Displays a single type's shape in tree format:
+
 - Inheritance chain (base classes)
 - Implemented interfaces
 - Members grouped by kind
@@ -74,6 +78,7 @@ Displays a single type's shape in tree format:
 ### diff
 
 Compares API surfaces between two package versions:
+
 - Added, removed, and modified types
 - Member-level changes within types
 - Version range syntax: `Package@v1..v2`
@@ -81,6 +86,7 @@ Compares API surfaces between two package versions:
 ### samples
 
 Extracts code sample references from XML doc comments:
+
 - Sandcastle-style `<code source=...>` references
 - `<seealso href=...>` file references
 - Region extraction from source files
@@ -88,6 +94,7 @@ Extracts code sample references from XML doc comments:
 ### platform
 
 Lists platform/framework assemblies from the installed .NET SDK:
+
 - Available frameworks and versions
 - Assembly listing per framework
 - Useful for inspecting BCL types
@@ -104,6 +111,7 @@ var stream = assembly.GetManifestResourceStream("dotnet-inspect.llms.txt");
 ```
 
 The llms.txt content includes:
+
 - Command examples for common workflows
 - Output format options
 - Filtering and verbosity controls
@@ -122,7 +130,7 @@ The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecut
 
 ### Metadata Extraction
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │    PEReader     │────▶│ MetadataReader  │────▶│  Type/Method    │
 │  (PE headers)   │     │ (ECMA-335 meta) │     │  Definitions    │
@@ -132,7 +140,7 @@ The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecut
 Key inspectors:
 
 | Inspector | Purpose |
-|-----------|---------|
+| --------- | ------- |
 | `ApiSurfaceExtractor` | Extracts public types, methods, properties, fields, events |
 | `AssemblyAuditor` | Reads PE headers, attributes, SourceLink, determinism |
 | `SourceLinkResolver` | Maps source files to URLs via embedded SourceLink JSON |
@@ -189,6 +197,7 @@ private static bool HasUnsafeSignature(string? signature)
 ```
 
 This detects:
+
 - Pointer parameters: `void Process(byte* buffer)`
 - Pointer return types: `int* GetPointer()`
 - Function pointers: `delegate*<int, void>`
@@ -224,6 +233,7 @@ A complete implementation would require IL analysis to detect all unsafe constru
 3. **Detect `fixed` statements** by looking for pinned local variables (the `ELEMENT_TYPE_PINNED` modifier in signatures)
 
 Example IL scan:
+
 ```csharp
 var body = pe.GetMethodBody(method.RelativeVirtualAddress);
 var ilBytes = body.GetILBytes();
@@ -243,6 +253,7 @@ This approach is significantly more expensive (requires reading IL for every met
 SourceLink information is embedded in PDBs (portable or embedded) as custom debug information with GUID `CC110556-A091-4D38-9FEC-25AB9A351A6A`.
 
 The JSON contains document mappings:
+
 ```json
 {
   "documents": {
@@ -252,6 +263,7 @@ The JSON contains document mappings:
 ```
 
 The resolver:
+
 1. Extracts SourceLink JSON from PDB
 2. Parses document mappings
 3. For each type/method, finds the source document via `MethodDebugInformation`
@@ -290,7 +302,7 @@ Properties use `[MarkoutPropertyName]` for display names and `[MarkoutIgnore]` t
 ### Output Modes
 
 | Mode | Flag | Description |
-|------|------|-------------|
+| ---- | ---- | ----------- |
 | Markdown | (default) | Tables with headers, powered by Markout |
 | Signatures only | `--signatures-only` | Plain method signatures, one per line |
 | JSON | `--json` | Full structured output |
@@ -316,7 +328,7 @@ The `NuGetCache` class handles resolution, download from nuget.org, and extracti
 
 ## Project Structure
 
-```
+```text
 src/dotnet-inspect/
 ├── Commands/           # Command implementations
 │   ├── ApiCommand.cs

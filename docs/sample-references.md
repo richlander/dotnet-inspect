@@ -16,6 +16,7 @@ References external source files with optional region and title attributes:
 ```
 
 **Attributes:**
+
 - `source` (required): Relative path to the source file
 - `region` (optional): Named region within the file (e.g., `#region BasicUsage`)
 - `title` (optional): Human-readable description
@@ -31,6 +32,7 @@ References external source files via seealso links:
 ```
 
 **Attributes:**
+
 - `href` (required): Relative path to a code file (`.cs`, `.fs`, `.vb`, `.fsx`, `.csx`)
 - `region` (optional): Named region within the file
 - Inner text provides the description
@@ -65,10 +67,11 @@ Code embedded directly in documentation (supported for display but not as extern
 #### Newtonsoft.Json ✅
 
 The Newtonsoft.Json repository extensively uses Sandcastle-style `<code source=...>` references
-in its MAML documentation files (`Doc/*.aml`). Sample files are located in 
+in its MAML documentation files (`Doc/*.aml`). Sample files are located in
 `Src/Newtonsoft.Json.Tests/Documentation/`.
 
 **Example locations:**
+
 - `Doc/SerializationCallbacks.aml` - References `SerializationTests.cs` with regions like `SerializationCallbacksObject`
 - `Doc/PreserveObjectReferences.aml` - References serialization test samples
 - `Doc/SerializationAttributes.aml` - References `Samples/Serializer/*.cs`
@@ -76,6 +79,7 @@ in its MAML documentation files (`Doc/*.aml`). Sample files are located in
 - `Doc/ToObjectComplex.aml` - References `Samples/Linq/ToObjectComplex.cs`
 
 **Sample patterns:**
+
 ```xml
 <code lang="cs" source="..\Src\Newtonsoft.Json.Tests\Documentation\SerializationTests.cs" 
       region="SerializationCallbacksObject" title="Serialization Callback Attributes" />
@@ -86,6 +90,7 @@ in its MAML documentation files (`Doc/*.aml`). Sample files are located in
 The Markout repository uses both Sandcastle-style and seealso references in source files.
 
 **Files with samples:**
+
 - `src/MarkOut/MarkoutWriter.cs` - References `samples/Serialization/WriterUsage.cs`
 - `src/MarkOut/MarkoutSerializer.cs` - References `samples/Serialization/BasicUsage.cs`
 - `src/MarkOut/TreeNode.cs` - References `samples/Serialization/WriterUsage.cs`
@@ -93,6 +98,7 @@ The Markout repository uses both Sandcastle-style and seealso references in sour
 - `src/MarkOut/MarkoutContextAttribute.cs` - References `samples/Serialization/BasicUsage.cs`
 
 **Sample patterns (Sandcastle-style):**
+
 ```xml
 /// <example>
 ///   <code lang="cs" source="../../samples/Serialization/WriterUsage.cs" region="UseMarkoutWriter" title="Basic writer usage" />
@@ -100,6 +106,7 @@ The Markout repository uses both Sandcastle-style and seealso references in sour
 ```
 
 **Sample patterns (seealso):**
+
 ```xml
 /// <seealso href="../../samples/Serialization/WriterUsage.cs">Direct writer usage examples</seealso>
 ```
@@ -112,6 +119,7 @@ Uses inline `<code>` blocks within `<example>` tags. Does not use external `sour
 Also uses `<include file=...>` for centralized XML documentation.
 
 **Example locations with inline code:**
+
 - `src/libraries/Microsoft.Extensions.Logging.Abstractions/src/LoggerExtensions.cs`
 - `src/libraries/Microsoft.Extensions.Logging.EventSource/src/LoggingEventSource.cs`
 - `src/libraries/System.Linq/src/System/Linq/Join.cs`
@@ -121,6 +129,7 @@ Also uses `<include file=...>` for centralized XML documentation.
 - `src/libraries/System.Private.CoreLib/src/System/Runtime/InteropServices/SuppressGCTransitionAttribute.cs`
 
 **Inline pattern:**
+
 ```xml
 /// <example>
 /// <code language="csharp">
@@ -168,17 +177,20 @@ Uses **Docfx Markdown syntax** (`:::code`) rather than Sandcastle XML attributes
 This format is not currently supported by the `samples` command.
 
 **Format:**
+
 ```markdown
 :::code language="csharp" source="~/snippets/csharp/System.Net.Http/HttpClient/source.cs" id="Snippet1":::
 ```
 
 **Attributes:**
+
 - `language` - Language identifier (`csharp`, `vb`, `fsharp`, `cpp`, `xaml`)
 - `source` - Path starting with `~/snippets/...`
 - `id` - Snippet identifier (e.g., `Snippet1`, `Snippet13`)
 - `?highlight=` - Optional line highlighting (e.g., `?highlight=4,9,37`)
 
 **Example locations:**
+
 - `xml/System.Net.Http/HttpClient.xml` - C# and F# samples
 - `xml/System.Text/StringBuilder.xml` - Overview samples
 - `xml/System.Data/DataTable.xml` - ADO.NET samples

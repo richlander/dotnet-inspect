@@ -14,7 +14,7 @@ dotnet-inspect diff Command --package System.CommandLine@2.0.0-beta4.22272.1..2.
 
 Would add a section:
 
-```
+```text
 ## Migration Notes
 
 - `AddOption(opt)` → `Add(opt)` or collection initializer `Options = { opt }`
@@ -23,6 +23,7 @@ Would add a section:
 ```
 
 Could be powered by:
+
 - Heuristics (method renamed, similar signature)
 - Curated migration data for popular packages
 - XML doc deprecation messages
@@ -154,11 +155,13 @@ Needs investigation:
 Download reference packs from NuGet on-demand, similar to how regular packages are handled.
 
 Benefits:
+
 - Inspect framework versions not installed locally
 - Consistent behavior between `--package` and `--platform`
 - Access to older framework versions without SDK installation
 
 Implementation:
+
 - Ref packs are published to nuget.org (e.g., `Microsoft.NETCore.App.Ref`)
 - Download and cache in `~/.local/share/dotnet-inspect/packs/`
 - Fall back to local SDK packs when available
@@ -199,7 +202,7 @@ dotnet-inspect api --package System.Text.Json --namespaces
 
 Output:
 
-```
+```text
 # System.Text.Json Namespaces
 
 | Namespace | Types |

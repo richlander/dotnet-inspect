@@ -31,7 +31,7 @@ dotnet-inspect api HttpClient --platform System.Net.Http --ctor -v:d
 
 ## Expected Output
 
-```
+```text
 ## Constructors (3 overloads)
 
 ### Overload 1: 0 parameters
