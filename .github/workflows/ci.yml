@@ -163,51 +163,100 @@ jobs:
       - name: Install tool from local packages
         run: dotnet tool install --global dotnet-inspect --add-source ./packages --no-cache
       
-      - name: Add .NET tools to PATH
+      - name: Smoke test - version (Windows)
+        if: runner.os == 'Windows'
         run: |
-          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
-          echo "$USERPROFILE\\.dotnet\\tools" >> $GITHUB_PATH
-        shell: bash
+          $output = dotnet-inspect --version
+          Write-Output $output
+          if ($output -notmatch '^\d+\.\d+\.\d+') { exit 1 }
+        shell: pwsh
       
-      - name: Smoke test - version
+      - name: Smoke test - version (Unix)
+        if: runner.os != 'Windows'
         run: |
-          OUTPUT=$("$HOME/.dotnet/tools/dotnet-inspect" --version 2>/dev/null || dotnet-inspect --version)
+          OUTPUT=$(dotnet-inspect --version)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
         shell: bash
       
-      - name: Smoke test - help
+      - name: Smoke test - help (Windows)
+        if: runner.os == 'Windows'
         run: |
-          OUTPUT=$("$HOME/.dotnet/tools/dotnet-inspect" --help 2>/dev/null || dotnet-inspect --help)
+          $output = dotnet-inspect --help
+          Write-Output $output
+          if ($output -notmatch 'dotnet-inspect') { exit 1 }
+        shell: pwsh
+      
+      - name: Smoke test - help (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          OUTPUT=$(dotnet-inspect --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "dotnet-inspect"
         shell: bash
       
-      - name: Smoke test - package info
+      - name: Smoke test - package info (Windows)
+        if: runner.os == 'Windows'
         run: |
-          "$HOME/.dotnet/tools/dotnet-inspect" System.Text.Json 10.0.0 -v:q > smoke-package.md 2>/dev/null || dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
+          dotnet-inspect System.Text.Json 10.0.0 -v:q | Out-File -Encoding utf8 smoke-package.md
+          Get-Content smoke-package.md
+          if (-not (Select-String -Path smoke-package.md -Pattern 'System.Text.Json' -Quiet)) { exit 1 }
+          if (-not (Select-String -Path smoke-package.md -Pattern 'Library' -Quiet)) { exit 1 }
+        shell: pwsh
+      
+      - name: Smoke test - package info (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
           cat smoke-package.md
           grep -q "System.Text.Json" smoke-package.md
           grep -q "Library" smoke-package.md
         shell: bash
       
-      - name: Smoke test - api command
+      - name: Smoke test - api command (Windows)
+        if: runner.os == 'Windows'
         run: |
-          "$HOME/.dotnet/tools/dotnet-inspect" api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md 2>/dev/null || dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
+          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 | Out-File -Encoding utf8 smoke-api.md
+          Get-Content smoke-api.md
+          if (-not (Select-String -Path smoke-api.md -Pattern 'JsonSerializer' -Quiet)) { exit 1 }
+          if (-not (Select-String -Path smoke-api.md -Pattern 'Serialize' -Quiet)) { exit 1 }
+        shell: pwsh
+      
+      - name: Smoke test - api command (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
           cat smoke-api.md
           grep -q "JsonSerializer" smoke-api.md
           grep -q "Serialize" smoke-api.md
           grep -q "Deserialize" smoke-api.md
         shell: bash
       
-      - name: Smoke test - platform command
+      - name: Smoke test - platform command (Windows)
+        if: runner.os == 'Windows'
         run: |
-          "$HOME/.dotnet/tools/dotnet-inspect" platform > smoke-platform.md 2>/dev/null || dotnet-inspect platform > smoke-platform.md
+          dotnet-inspect platform | Out-File -Encoding utf8 smoke-platform.md
+          Get-Content smoke-platform.md
+          if (-not (Select-String -Path smoke-platform.md -Pattern 'runtime' -Quiet)) { exit 1 }
+        shell: pwsh
+      
+      - name: Smoke test - platform command (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          dotnet-inspect platform > smoke-platform.md
           cat smoke-platform.md
           grep -q "runtime" smoke-platform.md
         shell: bash
       
-      - name: Validate markdown output
+      - name: Validate markdown output (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          npm install -g markdownlint-cli
+          markdownlint smoke-*.md
+        shell: pwsh
+      
+      - name: Validate markdown output (Unix)
+        if: runner.os != 'Windows'
         run: |
           npm install -g markdownlint-cli
           markdownlint smoke-*.md
