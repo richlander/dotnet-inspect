@@ -158,6 +158,19 @@ public static class OutputFormatter
             {
                 sb.AppendLine($"| Builder | {audit.Builder} |");
             }
+            if (!string.IsNullOrEmpty(audit.Publisher))
+            {
+                var publisherStatus = audit.PublisherVerified ? "(Verified)" : "";
+                sb.AppendLine($"| Publisher | {audit.Publisher} {publisherStatus} |");
+            }
+            else if (!string.IsNullOrEmpty(audit.SignatureStatus))
+            {
+                sb.AppendLine($"| Publisher | {audit.SignatureStatus} |");
+            }
+            if (audit.RepositoryVerified)
+            {
+                sb.AppendLine($"| Repository | nuget.org (Verified) |");
+            }
 
             // PDB section
             sb.AppendLine();

@@ -4,64 +4,6 @@ Ideas for improving dotnet-inspect for LLM-driven C# development.
 
 > **Note:** Completed features are removed from this backlog. See git history for implemented items.
 
-## Whole-Package Diff
-
-Support diffing an entire package without specifying a type name:
-
-```bash
-dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
-```
-
-Would show all changed types across the package:
-
-```
-# API Diff: System.CommandLine
-
-**2.0.0-beta4** → **2.0.2**
-
-**Summary:** +15 added, -23 removed, 8 types changed
-
-## Removed Types
-- Handler
-- HandlerDescriptor
-
-## Changed Types
-
-### Command
-+3 added, -5 removed
-+ void Add(Argument argument)
-+ void Add(Option option)
-- void AddOption(Option option)
-- void AddArgument(Argument argument)
-...
-```
-
-This would eliminate the need for multiple targeted diffs when migrating between versions. LLM feedback indicates this is the most common use case.
-
-## Batch Find with Terse Output
-
-Support searching multiple patterns with compact output:
-
-```bash
-dotnet-inspect find "Option,Argument,Command" --terse --package System.CommandLine
-```
-
-Output:
-
-```
-Option: Option, Option`1, OptionResult, VersionOption, HelpOption
-Argument: Argument, Argument`1, ArgumentResult, ArgumentArity
-Command: Command, RootCommand, CommandResult
-```
-
-Or with `--flat`:
-
-```
-Option Option`1 OptionResult Command RootCommand Argument Argument`1 ParseResult
-```
-
-This enables quick type landscape discovery before targeted `type` queries. LLM feedback shows the current pattern requires many sequential `find` calls.
-
 ## Migration Hints
 
 When diffing versions, suggest code transformations:
@@ -84,32 +26,6 @@ Could be powered by:
 - Heuristics (method renamed, similar signature)
 - Curated migration data for popular packages
 - XML doc deprecation messages
-
-## NuGet Package Signature Verification
-
-Add cryptographic verification of NuGet packages to prove provenance:
-
-```bash
-dotnet-inspect assembly --package Newtonsoft.Json --audit
-```
-
-Would show in Build Audit:
-```
-| Publisher | Json.NET (.NET Foundation) (verified) |
-```
-
-Implementation approach:
-- Run `dotnet nuget verify` on the `.nupkg` file (~250-350ms)
-- Parse author signature CN (Common Name) for publisher identity
-- Repository signature proves package came from NuGet.org
-- `.nupkg` is available in `~/.nuget/packages/{id}/{version}/` for cached packages
-
-Platform considerations:
-- ✅ Linux: Full verification works
-- ✅ Windows: Full verification works  
-- ⚠️ macOS: Verification skipped (see dotnet/sdk#52630), fall back to metadata
-
-This provides strong verification for NuGet packages, complementing the MSDL-based verification we already have for Microsoft platform assemblies.
 
 ## Derived Types Table
 

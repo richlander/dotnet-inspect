@@ -74,8 +74,16 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                var (assemblyPaths, extractPath, extractTempDir) = extractResult.Value;
+                var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
                 tempDir = extractTempDir;
+
+                // Verify package signature if --audit is specified and nupkg is available
+                SignatureVerificationResult? signatureResult = null;
+                if (options.IncludeAudit && nupkgPath != null)
+                {
+                    logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
+                    signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
+                }
 
                 // Inspect all assemblies
                 bool first = true;
@@ -89,6 +97,15 @@ public class AssemblyCommand
                     {
                         logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
                         continue;
+                    }
+
+                    // Add signature verification results
+                    if (signatureResult != null)
+                    {
+                        audit.Publisher = signatureResult.Publisher;
+                        audit.PublisherVerified = signatureResult.AuthorVerified;
+                        audit.RepositoryVerified = signatureResult.RepositoryVerified;
+                        audit.SignatureStatus = signatureResult.StatusMessage;
                     }
 
                     if (!first)
@@ -144,13 +161,14 @@ public class AssemblyCommand
         }
     }
 
-    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger)
+    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger)
     {
         // Check if it's a local file or a NuGet package name
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
         string tempDir;
         string extractPath;
+        string? nupkgPath = null;
 
         if (isLocalFile)
         {
@@ -166,6 +184,7 @@ public class AssemblyCommand
 
             logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
             ZipFile.ExtractToDirectory(packageSource, extractPath);
+            nupkgPath = packageSource;
         }
         else
         {
@@ -201,6 +220,9 @@ public class AssemblyCommand
                 logger.Log($"Using cached package: {cachedPath}");
                 extractPath = cachedPath;
                 tempDir = null!; // Will be handled by caller
+                // Try to find .nupkg in cache
+                var expectedNupkg = Path.Combine(cachedPath, $"{packageName}.{version}.nupkg");
+                nupkgPath = File.Exists(expectedNupkg) ? expectedNupkg : null;
             }
             else
             {
@@ -220,7 +242,7 @@ public class AssemblyCommand
                     return null;
                 }
 
-                string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+                nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
                 await File.WriteAllBytesAsync(nupkgPath, packageBytes);
                 ZipFile.ExtractToDirectory(nupkgPath, extractPath);
                 logger.Log("Package downloaded successfully.");
@@ -258,7 +280,7 @@ public class AssemblyCommand
                 return null;
             }
             logger.Log($"Using TFM: {tfm}");
-            return ([tfmAssembly], extractPath, tempDir);
+            return ([tfmAssembly], extractPath, tempDir, nupkgPath);
         }
 
         // If no assembly name specified, return all assemblies from tools or lib directory
@@ -290,7 +312,7 @@ public class AssemblyCommand
 
             // Return all assemblies, sorted by path
             var assemblyPaths = candidates.OrderBy(f => f).ToList();
-            return (assemblyPaths, extractPath, tempDir);
+            return (assemblyPaths, extractPath, tempDir, nupkgPath);
         }
 
         // Normalize the assembly path for comparison
@@ -335,7 +357,7 @@ public class AssemblyCommand
         }
 
         logger.Log($"Found: {Path.GetRelativePath(extractPath, matchingFiles[0])}");
-        return ([matchingFiles[0]], extractPath, tempDir);
+        return ([matchingFiles[0]], extractPath, tempDir, nupkgPath);
     }
 
     private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)

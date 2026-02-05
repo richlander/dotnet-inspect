@@ -13,11 +13,13 @@ namespace DotnetInspector.Inspectors;
 /// <param name="TempDir">Temporary directory to clean up (null if using cache)</param>
 /// <param name="PackageName">Package name</param>
 /// <param name="Version">Package version (may be null for local files)</param>
+/// <param name="NupkgPath">Path to the .nupkg file for signature verification (null if not available)</param>
 public record PackageExtractionResult(
     string ExtractPath,
     string? TempDir,
     string? PackageName,
-    string? Version);
+    string? Version,
+    string? NupkgPath = null);
 
 /// <summary>
 /// Shared utility for extracting NuGet packages from local files or nuget.org.
@@ -65,7 +67,7 @@ public static class PackageExtractor
         ZipFile.ExtractToDirectory(packageSource, extractPath);
 
         var (pkgName, pkgVersion) = ParsePackageReference(packageSource);
-        return new PackageExtractionResult(extractPath, tempDir, pkgName, pkgVersion);
+        return new PackageExtractionResult(extractPath, tempDir, pkgName, pkgVersion, packageSource);
     }
 
     private static async Task<PackageExtractionResult?> DownloadAndExtractPackageAsync(
@@ -97,7 +99,9 @@ public static class PackageExtractor
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
             logger.Log($"Using cached package: {cachedPath}");
-            return new PackageExtractionResult(cachedPath, null, packageName, version);
+            // Try to find .nupkg in cache directory
+            var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
+            return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg);
         }
 
         string tempDir = Path.Combine(Path.GetTempPath(), $"{tempDirPrefix}-{Guid.NewGuid():N}");
@@ -107,6 +111,7 @@ public static class PackageExtractor
         string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{normalizedVersion}/{normalizedName}.{normalizedVersion}.nupkg";
         logger.Log($"Downloading: {packageName} {version}");
 
+        string? nupkgPath = null;
         try
         {
             byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
@@ -118,7 +123,7 @@ public static class PackageExtractor
                 return null;
             }
 
-            string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+            nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
             await File.WriteAllBytesAsync(nupkgPath, packageBytes);
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
             logger.Log("Package downloaded successfully.");
@@ -137,10 +142,30 @@ public static class PackageExtractor
             return null;
         }
 
-        return new PackageExtractionResult(extractPath, tempDir, packageName, version);
+        return new PackageExtractionResult(extractPath, tempDir, packageName, version, nupkgPath);
     }
 
     /// <summary>
+    /// Finds the .nupkg file in a cache directory.
+    /// </summary>
+    private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
+    {
+        // Standard NuGet cache layout: {package}/{version}/{package}.{version}.nupkg
+        var expectedPath = Path.Combine(cacheDir, $"{packageName}.{version}.nupkg");
+        if (File.Exists(expectedPath))
+            return expectedPath;
+
+        // Try to find any .nupkg file
+        try
+        {
+            var nupkgFiles = Directory.GetFiles(cacheDir, "*.nupkg");
+            return nupkgFiles.Length > 0 ? nupkgFiles[0] : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
     /// Parses a package reference string into name and optional version.
     /// Handles formats: "PackageName", "PackageName@1.0.0", "Package.Name.1.0.0.nupkg"
     /// </summary>

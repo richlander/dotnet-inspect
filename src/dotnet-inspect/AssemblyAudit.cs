@@ -91,6 +91,38 @@ public class AssemblyAudit
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Builder { get; set; }
 
+    /// <summary>
+    /// Publisher identity from NuGet package author signature (CN).
+    /// </summary>
+    [MarkoutPropertyName("Publisher")]
+    [JsonPropertyName("publisher")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Publisher { get; set; }
+
+    /// <summary>
+    /// Whether the package publisher signature was cryptographically verified.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("publisher_verified")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PublisherVerified { get; set; }
+
+    /// <summary>
+    /// Whether the package repository signature was cryptographically verified.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("repository_verified")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RepositoryVerified { get; set; }
+
+    /// <summary>
+    /// Status message when signature verification was skipped or failed.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("signature_status")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SignatureStatus { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [MarkoutIgnore]
     public string? SourceLinkJson { get; set; }
