@@ -36,7 +36,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-pointer
-          path: artifacts/packages/dotnet-inspect/release/*.nupkg
+          path: artifacts/package/release/*.nupkg
           if-no-files-found: error
 
   # Build RID-specific Native AOT packages
@@ -81,7 +81,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.rid }}
-          path: artifacts/packages/dotnet-inspect/release/*.nupkg
+          path: artifacts/package/release/*.nupkg
           if-no-files-found: error
 
   # Smoke test installed tool on each platform
