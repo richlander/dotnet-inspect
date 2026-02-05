@@ -46,13 +46,13 @@ public class TypeCommand
         }
         else
         {
-            WriteTreeOutput(type);
+            WriteTreeOutput(type, options.MemberFilter);
         }
 
         return 0;
     }
 
-    private static void WriteTreeOutput(ApiType type)
+    private static void WriteTreeOutput(ApiType type, string? memberFilter)
     {
         var writer = new MarkoutWriter(Console.Out);
         
@@ -64,19 +64,19 @@ public class TypeCommand
         // Build tree
         var nodes = new List<TreeNode>();
 
-        // Inheritance
+        // Inheritance (always show)
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
         {
             nodes.Add(new TreeNode("Inherits", new[] { type.BaseType }));
         }
 
-        // Interfaces
+        // Interfaces (always show)
         if (type.Interfaces is { Count: > 0 })
         {
             nodes.Add(new TreeNode("Implements", type.Interfaces));
         }
 
-        // Type parameters with constraints
+        // Type parameters with constraints (always show)
         if (type.TypeParameters is { Count: > 0 })
         {
             var typeParamDescriptions = type.TypeParameters
@@ -90,8 +90,19 @@ public class TypeCommand
         // Group members by kind
         if (type.Members is { Count: > 0 })
         {
-            var membersByKind = type.Members
-                .Where(m => !IsCompilerGenerated(m.Name))
+            // Filter members if specified
+            var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+            
+            if (!string.IsNullOrEmpty(memberFilter))
+            {
+                // Always include constructors when filtering
+                var constructors = members.Where(m => m.Kind == "constructor");
+                var filtered = members.Where(m => m.Kind != "constructor" && 
+                    m.Name.Contains(memberFilter, StringComparison.OrdinalIgnoreCase));
+                members = constructors.Concat(filtered);
+            }
+
+            var membersByKind = members
                 .GroupBy(m => m.Kind)
                 .OrderBy(g => GetKindOrder(g.Key));
 
@@ -162,6 +173,7 @@ public record TypeOptions
     public string? PlatformAssembly { get; init; }
     public string? PlatformFramework { get; init; }
     public string? Tfm { get; init; }
+    public string? MemberFilter { get; init; }
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Verbose { get; init; }

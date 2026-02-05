@@ -62,11 +62,11 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(assemblyCommand);
 
         // Diff command
-        var diffCommand = CreateDiffCommand(verboseOption);
+        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption);
         rootCommand.Subcommands.Add(diffCommand);
 
         // Find command
-        var findCommand = CreateFindCommand(jsonOption, verboseOption, limitOption);
+        var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, limitOption);
         rootCommand.Subcommands.Add(findCommand);
 
         // Package command
@@ -74,15 +74,15 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(packageCommand);
 
         // Platform command
-        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, limitOption);
+        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, limitOption);
         rootCommand.Subcommands.Add(platformCommand);
 
         // Samples command
-        var samplesCommand = CreateSamplesCommand(verboseOption);
+        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption);
         rootCommand.Subcommands.Add(samplesCommand);
 
         // Type command
-        var typeCommand = CreateTypeCommand(jsonOption, verboseOption);
+        var typeCommand = CreateTypeCommand(jsonOption, verboseOption, verbosityOption);
         rootCommand.Subcommands.Add(typeCommand);
 
         // LLMs.txt command (meta command, listed last)
@@ -95,7 +95,8 @@ public static class CommandLineBuilder
 
     private static Command CreateTypeCommand(
         Option<bool> jsonOption,
-        Option<bool> verboseOption)
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption)
     {
         var typeCommand = new Command("type", "Show type shape with hierarchy and members (tree view)");
 
@@ -111,6 +112,7 @@ public static class CommandLineBuilder
         var typeTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
         var typeAllOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var memberOption = new Option<string?>("-m") { Description = "Filter to members matching name (keeps constructors)" };
 
         typeCommand.Arguments.Add(typeNameArg);
         typeCommand.Options.Add(typePackageOption);
@@ -119,9 +121,11 @@ public static class CommandLineBuilder
         typeCommand.Options.Add(typeFrameworkOption);
         typeCommand.Options.Add(typeTfmOption);
         typeCommand.Options.Add(typeAllOption);
+        typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(jsonOption);
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(verboseOption);
+        typeCommand.Options.Add(verbosityOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -134,6 +138,7 @@ public static class CommandLineBuilder
                 PlatformFramework = parseResult.GetValue(typeFrameworkOption),
                 Tfm = parseResult.GetValue(typeTfmOption),
                 IncludeAll = parseResult.GetValue(typeAllOption),
+                MemberFilter = parseResult.GetValue(memberOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(verboseOption)
@@ -145,7 +150,7 @@ public static class CommandLineBuilder
         return typeCommand;
     }
 
-    private static Command CreateDiffCommand(Option<bool> verboseOption)
+    private static Command CreateDiffCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
     {
         var diffCommand = new Command("diff", "Compare API surfaces between package or platform versions");
 
@@ -178,6 +183,7 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
         diffCommand.Options.Add(verboseOption);
+        diffCommand.Options.Add(verbosityOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -201,6 +207,7 @@ public static class CommandLineBuilder
     private static Command CreateFindCommand(
         Option<bool> jsonOption,
         Option<bool> verboseOption,
+        Option<string?> verbosityOption,
         Option<int?> limitOption)
     {
         var findCommand = new Command("find", "Search for types across packages and assemblies");
@@ -259,6 +266,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(compactOption);
         findCommand.Options.Add(terseOption);
         findCommand.Options.Add(verboseOption);
+        findCommand.Options.Add(verbosityOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -286,7 +294,7 @@ public static class CommandLineBuilder
         return findCommand;
     }
 
-    private static Command CreateSamplesCommand(Option<bool> verboseOption)
+    private static Command CreateSamplesCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
     {
         var samplesCommand = new Command("samples", "Show sample code references for a type or assembly");
 
@@ -315,6 +323,7 @@ public static class CommandLineBuilder
         samplesCommand.Options.Add(listOption);
         samplesCommand.Options.Add(printOption);
         samplesCommand.Options.Add(verboseOption);
+        samplesCommand.Options.Add(verbosityOption);
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
@@ -342,6 +351,7 @@ public static class CommandLineBuilder
     private static Command CreatePlatformCommand(
         Option<bool> jsonOption,
         Option<bool> verboseOption,
+        Option<string?> verbosityOption,
         Option<int?> limitOption)
     {
         var platformCommand = new Command("platform", "List installed frameworks and assemblies");
@@ -370,6 +380,7 @@ public static class CommandLineBuilder
         platformCommand.Options.Add(jsonOption);
         platformCommand.Options.Add(compactOption);
         platformCommand.Options.Add(verboseOption);
+        platformCommand.Options.Add(verbosityOption);
 
         platformCommand.SetAction(async (parseResult, ct) =>
         {

@@ -51,9 +51,9 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 
 | Flag | Purpose | Commands |
 |------|---------|----------|
-| `-v:d` | Detailed output (full signatures, more info) | `package`, `assembly`, `api` |
+| `-v:d` | Detailed output (full signatures, more info) | all commands |
 | `--docs` | Include XML documentation from source | `type`, `api` |
-| `-m Name` | Filter to specific member(s) | `api` |
+| `-m Name` | Filter to specific member(s) | `type`, `api` |
 | `-n 10` | Limit results | `find`, `package --versions` |
 | `--terse`, `-t` | One line per pattern (for batch find) | `find` |
 | `--prerelease` | Include prerelease versions | `package --versions` |
