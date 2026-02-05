@@ -202,7 +202,7 @@ public static class CommandLineBuilder
 
         var patternArg = new Argument<string>("pattern")
         {
-            Description = "Type name or glob pattern (e.g., JsonSerializer, *Json*, ILogger)"
+            Description = "Type name or glob pattern. Comma-separated for multiple (e.g., \"Option*,Argument*,Command*\")"
         };
 
         var packageOption = new Option<string[]>("--package")
@@ -238,6 +238,7 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var terseOption = new Option<bool>("--terse", ["-t"]) { Description = "One line per pattern with matching type names" };
 
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
@@ -251,6 +252,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(limitOption);
         findCommand.Options.Add(jsonOption);
         findCommand.Options.Add(compactOption);
+        findCommand.Options.Add(terseOption);
         findCommand.Options.Add(verboseOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
@@ -269,6 +271,7 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
+                Terse = parseResult.GetValue(terseOption),
                 Verbose = parseResult.GetValue(verboseOption)
             };
 

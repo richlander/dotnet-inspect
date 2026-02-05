@@ -66,6 +66,11 @@ public record FindOptions
     public bool Verbose { get; init; }
 
     /// <summary>
+    /// Terse output: one line per pattern with matching type names.
+    /// </summary>
+    public bool Terse { get; init; }
+
+    /// <summary>
     /// Returns true if any search scope is specified.
     /// </summary>
     public bool HasAnyScope =>

@@ -35,9 +35,9 @@ dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- diff Command --package System.CommandLine@2.0.0-beta4..2.0.2
 dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 
-# Search for types by pattern
+# Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "*Logger*" --framework runtime
+dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --terse
 
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json
@@ -55,6 +55,7 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 | `--docs` | Include XML documentation from source |
 | `-m Name` | Filter to specific member(s) |
 | `-n 10` | Limit results |
+| `--terse`, `-t` | One line per pattern (for batch find) |
 | `--signatures-only` | Plain text output (no formatting) |
 
 **Generic types:** Use quotes around generic types: `'Option<T>'`, `'IEnumerable<T>'`

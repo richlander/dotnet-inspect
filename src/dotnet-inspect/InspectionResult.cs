@@ -381,6 +381,7 @@ public class InspectionResult
     {
         var fields = new List<MarkoutField>();
         
+        fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
         
         if (!string.IsNullOrEmpty(NewestTfm))
@@ -400,6 +401,7 @@ public class InspectionResult
         var fields = new List<MarkoutField>();
         
         // Core fields (same as compact but with different TFM label)
+        fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
         if (!string.IsNullOrEmpty(NewestTfm))
             fields.Add(new("Newest TFM", NewestTfm));

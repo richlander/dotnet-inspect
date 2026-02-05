@@ -87,6 +87,16 @@ dotnet-inspect find "*Service*" --bin ./bin/Debug/net8.0  # Built output directo
 dotnet-inspect find ILogger --framework aspnetcore      # ASP.NET Core framework
 ```
 
+Batch search with multiple patterns (comma-separated):
+```bash
+dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --terse
+# Output: Option*: Option, Option`1, OptionResult, ...
+#         Argument*: Argument, Argument`1, ...
+#         Command*: Command, RootCommand, ...
+
+dotnet-inspect find "Option*,Argument*" --package System.CommandLine  # Table per pattern
+```
+
 Scopes can be combined:
 ```bash
 dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework aspnetcore
@@ -101,6 +111,11 @@ dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework
 | `--framework` | All assemblies in framework (runtime, aspnetcore) |
 | `--project` | Project dependencies via project.assets.json |
 | `--bin` | All DLLs in output directory |
+
+| Option | Description |
+|--------|-------------|
+| `--terse`, `-t` | One line per pattern with matching type names |
+| `-n` | Limit results per pattern |
 
 ### type
 

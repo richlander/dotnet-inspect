@@ -40,3 +40,6 @@ The System.Text.Json library is built-in as part of the shared framework in .NET
 
 Type: Library | TFM: net10.0 | Updated: 2026-01-13
 ```
+
+## Platform inspect
+
