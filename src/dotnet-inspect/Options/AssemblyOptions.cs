@@ -13,6 +13,12 @@ public record AssemblyOptions
     public bool IncludeAudit { get; init; }
 
     /// <summary>
+    /// Enable strict audit mode: verify SourceLink URLs are fetchable
+    /// and all source files are accessible or embedded.
+    /// </summary>
+    public bool StrictAudit { get; init; }
+
+    /// <summary>
     /// Path to a NuGet package to extract the assembly from.
     /// If null, the assembly is loaded from the local filesystem.
     /// </summary>

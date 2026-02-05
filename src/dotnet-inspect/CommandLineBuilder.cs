@@ -799,6 +799,7 @@ public static class CommandLineBuilder
         assemblyPathArg.DefaultValueFactory = _ => null;
 
         var auditOption = new Option<bool>("--audit") { Description = "Include SourceLink and determinism audit" };
+        var strictOption = new Option<bool>("--strict") { Description = "Verify SourceLink URLs are fetchable and all sources are accessible" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Extract assembly from package (file, name, or name@version)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
@@ -806,6 +807,7 @@ public static class CommandLineBuilder
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(auditOption);
+        assemblyCommand.Options.Add(strictOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
@@ -825,7 +827,8 @@ public static class CommandLineBuilder
             var assemblyPath = parseResult.GetValue(assemblyPathArg);
             var options = new AssemblyOptions
             {
-                IncludeAudit = parseResult.GetValue(auditOption),
+                IncludeAudit = parseResult.GetValue(auditOption) || parseResult.GetValue(strictOption),
+                StrictAudit = parseResult.GetValue(strictOption),
                 PackagePath = parseResult.GetValue(asmPackageOption),
                 PlatformAssembly = parseResult.GetValue(asmPlatformOption),
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
