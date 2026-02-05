@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -29,4 +31,9 @@ public interface IAssemblySourceOptions
     /// Target framework moniker filter.
     /// </summary>
     string? Tfm { get; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    NuGetSourceOptions? SourceOptions { get; }
 }

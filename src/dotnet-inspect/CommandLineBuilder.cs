@@ -1,6 +1,7 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector;
 
@@ -51,14 +52,30 @@ public static class CommandLineBuilder
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections (comma-separated, e.g., -x:4)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
 
+        // NuGet source options (shared across package-consuming commands)
+        var sourceOption = new Option<string[]>("--source")
+        {
+            Description = "NuGet source URL (replaces defaults, can repeat)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var addSourceOption = new Option<string[]>("--add-source")
+        {
+            Description = "Additional NuGet source URL (can repeat)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var nugetConfigOption = new Option<string?>("--nugetconfig")
+        {
+            Description = "Path to nuget.config file"
+        };
+
         // Commands in alphabetical order (llmstxt last as meta command)
         
         // API command
-        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption);
+        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
 
         // Assembly command
-        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption);
+        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(assemblyCommand);
 
         // Cache command
@@ -66,23 +83,23 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(cacheCommand);
 
         // Diff command
-        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption);
+        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(diffCommand);
 
         // Extensions command
-        var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, limitOption);
+        var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(extensionsCommand);
 
         // Find command
-        var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, limitOption);
+        var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(findCommand);
 
         // Implements command
-        var implementsCommand = CreateImplementsCommand(jsonOption, verboseOption, verbosityOption, limitOption);
+        var implementsCommand = CreateImplementsCommand(jsonOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(implementsCommand);
 
         // Package command
-        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption);
+        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(packageCommand);
 
         // Platform command
@@ -90,11 +107,11 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(platformCommand);
 
         // Samples command
-        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption);
+        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(samplesCommand);
 
         // Type command
-        var typeCommand = CreateTypeCommand(jsonOption, verboseOption, verbosityOption);
+        var typeCommand = CreateTypeCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(typeCommand);
 
         // LLMs.txt command (meta command, listed last)
@@ -108,7 +125,10 @@ public static class CommandLineBuilder
     private static Command CreateTypeCommand(
         Option<bool> jsonOption,
         Option<bool> verboseOption,
-        Option<string?> verbosityOption)
+        Option<string?> verbosityOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var typeCommand = new Command("type", "Show type shape with hierarchy and members (tree view)");
 
@@ -138,6 +158,9 @@ public static class CommandLineBuilder
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(verboseOption);
         typeCommand.Options.Add(verbosityOption);
+        typeCommand.Options.Add(sourceOption);
+        typeCommand.Options.Add(addSourceOption);
+        typeCommand.Options.Add(nugetConfigOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -153,7 +176,8 @@ public static class CommandLineBuilder
                 MemberFilter = parseResult.GetValue(memberOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await TypeCommand.ExecuteAsync(typeName!, options);
@@ -185,7 +209,12 @@ public static class CommandLineBuilder
         return cacheCommand;
     }
 
-    private static Command CreateDiffCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
+    private static Command CreateDiffCommand(
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var diffCommand = new Command("diff", "Compare API surfaces between package or platform versions");
 
@@ -230,6 +259,9 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(verboseOption);
         diffCommand.Options.Add(verbosityOption);
+        diffCommand.Options.Add(sourceOption);
+        diffCommand.Options.Add(addSourceOption);
+        diffCommand.Options.Add(nugetConfigOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -260,7 +292,8 @@ public static class CommandLineBuilder
                 Verbose = parseResult.GetValue(verboseOption),
                 TypeFilter = typeFilter,
                 Stat = parseResult.GetValue(statOption),
-                NameOnly = parseResult.GetValue(nameOnlyOption)
+                NameOnly = parseResult.GetValue(nameOnlyOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await DiffCommand.ExecuteAsync(options);
@@ -273,7 +306,10 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
-        Option<int?> limitOption)
+        Option<int?> limitOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var extCommand = new Command("extensions", "Find extension methods for a type");
 
@@ -329,6 +365,9 @@ public static class CommandLineBuilder
         extCommand.Options.Add(compactOption);
         extCommand.Options.Add(verboseOption);
         extCommand.Options.Add(verbosityOption);
+        extCommand.Options.Add(sourceOption);
+        extCommand.Options.Add(addSourceOption);
+        extCommand.Options.Add(nugetConfigOption);
 
         extCommand.SetAction(async (parseResult, ct) =>
         {
@@ -347,7 +386,8 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await ExtensionsCommand.ExecuteAsync(targetType!, options);
@@ -360,7 +400,10 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
-        Option<int?> limitOption)
+        Option<int?> limitOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var findCommand = new Command("find", "Search for types across packages and assemblies");
         findCommand.Aliases.Add("search");
@@ -424,6 +467,9 @@ public static class CommandLineBuilder
         findCommand.Options.Add(nameOnlyOption);
         findCommand.Options.Add(verboseOption);
         findCommand.Options.Add(verbosityOption);
+        findCommand.Options.Add(sourceOption);
+        findCommand.Options.Add(addSourceOption);
+        findCommand.Options.Add(nugetConfigOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -444,7 +490,8 @@ public static class CommandLineBuilder
                 OneLine = parseResult.GetValue(oneLineOption),
                 Grouped = parseResult.GetValue(groupedOption),
                 NameOnly = parseResult.GetValue(nameOnlyOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await FindCommand.ExecuteAsync(pattern!, options);
@@ -453,7 +500,12 @@ public static class CommandLineBuilder
         return findCommand;
     }
 
-    private static Command CreateSamplesCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
+    private static Command CreateSamplesCommand(
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var samplesCommand = new Command("samples", "Show sample code references for a type or assembly");
 
@@ -483,6 +535,9 @@ public static class CommandLineBuilder
         samplesCommand.Options.Add(printOption);
         samplesCommand.Options.Add(verboseOption);
         samplesCommand.Options.Add(verbosityOption);
+        samplesCommand.Options.Add(sourceOption);
+        samplesCommand.Options.Add(addSourceOption);
+        samplesCommand.Options.Add(nugetConfigOption);
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
@@ -498,7 +553,8 @@ public static class CommandLineBuilder
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 ListOnly = parseResult.GetValue(listOption),
-                PrintSample = parseResult.GetValue(printOption)
+                PrintSample = parseResult.GetValue(printOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await SamplesCommand.ExecuteAsync(typeName, options);
@@ -564,7 +620,10 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
-        Option<int?> limitOption)
+        Option<int?> limitOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var implCommand = new Command("implements", "Find types implementing an interface or extending a base class");
 
@@ -609,6 +668,9 @@ public static class CommandLineBuilder
         implCommand.Options.Add(compactOption);
         implCommand.Options.Add(verboseOption);
         implCommand.Options.Add(verbosityOption);
+        implCommand.Options.Add(sourceOption);
+        implCommand.Options.Add(addSourceOption);
+        implCommand.Options.Add(nugetConfigOption);
 
         implCommand.SetAction(async (parseResult, ct) =>
         {
@@ -625,7 +687,8 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await ImplementsCommand.ExecuteAsync(targetType!, options);
@@ -641,7 +704,10 @@ public static class CommandLineBuilder
         Option<string?> verbosityOption,
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption,
-        Option<int?> limitOption)
+        Option<int?> limitOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var packageCommand = new Command("package", "Inspect a NuGet package");
 
@@ -679,6 +745,9 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(verbosityOption);
         packageCommand.Options.Add(includeSectionsOption);
         packageCommand.Options.Add(excludeSectionsOption);
+        packageCommand.Options.Add(sourceOption);
+        packageCommand.Options.Add(addSourceOption);
+        packageCommand.Options.Add(nugetConfigOption);
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
@@ -699,7 +768,8 @@ public static class CommandLineBuilder
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await PackageCommand.ExecuteAsync(packageArgs, options);
@@ -714,7 +784,10 @@ public static class CommandLineBuilder
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
         Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption)
+        Option<string?> excludeSectionsOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var assemblyCommand = new Command("assembly", "Inspect a .NET assembly file");
 
@@ -743,6 +816,9 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(verbosityOption);
         assemblyCommand.Options.Add(includeSectionsOption);
         assemblyCommand.Options.Add(excludeSectionsOption);
+        assemblyCommand.Options.Add(sourceOption);
+        assemblyCommand.Options.Add(addSourceOption);
+        assemblyCommand.Options.Add(nugetConfigOption);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -758,7 +834,8 @@ public static class CommandLineBuilder
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await AssemblyCommand.ExecuteAsync(assemblyPath, options);
@@ -772,7 +849,10 @@ public static class CommandLineBuilder
         Option<bool> markoutOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
-        Option<int?> limitOption)
+        Option<int?> limitOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
     {
         var apiCommand = new Command("api", "Extract public API surface");
 
@@ -835,6 +915,9 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(markoutOption);
         apiCommand.Options.Add(verboseOption);
         apiCommand.Options.Add(verbosityOption);
+        apiCommand.Options.Add(sourceOption);
+        apiCommand.Options.Add(addSourceOption);
+        apiCommand.Options.Add(nugetConfigOption);
 
         apiCommand.SetAction(async (parseResult, ct) =>
         {
@@ -878,7 +961,8 @@ public static class CommandLineBuilder
                 CtorOnly = ctorOnly,
                 FieldsOnly = parseResult.GetValue(fieldsOnlyOption),
                 Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption))
+                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             return await ApiCommand.ExecuteAsync(typeName, options);
@@ -916,5 +1000,31 @@ public static class CommandLineBuilder
             }
         }
         return sections.Count > 0 ? sections : null;
+    }
+
+    /// <summary>
+    /// Creates NuGetSourceOptions from parsed command line values.
+    /// </summary>
+    public static NuGetSourceOptions ParseNuGetSourceOptions(
+        ParseResult parseResult,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
+    {
+        var sources = parseResult.GetValue(sourceOption) ?? [];
+        var addSources = parseResult.GetValue(addSourceOption) ?? [];
+        var configFile = parseResult.GetValue(nugetConfigOption);
+
+        if (sources.Length == 0 && addSources.Length == 0 && configFile == null)
+        {
+            return NuGetSourceOptions.Default;
+        }
+
+        return new NuGetSourceOptions
+        {
+            Sources = sources,
+            AdditionalSources = addSources,
+            ConfigFile = configFile
+        };
     }
 }

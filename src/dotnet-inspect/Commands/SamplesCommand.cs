@@ -1,6 +1,7 @@
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Commands;
 
@@ -421,4 +422,5 @@ public record SamplesOptions
     public bool Verbose { get; init; }
     public bool ListOnly { get; init; }
     public int? PrintSample { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

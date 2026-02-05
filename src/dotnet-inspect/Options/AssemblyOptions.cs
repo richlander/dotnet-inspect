@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -58,6 +60,11 @@ public record AssemblyOptions
     /// Sections to exclude (1-indexed).
     /// </summary>
     public HashSet<int>? ExcludeSections { get; init; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
     /// Default options: basic assembly info only.

@@ -40,7 +40,7 @@ public class ApiCommand
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extracted = await PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
                 if (extracted == null)
                 {
                     return 1;
@@ -270,7 +270,7 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
                 if (extracted == null)
                     return (null, null, null);
                 
@@ -379,7 +379,7 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
                 if (extracted == null)
                     return (null, null);
                 (searchPath, tempDir, packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
@@ -2803,4 +2803,5 @@ public record ApiOptions
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
     public bool FieldsOnly { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -179,4 +180,5 @@ public record TypeOptions
     public bool CompactJson { get; init; }
     public bool Verbose { get; init; }
     public bool IncludeAll { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

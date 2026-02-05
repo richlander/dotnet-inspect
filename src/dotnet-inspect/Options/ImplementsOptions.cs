@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -59,6 +61,11 @@ public record ImplementsOptions : IAssemblySourceOptions
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
     /// Returns true if any search scope is specified.

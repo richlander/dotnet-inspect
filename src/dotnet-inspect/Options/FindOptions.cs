@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -79,6 +81,11 @@ public record FindOptions : IAssemblySourceOptions
     /// Show only type names, one per line.
     /// </summary>
     public bool NameOnly { get; init; }
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
     /// Returns true if any search scope is specified.

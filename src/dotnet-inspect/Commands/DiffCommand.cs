@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Commands;
 
@@ -422,4 +423,5 @@ public record DiffOptions
     public HashSet<string>? TypeFilter { get; init; }
     public bool Stat { get; init; }
     public bool NameOnly { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }
