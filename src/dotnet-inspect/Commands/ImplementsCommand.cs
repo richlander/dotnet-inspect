@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Packages;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
@@ -86,7 +87,7 @@ public class ImplementsCommand
         // 1. Packages
         foreach (var pkg in options.Packages)
         {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger, "inspect-impl");
+            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-impl");
             if (extracted == null)
             {
                 Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");

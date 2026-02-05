@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.Packages;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -38,7 +39,7 @@ public class ApiCommand
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger.Log, "inspect-api");
                 if (extracted == null)
                 {
                     return 1;
@@ -268,7 +269,7 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger.Log, "inspect-api");
                 if (extracted == null)
                     return (null, null, null);
                 
@@ -377,7 +378,7 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger, "inspect-api");
+                var extracted = await PackageExtractor.ExtractPackageAsync(options.PackagePath, logger.Log, "inspect-api");
                 if (extracted == null)
                     return (null, null);
                 (searchPath, tempDir, packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.Packages;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;

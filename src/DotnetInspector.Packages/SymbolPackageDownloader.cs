@@ -2,7 +2,7 @@ using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Result of attempting to get a PDB reader.

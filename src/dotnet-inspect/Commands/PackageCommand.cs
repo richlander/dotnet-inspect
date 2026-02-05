@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.Packages;
 using System.Text.Json;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;

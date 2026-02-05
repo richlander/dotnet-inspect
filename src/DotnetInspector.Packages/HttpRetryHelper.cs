@@ -8,7 +8,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// HTTP retry helper with exponential backoff, adapted from Microsoft.SymbolStore.

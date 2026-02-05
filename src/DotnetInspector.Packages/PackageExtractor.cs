@@ -2,9 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO.Compression;
-using DotnetInspector.Output;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Result of a package extraction operation.
@@ -30,32 +29,31 @@ public static class PackageExtractor
     /// Extracts a package from a local .nupkg file or downloads from nuget.org.
     /// </summary>
     /// <param name="packageSource">Local .nupkg path or package reference (name or name@version)</param>
-    /// <param name="logger">Logger for verbose output</param>
+    /// <param name="log">Optional logging callback</param>
     /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
     /// <returns>Extraction result or null if failed</returns>
     public static async Task<PackageExtractionResult?> ExtractPackageAsync(
         string packageSource,
-        VerboseLogger logger,
+        Action<string>? log = null,
         string tempDirPrefix = "inspect-pkg")
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
         if (isLocalFile)
         {
-            return ExtractLocalPackage(packageSource, logger, tempDirPrefix);
+            return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(packageSource, logger, tempDirPrefix);
+        return await DownloadAndExtractPackageAsync(packageSource, log, tempDirPrefix);
     }
 
     private static PackageExtractionResult? ExtractLocalPackage(
         string packageSource,
-        VerboseLogger logger,
+        Action<string>? log,
         string tempDirPrefix)
     {
         if (!File.Exists(packageSource))
         {
-            Console.Error.WriteLine($"Error: Package not found: {packageSource}");
             return null;
         }
 
@@ -63,7 +61,7 @@ public static class PackageExtractor
         string extractPath = Path.Combine(tempDir, "extracted");
         Directory.CreateDirectory(tempDir);
 
-        logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
+        log?.Invoke($"Extracting package: {Path.GetFileName(packageSource)}");
         ZipFile.ExtractToDirectory(packageSource, extractPath);
 
         var (pkgName, pkgVersion) = ParsePackageReference(packageSource);
@@ -72,7 +70,7 @@ public static class PackageExtractor
 
     private static async Task<PackageExtractionResult?> DownloadAndExtractPackageAsync(
         string packageSource,
-        VerboseLogger logger,
+        Action<string>? log,
         string tempDirPrefix)
     {
         using HttpClient client = HttpClientFactory.Create();
@@ -82,10 +80,9 @@ public static class PackageExtractor
         // Get version if not specified
         if (version == null)
         {
-            version = await GetLatestVersionAsync(client, packageName, logger);
+            version = await GetLatestVersionAsync(client, packageName, log);
             if (version == null)
             {
-                Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
                 return null;
             }
         }
@@ -98,7 +95,7 @@ public static class PackageExtractor
         var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
-            logger.Log($"Using cached package: {cachedPath}");
+            log?.Invoke($"Using cached package: {cachedPath}");
             // Try to find .nupkg in cache directory
             var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
             return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg);
@@ -109,7 +106,7 @@ public static class PackageExtractor
         Directory.CreateDirectory(tempDir);
 
         string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{normalizedVersion}/{normalizedName}.{normalizedVersion}.nupkg";
-        logger.Log($"Downloading: {packageName} {version}");
+        log?.Invoke($"Downloading: {packageName} {version}");
 
         string? nupkgPath = null;
         try
@@ -117,8 +114,6 @@ public static class PackageExtractor
             byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
             if (packageBytes == null)
             {
-                Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
-                Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
                 return null;
             }
@@ -126,18 +121,17 @@ public static class PackageExtractor
             nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
             await File.WriteAllBytesAsync(nupkgPath, packageBytes);
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-            logger.Log("Package downloaded successfully.");
+            log?.Invoke("Package downloaded successfully.");
 
             // Cache the package for future use
             var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
             if (newCachePath != null)
             {
-                logger.Log($"Cached to: {newCachePath}");
+                log?.Invoke($"Cached to: {newCachePath}");
             }
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
-            Console.Error.WriteLine($"Error: Failed to download package: {ex.Message}");
             try { Directory.Delete(tempDir, recursive: true); } catch { }
             return null;
         }
@@ -200,10 +194,10 @@ public static class PackageExtractor
         return (packageSource, null);
     }
 
-    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
+    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, Action<string>? log)
     {
         string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName.ToLowerInvariant()}/index.json";
-        logger.Log($"Fetching versions from: {indexUrl}");
+        log?.Invoke($"Fetching versions from: {indexUrl}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
         if (json == null)

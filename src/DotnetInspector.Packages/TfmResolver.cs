@@ -1,4 +1,4 @@
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Utilities for resolving Target Framework Monikers (TFMs) in packages.

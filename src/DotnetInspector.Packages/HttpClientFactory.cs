@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Factory for creating HttpClient instances with consistent configuration.

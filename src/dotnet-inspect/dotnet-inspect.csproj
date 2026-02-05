@@ -51,6 +51,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Metadata\DotnetInspector.Metadata.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -104,7 +105,7 @@ public class ExtensionsCommand
         // 1. Packages
         foreach (var pkg in options.Packages)
         {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger, "inspect-ext");
+            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-ext");
             if (extracted == null)
             {
                 Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");

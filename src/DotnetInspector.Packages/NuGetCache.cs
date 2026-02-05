@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Utilities for working with package and content caches.

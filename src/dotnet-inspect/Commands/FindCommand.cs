@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using DotnetInspector.Packages;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -130,7 +131,7 @@ public class FindCommand
             {
                 if (ReachedLimit()) break;
 
-                var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger, "inspect-find");
+                var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-find");
                 if (extracted == null)
                 {
                     Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
@@ -350,7 +351,7 @@ public class FindCommand
         // 1. Search packages
         foreach (var pkg in options.Packages)
         {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger, "inspect-find");
+            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-find");
             if (extracted == null)
             {
                 Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
