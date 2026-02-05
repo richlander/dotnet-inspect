@@ -383,8 +383,8 @@ public static class ApiSurfaceExtractor
     private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         string name = reader.GetString(method.Name);
-        var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
+        var context = Metadata.GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
 
         // Get parameter names from metadata
         var paramHandles = method.GetParameters().ToList();
@@ -418,8 +418,8 @@ public static class ApiSurfaceExtractor
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors)
     {
         string name = reader.GetString(prop.Name);
-        var context = GenericContext.ForType(reader, typeDef);
-        var signature = prop.DecodeSignature(new SignatureTypeProvider(), context);
+        var context = Metadata.GenericContext.ForType(reader, typeDef);
+        var signature = prop.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
 
         // Determine accessor visibility
         bool hasPublicGetter = false;
@@ -460,8 +460,8 @@ public static class ApiSurfaceExtractor
     /// </summary>
     private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
-        var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
+        var context = Metadata.GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
         return signature.ParameterTypes.Length > 0 ? signature.ParameterTypes[0] : null;
     }
 
