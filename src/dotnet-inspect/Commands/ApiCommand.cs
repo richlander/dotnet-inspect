@@ -1641,7 +1641,7 @@ public class ApiCommand
                     .ToList();
 
                 sb.AppendLine("| Target Assembly | Types |");
-                sb.AppendLine("|-----------------|-------|");
+                sb.AppendLine("| --- | --- |");
                 
                 foreach (var group in byAssembly)
                 {
@@ -1662,12 +1662,12 @@ public class ApiCommand
         if (options.ShowDocs)
         {
             sb.AppendLine("| Type | Kind | Members | Description |");
-            sb.AppendLine("|------|------|---------|-------------|");
+            sb.AppendLine("| --- | --- | --- | --- |");
         }
         else
         {
             sb.AppendLine("| Type | Kind | Members |");
-            sb.AppendLine("|------|------|---------|");
+            sb.AppendLine("| --- | --- | --- |");
         }
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
@@ -2168,12 +2168,12 @@ public class ApiCommand
                 if (hasAnyDocs)
                 {
                     sb.AppendLine("| Member | Kind | Signature | Description |");
-                    sb.AppendLine("|--------|------|-----------|-------------|");
+                    sb.AppendLine("| --- | --- | --- | --- |");
                 }
                 else
                 {
                     sb.AppendLine("| Member | Kind | Signature |");
-                    sb.AppendLine("|--------|------|-----------|");
+                    sb.AppendLine("| --- | --- | --- |");
                 }
             }
 
@@ -2233,7 +2233,7 @@ public class ApiCommand
         sb.AppendLine("## Type Parameters");
         sb.AppendLine();
         sb.AppendLine("| Parameter | Constraints |");
-        sb.AppendLine("|-----------|-------------|");
+        sb.AppendLine("| --- | --- |");
 
         foreach (var param in typeParameters)
         {
@@ -2261,7 +2261,7 @@ public class ApiCommand
         sb.AppendLine("## Type Hierarchy");
         sb.AppendLine();
         sb.AppendLine("| Relationship | Type |");
-        sb.AppendLine("|--------------|------|");
+        sb.AppendLine("| --- | --- |");
 
         if (hasBase)
         {
@@ -2313,12 +2313,12 @@ public class ApiCommand
             if (hasAnyDocs)
             {
                 sb.AppendLine("| Name | Value | Description |");
-                sb.AppendLine("|------|-------|-------------|");
+                sb.AppendLine("| --- | --- | --- |");
             }
             else
             {
                 sb.AppendLine("| Name | Value |");
-                sb.AppendLine("|------|-------|");
+                sb.AppendLine("| --- | --- |");
             }
         }
 
@@ -2409,7 +2409,7 @@ public class ApiCommand
             {
                 sb.AppendLine();
                 sb.AppendLine("| Parameter | Type | Notes |");
-                sb.AppendLine("|-----------|------|-------|");
+                sb.AppendLine("| --- | --- | --- |");
                 foreach (var (paramName, paramType, hasDefault) in paramInfo)
                 {
                     string notes = hasDefault ? "optional" : "required";

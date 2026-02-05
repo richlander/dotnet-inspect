@@ -9,6 +9,3 @@ MD032: false
 
 # Bare URLs OK (source links like https://github.com/...)
 MD034: false
-
-# Table alignment variations OK (dynamic column widths)
-MD060: false
