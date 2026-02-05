@@ -11,8 +11,45 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # Detect what changed to determine which jobs to run
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - '*.props'
+              - '*.sln'
+              - '.github/workflows/**'
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+
+  # Lint markdown files
+  markdownlint:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: '**/*.md'
+
   # Build the pointer package (once, on any platform)
   build-pointer:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.ref == 'refs/heads/release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +77,8 @@ jobs:
 
   # Build RID-specific Native AOT packages
   build-rid:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.ref == 'refs/heads/release'
     strategy:
       fail-fast: false
       matrix:
@@ -85,7 +124,8 @@ jobs:
 
   # Smoke test installed tool on each platform
   smoke-test:
-    needs: [build-pointer, build-rid]
+    needs: [changes, build-pointer, build-rid]
+    if: needs.changes.outputs.code == 'true' || github.ref == 'refs/heads/release'
     strategy:
       fail-fast: false
       matrix:
