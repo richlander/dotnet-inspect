@@ -203,7 +203,10 @@ When updating the skill:
 
 1. Edit SKILL.md in `dotnet-inspect` (the source)
 2. Copy to `dotnet-skills`: `cp skills/dotnet-inspect/SKILL.md ../dotnet-skills/skills/dotnet-inspect/`
-3. Bump `.claude-plugin/plugin.json` version in **both** repositories (keep version numbers identical)
+3. Bump version in **three** files (keep versions identical):
+   - `dotnet-inspect/.claude-plugin/plugin.json`
+   - `dotnet-skills/.claude-plugin/plugin.json`
+   - `dotnet-skills/.claude-plugin/marketplace.json` (required for marketplace updates)
 4. Ensure examples in SKILL.md are a subset of examples in llmstxt
 
 ## Practical LLM Workflows
