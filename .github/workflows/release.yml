@@ -1,0 +1,70 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'CI workflow run ID to publish from'
+        required: true
+      confirm:
+        description: 'Type "publish" to confirm NuGet release'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'publish'
+    environment: nuget-publish
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all packages from CI run
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
+          run-id: ${{ github.event.inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: List packages
+        run: ls -la packages/
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      # Publish RID-specific packages first, then pointer package last
+      - name: Publish packages
+        run: |
+          # Publish RID-specific packages first (any package with a RID in the name)
+          for pkg in packages/dotnet-inspect.win-*.nupkg packages/dotnet-inspect.linux-*.nupkg packages/dotnet-inspect.osx-*.nupkg packages/dotnet-inspect.any.*.nupkg; do
+            if [[ -f "$pkg" ]]; then
+              echo "Publishing $pkg"
+              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+            fi
+          done
+          
+          # Publish pointer package last (the one without a RID, just version number)
+          for pkg in packages/dotnet-inspect.[0-9]*.nupkg; do
+            if [[ -f "$pkg" ]]; then
+              echo "Publishing pointer package: $pkg"
+              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+            fi
+          done
+        shell: bash
+      
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/dotnet-inspect/dotnet-inspect.csproj)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: packages/*.nupkg
+          generate_release_notes: true

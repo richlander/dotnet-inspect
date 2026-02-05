@@ -1,8 +1,8 @@
-name: Build and Release
+name: CI
 
 on:
   push:
-    branches: [main, release]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -49,7 +49,7 @@ jobs:
   # Build the pointer package (once, on any platform)
   build-pointer:
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.ref == 'refs/heads/release'
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +78,7 @@ jobs:
   # Build RID-specific Native AOT packages
   build-rid:
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.ref == 'refs/heads/release'
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -125,7 +125,7 @@ jobs:
   # Smoke test installed tool on each platform
   smoke-test:
     needs: [changes, build-pointer, build-rid]
-    if: needs.changes.outputs.code == 'true' || github.ref == 'refs/heads/release'
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -203,85 +203,9 @@ jobs:
       
       - name: Validate markdown output
         run: |
-          npm install -g markdownlint-cli2
-          # Use relaxed rules for tool output (bare URLs, list spacing, table alignment are OK)
-          echo '{"MD013":false,"MD032":false,"MD034":false,"MD060":false}' > .markdownlint-cli2.jsonc
-          markdownlint-cli2 smoke-*.md
+          npm install -g markdownlint-cli
+          markdownlint smoke-*.md
         shell: bash
       
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
-
-  # Publish to NuGet (only on release branch, after all tests pass)
-  publish:
-    if: github.ref == 'refs/heads/release'
-    needs: [smoke-test]
-    runs-on: ubuntu-latest
-    environment: nuget-publish
-    
-    steps:
-      - name: Download all packages
-        uses: actions/download-artifact@v4
-        with:
-          path: packages
-          pattern: package-*
-          merge-multiple: true
-      
-      - name: List packages
-        run: ls -la packages/
-      
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      
-      # Publish RID-specific packages first, then pointer package last
-      - name: Publish packages
-        run: |
-          # Publish RID-specific packages first (any package with a RID in the name)
-          for pkg in packages/dotnet-inspect.win-*.nupkg packages/dotnet-inspect.linux-*.nupkg packages/dotnet-inspect.osx-*.nupkg packages/dotnet-inspect.any.*.nupkg; do
-            if [[ -f "$pkg" ]]; then
-              echo "Publishing $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-            fi
-          done
-          
-          # Publish pointer package last (the one without a RID, just version number)
-          for pkg in packages/dotnet-inspect.[0-9]*.nupkg; do
-            if [[ -f "$pkg" ]]; then
-              echo "Publishing pointer package: $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-            fi
-          done
-        shell: bash
-
-  # Create GitHub Release (on release branch after publishing)
-  release:
-    if: github.ref == 'refs/heads/release'
-    needs: [publish]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/dotnet-inspect/dotnet-inspect.csproj)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Download all packages
-        uses: actions/download-artifact@v4
-        with:
-          path: packages
-          pattern: package-*
-          merge-multiple: true
-      
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          files: packages/*.nupkg
-          generate_release_notes: true

@@ -20,20 +20,14 @@ dotnet-inspect is distributed as a .NET tool with RID-specific Native AOT packag
 
 When users install the tool, the .NET CLI automatically selects the best package for their platform.
 
-## Branch Strategy
+## Workflow Structure
 
-```text
-feature/* ──PR──▶ main ──merge──▶ release
-                   │                  │
-                   ▼                  ▼
-              Build & Test      Build, Test, Publish
-```
+Two separate workflows handle CI and publishing:
 
-| Branch | Purpose | CI Actions |
-| ------ | ------- | ---------- |
-| `feature/*` | Development work | - |
-| `main` | Integration branch, always releasable | Build, test, smoke test |
-| `release` | Triggers NuGet publishing | Build, test, smoke test, publish, GitHub release |
+| Workflow | Trigger | Purpose |
+| -------- | ------- | ------- |
+| `ci.yml` | Push to main, PRs | Build, test, upload artifacts |
+| `release.yml` | Manual dispatch | Publish to NuGet from a CI run |
 
 ### Artifacts vs Releases
 
@@ -41,18 +35,11 @@ feature/* ──PR──▶ main ──merge──▶ release
 | ------ | ------------------ | -------------- | -------------- |
 | Pull Request | ✓ Downloadable | ✗ | ✗ |
 | Push to `main` | ✓ Downloadable | ✗ | ✗ |
-| Push to `release` | ✓ Downloadable | ✓ Published | ✓ Created |
+| Manual publish | - | ✓ Published | ✓ Created |
 
-**Workflow Artifacts**: Every successful build uploads packages as artifacts. These can be downloaded from the Actions workflow run to test pre-release builds without publishing to NuGet.
+**Workflow Artifacts**: Every successful CI build uploads packages as artifacts. Download from the Actions run to test pre-release builds.
 
-**GitHub Releases**: Only created when changes are pushed to `release`. Includes a version tag (`v0.3.0`) and all packages attached for download.
-
-### Why This Model?
-
-- **Intentional releases**: Publishing only happens when you explicitly merge to `release`, not on every PR
-- **Safe main branch**: All PRs are tested before merge; `main` should always be in a releasable state
-- **Simple workflow**: No tags to manage, no version bumping automation needed
-- **Review opportunity**: The merge to `release` is a deliberate action that can be reviewed
+**GitHub Releases**: Created when you manually trigger the publish workflow.
 
 ## Development Workflow
 
@@ -85,48 +72,30 @@ feature/* ──PR──▶ main ──merge──▶ release
 
 When a PR is opened against `main`, GitHub Actions runs:
 
-1. **Build**: Compile the pointer package and all RID-specific variants
-2. **Unit Tests**: Run xUnit tests
-3. **Smoke Tests**: Install the tool from built packages on each platform and verify core commands work
+1. **Markdownlint**: Lint markdown files (if docs changed)
+2. **Build**: Compile the pointer package and all RID-specific variants
+3. **Unit Tests**: Run xUnit tests
+4. **Smoke Tests**: Install the tool from built packages on each platform and verify core commands work
 
 All checks must pass before the PR can be merged.
 
 ## Release Process
 
-### Preparing a Release
-
-1. Ensure `main` has all the changes you want to release
-2. Update the version in `src/dotnet-inspect/dotnet-inspect.csproj`:
-
-   ```xml
-   <VersionPrefix>0.3.0</VersionPrefix>
-   ```
-
-3. Commit and push to `main` (via PR or direct if you have access)
-
 ### Publishing a Release
 
-Merge `main` into `release`:
+1. Find the CI workflow run you want to publish (from Actions tab)
+2. Copy the run ID from the URL (e.g., `21724718480`)
+3. Go to Actions → Publish → Run workflow
+4. Enter the run ID and type "publish" to confirm
+5. The workflow publishes to NuGet and creates a GitHub Release
 
-```bash
-git checkout release
-git pull origin release
-git merge main
-git push origin release
-```
+### What Happens on Publish
 
-Or create a PR from `main` to `release` for additional review.
-
-### What Happens on Release
-
-When changes are pushed to the `release` branch:
-
-1. **Build** all packages on their respective platforms
-2. **Run smoke tests** on each platform
-3. **Publish to NuGet**:
+1. **Download packages** from the specified CI run
+2. **Publish to NuGet**:
    - RID-specific packages first (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, any)
    - Pointer package last (must be published after RID packages are available)
-4. **Create GitHub Release** with version tag and attached packages
+3. **Create GitHub Release** with version tag and attached packages
 
 ### Publishing Order
 
@@ -161,7 +130,7 @@ The version is defined in `src/dotnet-inspect/dotnet-inspect.csproj`:
 <VersionPrefix>0.3.0</VersionPrefix>
 ```
 
-Update this before merging to `release`. The GitHub Release will automatically be tagged with `v{version}`.
+Update this before publishing a new release.
 
 ## Local Development
 
@@ -231,7 +200,7 @@ You can add protection rules to the `nuget-publish` environment:
 
 1. Go to Settings → Environments → nuget-publish
 2. Add required reviewers for manual approval before publishing
-3. Add deployment branch rules to restrict to `release` branch
+3. Limit to specific users who can trigger the publish workflow
 
 ## Troubleshooting
 
