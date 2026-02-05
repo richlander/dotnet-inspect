@@ -515,7 +515,7 @@ public class ExtensionsCommand
         var byClass = results.GroupBy(r => r.ExtensionClass).ToList();
 
         Console.WriteLine("| Method | Class | Assembly | Source |");
-        Console.WriteLine("|--------|-------|----------|--------|");
+        Console.WriteLine("| --- | --- | --- | --- |");
 
         foreach (var classGroup in byClass)
         {

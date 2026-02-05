@@ -30,7 +30,7 @@ dotnet-inspect api --platform System.Runtime --filter "*Exception*"
 
 ## Expected Output
 
-```
+```text
 # System.Runtime
 
 **Types:** 94  

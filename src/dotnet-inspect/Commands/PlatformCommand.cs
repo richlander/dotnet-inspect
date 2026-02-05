@@ -67,7 +67,7 @@ public class PlatformCommand
         sb.AppendLine($"**Packs Directory:** {packsDir}");
         sb.AppendLine();
         sb.AppendLine("| Framework | Version | Assemblies |");
-        sb.AppendLine("|-----------|---------|------------|");
+        sb.AppendLine("| --- | --- | --- |");
 
         foreach (var framework in frameworks)
         {
@@ -203,12 +203,12 @@ public class PlatformCommand
             if (options.IncludeTypes)
             {
                 sb.AppendLine("| Assembly | Types |");
-                sb.AppendLine("|----------|-------|");
+                sb.AppendLine("| --- | --- |");
             }
             else
             {
                 sb.AppendLine("| Assembly |");
-                sb.AppendLine("|----------|");
+                sb.AppendLine("| --- |");
             }
 
             var displayAssemblies = assemblies.AsEnumerable();

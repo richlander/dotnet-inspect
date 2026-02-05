@@ -7,7 +7,7 @@ This document describes how dotnet-inspect resolves and uses platform assemblies
 The .NET SDK installs assemblies in two distinct locations:
 
 | Location | Path Pattern | Purpose | Debug Info |
-|----------|--------------|---------|------------|
+| -------- | ------------ | ------- | ---------- |
 | **Packs** (ref) | `packs/Microsoft.NETCore.App.Ref/{version}/ref/net{x}/` | Compilation reference assemblies | ❌ None |
 | **Shared** (runtime) | `shared/Microsoft.NETCore.App/{version}/` | Runtime implementation assemblies | ✅ CodeView entries |
 
@@ -18,12 +18,14 @@ The .NET SDK installs assemblies in two distinct locations:
 **Use for:** API extraction, type enumeration, public surface analysis
 
 Reference assemblies contain only public API metadata. They are:
+
 - Smaller than runtime assemblies
 - Contain all public types and signatures
 - **Do not contain** implementation code, private members, or debug information
 - Located in: `/usr/local/share/dotnet/packs/` (macOS/Linux) or `C:\Program Files\dotnet\packs\` (Windows)
 
 Commands that use ref assemblies for primary data:
+
 - `api` - Extracting public API surface
 - `type` - Displaying type structure
 - `find` - Searching for types
@@ -34,12 +36,14 @@ Commands that use ref assemblies for primary data:
 **Use for:** PDB/SourceLink resolution, full assembly inspection
 
 Runtime assemblies are the actual implementation. They:
+
 - Contain CodeView debug directory entries (GUID/age for symbol lookup)
 - Are JIT-compiled or ReadyToRun
 - Enable MSDL symbol server lookups
 - Located in: `/usr/local/share/dotnet/shared/` (macOS/Linux) or `C:\Program Files\dotnet\shared\` (Windows)
 
 Commands that use runtime assemblies:
+
 - `assembly` - Full assembly inspection (always uses runtime for `--platform`)
 - Any command with `--audit` flag
 - PDB/SourceLink resolution for `--docs`, `--samples`, or source URL extraction
@@ -53,7 +57,7 @@ For commands that need both API information and source resolution (like `api` wi
 3. Use ref assembly path for type/method discovery
 4. Use runtime assembly path for symbol server queries
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        api --platform                           │
 ├─────────────────────────────────────────────────────────────────┤
@@ -77,7 +81,7 @@ Reference assemblies are **metadata-only** assemblies designed for compilation. 
 
 The MSDL symbol server uses **CodeView debug information** embedded in the PE file to construct download URLs:
 
-```
+```text
 https://msdl.microsoft.com/download/symbols/{pdbname}/{guid}FFFFFFFF/{pdbname}
 ```
 
@@ -86,7 +90,7 @@ The GUID comes from the CodeView entry in the debug directory. Without it, there
 ## Framework Mappings
 
 | Short Name | Ref Pack | Runtime Shared |
-|------------|----------|----------------|
+| ---------- | -------- | -------------- |
 | `runtime` | `Microsoft.NETCore.App.Ref` | `Microsoft.NETCore.App` |
 | `aspnetcore` | `Microsoft.AspNetCore.App.Ref` | `Microsoft.AspNetCore.App` |
 | `netstandard` | `NETStandard.Library.Ref` | *(none - ref only)* |
@@ -96,7 +100,7 @@ Note: `netstandard` has no runtime assemblies. It's a reference-only framework t
 ## Command Behavior Summary
 
 | Command | Primary Source | PDB Source | Notes |
-|---------|---------------|------------|-------|
+| ------- | -------------- | ---------- | ----- |
 | `api --platform` | Ref | Runtime | Hybrid: API from ref, PDB from runtime |
 | `type --platform` | Ref | Runtime | Hybrid: structure from ref, source from runtime |
 | `samples --platform` | Ref | Runtime | Hybrid: type lookup from ref, samples from PDB |
@@ -140,6 +144,7 @@ dotnet-inspect api --platform Microsoft.AspNetCore.Mvc --framework aspnetcore
 ```
 
 The resolver:
+
 1. Parses `framework@version` syntax
 2. Lists installed versions (sorted descending)
 3. Matches requested version prefix or uses latest
@@ -150,6 +155,7 @@ The resolver:
 ### "No readable PDB found" Warning
 
 This usually means the code is trying to use a **ref assembly** for PDB lookup. Check that:
+
 1. Runtime assembly is being resolved for PDB operations
 2. The assembly exists in `shared/` directory
 3. MSDL symbol server is accessible
@@ -157,6 +163,7 @@ This usually means the code is trying to use a **ref assembly** for PDB lookup. 
 ### "Assembly not found in framework"
 
 The assembly may only exist in a specific framework:
+
 - BCL types → `runtime`
 - ASP.NET types → `aspnetcore`
 - .NET Standard facades → `netstandard`

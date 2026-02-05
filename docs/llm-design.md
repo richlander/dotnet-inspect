@@ -78,7 +78,7 @@ Context windows are expensive. dotnet-inspect provides multiple mechanisms to co
 The `-v` flag controls output density:
 
 | Flag | Content | Use Case |
-|------|---------|----------|
+| ---- | ------- | -------- |
 | `-v:q` | Title + compact line only | Quick lookups, tight budgets |
 | `-v:m` | + description | Default, balanced output |
 | `-v:n` | + metadata table | More detail needed |
@@ -86,7 +86,7 @@ The `-v` flag controls output density:
 
 The compact line packs essential metadata into a single line:
 
-```
+```text
 Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 ```
 
@@ -113,7 +113,8 @@ dotnet-inspect api JsonSerializer --package System.Text.Json --signatures-only
 ```
 
 Output:
-```
+
+```text
 static JsonDocument Parse(string json, JsonDocumentOptions options)
 static JsonDocument Parse(ReadOnlySpan<byte> utf8Json, JsonDocumentOptions options)
 ...
@@ -127,7 +128,7 @@ LLMs generating code need complete, accurate information. dotnet-inspect priorit
 
 Type names alone aren't enough. LLMs need parameter names to generate correct calls:
 
-```
+```text
 # Bad: Serialize(Object, Type, JsonSerializerOptions)
 # Good: Serialize(object value, Type inputType, JsonSerializerOptions options)
 ```
@@ -155,7 +156,7 @@ LLMs need to know how to use tools. dotnet-inspect provides two layers of docume
 ### SKILL.md vs llmstxt
 
 | Aspect | SKILL.md | llmstxt |
-|--------|----------|---------|
+| ------ | -------- | ------- |
 | **When loaded** | Automatically, on skill activation | On-demand, when LLM runs the command |
 | **Token cost** | Always paid | Only when needed |
 | **Goal** | Get productive in 30 seconds | Complete reference |
@@ -195,7 +196,7 @@ This means SKILL.md must be self-sufficient for the 80% case. If an LLM never ru
 SKILL.md lives in `skills/dotnet-inspect/SKILL.md` and should be identical across repositories where the skill is published. The skill is maintained in two places:
 
 | Repository | Purpose |
-|------------|---------|
+| ---------- | ------- |
 | `dotnet-inspect` | Source repository, local development |
 | `dotnet-skills` | Marketplace distribution |
 
@@ -264,7 +265,7 @@ The `--compact` flag produces minified JSON with null and false values omitted, 
 ## Comparison with Traditional Tools
 
 | Aspect | Traditional CLI | dotnet-inspect |
-|--------|-----------------|----------------|
+| ------ | --------------- | -------------- |
 | Output format | Prose, colors | Markdown tables, JSON |
 | Verbosity | One size fits all | Four levels + section filtering |
 | Signatures | Abbreviated | Full with parameter names |

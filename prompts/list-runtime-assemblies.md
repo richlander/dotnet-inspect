@@ -39,7 +39,7 @@ dotnet-inspect platform --framework aspnetcore
 
 ## Expected Output
 
-```
+```text
 ## runtime (10.0.1)
 
 | Assembly |

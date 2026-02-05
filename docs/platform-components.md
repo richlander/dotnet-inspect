@@ -10,6 +10,7 @@ Some types exist in **two places**:
 2. **Platform assemblies** - Installed with the .NET SDK in `packs/` directory
 
 For example, `JsonSerializer` ships in both:
+
 - The `System.Text.Json` NuGet package
 - The .NET runtime (as part of the SDK)
 
@@ -24,7 +25,7 @@ dnx dotnet-inspect -y -- find JsonSerializer --framework runtime --package Syste
 
 Output:
 
-```
+```text
 # Find: JsonSerializer
 
 **Matches:** 2
@@ -46,6 +47,7 @@ dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json
 ```
 
 **Advantages:**
+
 - Has SourceLink and embedded PDBs
 - Supports `--docs` to show XML documentation from source
 - Supports `--samples` to find code sample references
@@ -58,11 +60,13 @@ dnx dotnet-inspect -y -- api JsonSerializer --platform System.Text.Json
 ```
 
 **Advantages:**
+
 - No download required (uses local SDK)
 - Faster for quick lookups
 - Shows what's actually installed
 
 **Current limitations:**
+
 - Reference assemblies lack PDBs, so no SourceLink
 - `--docs` and `--samples` require source access via SourceLink
 
@@ -82,7 +86,7 @@ This retrieves the `///` XML doc comments directly from the source repository.
 
 Platform assemblies in the `packs/` directory include XML documentation files alongside the DLLs:
 
-```
+```text
 /usr/lib/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.1/ref/net10.0/
 ├── System.Text.Json.dll
 ├── System.Text.Json.xml    ← XML docs available here
@@ -104,7 +108,7 @@ dnx dotnet-inspect -y -- api JsonSerializer --platform System.Text.Json --use-lo
 ```
 
 | Option | Behavior |
-|--------|----------|
+| ------ | -------- |
 | `--docs` | Try MSDL/SourceLink first, fall back to XML |
 | `--use-local-docs` | Use XML docs directly (faster, works offline, implies --docs) |
 
@@ -137,7 +141,7 @@ The versions may differ - the SDK ships with a specific version, while nuget.org
 Platform assemblies are organized by framework:
 
 | Short Name | Framework Pack | Contents |
-|------------|---------------|----------|
+| ---------- | -------------- | -------- |
 | `runtime` | Microsoft.NETCore.App.Ref | Core runtime (BCL) |
 | `aspnetcore` | Microsoft.AspNetCore.App.Ref | ASP.NET Core |
 | `netstandard` | NETStandard.Library.Ref | .NET Standard |
@@ -155,7 +159,7 @@ dnx dotnet-inspect -y -- find "*Controller*" --framework aspnetcore
 ## When to Use Each
 
 | Scenario | Use |
-|----------|-----|
+| -------- | --- |
 | Quick API lookup | `--platform` |
 | Need documentation | `--platform --docs` or `--package --docs` |
 | Need source URLs | `--package` |

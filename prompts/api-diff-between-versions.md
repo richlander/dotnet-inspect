@@ -26,7 +26,7 @@ dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 
 ## Expected Output
 
-```
+```text
 ## API Diff: JsonSerializer
 
 **9.0.0** → **10.0.0**

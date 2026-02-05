@@ -13,12 +13,13 @@ dotnet tool install -g dotnet-inspect
 Use `System.Text.Json` versions to explore different scenarios:
 
 | Version | Scenario |
-|---------|----------|
+| ------- | -------- |
 | 10.0.2 | Latest, multi-targeting (net462, net8.0, net9.0, net10.0, netstandard2.0) |
 | 8.0.4 | Vulnerable (CVE-2024-43485) |
 | 5.0.0 | Deprecated |
 
 Other useful test packages:
+
 - `dotnet-ef` - Tool package with commands
 - `Azure.Mcp` - RID-specific tool (shows RID Packages section)
 - `Microsoft.Data.SqlClient` - Library with native runtimes
@@ -90,7 +91,8 @@ dotnet-inspect platform --framework runtime        # List runtime assemblies
 **Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed)
 
 Each level includes a **compact summary line** with key metadata:
-```
+
+```text
 Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 ```
 

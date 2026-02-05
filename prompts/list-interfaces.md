@@ -1,6 +1,6 @@
-# Prompt: List<T> Interfaces
+# List\<T\> Interfaces
 
-Which interfaces does List<T> implement?
+Which interfaces does List\<T\> implement?
 
 ## Optimal Path (Expert, Markdown)
 
@@ -16,7 +16,7 @@ dotnet-inspect api "List<T>" --platform System.Collections --json | jq '.interfa
 
 ## Discovery Path (Learning)
 
-Doesn't know where List<T> lives, uses find to discover:
+Doesn't know where List\<T\> lives, uses find to discover:
 
 ```bash
 # Step 1: Find where List<T> is defined
@@ -33,13 +33,13 @@ dotnet-inspect api "List<T>" --platform System.Collections --json | jq '.interfa
 
 ## Expected Output
 
-Should show: IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>, IReadOnlyCollection<T>, IList, ICollection, IEnumerable
+Should show: IList\<T\>, ICollection\<T\>, IEnumerable\<T\>, IReadOnlyList\<T\>, IReadOnlyCollection\<T\>, IList, ICollection, IEnumerable
 
 ## Key Learnings
 
 - Use `find` when you don't know which assembly contains a type
 - Use C# generic syntax: `List<T>`, `Dictionary<TKey, TValue>` (tool converts to metadata format)
-- List<T> is in `System.Collections` assembly (not System.Collections.Generic package)
+- List\<T\> is in `System.Collections` assembly (not System.Collections.Generic package)
 - Use `--platform` for SDK assemblies (no download needed)
 - Use `--interfaces` flag or `--json` to see interface information
 - The `type` command shows interfaces by default in tree view

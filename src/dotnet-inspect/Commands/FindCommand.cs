@@ -650,7 +650,7 @@ public class FindCommand
             else
             {
                 sb.AppendLine("| Type | Namespace | Kind | Assembly | Source |");
-                sb.AppendLine("|------|-----------|------|----------|--------|");
+                sb.AppendLine("| --- | --- | --- | --- | --- |");
 
                 foreach (var result in results)
                 {
@@ -760,7 +760,7 @@ public class FindCommand
         else
         {
             sb.AppendLine("| Type | Namespace | Kind | Assembly | Source |");
-            sb.AppendLine("|------|-----------|------|----------|--------|");
+            sb.AppendLine("| --- | --- | --- | --- | --- |");
 
             foreach (var result in results)
             {

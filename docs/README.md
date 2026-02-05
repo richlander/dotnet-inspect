@@ -3,6 +3,7 @@
 dotnet-inspect is a CLI tool for exploring .NET assemblies and NuGet packages. It's designed for both humans and LLMs—the structured markdown output is easy to read and easy to parse.
 
 The tool answers questions like:
+
 - What methods does `JsonSerializer` have?
 - What changed between v9 and v10 of a package?
 - Where does this type come from?
@@ -35,7 +36,7 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 ### Using the Tool
 
 | Document | Description |
-|----------|-------------|
+| -------- | ----------- |
 | [Architecture](architecture.md) | Tool overview, commands, and design philosophy |
 | [LLM Design](llm-design.md) | Why output is structured for AI-assisted development |
 | [Platform Components](platform-components.md) | Accessing SDK assemblies vs NuGet packages |
@@ -46,7 +47,7 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 ### For Contributors
 
 | Document | Description |
-|----------|-------------|
+| -------- | ----------- |
 | [Style Guide](design/style-guide.md) | Output formatting conventions |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool |
 

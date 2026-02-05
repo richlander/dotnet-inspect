@@ -98,7 +98,7 @@ public static class OutputFormatter
             sb.AppendLine("## Assembly Info");
             sb.AppendLine();
             sb.AppendLine("| Property | Value |");
-            sb.AppendLine("|----------|-------|");
+            sb.AppendLine("| --- | --- |");
 
             if (!string.IsNullOrEmpty(info.AssemblyName))
                 sb.AppendLine($"| Name | {info.AssemblyName} |");
@@ -150,7 +150,7 @@ public static class OutputFormatter
             // Show the checkmark table
             sb.AppendLine();
             sb.AppendLine("| Check | Status |");
-            sb.AppendLine("|-------|--------|");
+            sb.AppendLine("| --- | --- |");
             sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
             sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
             sb.AppendLine($"| SourceLink | {audit.SourceLinkStatus} |");
@@ -177,7 +177,7 @@ public static class OutputFormatter
             sb.AppendLine("## PDB");
             sb.AppendLine();
             sb.AppendLine("| Property | Value |");
-            sb.AppendLine("|----------|-------|");
+            sb.AppendLine("| --- | --- |");
             sb.AppendLine($"| Format | {audit.PdbFormat ?? "Unknown"} |");
             sb.AppendLine($"| Location | {audit.PdbLocation ?? "Unknown"} |");
             if (!string.IsNullOrEmpty(audit.SymbolServer))

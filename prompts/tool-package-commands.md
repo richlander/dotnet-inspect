@@ -33,13 +33,15 @@ dotnet-inspect dotnet-ef -v:d
 ## Expected Output
 
 The Metadata table includes:
-```
+
+```text
 | Tool Commands | dotnet-ef |
 | Framework Dependent | yes |
 ```
 
 And the Files section shows:
-```
+
+```text
 - tools/net8.0/any/dotnet-ef.dll
 ```
 
