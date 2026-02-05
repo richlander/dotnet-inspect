@@ -3,7 +3,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for the extensions command.
 /// </summary>
-public record ExtensionsOptions
+public record ExtensionsOptions : IAssemblySourceOptions
 {
     /// <summary>
     /// Target type to find extensions for (e.g., "HttpClient", "IEnumerable&lt;T&gt;").

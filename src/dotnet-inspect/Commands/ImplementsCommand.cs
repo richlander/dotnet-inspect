@@ -29,21 +29,20 @@ public class ImplementsCommand
             }
 
             var results = new List<ImplementerResult>();
-            var assemblyPaths = new List<(string path, string source, string? version)>();
 
             // Collect all assembly paths from various sources
-            await CollectAssemblyPathsAsync(options, assemblyPaths, tempDirs, logger);
+            var assemblyInfos = await AssemblyCollector.CollectAsync(options, tempDirs, logger, "inspect-impl");
 
-            logger.Log($"Scanning {assemblyPaths.Count} assemblies for types implementing {targetType}");
+            logger.Log($"Scanning {assemblyInfos.Count} assemblies for types implementing {targetType}");
 
             // Scan assemblies for implementers
-            foreach (var (asmPath, source, version) in assemblyPaths)
+            foreach (var asmInfo in assemblyInfos)
             {
-                var implementers = ScanForImplementers(asmPath, targetType, options.IncludeAll, logger);
+                var implementers = ScanForImplementers(asmInfo.Path, targetType, options.IncludeAll, logger);
                 foreach (var impl in implementers)
                 {
-                    impl.Source = source;
-                    impl.SourceVersion = version;
+                    impl.Source = asmInfo.Source;
+                    impl.SourceVersion = asmInfo.Version;
                 }
                 results.AddRange(implementers);
             }
@@ -74,82 +73,7 @@ public class ImplementsCommand
         }
         finally
         {
-            CleanupTempDirs(tempDirs);
-        }
-    }
-
-    private static async Task CollectAssemblyPathsAsync(
-        ImplementsOptions options,
-        List<(string path, string source, string? version)> assemblyPaths,
-        List<string> tempDirs,
-        VerboseLogger logger)
-    {
-        // 1. Packages
-        foreach (var pkg in options.Packages)
-        {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-impl");
-            if (extracted == null)
-            {
-                Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
-                continue;
-            }
-
-            if (extracted.TempDir != null) tempDirs.Add(extracted.TempDir);
-
-            // Use TfmResolver to select TFM (specific or auto-select highest)
-            var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, options.Tfm) 
-                ?? extracted.ExtractPath;
-
-            // Find all DLLs in the resolved path
-            var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-                .Where(p => !p.Contains("/runtimes/") && !p.Contains("\\runtimes\\"));
-
-            foreach (var dll in dlls)
-            {
-                assemblyPaths.Add((dll, extracted.PackageName ?? pkg, extracted.Version));
-            }
-        }
-
-        // 2. Direct assemblies
-        foreach (var asmPath in options.Assemblies)
-        {
-            if (!File.Exists(asmPath))
-            {
-                Console.Error.WriteLine($"Warning: Assembly not found '{asmPath}', skipping.");
-                continue;
-            }
-            assemblyPaths.Add((asmPath, Path.GetFileName(asmPath), null));
-        }
-
-        // 3. Platform assemblies
-        foreach (var platformAsm in options.PlatformAssemblies)
-        {
-            var (assemblyPath, version, resolvedFramework, error) = PlatformResolver.ResolveAssembly(platformAsm);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-            assemblyPaths.Add((assemblyPath!, resolvedFramework ?? "platform", version));
-        }
-
-        // 4. Platform frameworks
-        foreach (var framework in options.PlatformFrameworks)
-        {
-            var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-
-            var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            logger.Log($"Scanning {frameworkAssemblies.Count} assemblies in {framework}@{resolvedVersion}");
-
-            foreach (var asmInfo in frameworkAssemblies)
-            {
-                assemblyPaths.Add((asmInfo.Path, framework, resolvedVersion));
-            }
+            AssemblyCollector.CleanupTempDirs(tempDirs);
         }
     }
 
@@ -233,14 +157,6 @@ public class ImplementsCommand
             }
 
             Console.WriteLine();
-        }
-    }
-
-    private static void CleanupTempDirs(List<string> tempDirs)
-    {
-        foreach (var dir in tempDirs)
-        {
-            try { Directory.Delete(dir, true); } catch { }
         }
     }
 }

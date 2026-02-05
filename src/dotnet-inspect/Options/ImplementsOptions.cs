@@ -3,7 +3,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for the implements command.
 /// </summary>
-public record ImplementsOptions
+public record ImplementsOptions : IAssemblySourceOptions
 {
     /// <summary>
     /// Target interface or base type to find implementers for.

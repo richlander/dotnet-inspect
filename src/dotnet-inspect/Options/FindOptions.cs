@@ -3,7 +3,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for the find command.
 /// </summary>
-public record FindOptions
+public record FindOptions : IAssemblySourceOptions
 {
     /// <summary>
     /// Packages to search (name or name@version). Can specify multiple.

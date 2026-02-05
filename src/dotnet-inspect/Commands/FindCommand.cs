@@ -41,7 +41,7 @@ public class FindCommand
         }
         finally
         {
-            CleanupTempDirs(tempDirs);
+            AssemblyCollector.CleanupTempDirs(tempDirs);
         }
     }
 
@@ -331,17 +331,6 @@ public class FindCommand
             }
 
             return 0;
-    }
-
-    private static void CleanupTempDirs(List<string> tempDirs)
-    {
-        foreach (var tempDir in tempDirs)
-        {
-            if (Directory.Exists(tempDir))
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
-        }
     }
 
     private static async Task<List<TypeSearchResult>> CollectAllTypesAsync(FindOptions options, VerboseLogger logger, List<string> tempDirs)

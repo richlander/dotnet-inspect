@@ -32,19 +32,18 @@ public class ExtensionsCommand
             }
 
             var results = new List<ExtensionMethodResult>();
-            var assemblyPaths = new List<(string path, string source, string? version)>();
 
             // Collect all assembly paths from various sources
-            await CollectAssemblyPathsAsync(options, assemblyPaths, tempDirs, logger);
+            var assemblyInfos = await AssemblyCollector.CollectAsync(options, tempDirs, logger, "inspect-ext");
 
             // Scan assemblies for extension methods
-            foreach (var (asmPath, source, version) in assemblyPaths)
+            foreach (var asmInfo in assemblyInfos)
             {
-                var extensions = ScanForExtensions(asmPath, targetType, options.IncludeAll, logger);
+                var extensions = ScanForExtensions(asmInfo.Path, targetType, options.IncludeAll, logger);
                 foreach (var ext in extensions)
                 {
-                    ext.Source = source;
-                    ext.SourceVersion = version;
+                    ext.Source = asmInfo.Source;
+                    ext.SourceVersion = asmInfo.Version;
                 }
                 results.AddRange(extensions);
             }
@@ -52,18 +51,18 @@ public class ExtensionsCommand
             // If --reachable, find extensions on reachable types
             if (options.Reachable && results.Count > 0)
             {
-                var reachableTypes = FindReachableTypes(targetType, assemblyPaths, options.Depth, logger);
+                var reachableTypes = FindReachableTypes(targetType, assemblyInfos, options.Depth, logger);
                 foreach (var (reachableType, path) in reachableTypes)
                 {
                     if (reachableType == targetType) continue;
                     
-                    foreach (var (asmPath, source, version) in assemblyPaths)
+                    foreach (var asmInfo in assemblyInfos)
                     {
-                        var extensions = ScanForExtensions(asmPath, reachableType, options.IncludeAll, logger);
+                        var extensions = ScanForExtensions(asmInfo.Path, reachableType, options.IncludeAll, logger);
                         foreach (var ext in extensions)
                         {
-                            ext.Source = source;
-                            ext.SourceVersion = version;
+                            ext.Source = asmInfo.Source;
+                            ext.SourceVersion = asmInfo.Version;
                             ext.ReachablePath = path;
                             ext.ReachableFromType = reachableType;
                         }
@@ -92,82 +91,7 @@ public class ExtensionsCommand
         }
         finally
         {
-            CleanupTempDirs(tempDirs);
-        }
-    }
-
-    private static async Task CollectAssemblyPathsAsync(
-        ExtensionsOptions options,
-        List<(string path, string source, string? version)> assemblyPaths,
-        List<string> tempDirs,
-        VerboseLogger logger)
-    {
-        // 1. Packages
-        foreach (var pkg in options.Packages)
-        {
-            var extracted = await PackageExtractor.ExtractPackageAsync(pkg, logger.Log, "inspect-ext");
-            if (extracted == null)
-            {
-                Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
-                continue;
-            }
-
-            if (extracted.TempDir != null) tempDirs.Add(extracted.TempDir);
-
-            // Use TfmResolver to select TFM (specific or auto-select highest)
-            var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, options.Tfm) 
-                ?? extracted.ExtractPath;
-
-            // Find all DLLs in the resolved path
-            var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-                .Where(p => !p.Contains("/runtimes/") && !p.Contains("\\runtimes\\"));
-            
-            foreach (var dll in dlls)
-            {
-                assemblyPaths.Add((dll, extracted.PackageName ?? pkg, extracted.Version));
-            }
-        }
-
-        // 2. Direct assemblies
-        foreach (var asmPath in options.Assemblies)
-        {
-            if (!File.Exists(asmPath))
-            {
-                Console.Error.WriteLine($"Warning: Assembly not found '{asmPath}', skipping.");
-                continue;
-            }
-            assemblyPaths.Add((asmPath, Path.GetFileName(asmPath), null));
-        }
-
-        // 3. Platform assemblies
-        foreach (var platformAsm in options.PlatformAssemblies)
-        {
-            var (assemblyPath, version, resolvedFramework, error) = PlatformResolver.ResolveAssembly(platformAsm);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-            assemblyPaths.Add((assemblyPath!, resolvedFramework ?? "platform", version));
-        }
-
-        // 4. Platform frameworks
-        foreach (var framework in options.PlatformFrameworks)
-        {
-            var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-
-            var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            logger.Log($"Scanning {frameworkAssemblies.Count} assemblies in {framework}@{resolvedVersion}");
-
-            foreach (var asmInfo in frameworkAssemblies)
-            {
-                assemblyPaths.Add((asmInfo.Path, framework, resolvedVersion));
-            }
+            AssemblyCollector.CleanupTempDirs(tempDirs);
         }
     }
 
@@ -247,7 +171,7 @@ public class ExtensionsCommand
 
     private static List<(string type, string path)> FindReachableTypes(
         string targetType,
-        List<(string path, string source, string? version)> assemblyPaths,
+        List<AssemblyCollector.AssemblyInfo> assemblyPaths,
         int maxDepth,
         VerboseLogger logger)
     {
@@ -265,11 +189,11 @@ public class ExtensionsCommand
             if (remainingDepth <= 0) continue;
 
             // Find this type in any assembly
-            foreach (var (asmPath, _, _) in assemblyPaths)
+            foreach (var asmInfo in assemblyPaths)
             {
                 try
                 {
-                    using var stream = File.OpenRead(asmPath);
+                    using var stream = File.OpenRead(asmInfo.Path);
                     using var peReader = new PEReader(stream);
                     if (!peReader.HasMetadata) continue;
                     
@@ -466,14 +390,6 @@ public class ExtensionsCommand
                     : ext.Source;
                 Console.WriteLine($"| {ext.MethodName} | {ext.ExtensionClass} | {ext.Assembly} | {sourceDisplay} |");
             }
-        }
-    }
-
-    private static void CleanupTempDirs(List<string> tempDirs)
-    {
-        foreach (var dir in tempDirs)
-        {
-            try { Directory.Delete(dir, true); } catch { }
         }
     }
 }
