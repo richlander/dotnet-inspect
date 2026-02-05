@@ -9,6 +9,7 @@ dotnet-inspect api --platform <assembly>     # API from installed SDK
 dotnet-inspect platform                      # List installed frameworks
 dotnet-inspect find <pattern>                # Search types in runtime
 dotnet-inspect extensions <type>             # Find extension methods
+dotnet-inspect implements <type>             # Find implementing types
 dotnet-inspect assembly path/to/file.dll     # Local assembly
 dotnet-inspect diff <type> --package         # Version comparison
 ```
@@ -148,6 +149,30 @@ The `--reachable` flag finds extensions on types accessible via properties and m
 | `--reachable` | Include extensions on types reachable via members |
 | `--depth N` | Max depth for reachable traversal (default: 2) |
 | `-n` | Limit results |
+
+### implements
+
+Find types that implement an interface or extend a base class.
+
+```bash
+dotnet-inspect implements IDisposable --framework runtime        # Interface implementers
+dotnet-inspect implements Stream --framework runtime             # Class subclasses
+dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json  # In package
+dotnet-inspect implements IEnumerable --framework runtime -n 20  # Limit results
+dotnet-inspect implements IDisposable --framework runtime --json # JSON output
+```
+
+| Scope | Description |
+|-------|-------------|
+| `--framework` | Search framework assemblies (runtime, aspnetcore) |
+| `--package` | Search NuGet package |
+| `--assembly` | Search local assembly |
+| `--platform` | Search specific platform assembly |
+
+| Option | Description |
+|--------|-------------|
+| `-n` | Limit results |
+| `--all` | Include hidden/obsolete types |
 
 ### type
 
@@ -306,14 +331,20 @@ dotnet-inspect extensions HttpClient --framework runtime
 dotnet-inspect extensions HttpClient --framework runtime --reachable  # Include .Content extensions
 ```
 
+**To find types implementing an interface:**
+```bash
+dotnet-inspect implements IDisposable --framework runtime
+dotnet-inspect implements Stream --framework runtime  # Find subclasses
+```
+
 ### Flag Compatibility Matrix
 
-| Flag | api | type | find | extensions | diff |
-|------|-----|------|------|------------|------|
-| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `--platform` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `--assembly` | ✓ | ✓ | ✓ | ✓ | |
-| `--framework` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Flag | api | type | find | extensions | implements | diff |
+|------|-----|------|------|------------|------------|------|
+| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--platform` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--assembly` | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| `--framework` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### Common Assembly Names
 

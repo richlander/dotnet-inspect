@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -72,6 +72,10 @@ public static class CommandLineBuilder
         // Find command
         var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, limitOption);
         rootCommand.Subcommands.Add(findCommand);
+
+        // Implements command
+        var implementsCommand = CreateImplementsCommand(jsonOption, verboseOption, verbosityOption, limitOption);
+        rootCommand.Subcommands.Add(implementsCommand);
 
         // Package command
         var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption);
@@ -527,6 +531,80 @@ public static class CommandLineBuilder
         });
 
         return platformCommand;
+    }
+
+    private static Command CreateImplementsCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<int?> limitOption)
+    {
+        var implCommand = new Command("implements", "Find types implementing an interface or extending a base class");
+
+        var targetTypeArg = new Argument<string>("type")
+        {
+            Description = "Target interface or base type (e.g., IDisposable, Stream, IList<T>)"
+        };
+
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description = "Search in package(s) (name or name@version). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var assemblyOption = new Option<string[]>("--assembly")
+        {
+            Description = "Search in assembly file(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var platformOption = new Option<string[]>("--platform")
+        {
+            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var frameworkOption = new Option<string[]>("--framework")
+        {
+            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete types" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        implCommand.Arguments.Add(targetTypeArg);
+        implCommand.Options.Add(packageOption);
+        implCommand.Options.Add(assemblyOption);
+        implCommand.Options.Add(platformOption);
+        implCommand.Options.Add(frameworkOption);
+        implCommand.Options.Add(tfmOption);
+        implCommand.Options.Add(allOption);
+        implCommand.Options.Add(limitOption);
+        implCommand.Options.Add(jsonOption);
+        implCommand.Options.Add(compactOption);
+        implCommand.Options.Add(verboseOption);
+        implCommand.Options.Add(verbosityOption);
+
+        implCommand.SetAction(async (parseResult, ct) =>
+        {
+            var targetType = parseResult.GetValue(targetTypeArg);
+            var options = new ImplementsOptions
+            {
+                TargetType = targetType!,
+                Packages = parseResult.GetValue(packageOption) ?? [],
+                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
+                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                Tfm = parseResult.GetValue(tfmOption),
+                IncludeAll = parseResult.GetValue(allOption),
+                Limit = parseResult.GetValue(limitOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await ImplementsCommand.ExecuteAsync(targetType!, options);
+        });
+
+        return implCommand;
     }
 
     private static Command CreatePackageCommand(

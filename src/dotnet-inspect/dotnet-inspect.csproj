@@ -50,6 +50,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DotnetInspector.Metadata\DotnetInspector.Metadata.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Markout" Version="0.1.6" />
     <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />

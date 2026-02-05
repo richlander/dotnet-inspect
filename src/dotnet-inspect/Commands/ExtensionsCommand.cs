@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 
@@ -15,8 +16,6 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class ExtensionsCommand
 {
-    private const string ExtensionAttributeName = "System.Runtime.CompilerServices.ExtensionAttribute";
-
     public static async Task<int> ExecuteAsync(string targetType, ExtensionsOptions options)
     {
         var logger = new VerboseLogger(options.Verbose);
@@ -114,14 +113,11 @@ public class ExtensionsCommand
 
             if (extracted.TempDir != null) tempDirs.Add(extracted.TempDir);
 
-            var searchPath = extracted.ExtractPath;
-            if (!string.IsNullOrEmpty(options.Tfm))
-            {
-                var tfmAssembly = ApiCommand.FindAssemblyByTfm(searchPath, options.Tfm);
-                if (tfmAssembly != null) searchPath = tfmAssembly;
-            }
+            // Use TfmResolver to select TFM (specific or auto-select highest)
+            var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, options.Tfm) 
+                ?? extracted.ExtractPath;
 
-            // Find all DLLs in the package
+            // Find all DLLs in the resolved path
             var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
                 .Where(p => !p.Contains("/runtimes/") && !p.Contains("\\runtimes\\"));
             
@@ -181,7 +177,7 @@ public class ExtensionsCommand
         VerboseLogger logger)
     {
         var results = new List<ExtensionMethodResult>();
-        var normalizedTarget = NormalizeTypeName(targetType);
+        var normalizedTarget = TypeMatcher.Normalize(targetType);
 
         try
         {
@@ -204,7 +200,7 @@ public class ExtensionsCommand
                 if (!isStatic) continue;
 
                 // Class must have [Extension] attribute
-                if (!HasExtensionAttribute(reader, typeDef.GetCustomAttributes())) continue;
+                if (!AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())) continue;
 
                 string className = reader.GetString(typeDef.Name);
                 string classNs = reader.GetString(typeDef.Namespace);
@@ -215,17 +211,17 @@ public class ExtensionsCommand
                     var method = reader.GetMethodDefinition(methodHandle);
                     if ((method.Attributes & MethodAttributes.Public) == 0) continue;
                     if ((method.Attributes & MethodAttributes.Static) == 0) continue;
-                    if (!HasExtensionAttribute(reader, method.GetCustomAttributes())) continue;
+                    if (!AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes())) continue;
 
                     // Decode signature to get first parameter type
                     var signature = method.DecodeSignature(provider, null);
                     if (signature.ParameterTypes.Length == 0) continue;
 
                     var extendedType = signature.ParameterTypes[0];
-                    var normalizedExtended = NormalizeTypeName(extendedType);
+                    var normalizedExtended = TypeMatcher.Normalize(extendedType);
 
                     // Match against target
-                    if (MatchesTargetType(normalizedExtended, normalizedTarget))
+                    if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))
                     {
                         string methodName = reader.GetString(method.Name);
                         results.Add(new ExtensionMethodResult
@@ -246,35 +242,6 @@ public class ExtensionsCommand
         }
 
         return results;
-    }
-
-    private static bool MatchesTargetType(string extendedType, string targetType)
-    {
-        // Exact match
-        if (extendedType.Equals(targetType, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // Match without namespace (e.g., "HttpClient" matches "System.Net.Http.HttpClient")
-        if (extendedType.EndsWith("." + targetType, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // Match generic base (e.g., "IEnumerable" matches "IEnumerable`1")
-        var extBase = extendedType.Split('`')[0];
-        var targetBase = targetType.Split('`')[0];
-        if (extBase.Equals(targetBase, StringComparison.OrdinalIgnoreCase) ||
-            extBase.EndsWith("." + targetBase, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return false;
-    }
-
-    private static string NormalizeTypeName(string typeName)
-    {
-        // Remove generic type arguments for matching: IEnumerable<T> → IEnumerable
-        var angleIdx = typeName.IndexOf('<');
-        if (angleIdx > 0) typeName = typeName.Substring(0, angleIdx);
-        
-        return typeName;
     }
 
     private static List<(string type, string path)> FindReachableTypes(
@@ -436,34 +403,6 @@ public class ExtensionsCommand
         }
 
         return $"{signature.ReturnType} {name}({string.Join(", ", parameters)})";
-    }
-
-    private static bool HasExtensionAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-    {
-        foreach (var attrHandle in attributes)
-        {
-            var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == ExtensionAttributeName)
-                return true;
-        }
-        return false;
-    }
-
-    private static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
-    {
-        if (constructorHandle.Kind == HandleKind.MemberReference)
-        {
-            var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
-            if (memberRef.Parent.Kind == HandleKind.TypeReference)
-            {
-                var typeRef = reader.GetTypeReference((TypeReferenceHandle)memberRef.Parent);
-                string ns = reader.GetString(typeRef.Namespace);
-                string name = reader.GetString(typeRef.Name);
-                return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-            }
-        }
-        return null;
     }
 
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
