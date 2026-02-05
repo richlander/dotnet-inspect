@@ -107,7 +107,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(packageCommand);
 
         // Platform command
-        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, limitOption);
+        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption);
         rootCommand.Subcommands.Add(platformCommand);
 
         // Samples command
@@ -571,13 +571,22 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
-        Option<int?> limitOption)
+        Option<int?> limitOption,
+        Option<string?> includeSectionsOption,
+        Option<string?> excludeSectionsOption)
     {
-        var platformCommand = new Command("platform", "List installed frameworks and assemblies");
+        var platformCommand = new Command("platform", "List installed frameworks and assemblies, or inspect a platform assembly");
+
+        var assemblyNameArg = new Argument<string?>("assembly")
+        {
+            Description = "Platform assembly name to inspect (e.g., System.Text.Json)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        assemblyNameArg.DefaultValueFactory = _ => null;
 
         var frameworkOption = new Option<string?>("--framework")
         {
-            Description = "List assemblies for framework (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
+            Description = "Framework to use (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
         };
         var listVersionsOption = new Option<bool>("--list-versions")
         {
@@ -591,18 +600,55 @@ public static class CommandLineBuilder
         {
             Description = "Minified JSON (use with --json)"
         };
+        var auditOption = new Option<bool>("--audit")
+        {
+            Description = "Full provenance verification (SourceLink, determinism)"
+        };
+        var sourcelinkOption = new Option<bool>("--sourcelink")
+        {
+            Description = "Show SourceLink presence and URL (fast, no verification)"
+        };
 
+        platformCommand.Arguments.Add(assemblyNameArg);
         platformCommand.Options.Add(frameworkOption);
         platformCommand.Options.Add(listVersionsOption);
         platformCommand.Options.Add(includeTypesOption);
+        platformCommand.Options.Add(auditOption);
+        platformCommand.Options.Add(sourcelinkOption);
         platformCommand.Options.Add(limitOption);
         platformCommand.Options.Add(jsonOption);
         platformCommand.Options.Add(compactOption);
         platformCommand.Options.Add(verboseOption);
         platformCommand.Options.Add(verbosityOption);
+        platformCommand.Options.Add(includeSectionsOption);
+        platformCommand.Options.Add(excludeSectionsOption);
 
         platformCommand.SetAction(async (parseResult, ct) =>
         {
+            var assemblyName = parseResult.GetValue(assemblyNameArg);
+            bool runAudit = parseResult.GetValue(auditOption);
+            bool showSourcelink = parseResult.GetValue(sourcelinkOption);
+
+            // If an assembly name is specified, delegate to AssemblyCommand
+            if (!string.IsNullOrEmpty(assemblyName))
+            {
+                var assemblyOptions = new AssemblyOptions
+                {
+                    PlatformAssembly = assemblyName,
+                    PlatformFramework = parseResult.GetValue(frameworkOption),
+                    IncludeAudit = runAudit || showSourcelink,
+                    StrictAudit = runAudit,
+                    JsonOutput = parseResult.GetValue(jsonOption),
+                    Verbose = parseResult.GetValue(verboseOption),
+                    Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                    IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
+                    ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                };
+
+                return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
+            }
+
+            // Otherwise, list frameworks/assemblies
             var options = new PlatformOptions
             {
                 Framework = parseResult.GetValue(frameworkOption),
