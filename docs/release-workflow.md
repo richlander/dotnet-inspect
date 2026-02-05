@@ -35,6 +35,18 @@ feature/* ──PR──▶ main ──merge──▶ release
 | `main` | Integration branch, always releasable | Build, test, smoke test |
 | `release` | Triggers NuGet publishing | Build, test, smoke test, publish, GitHub release |
 
+### Artifacts vs Releases
+
+| Source | Workflow Artifacts | NuGet Packages | GitHub Release |
+|--------|-------------------|----------------|----------------|
+| Pull Request | ✓ Downloadable | ✗ | ✗ |
+| Push to `main` | ✓ Downloadable | ✗ | ✗ |
+| Push to `release` | ✓ Downloadable | ✓ Published | ✓ Created |
+
+**Workflow Artifacts**: Every successful build uploads packages as artifacts. These can be downloaded from the Actions workflow run to test pre-release builds without publishing to NuGet.
+
+**GitHub Releases**: Only created when changes are pushed to `release`. Includes a version tag (`v0.3.0`) and all packages attached for download.
+
 ### Why This Model?
 
 - **Intentional releases**: Publishing only happens when you explicitly merge to `release`, not on every PR
