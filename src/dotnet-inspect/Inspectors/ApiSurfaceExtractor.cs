@@ -69,6 +69,9 @@ public static class ApiSurfaceExtractor
 
             apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
 
+            // Check if this is an extension class (static class with [Extension] attribute)
+            bool isExtensionClass = apiType.IsStatic && HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
+
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
 
@@ -167,6 +170,13 @@ public static class ApiSurfaceExtractor
                     Signature = signature,
                     IsUnsafe = HasUnsafeSignature(signature)
                 };
+
+                // Check for extension method
+                if (isExtensionClass && member.IsStatic && HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                {
+                    member.IsExtension = true;
+                    member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                }
 
                 apiType.Members.Add(member);
                 surface.PublicMethodCount++;
@@ -399,6 +409,21 @@ public static class ApiSurfaceExtractor
         return false;
     }
 
+    /// <summary>
+    /// Checks if the member has ExtensionAttribute.
+    /// </summary>
+    private static bool HasExtensionAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            if (attrTypeName == "System.Runtime.CompilerServices.ExtensionAttribute")
+                return true;
+        }
+        return false;
+    }
+
     private static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
     {
         if (constructorHandle.Kind == HandleKind.MemberReference)
@@ -515,6 +540,16 @@ public static class ApiSurfaceExtractor
             accessorStr = "{ get; }"; // Fallback
 
         return $"{signature.ReturnType} {name} {accessorStr}";
+    }
+
+    /// <summary>
+    /// Gets the first parameter type for extension methods.
+    /// </summary>
+    private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    {
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(new SignatureTypeProvider(), context);
+        return signature.ParameterTypes.Length > 0 ? signature.ParameterTypes[0] : null;
     }
 
     /// <summary>

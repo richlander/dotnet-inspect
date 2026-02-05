@@ -14,7 +14,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -64,6 +64,10 @@ public static class CommandLineBuilder
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption, verbosityOption);
         rootCommand.Subcommands.Add(diffCommand);
+
+        // Extensions command
+        var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, limitOption);
+        rootCommand.Subcommands.Add(extensionsCommand);
 
         // Find command
         var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, limitOption);
@@ -232,6 +236,93 @@ public static class CommandLineBuilder
         });
 
         return diffCommand;
+    }
+
+    private static Command CreateExtensionsCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<int?> limitOption)
+    {
+        var extCommand = new Command("extensions", "Find extension methods for a type");
+
+        var targetTypeArg = new Argument<string>("type")
+        {
+            Description = "Target type to find extensions for (e.g., HttpClient, IEnumerable<T>)"
+        };
+
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description = "Search in package(s) (name or name@version). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var assemblyOption = new Option<string[]>("--assembly")
+        {
+            Description = "Search in assembly file(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var platformOption = new Option<string[]>("--platform")
+        {
+            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var frameworkOption = new Option<string[]>("--framework")
+        {
+            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var reachableOption = new Option<bool>("--reachable")
+        {
+            Description = "Include extensions on types reachable via properties/methods"
+        };
+        var depthOption = new Option<int>("--depth")
+        {
+            Description = "Max depth for reachable type traversal (default: 2)",
+            DefaultValueFactory = _ => 2
+        };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        extCommand.Arguments.Add(targetTypeArg);
+        extCommand.Options.Add(packageOption);
+        extCommand.Options.Add(assemblyOption);
+        extCommand.Options.Add(platformOption);
+        extCommand.Options.Add(frameworkOption);
+        extCommand.Options.Add(reachableOption);
+        extCommand.Options.Add(depthOption);
+        extCommand.Options.Add(tfmOption);
+        extCommand.Options.Add(allOption);
+        extCommand.Options.Add(limitOption);
+        extCommand.Options.Add(jsonOption);
+        extCommand.Options.Add(compactOption);
+        extCommand.Options.Add(verboseOption);
+        extCommand.Options.Add(verbosityOption);
+
+        extCommand.SetAction(async (parseResult, ct) =>
+        {
+            var targetType = parseResult.GetValue(targetTypeArg);
+            var options = new ExtensionsOptions
+            {
+                TargetType = targetType!,
+                Packages = parseResult.GetValue(packageOption) ?? [],
+                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
+                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                Reachable = parseResult.GetValue(reachableOption),
+                Depth = parseResult.GetValue(depthOption),
+                Tfm = parseResult.GetValue(tfmOption),
+                IncludeAll = parseResult.GetValue(allOption),
+                Limit = parseResult.GetValue(limitOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await ExtensionsCommand.ExecuteAsync(targetType!, options);
+        });
+
+        return extCommand;
     }
 
     private static Command CreateFindCommand(

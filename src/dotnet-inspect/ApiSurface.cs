@@ -293,6 +293,20 @@ public class ApiMember
     [MarkoutPropertyName("Unsafe")]
     public bool IsUnsafe { get; set; }
 
+    /// <summary>
+    /// True if this is an extension method.
+    /// </summary>
+    [MarkoutPropertyName("Extension")]
+    public bool IsExtension { get; set; }
+
+    /// <summary>
+    /// The type that this extension method extends (first parameter type).
+    /// Only populated when IsExtension is true.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonPropertyName("extended_type")]
+    public string? ExtendedType { get; set; }
+
     // Enum value (for enum fields only)
     [MarkoutIgnore]
     [JsonPropertyName("enum_value")]
