@@ -66,9 +66,19 @@ public record FindOptions
     public bool Verbose { get; init; }
 
     /// <summary>
-    /// Terse output: one line per pattern with matching type names.
+    /// One-line output: space-separated type names (flat by default, grouped with --grouped).
     /// </summary>
-    public bool Terse { get; init; }
+    public bool OneLine { get; init; }
+
+    /// <summary>
+    /// Group results by pattern (use with --oneline).
+    /// </summary>
+    public bool Grouped { get; init; }
+
+    /// <summary>
+    /// Show only type names, one per line.
+    /// </summary>
+    public bool NameOnly { get; init; }
 
     /// <summary>
     /// Returns true if any search scope is specified.

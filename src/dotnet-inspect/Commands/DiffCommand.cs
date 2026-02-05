@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
@@ -9,7 +11,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class DiffCommand
 {
-    public static async Task<int> ExecuteAsync(string? typeName, DiffOptions options)
+    public static async Task<int> ExecuteAsync(DiffOptions options)
     {
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
@@ -29,59 +31,47 @@ public class DiffCommand
             return 1;
         }
 
-        if (string.IsNullOrEmpty(typeName))
-        {
-            Console.Error.WriteLine("Error: Type name required for diff command.");
-            Console.Error.WriteLine("Usage: dotnet-inspect diff <type> --package Package@v1..v2");
-            Console.Error.WriteLine("       dotnet-inspect diff <type> --platform Assembly@v1..v2");
-            return 1;
-        }
-
-        typeName = ApiCommand.ConvertGenericTypeName(typeName);
         var logger = new VerboseLogger(options.Verbose);
 
         try
         {
-            ApiType? fromType;
-            ApiType? toType;
+            ApiSurface fromSurface;
+            ApiSurface toSurface;
             string fromVersion;
             string toVersion;
+            string name;
 
             if (hasPackage)
             {
-                var result = await ExecutePackageDiffAsync(typeName, options, logger);
+                var result = await ExecutePackageDiffAsync(options, logger);
                 if (result.error != null)
                 {
                     Console.Error.WriteLine(result.error);
                     return 1;
                 }
-                fromType = result.fromType;
-                toType = result.toType;
+                fromSurface = result.fromSurface!;
+                toSurface = result.toSurface!;
                 fromVersion = result.fromVersion!;
                 toVersion = result.toVersion!;
+                name = result.name!;
             }
             else
             {
-                var result = await ExecutePlatformDiffAsync(typeName, options, logger);
+                var result = await ExecutePlatformDiffAsync(options, logger);
                 if (result.error != null)
                 {
                     Console.Error.WriteLine(result.error);
                     return 1;
                 }
-                fromType = result.fromType;
-                toType = result.toType;
+                fromSurface = result.fromSurface!;
+                toSurface = result.toSurface!;
                 fromVersion = result.fromVersion!;
                 toVersion = result.toVersion!;
-            }
-
-            if (fromType == null && toType == null)
-            {
-                Console.Error.WriteLine($"Error: Type '{typeName}' not found in either version.");
-                return 1;
+                name = result.name!;
             }
 
             // Generate diff output
-            var diff = GenerateTypeDiff(typeName, fromType, toType, fromVersion, toVersion);
+            var diff = GeneratePackageDiff(name, fromSurface, toSurface, fromVersion, toVersion, options);
             Console.WriteLine(diff);
 
             return 0;
@@ -93,13 +83,13 @@ public class DiffCommand
         }
     }
 
-    private static async Task<(ApiType? fromType, ApiType? toType, string? fromVersion, string? toVersion, string? error)>
-        ExecutePackageDiffAsync(string typeName, DiffOptions options, VerboseLogger logger)
+    private static async Task<(ApiSurface? fromSurface, ApiSurface? toSurface, string? fromVersion, string? toVersion, string? name, string? error)>
+        ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger)
     {
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
         if (packageName == null || fromVersion == null || toVersion == null)
         {
-            return (null, null, null, null, "Error: Invalid version range. Use format: Package@v1..v2");
+            return (null, null, null, null, null, "Error: Invalid version range. Use format: Package@v1..v2");
         }
 
         logger.Log($"Comparing {packageName} v{fromVersion} → v{toVersion}");
@@ -120,19 +110,24 @@ public class DiffCommand
             Verbose = options.Verbose
         };
 
-        var (fromType, _) = await ApiCommand.ExtractTypeAsync(typeName, fromOptions, logger);
-        var (toType, _) = await ApiCommand.ExtractTypeAsync(typeName, toOptions, logger);
+        var (fromSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(fromOptions, logger);
+        var (toSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(toOptions, logger);
 
-        return (fromType, toType, fromVersion, toVersion, null);
+        if (fromSurface == null || toSurface == null)
+        {
+            return (null, null, null, null, null, "Error: Failed to extract API surface from one or both versions.");
+        }
+
+        return (fromSurface, toSurface, fromVersion, toVersion, packageName, null);
     }
 
-    private static async Task<(ApiType? fromType, ApiType? toType, string? fromVersion, string? toVersion, string? error)>
-        ExecutePlatformDiffAsync(string typeName, DiffOptions options, VerboseLogger logger)
+    private static async Task<(ApiSurface? fromSurface, ApiSurface? toSurface, string? fromVersion, string? toVersion, string? name, string? error)>
+        ExecutePlatformDiffAsync(DiffOptions options, VerboseLogger logger)
     {
         var (assemblyName, fromVersion, toVersion) = ParseVersionRange(options.PlatformVersionRange!);
         if (assemblyName == null || fromVersion == null || toVersion == null)
         {
-            return (null, null, null, null, "Error: Invalid version range. Use format: Assembly@v1..v2");
+            return (null, null, null, null, null, "Error: Invalid version range. Use format: Assembly@v1..v2");
         }
 
         var framework = options.Framework ?? "runtime";
@@ -147,7 +142,7 @@ public class DiffCommand
 
         if (fromError != null)
         {
-            return (null, null, null, null, $"Error resolving v{fromVersion}: {fromError}");
+            return (null, null, null, null, null, $"Error resolving v{fromVersion}: {fromError}");
         }
 
         var (toPath, _, _, toError) = PlatformResolver.ResolveAssembly(
@@ -158,28 +153,37 @@ public class DiffCommand
 
         if (toError != null)
         {
-            return (null, null, null, null, $"Error resolving v{toVersion}: {toError}");
+            return (null, null, null, null, null, $"Error resolving v{toVersion}: {toError}");
         }
 
-        // Extract types from both assemblies
-        var fromOptions = new ApiOptions
+        // Extract API surfaces from both assemblies
+        var fromSurface = ExtractApiSurface(fromPath!, options.IncludeAll);
+        var toSurface = ExtractApiSurface(toPath!, options.IncludeAll);
+
+        if (fromSurface == null || toSurface == null)
         {
-            AssemblyPath = fromPath,
-            IncludeAll = options.IncludeAll,
-            Verbose = options.Verbose
-        };
+            return (null, null, null, null, null, "Error: Failed to extract API surface from one or both versions.");
+        }
 
-        var toOptions = new ApiOptions
+        return (fromSurface, toSurface, fromVersion, toVersion, assemblyName, null);
+    }
+
+    private static ApiSurface? ExtractApiSurface(string assemblyPath, bool includeAll)
+    {
+        try
         {
-            AssemblyPath = toPath,
-            IncludeAll = options.IncludeAll,
-            Verbose = options.Verbose
-        };
+            using FileStream stream = File.OpenRead(assemblyPath);
+            using PEReader peReader = new(stream);
 
-        var (fromType, _) = await ApiCommand.ExtractTypeAsync(typeName, fromOptions, logger);
-        var (toType, _) = await ApiCommand.ExtractTypeAsync(typeName, toOptions, logger);
+            if (!peReader.HasMetadata)
+                return null;
 
-        return (fromType, toType, fromVersion, toVersion, null);
+            return ApiSurfaceExtractor.Extract(peReader, includeAll);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static (string? package, string? fromVersion, string? toVersion) ParseVersionRange(string input)
@@ -205,83 +209,193 @@ public class DiffCommand
         return (packageName, fromVersion, toVersion);
     }
 
-    private static string GenerateTypeDiff(string typeName, ApiType? fromType, ApiType? toType, string fromVersion, string toVersion)
+    private static string GeneratePackageDiff(string name, ApiSurface fromSurface, ApiSurface toSurface, 
+        string fromVersion, string toVersion, DiffOptions options)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine($"## API Diff: {typeName}");
-        sb.AppendLine();
-        sb.AppendLine($"**{fromVersion}** → **{toVersion}**");
-        sb.AppendLine();
+        // Build type dictionaries by full name
+        var fromTypes = fromSurface.Types.ToDictionary(GetTypeFullName, t => t);
+        var toTypes = toSurface.Types.ToDictionary(GetTypeFullName, t => t);
 
-        if (fromType == null)
+        // Determine which types to compare
+        var allTypeNames = fromTypes.Keys.Union(toTypes.Keys).ToHashSet();
+        
+        // Apply type filter if specified
+        if (options.TypeFilter?.Count > 0)
         {
-            sb.AppendLine($"✅ **Type added in {toVersion}**");
-            sb.AppendLine();
-            if (toType?.Members != null)
+            allTypeNames = allTypeNames.Where(fullName =>
             {
-                sb.AppendLine("**Members:**");
-                foreach (var member in toType.Members.OrderBy(m => m.Kind).ThenBy(m => m.Name))
+                var simpleName = fullName.Contains('.') ? fullName.Split('.').Last() : fullName;
+                // Convert generic types for matching (e.g., Option`1 -> Option<T>)
+                var convertedSimple = ApiCommand.ConvertGenericTypeName(simpleName);
+                var convertedFull = ApiCommand.ConvertGenericTypeName(fullName);
+                
+                return options.TypeFilter.Any(f =>
                 {
-                    sb.AppendLine($"+ `{member.Signature ?? member.Name}`");
-                }
+                    var convertedFilter = ApiCommand.ConvertGenericTypeName(f);
+                    return simpleName.Equals(f, StringComparison.OrdinalIgnoreCase) ||
+                           fullName.Equals(f, StringComparison.OrdinalIgnoreCase) ||
+                           convertedSimple.Equals(convertedFilter, StringComparison.OrdinalIgnoreCase) ||
+                           convertedFull.Equals(convertedFilter, StringComparison.OrdinalIgnoreCase);
+                });
+            }).ToHashSet();
+        }
+
+        // Categorize types
+        var removedTypes = allTypeNames.Where(n => fromTypes.ContainsKey(n) && !toTypes.ContainsKey(n)).OrderBy(n => n).ToList();
+        var addedTypes = allTypeNames.Where(n => !fromTypes.ContainsKey(n) && toTypes.ContainsKey(n)).OrderBy(n => n).ToList();
+        var commonTypes = allTypeNames.Where(n => fromTypes.ContainsKey(n) && toTypes.ContainsKey(n)).OrderBy(n => n).ToList();
+
+        // Find changed types (types with member differences)
+        var changedTypes = new List<(string name, int added, int removed, List<string> addedMembers, List<string> removedMembers)>();
+        foreach (var typeName in commonTypes)
+        {
+            var (added, removed, addedMembers, removedMembers) = CompareTypeMembers(fromTypes[typeName], toTypes[typeName]);
+            if (added > 0 || removed > 0)
+            {
+                changedTypes.Add((typeName, added, removed, addedMembers, removedMembers));
+            }
+        }
+
+        // --name-only: just list changed type names
+        if (options.NameOnly)
+        {
+            var allChangedNames = removedTypes
+                .Concat(addedTypes)
+                .Concat(changedTypes.Select(c => c.name))
+                .Distinct()
+                .OrderBy(n => n);
+            return string.Join(Environment.NewLine, allChangedNames);
+        }
+
+        // --stat: compact statistics
+        if (options.Stat)
+        {
+            sb.AppendLine($"{name} {fromVersion}..{toVersion}  +{addedTypes.Count} -{removedTypes.Count} ~{changedTypes.Count} types");
+            foreach (var t in removedTypes)
+            {
+                sb.AppendLine($" - {GetSimpleName(t)}");
+            }
+            foreach (var t in addedTypes)
+            {
+                sb.AppendLine($" + {GetSimpleName(t)}");
+            }
+            foreach (var (typeName, added, removed, _, _) in changedTypes)
+            {
+                sb.AppendLine($" ~ {GetSimpleName(typeName),-40} +{added} -{removed}");
             }
             return sb.ToString().TrimEnd();
         }
 
-        if (toType == null)
+        // Full output (default)
+        // Header
+        sb.AppendLine($"# API Diff: {name}");
+        sb.AppendLine();
+        sb.AppendLine($"**{fromVersion}** → **{toVersion}**");
+        sb.AppendLine();
+
+        // Summary
+        sb.AppendLine($"**Summary:** +{addedTypes.Count} types added, -{removedTypes.Count} types removed, {changedTypes.Count} types changed");
+        sb.AppendLine();
+
+        if (removedTypes.Count == 0 && addedTypes.Count == 0 && changedTypes.Count == 0)
         {
-            sb.AppendLine($"❌ **Type removed in {toVersion}**");
+            sb.AppendLine("*No API changes detected.*");
             return sb.ToString().TrimEnd();
         }
 
-        // Compare members
+        // Removed Types
+        if (removedTypes.Count > 0)
+        {
+            sb.AppendLine("## Removed Types");
+            sb.AppendLine();
+            foreach (var t in removedTypes)
+            {
+                sb.AppendLine($"- {t}");
+            }
+            sb.AppendLine();
+        }
+
+        // Added Types
+        if (addedTypes.Count > 0)
+        {
+            sb.AppendLine("## Added Types");
+            sb.AppendLine();
+            foreach (var t in addedTypes)
+            {
+                sb.AppendLine($"+ {t}");
+            }
+            sb.AppendLine();
+        }
+
+        // Changed Types
+        if (changedTypes.Count > 0)
+        {
+            sb.AppendLine("## Changed Types");
+            sb.AppendLine();
+            foreach (var (typeName, added, removed, addedMembers, removedMembers) in changedTypes)
+            {
+                sb.AppendLine($"### {typeName}");
+                sb.AppendLine();
+                sb.AppendLine($"+{added} added, -{removed} removed");
+                sb.AppendLine();
+                
+                foreach (var sig in removedMembers.Take(10))
+                {
+                    sb.AppendLine($"- `{sig}`");
+                }
+                if (removedMembers.Count > 10)
+                {
+                    sb.AppendLine($"- ... and {removedMembers.Count - 10} more removed");
+                }
+                
+                foreach (var sig in addedMembers.Take(10))
+                {
+                    sb.AppendLine($"+ `{sig}`");
+                }
+                if (addedMembers.Count > 10)
+                {
+                    sb.AppendLine($"+ ... and {addedMembers.Count - 10} more added");
+                }
+                
+                sb.AppendLine();
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    internal static string GetSimpleName(string fullName)
+    {
+        var lastDot = fullName.LastIndexOf('.');
+        return lastDot >= 0 ? fullName[(lastDot + 1)..] : fullName;
+    }
+
+    internal static string GetTypeFullName(ApiType type)
+    {
+        return string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+    }
+
+    internal static (int added, int removed, List<string> addedMembers, List<string> removedMembers) CompareTypeMembers(ApiType fromType, ApiType toType)
+    {
         var fromMembers = fromType.Members ?? [];
         var toMembers = toType.Members ?? [];
 
         // Create signature-based lookup for comparison, filtering out compiler-generated members
         var fromSignatures = fromMembers
             .Where(m => !string.IsNullOrEmpty(m.Signature) && !IsCompilerGenerated(m.Name))
-            .ToDictionary(m => m.Signature!, m => m);
+            .Select(m => m.Signature!)
+            .ToHashSet();
         var toSignatures = toMembers
             .Where(m => !string.IsNullOrEmpty(m.Signature) && !IsCompilerGenerated(m.Name))
-            .ToDictionary(m => m.Signature!, m => m);
+            .Select(m => m.Signature!)
+            .ToHashSet();
 
-        var added = toSignatures.Keys.Except(fromSignatures.Keys).OrderBy(s => s).ToList();
-        var removed = fromSignatures.Keys.Except(toSignatures.Keys).OrderBy(s => s).ToList();
+        var addedMembers = toSignatures.Except(fromSignatures).OrderBy(s => s).ToList();
+        var removedMembers = fromSignatures.Except(toSignatures).OrderBy(s => s).ToList();
 
-        if (added.Count == 0 && removed.Count == 0)
-        {
-            sb.AppendLine("*No API changes detected.*");
-            return sb.ToString().TrimEnd();
-        }
-
-        // Summary
-        sb.AppendLine($"**Summary:** +{added.Count} added, -{removed.Count} removed");
-        sb.AppendLine();
-
-        if (removed.Count > 0)
-        {
-            sb.AppendLine("### Removed");
-            sb.AppendLine();
-            foreach (var sig in removed)
-            {
-                sb.AppendLine($"- `{sig}`");
-            }
-            sb.AppendLine();
-        }
-
-        if (added.Count > 0)
-        {
-            sb.AppendLine("### Added");
-            sb.AppendLine();
-            foreach (var sig in added)
-            {
-                sb.AppendLine($"+ `{sig}`");
-            }
-        }
-
-        return sb.ToString().TrimEnd();
+        return (addedMembers.Count, removedMembers.Count, addedMembers, removedMembers);
     }
 
     private static bool IsCompilerGenerated(string name)
@@ -304,4 +418,7 @@ public record DiffOptions
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public bool Verbose { get; init; }
+    public HashSet<string>? TypeFilter { get; init; }
+    public bool Stat { get; init; }
+    public bool NameOnly { get; init; }
 }

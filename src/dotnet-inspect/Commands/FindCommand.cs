@@ -29,8 +29,8 @@ public class FindCommand
                 return 1;
             }
 
-            // For terse/multi-pattern mode, collect results per pattern
-            if (options.Terse || patterns.Length > 1)
+            // For oneline/name-only/multi-pattern mode, collect results per pattern
+            if (options.OneLine || options.NameOnly || patterns.Length > 1)
             {
                 return await ExecuteMultiPatternAsync(patterns, options, logger, tempDirs);
             }
@@ -84,9 +84,13 @@ public class FindCommand
             var allResults = resultsByPattern.Values.SelectMany(r => r).Distinct().ToList();
             WriteJsonOutput(allResults, options.CompactJson);
         }
-        else if (options.Terse)
+        else if (options.NameOnly)
         {
-            WriteTerseOutput(resultsByPattern);
+            WriteNameOnlyOutput(resultsByPattern);
+        }
+        else if (options.OneLine)
+        {
+            WriteOneLineOutput(resultsByPattern, options.Grouped);
         }
         else
         {
@@ -94,6 +98,11 @@ public class FindCommand
         }
 
         return 0;
+    }
+
+    private static void WriteNameOnlyOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
+    {
+        Console.WriteLine(FormatNameOnlyOutput(resultsByPattern));
     }
 
     private static async Task<int> ExecuteSinglePatternAsync(string pattern, FindOptions options, VerboseLogger logger, List<string> tempDirs)
@@ -581,13 +590,44 @@ public class FindCommand
         return results;
     }
 
-    private static void WriteTerseOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
+    private static void WriteOneLineOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, bool grouped)
     {
-        foreach (var (pattern, results) in resultsByPattern)
+        Console.WriteLine(FormatOneLineOutput(resultsByPattern, grouped));
+    }
+
+    internal static string FormatOneLineOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, bool grouped)
+    {
+        if (grouped)
         {
-            var typeNames = results.Select(r => r.TypeName).Distinct().OrderBy(n => n);
-            Console.WriteLine($"{pattern}: {string.Join(", ", typeNames)}");
+            // Grouped: one line per pattern with matching type names
+            var lines = new List<string>();
+            foreach (var (pattern, results) in resultsByPattern)
+            {
+                var typeNames = results.Select(r => r.TypeName).Distinct().OrderBy(n => n);
+                lines.Add($"{pattern}: {string.Join(", ", typeNames)}");
+            }
+            return string.Join(Environment.NewLine, lines);
         }
+        else
+        {
+            // Flat: all type names space-separated on one line
+            var allTypeNames = resultsByPattern.Values
+                .SelectMany(r => r)
+                .Select(r => r.TypeName)
+                .Distinct()
+                .OrderBy(n => n);
+            return string.Join(" ", allTypeNames);
+        }
+    }
+
+    internal static string FormatNameOnlyOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
+    {
+        var allTypeNames = resultsByPattern.Values
+            .SelectMany(r => r)
+            .Select(r => r.TypeName)
+            .Distinct()
+            .OrderBy(n => n);
+        return string.Join(Environment.NewLine, allTypeNames);
     }
 
     private static void WriteMultiPatternOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, int? limit)
