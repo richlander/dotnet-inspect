@@ -42,6 +42,9 @@ dnx dotnet-inspect -y -- find "*Logger*" --framework runtime
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json
 dnx dotnet-inspect -y -- package System.Text.Json --versions
+
+# Get XML documentation for a type
+dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 ```
 
 ## Key Flags
@@ -53,6 +56,8 @@ dnx dotnet-inspect -y -- package System.Text.Json --versions
 | `-m Name` | Filter to specific member(s) |
 | `-n 10` | Limit results |
 | `--signatures-only` | Plain text output (no formatting) |
+
+**Generic types:** Use quotes around generic types: `'Option<T>'`, `'IEnumerable<T>'`
 
 ## Command Reference
 

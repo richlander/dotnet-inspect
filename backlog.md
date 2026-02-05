@@ -4,6 +4,87 @@ Ideas for improving dotnet-inspect for LLM-driven C# development.
 
 > **Note:** Completed features are removed from this backlog. See git history for implemented items.
 
+## Whole-Package Diff
+
+Support diffing an entire package without specifying a type name:
+
+```bash
+dotnet-inspect diff --package System.CommandLine@2.0.0-beta4..2.0.2
+```
+
+Would show all changed types across the package:
+
+```
+# API Diff: System.CommandLine
+
+**2.0.0-beta4** → **2.0.2**
+
+**Summary:** +15 added, -23 removed, 8 types changed
+
+## Removed Types
+- Handler
+- HandlerDescriptor
+
+## Changed Types
+
+### Command
++3 added, -5 removed
++ void Add(Argument argument)
++ void Add(Option option)
+- void AddOption(Option option)
+- void AddArgument(Argument argument)
+...
+```
+
+This would eliminate the need for multiple targeted diffs when migrating between versions. LLM feedback indicates this is the most common use case.
+
+## Batch Find with Terse Output
+
+Support searching multiple patterns with compact output:
+
+```bash
+dotnet-inspect find "Option,Argument,Command" --terse --package System.CommandLine
+```
+
+Output:
+
+```
+Option: Option, Option`1, OptionResult, VersionOption, HelpOption
+Argument: Argument, Argument`1, ArgumentResult, ArgumentArity
+Command: Command, RootCommand, CommandResult
+```
+
+Or with `--flat`:
+
+```
+Option Option`1 OptionResult Command RootCommand Argument Argument`1 ParseResult
+```
+
+This enables quick type landscape discovery before targeted `type` queries. LLM feedback shows the current pattern requires many sequential `find` calls.
+
+## Migration Hints
+
+When diffing versions, suggest code transformations:
+
+```bash
+dotnet-inspect diff Command --package System.CommandLine@2.0.0-beta4..2.0.2 --migrate
+```
+
+Would add a section:
+
+```
+## Migration Notes
+
+- `AddOption(opt)` → `Add(opt)` or collection initializer `Options = { opt }`
+- `AddArgument(arg)` → `Add(arg)`
+- `Handler.SetHandler(...)` → `SetAction(Action<ParseResult>)`
+```
+
+Could be powered by:
+- Heuristics (method renamed, similar signature)
+- Curated migration data for popular packages
+- XML doc deprecation messages
+
 ## NuGet Package Signature Verification
 
 Add cryptographic verification of NuGet packages to prove provenance:
