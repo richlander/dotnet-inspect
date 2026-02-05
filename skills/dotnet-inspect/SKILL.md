@@ -37,7 +37,11 @@ dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..1
 
 # Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --terse
+dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --oneline
+
+# Find extension methods for a type
+dnx dotnet-inspect -y -- extensions HttpClient --framework runtime
+dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
 
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json
@@ -54,8 +58,13 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 | `-v:d` | Detailed output (full signatures, more info) | all commands |
 | `--docs` | Include XML documentation from source | `type`, `api` |
 | `-m Name` | Filter to specific member(s) | `type`, `api` |
-| `-n 10` | Limit results | `find`, `package --versions` |
-| `--terse`, `-t` | One line per pattern (for batch find) | `find` |
+| `-t Name` | Filter to specific type(s) | `diff` |
+| `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
+| `--oneline` | Space-separated type names on one line | `find` |
+| `--name-only` | Show only names, one per line | `find`, `diff` |
+| `--stat` | Show only statistics (no member details) | `diff` |
+| `--grouped` | Group results by pattern (with --oneline) | `find` |
+| `--reachable` | Include extensions on reachable types | `extensions` |
 | `--prerelease` | Include prerelease versions | `package --versions` |
 
 **Generic types:** Use quotes around generic types: `'Option<T>'`, `'IEnumerable<T>'`
@@ -65,9 +74,10 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 | Command | Purpose |
 |---------|---------|
 | `type <type>` | **Start here.** Type shape with hierarchy and members (tree view) |
-| `diff <type>` | Compare API surfaces between package versions |
+| `diff` | Compare API surfaces between package versions (whole-package or filtered) |
 | `api <type>` | View public API surface (table format) |
 | `find <pattern>` | Search for types across packages, assemblies, or frameworks |
+| `extensions <type>` | Find extension methods for a type |
 | `package <name>` | Package metadata, files, versions, dependencies |
 | `assembly <path>` | Assembly info, SourceLink/determinism audit |
 | `llmstxt` | Complete usage examples for all commands |

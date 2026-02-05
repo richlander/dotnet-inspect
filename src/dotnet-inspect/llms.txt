@@ -8,6 +8,7 @@ dotnet-inspect api <type> --package <pkg>    # API from package
 dotnet-inspect api --platform <assembly>     # API from installed SDK
 dotnet-inspect platform                      # List installed frameworks
 dotnet-inspect find <pattern>                # Search types in runtime
+dotnet-inspect extensions <type>             # Find extension methods
 dotnet-inspect assembly path/to/file.dll     # Local assembly
 dotnet-inspect diff <type> --package         # Version comparison
 ```
@@ -114,8 +115,39 @@ dotnet-inspect find "ILogger" --package Microsoft.Extensions.Logging --framework
 
 | Option | Description |
 |--------|-------------|
-| `--terse`, `-t` | One line per pattern with matching type names |
+| `--oneline` | Space-separated type names on one line |
+| `--name-only` | One type name per line |
+| `--grouped` | Group by pattern (with --oneline) |
 | `-n` | Limit results per pattern |
+
+### extensions
+
+Find extension methods for a type across packages and platform assemblies.
+
+```bash
+dotnet-inspect extensions HttpClient --framework runtime        # Direct extensions
+dotnet-inspect extensions HttpClient --framework runtime --reachable  # Include reachable types
+dotnet-inspect extensions IEnumerable --framework runtime -n 20 # Limit results
+dotnet-inspect extensions HttpClient --package Polly --framework runtime  # Multiple sources
+dotnet-inspect extensions HttpClient --framework runtime --json # JSON output
+```
+
+The `--reachable` flag finds extensions on types accessible via properties and methods:
+- `HttpClient` → `HttpResponseMessage` → `.Content` → `HttpContent`
+- Shows `HttpContent` extensions with path: "Via .Send().Content"
+
+| Scope | Description |
+|-------|-------------|
+| `--framework` | Search framework assemblies (runtime, aspnetcore) |
+| `--package` | Search NuGet package |
+| `--assembly` | Search local assembly |
+| `--platform` | Search specific platform assembly |
+
+| Option | Description |
+|--------|-------------|
+| `--reachable` | Include extensions on types reachable via members |
+| `--depth N` | Max depth for reachable traversal (default: 2) |
+| `-n` | Limit results |
 
 ### type
 
@@ -268,14 +300,20 @@ dotnet-inspect type "List<T>" --platform System.Collections
 dotnet-inspect find "*List*" --framework runtime
 ```
 
+**To find extension methods for a type:**
+```bash
+dotnet-inspect extensions HttpClient --framework runtime
+dotnet-inspect extensions HttpClient --framework runtime --reachable  # Include .Content extensions
+```
+
 ### Flag Compatibility Matrix
 
-| Flag | api | type | find | diff |
-|------|-----|------|------|------|
-| `--package` | ✓ | ✓ | ✓ | ✓ |
-| `--platform` | ✓ | ✓ | ✓ | ✓ |
-| `--assembly` | ✓ | ✓ | ✓ | |
-| `--framework` | ✓ | ✓ | ✓ | ✓ |
+| Flag | api | type | find | extensions | diff |
+|------|-----|------|------|------------|------|
+| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--platform` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--assembly` | ✓ | ✓ | ✓ | ✓ | |
+| `--framework` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### Common Assembly Names
 
