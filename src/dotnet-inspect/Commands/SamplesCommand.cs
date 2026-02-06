@@ -2,6 +2,7 @@ using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -267,19 +268,17 @@ public class SamplesCommand
         string? assemblyName,
         SamplesOptions options)
     {
-        var sb = new StringBuilder();
+        var writer = new MarkoutWriter();
 
         // H1 title
         var title = assemblyName ?? packageName ?? "Samples";
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
             : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
-        sb.AppendLine($"# Samples: {title}{packageInfo}");
-        sb.AppendLine();
+        writer.WriteHeading(1, $"Samples: {title}{packageInfo}");
 
-        for (int i = 0; i < samples.Count; i++)
+        var items = samples.Select((typedSample, i) =>
         {
-            var typedSample = samples[i];
             var sample = typedSample.Sample;
             var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
             var url = sample.ResolvedUrl != null
@@ -291,11 +290,12 @@ public class SamplesCommand
                 url = ConvertRawToBlobUrl(url);
             }
 
-            // Format: 1. Namespace.Type - Description: URL
-            sb.AppendLine($"{i + 1}. {typedSample.FullTypeName} - {description}: {url}");
-        }
+            return $"{typedSample.FullTypeName} - {description}: {url}";
+        });
 
-        return sb.ToString().TrimEnd();
+        writer.WriteArray(items);
+
+        return writer.ToString().TrimEnd();
     }
 
     private static async Task<string?> FetchSampleContentAsync(SourceFetcher fetcher, SampleReference sample, VerboseLogger logger)

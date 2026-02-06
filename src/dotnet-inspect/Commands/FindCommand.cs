@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -605,39 +606,34 @@ public class FindCommand
 
     private static void WriteMultiPatternOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, int? limit)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("# Find Results");
-        sb.AppendLine();
+        var writer = new MarkoutWriter();
+        writer.WriteHeading(1, "Find Results");
 
         foreach (var (pattern, results) in resultsByPattern)
         {
-            sb.AppendLine($"## {pattern}");
-            sb.AppendLine();
-            sb.AppendLine($"**Matches:** {results.Count}");
-            sb.AppendLine();
+            writer.WriteHeading(2, pattern);
+            writer.WriteField("Matches", results.Count);
 
             if (results.Count == 0)
             {
-                sb.AppendLine("*No types found.*");
+                writer.WriteParagraph("*No types found.*");
             }
             else
             {
-                sb.AppendLine("| Type | Namespace | Kind | Assembly | Source |");
-                sb.AppendLine("| --- | --- | --- | --- | --- |");
-
-                foreach (var result in results)
+                var headers = new[] { "Type", "Namespace", "Kind", "Assembly", "Source" };
+                var rows = results.Select(result =>
                 {
                     var ns = result.Namespace ?? "";
                     var source = result.SourceVersion != null
                         ? $"{result.Source}@{result.SourceVersion}"
                         : result.Source ?? "";
-                    sb.AppendLine($"| {result.TypeName} | {ns} | {result.Kind} | {result.Assembly} | {source} |");
-                }
+                    return new[] { result.TypeName, ns, result.Kind ?? "", result.Assembly ?? "", source };
+                });
+                writer.WriteTable(headers, rows);
             }
-            sb.AppendLine();
         }
 
-        Console.WriteLine(sb.ToString().TrimEnd());
+        Console.WriteLine(writer.ToString());
     }
 
     private static List<TypeSearchResult> SearchAssemblyOrDirectory(string path, string pattern, bool includeAll, VerboseLogger logger)
@@ -720,38 +716,34 @@ public class FindCommand
 
     private static void WriteMarkoutOutput(List<TypeSearchResult> results, string pattern, int totalCount, int? limit)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine($"# Find: {pattern}");
-        sb.AppendLine();
-        sb.AppendLine($"**Matches:** {totalCount}");
-        sb.AppendLine();
+        var writer = new MarkoutWriter();
+        writer.WriteHeading(1, $"Find: {pattern}");
+        writer.WriteField("Matches", totalCount);
 
         if (results.Count == 0)
         {
-            sb.AppendLine("*No types found matching the pattern.*");
+            writer.WriteParagraph("*No types found matching the pattern.*");
         }
         else
         {
-            sb.AppendLine("| Type | Namespace | Kind | Assembly | Source |");
-            sb.AppendLine("| --- | --- | --- | --- | --- |");
-
-            foreach (var result in results)
+            var headers = new[] { "Type", "Namespace", "Kind", "Assembly", "Source" };
+            var rows = results.Select(result =>
             {
                 var ns = result.Namespace ?? "";
                 var source = result.SourceVersion != null 
                     ? $"{result.Source}@{result.SourceVersion}" 
                     : result.Source ?? "";
-                sb.AppendLine($"| {result.TypeName} | {ns} | {result.Kind} | {result.Assembly} | {source} |");
-            }
+                return new[] { result.TypeName, ns, result.Kind ?? "", result.Assembly ?? "", source };
+            });
+            writer.WriteTable(headers, rows);
 
             if (limit.HasValue && totalCount > limit.Value)
             {
-                sb.AppendLine();
-                sb.AppendLine($"*... and {totalCount - limit.Value} more types*");
+                writer.WriteParagraph($"*... and {totalCount - limit.Value} more types*");
             }
         }
 
-        Console.WriteLine(sb.ToString().TrimEnd());
+        Console.WriteLine(writer.ToString());
     }
 
     #region Project Assets Parsing
