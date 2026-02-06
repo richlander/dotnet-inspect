@@ -215,8 +215,6 @@ public class DiffCommand
     private static string GeneratePackageDiff(string name, ApiSurface fromSurface, ApiSurface toSurface, 
         string fromVersion, string toVersion, DiffOptions options)
     {
-        var sb = new StringBuilder();
-
         // Build type dictionaries by full name
         var fromTypes = fromSurface.Types.ToDictionary(GetTypeFullName, t => t);
         var toTypes = toSurface.Types.ToDictionary(GetTypeFullName, t => t);
@@ -275,6 +273,7 @@ public class DiffCommand
         // --stat: compact statistics
         if (options.Stat)
         {
+            var sb = new StringBuilder();
             sb.AppendLine($"{name} {fromVersion}..{toVersion}  +{addedTypes.Count} -{removedTypes.Count} ~{changedTypes.Count} types");
             foreach (var t in removedTypes)
             {
