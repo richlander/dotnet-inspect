@@ -21,7 +21,8 @@ LLMs will always thrash a bit — they try things, get errors, and adapt. The to
 - User interrupted before code was written
 
 **What signatures should show:**
-```
+
+```csharp
 void .ctor(string name, params string[] aliases)
 void Parse(IReadOnlyList<string> args, ParserConfiguration? configuration = null)
 ```
@@ -38,11 +39,13 @@ This is the single highest-impact improvement. It directly enables correct code 
 **Impact:** Used twice in LLM sessions, silently produces wrong results.
 
 The root help tip says:
-```
+
+```text
 Tip: Use -v:d for detailed output, --docs for XML documentation, --terse for compact find results.
 ```
 
 And `llms.txt` shows:
+
 ```bash
 dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --terse
 ```
@@ -58,6 +61,7 @@ But `--terse` is not an option on any command. When used with `find`, it's silen
 The `find` command supports glob patterns. The `api` command's `--filter` supports globs. But `diff`'s `-t` type filter (and the positional type argument) does exact string matching. An LLM that learns glob patterns from `find` naturally tries `*` with `diff`.
 
 **Current behavior:**
+
 ```bash
 diff "*" --package Markout@0.1.8..0.2.0    # → "0 types changed" (silently wrong)
 diff --package Markout@0.1.8..0.2.0         # → shows all changes (correct)
@@ -116,12 +120,14 @@ Tips are the primary mechanism for guiding LLMs toward efficient next steps with
 ## Compatibility Considerations
 
 ### What must not change
+
 - Existing stdout output format for all commands (skills parse this)
 - Existing option names and their behavior
 - Command names and argument positions
 - JSON output schema
 
 ### Safe changes
+
 - **Adding new options** (e.g., `--terse` as alias for `--oneline --grouped`)
 - **Adding new tips on stderr** (skills ignore stderr)
 - **Enriching signatures** with params/defaults (more information in the same format)
