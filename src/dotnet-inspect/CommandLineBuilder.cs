@@ -969,6 +969,7 @@ public static class CommandLineBuilder
         var auditOption = new Option<bool>("--audit") { Description = "Full provenance verification (SourceLink, determinism)" };
         var sourcelinkOption = new Option<bool>("--sourcelink") { Description = "Show SourceLink presence and URL (fast, no verification)" };
         var referencesOption = new Option<bool>("--references") { Description = "Show assembly references" };
+        var transitiveOption = new Option<bool>("--transitive") { Description = "Show transitive assembly references (full dependency tree)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --assembly'] Extract from package" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
@@ -978,6 +979,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(auditOption);
         assemblyCommand.Options.Add(sourcelinkOption);
         assemblyCommand.Options.Add(referencesOption);
+        assemblyCommand.Options.Add(transitiveOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
@@ -1006,11 +1008,13 @@ public static class CommandLineBuilder
             bool runAudit = parseResult.GetValue(auditOption);
             bool showSourcelink = parseResult.GetValue(sourcelinkOption);
             bool showReferences = parseResult.GetValue(referencesOption);
+            bool showTransitive = parseResult.GetValue(transitiveOption);
             
             var options = new AssemblyOptions
             {
                 IncludeAudit = runAudit || showSourcelink,
                 IncludeReferences = showReferences,
+                TransitiveReferences = showTransitive,
                 StrictAudit = runAudit, // --audit is always strict, --sourcelink is not
                 PackagePath = packagePath,
                 PlatformAssembly = parseResult.GetValue(asmPlatformOption),

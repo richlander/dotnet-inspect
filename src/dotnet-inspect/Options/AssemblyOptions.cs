@@ -18,6 +18,11 @@ public record AssemblyOptions
     public bool IncludeReferences { get; init; }
 
     /// <summary>
+    /// Include transitive assembly references (full dependency tree).
+    /// </summary>
+    public bool TransitiveReferences { get; init; }
+
+    /// <summary>
     /// Enable strict audit mode: verify SourceLink URLs are fetchable
     /// and all source files are accessible or embedded.
     /// </summary>
