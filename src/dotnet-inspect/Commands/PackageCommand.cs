@@ -13,7 +13,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class PackageCommand
 {
-    public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options)
+    public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options, string? explicitVersion = null)
     {
         // Handle --discover mode: list sections and exit early
         if (options.Discover)
@@ -71,7 +71,15 @@ public class PackageCommand
             string packageArg = packageArgs[0];
             int atIndex = packageArg.IndexOf('@');
 
-            if (atIndex > 0)
+            if (explicitVersion != null)
+            {
+                packageName = atIndex > 0
+                    ? packageArg[..atIndex].ToLowerInvariant()
+                    : packageArg.ToLowerInvariant();
+                version = explicitVersion.ToLowerInvariant();
+                logger.Log($"Using --version: {version}");
+            }
+            else if (atIndex > 0)
             {
                 packageName = packageArg[..atIndex].ToLowerInvariant();
                 version = packageArg[(atIndex + 1)..].ToLowerInvariant();

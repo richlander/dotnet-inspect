@@ -1,6 +1,8 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector;
@@ -782,6 +784,7 @@ public static class CommandLineBuilder
         var auditOption = new Option<bool>("--audit") { Description = "Verify SourceLink, determinism, and signature (always strict)" };
         var sourcelinkOption = new Option<bool>("--sourcelink") { Description = "Show SourceLink presence and URL (fast, no verification)" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
+        var versionOption = new Option<string?>("--version") { Description = "Package version" };
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(depsOption);
@@ -795,6 +798,7 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(auditOption);
         packageCommand.Options.Add(sourcelinkOption);
         packageCommand.Options.Add(tfmOption);
+        packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(outOption);
         packageCommand.Options.Add(discoverOption);
         packageCommand.Options.Add(limitOption);
@@ -811,12 +815,13 @@ public static class CommandLineBuilder
         packageCommand.SetAction(async (parseResult, ct) =>
         {
             var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
-            
+            var explicitVersion = parseResult.GetValue(versionOption);
+
             // Handle --assembly, --audit, or --sourcelink: delegate to AssemblyCommand
             bool showAssembly = parseResult.GetValue(assemblyOption);
             bool runAudit = parseResult.GetValue(auditOption);
             bool showSourcelink = parseResult.GetValue(sourcelinkOption);
-            
+
             if (showAssembly || runAudit || showSourcelink)
             {
                 if (packageArgs.Length < 1)
@@ -827,7 +832,9 @@ public static class CommandLineBuilder
 
                 var assemblyOptions = new AssemblyOptions
                 {
-                    PackagePath = packageArgs[0],
+                    PackagePath = explicitVersion != null && !packageArgs[0].Contains('@')
+                        ? $"{packageArgs[0]}@{explicitVersion}"
+                        : packageArgs[0],
                     Tfm = parseResult.GetValue(tfmOption),
                     IncludeAudit = runAudit || showSourcelink,
                     StrictAudit = runAudit, // --audit is always strict
@@ -862,7 +869,17 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await PackageCommand.ExecuteAsync(packageArgs, options);
+            var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options, explicitVersion);
+
+            if (exitCode == 0 && !options.JsonOutput && options.Verbosity != Verbosity.Quiet
+                && packageArgs.Length > 0 && !options.ListVersions && !options.ListFiles && !options.Discover && !options.ShowReadme)
+            {
+                var pkg = packageArgs[0];
+                if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
+                Hints.WriteHint($"dotnet-inspect api --package {pkg}   # view public API surface");
+            }
+
+            return exitCode;
         });
 
         return packageCommand;
@@ -885,9 +902,11 @@ public static class CommandLineBuilder
         };
 
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
+        var versionOption = new Option<string?>("--version") { Description = "Package version" };
 
         auditCommand.Arguments.Add(targetArg);
         auditCommand.Options.Add(tfmOption);
+        auditCommand.Options.Add(versionOption);
         auditCommand.Options.Add(jsonOption);
         auditCommand.Options.Add(verboseOption);
         auditCommand.Options.Add(verbosityOption);
@@ -905,6 +924,7 @@ public static class CommandLineBuilder
             }
 
             var tfm = parseResult.GetValue(tfmOption);
+            var explicitVersion = parseResult.GetValue(versionOption);
             var verbose = parseResult.GetValue(verboseOption);
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
             var jsonOutput = parseResult.GetValue(jsonOption);
@@ -915,15 +935,47 @@ public static class CommandLineBuilder
             foreach (var target in targets)
             {
                 // Determine input type and create appropriate options
-                bool isFilePath = target.Contains('/') || target.Contains('\\') || 
+                bool isFilePath = target.Contains('/') || target.Contains('\\') ||
                                   target.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
                                   target.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+
+                // Disambiguation for System.*/Microsoft.* bare names
+                if (!isFilePath && !target.Contains('@') && explicitVersion == null)
+                {
+                    string bareName = target;
+                    if (bareName.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
+                        bareName.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var (platformPath, _, _, platformError) =
+                            PlatformResolver.ResolveAssembly(bareName);
+
+                        if (platformError == null && platformPath != null)
+                        {
+                            Console.Error.WriteLine($"'{bareName}' is available as both a NuGet package and a platform assembly.");
+                            Console.Error.WriteLine();
+                            Console.Error.WriteLine($"  dotnet-inspect audit {bareName}@<version>       # audit NuGet package (specific version)");
+                            Console.Error.WriteLine($"  dotnet-inspect package {bareName} --audit        # audit NuGet package (latest)");
+                            Console.Error.WriteLine($"  dotnet-inspect platform {bareName} --audit       # audit platform assembly");
+                            Console.Error.WriteLine();
+                            Console.Error.WriteLine($"Tip: Use 'dotnet-inspect package {bareName} --versions -n 5' to find recent versions.");
+                            failures++;
+                            continue;
+                        }
+                    }
+                }
+
+                // Apply --version to bare package names
+                var effectiveTarget = target;
+                if (explicitVersion != null && !isFilePath && !target.Contains('@'))
+                {
+                    effectiveTarget = $"{target}@{explicitVersion}";
+                }
 
                 var options = new AssemblyOptions
                 {
                     IncludeAudit = true,
                     StrictAudit = true, // audit always runs strict verification
-                    PackagePath = isFilePath ? null : target,
+                    PackagePath = isFilePath ? null : effectiveTarget,
                     Tfm = tfm,
                     JsonOutput = jsonOutput,
                     Verbose = verbose,
@@ -938,6 +990,19 @@ public static class CommandLineBuilder
                 if (result != 0)
                 {
                     failures++;
+                }
+            }
+
+            if (failures == 0 && !jsonOutput && verbosity != Verbosity.Quiet)
+            {
+                // Hint about --sourcelink for quick checks when auditing packages
+                var firstTarget = targets[0];
+                bool firstIsFile = firstTarget.Contains('/') || firstTarget.Contains('\\') ||
+                                   firstTarget.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                                   firstTarget.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+                if (!firstIsFile)
+                {
+                    Hints.WriteHint($"dotnet-inspect package {firstTarget} --sourcelink   # quick SourceLink check (no verification)");
                 }
             }
 
@@ -1156,7 +1221,16 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await ApiCommand.ExecuteAsync(typeName, options);
+            var exitCode = await ApiCommand.ExecuteAsync(typeName, options);
+
+            if (exitCode == 0 && !options.JsonOutput && options.Verbosity != Verbosity.Quiet
+                && !options.SignaturesOnly && !options.ShowDocs
+                && !string.IsNullOrEmpty(options.PackagePath))
+            {
+                Hints.WriteHint($"dotnet-inspect api --package {options.PackagePath} --docs   # include XML doc comments");
+            }
+
+            return exitCode;
         });
 
         return apiCommand;
