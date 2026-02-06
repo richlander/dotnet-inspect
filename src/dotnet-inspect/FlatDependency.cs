@@ -2,7 +2,6 @@ using Markout;
 
 namespace DotnetInspector;
 
-[MarkoutSerializable]
 public class FlatDependency
 {
     [MarkoutPropertyName("Target Framework")]

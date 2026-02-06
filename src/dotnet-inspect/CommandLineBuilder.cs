@@ -1251,18 +1251,17 @@ public static class CommandLineBuilder
         };
     }
 
-    public static HashSet<int>? ParseSectionList(string? value)
+    public static HashSet<string>? ParseSectionList(string? value)
     {
         if (string.IsNullOrEmpty(value)) return null;
 
         var v = value.TrimStart(':');
-        var sections = new HashSet<int>();
+        var sections = new HashSet<string>();
         foreach (var part in v.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (int.TryParse(part.Trim(), out int section) && section > 0)
-            {
-                sections.Add(section);
-            }
+            var trimmed = part.Trim();
+            if (trimmed.Length > 0)
+                sections.Add(trimmed);
         }
         return sections.Count > 0 ? sections : null;
     }

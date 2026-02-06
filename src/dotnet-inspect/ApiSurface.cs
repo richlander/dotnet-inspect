@@ -24,7 +24,6 @@ public class DocComment
 /// <summary>
 /// Represents a reference to sample code in the same repository.
 /// </summary>
-[MarkoutSerializable]
 public class SampleReference
 {
     /// <summary>
@@ -59,7 +58,6 @@ public class SampleReference
 /// <summary>
 /// Represents a source file that is part of a partial type definition.
 /// </summary>
-[MarkoutSerializable]
 public class PartialSourceFileInfo
 {
     [JsonPropertyName("file_path")]
@@ -72,7 +70,6 @@ public class PartialSourceFileInfo
     public string? GitHubBrowseUrl { get; set; }
 }
 
-[MarkoutSerializable]
 public class ApiSurface
 {
     /// <summary>
@@ -127,7 +124,6 @@ public class ApiSurface
 /// <summary>
 /// Represents a type forwarded to another assembly.
 /// </summary>
-[MarkoutSerializable]
 public class TypeForwarder
 {
     /// <summary>
@@ -144,7 +140,6 @@ public class TypeForwarder
 /// <summary>
 /// Represents a generic type parameter with its constraints.
 /// </summary>
-[MarkoutSerializable]
 public class TypeParameter
 {
     /// <summary>
@@ -182,7 +177,6 @@ public class TypeParameter
         : null;
 }
 
-[MarkoutSerializable]
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -268,7 +262,6 @@ public class ApiType
     public DocComment? Documentation { get; set; }
 }
 
-[MarkoutSerializable]
 public class ApiMember
 {
     public string Name { get; set; } = "";

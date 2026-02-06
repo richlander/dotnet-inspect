@@ -513,7 +513,6 @@ public class PackageDeprecation
 /// <summary>
 /// Security vulnerability information for a NuGet package.
 /// </summary>
-[MarkoutSerializable]
 public class PackageVulnerability
 {
     /// <summary>
