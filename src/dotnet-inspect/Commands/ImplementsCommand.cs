@@ -134,7 +134,7 @@ public class ImplementsCommand
         if (results.Count == 0)
         {
             writer.WriteParagraph("No implementing types found.");
-            Console.WriteLine(writer.ToString());
+            Console.Write(writer.ToString());
             return;
         }
 
@@ -157,7 +157,7 @@ public class ImplementsCommand
             writer.WriteTable(headers, rows);
         }
 
-        Console.WriteLine(writer.ToString());
+        Console.Write(writer.ToString());
     }
 }
 

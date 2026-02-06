@@ -77,7 +77,7 @@ public class PlatformCommand
                 .Select(v => v.Contains('.') ? v[..v.IndexOf('.')] : v)
                 .Distinct()
                 .Count();
-            var dotnetRoot = Path.GetDirectoryName(Path.GetDirectoryName(packsDir)) ?? packsDir;
+            var dotnetRoot = Path.GetDirectoryName(packsDir) ?? packsDir;
 
             writer.WriteCompactFields(
                 new MarkoutField("Latest", majorVersion),
@@ -91,7 +91,7 @@ public class PlatformCommand
         var rows = frameworks.Select(f => new[] { f.ShortName, f.LatestVersion, f.AssemblyCount.ToString() });
         writer.WriteTable(headers, rows);
 
-        Console.WriteLine(writer.ToString());
+        Console.Write(writer.ToString());
         return 0;
     }
 
@@ -153,7 +153,7 @@ public class PlatformCommand
             }
         }
 
-        Console.WriteLine(writer.ToString());
+        Console.Write(writer.ToString());
         return 0;
     }
 
@@ -241,7 +241,7 @@ public class PlatformCommand
             }
         }
 
-        Console.WriteLine(writer.ToString());
+        Console.Write(writer.ToString());
         return 0;
     }
 

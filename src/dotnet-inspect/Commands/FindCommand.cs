@@ -633,7 +633,7 @@ public class FindCommand
             }
         }
 
-        Console.WriteLine(writer.ToString());
+        Console.Write(writer.ToString());
     }
 
     private static List<TypeSearchResult> SearchAssemblyOrDirectory(string path, string pattern, bool includeAll, VerboseLogger logger)
@@ -743,7 +743,7 @@ public class FindCommand
             }
         }
 
-        Console.WriteLine(writer.ToString());
+        Console.Write(writer.ToString());
     }
 
     #region Project Assets Parsing
