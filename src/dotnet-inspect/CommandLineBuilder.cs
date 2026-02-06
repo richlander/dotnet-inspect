@@ -302,7 +302,38 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await DiffCommand.ExecuteAsync(options);
+            var exitCode = await DiffCommand.ExecuteAsync(options);
+
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            if (exitCode == 0 && verbosity != Verbosity.Quiet)
+            {
+                // If filtered to specific type(s), suggest viewing all changes
+                if (typeFilter != null)
+                {
+                    var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
+                    var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
+                    Hints.WriteHint($"dotnet-inspect diff {sourceFlag} {versionRange}   # diff all types");
+                }
+                // If showing all types, suggest type command for inspection
+                else if (!options.Stat && !options.NameOnly)
+                {
+                    var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
+                    if (versionRange != null)
+                    {
+                        var atIdx = versionRange.IndexOf('@');
+                        var dotDotIdx = versionRange.IndexOf("..", StringComparison.Ordinal);
+                        if (atIdx > 0 && dotDotIdx > atIdx)
+                        {
+                            var pkgName = versionRange[..atIdx];
+                            var toVersion = versionRange[(dotDotIdx + 2)..];
+                            var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
+                            Hints.WriteHint($"dotnet-inspect type <TypeName> {sourceFlag} {pkgName}@{toVersion}   # view current type shape");
+                        }
+                    }
+                }
+            }
+
+            return exitCode;
         });
 
         return diffCommand;
@@ -454,6 +485,7 @@ public static class CommandLineBuilder
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "Space-separated type names on one line" };
         var groupedOption = new Option<bool>("--grouped") { Description = "Group results by pattern (use with --oneline)" };
+        var terseOption = new Option<bool>("--terse") { Description = "Compact output (alias for --oneline --grouped)" };
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names, one per line" };
 
         findCommand.Arguments.Add(patternArg);
@@ -470,6 +502,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(compactOption);
         findCommand.Options.Add(oneLineOption);
         findCommand.Options.Add(groupedOption);
+        findCommand.Options.Add(terseOption);
         findCommand.Options.Add(nameOnlyOption);
         findCommand.Options.Add(verboseOption);
         findCommand.Options.Add(verbosityOption);
@@ -480,6 +513,7 @@ public static class CommandLineBuilder
         findCommand.SetAction(async (parseResult, ct) =>
         {
             var pattern = parseResult.GetValue(patternArg);
+            var terse = parseResult.GetValue(terseOption);
             var options = new FindOptions
             {
                 Packages = parseResult.GetValue(packageOption) ?? [],
@@ -493,14 +527,26 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption),
-                Grouped = parseResult.GetValue(groupedOption),
+                OneLine = parseResult.GetValue(oneLineOption) || terse,
+                Grouped = parseResult.GetValue(groupedOption) || terse,
                 NameOnly = parseResult.GetValue(nameOnlyOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await FindCommand.ExecuteAsync(pattern!, options);
+            var exitCode = await FindCommand.ExecuteAsync(pattern!, options);
+
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            if (exitCode == 0 && !options.JsonOutput && verbosity != Verbosity.Quiet
+                && !options.OneLine && !options.NameOnly)
+            {
+                // Suggest type command for drilling into results
+                var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
+                var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <assembly>";
+                Hints.WriteHint($"dotnet-inspect type <TypeName> {sourceFlag}   # view type shape");
+            }
+
+            return exitCode;
         });
 
         return findCommand;

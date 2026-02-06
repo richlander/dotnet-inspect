@@ -231,10 +231,20 @@ public class DiffCommand
                 // Convert generic types for matching (e.g., Option`1 -> Option<T>)
                 var convertedSimple = ApiCommand.ConvertGenericTypeName(simpleName);
                 var convertedFull = ApiCommand.ConvertGenericTypeName(fullName);
-                
+
                 return options.TypeFilter.Any(f =>
                 {
                     var convertedFilter = ApiCommand.ConvertGenericTypeName(f);
+                    bool isGlob = f.Contains('*') || f.Contains('?');
+
+                    if (isGlob)
+                    {
+                        return FindCommand.MatchesGlobPattern(simpleName, f) ||
+                               FindCommand.MatchesGlobPattern(fullName, f) ||
+                               FindCommand.MatchesGlobPattern(convertedSimple, convertedFilter) ||
+                               FindCommand.MatchesGlobPattern(convertedFull, convertedFilter);
+                    }
+
                     return simpleName.Equals(f, StringComparison.OrdinalIgnoreCase) ||
                            fullName.Equals(f, StringComparison.OrdinalIgnoreCase) ||
                            convertedSimple.Equals(convertedFilter, StringComparison.OrdinalIgnoreCase) ||
@@ -335,22 +345,14 @@ public class DiffCommand
                 writer.WriteHeading(3, typeName);
                 writer.WriteParagraph($"+{added} added, -{removed} removed");
 
-                foreach (var sig in removedMembers.Take(10))
+                foreach (var sig in removedMembers)
                 {
                     writer.WriteListItem($"`{sig}`");
-                }
-                if (removedMembers.Count > 10)
-                {
-                    writer.WriteListItem($"... and {removedMembers.Count - 10} more removed");
                 }
 
-                foreach (var sig in addedMembers.Take(10))
+                foreach (var sig in addedMembers)
                 {
                     writer.WriteListItem($"`{sig}`");
-                }
-                if (addedMembers.Count > 10)
-                {
-                    writer.WriteListItem($"... and {addedMembers.Count - 10} more added");
                 }
             }
         }
