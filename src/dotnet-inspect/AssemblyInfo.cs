@@ -1,6 +1,51 @@
+using System.Text.Json.Serialization;
 using Markout;
 
 namespace DotnetInspector;
+
+/// <summary>
+/// Represents a reference to another assembly.
+/// </summary>
+public record AssemblyReference(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+/// <summary>
+/// Represents a node in the transitive assembly reference tree.
+/// Uses Depth to indicate tree level instead of nested References to avoid source generator issues.
+/// </summary>
+public class AssemblyReferenceNode
+{
+    public string Name { get; set; } = "";
+    public string Version { get; set; } = "";
+    public string? PublicKeyToken { get; set; }
+    
+    /// <summary>
+    /// Tree depth (0 = direct reference, 1 = reference of reference, etc.)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Depth { get; set; }
+    
+    /// <summary>
+    /// How the assembly was resolved: "local", "platform", or null if unresolved.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResolvedFrom { get; set; }
+    
+    /// <summary>
+    /// Resolved file path, or null if not found.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; set; }
+    
+    /// <summary>
+    /// True if this node was already seen earlier in the tree (circular reference).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsCyclic { get; set; }
+}
 
 [MarkoutSerializable]
 public class AssemblyInfo
@@ -85,4 +130,18 @@ public class AssemblyInfo
 
     [MarkoutPropertyName("IL Code")]
     public bool HasILCode { get; set; }
+
+    /// <summary>
+    /// List of assemblies referenced by this assembly.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AssemblyReference>? References { get; set; }
+
+    /// <summary>
+    /// Transitive reference tree (when --transitive is used).
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AssemblyReferenceNode>? TransitiveReferences { get; set; }
 }

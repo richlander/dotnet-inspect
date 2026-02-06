@@ -122,6 +122,28 @@ public static class OutputFormatter
                 sb.AppendLine($"| Signed | Yes |");
             if (!string.IsNullOrEmpty(info.PublicKeyToken))
                 sb.AppendLine($"| Public Key Token | {info.PublicKeyToken} |");
+
+            // Assembly References section
+            if (info.TransitiveReferences is { Count: > 0 })
+            {
+                // Transitive tree takes precedence over flat list
+                sb.AppendLine();
+                sb.AppendLine("## Assembly References (Transitive)");
+                sb.AppendLine();
+                RenderReferenceTree(sb, info.TransitiveReferences, indent: 0);
+            }
+            else if (info.References is { Count: > 0 })
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Assembly References");
+                sb.AppendLine();
+                sb.AppendLine("| Name | Version | Public Key Token |");
+                sb.AppendLine("| --- | --- | --- |");
+                foreach (var reference in info.References.OrderBy(r => r.Name))
+                {
+                    sb.AppendLine($"| {reference.Name} | {reference.Version} | {reference.PublicKeyToken ?? "-"} |");
+                }
+            }
         }
 
         // Audit section (if --audit was specified)
@@ -253,6 +275,23 @@ public static class OutputFormatter
         else
         {
             Console.WriteLine(content);
+        }
+    }
+
+    private static void RenderReferenceTree(StringBuilder sb, List<AssemblyReferenceNode> nodes, int indent)
+    {
+        foreach (var node in nodes)
+        {
+            var prefix = new string(' ', (indent + node.Depth) * 2);
+            var status = node.ResolvedFrom switch
+            {
+                "local" => "📁",
+                "platform" => "🚢",
+                _ => "❓"
+            };
+            
+            var suffix = node.IsCyclic ? " (circular)" : "";
+            sb.AppendLine($"{prefix}- {status} {node.Name} {node.Version}{suffix}");
         }
     }
 }

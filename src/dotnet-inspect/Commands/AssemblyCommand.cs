@@ -424,7 +424,21 @@ public class AssemblyCommand
             };
 
             // Always extract basic assembly info
-            audit.AssemblyInfo = ExtractAssemblyInfo(peReader);
+            audit.AssemblyInfo = ExtractAssemblyInfo(peReader, options.IncludeReferences || options.TransitiveReferences);
+
+            // Build transitive reference tree if requested
+            if (options.TransitiveReferences && audit.AssemblyInfo?.References != null)
+            {
+                var sourceDir = Path.GetDirectoryName(path);
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                visited.Add(audit.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
+                
+                audit.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
+                    audit.AssemblyInfo.References, 
+                    sourceDir, 
+                    visited,
+                    logger);
+            }
 
             // Audit if requested
             if (options.IncludeAudit)
@@ -887,7 +901,7 @@ public class AssemblyCommand
         }
     }
 
-    private static AssemblyInfo ExtractAssemblyInfo(PEReader peReader)
+    private static AssemblyInfo ExtractAssemblyInfo(PEReader peReader, bool includeReferences = false)
     {
         var info = new AssemblyInfo();
         var peHeaders = peReader.PEHeaders;
@@ -995,7 +1009,153 @@ public class AssemblyCommand
             }
         }
 
+        // Extract assembly references if requested
+        if (includeReferences)
+        {
+            var references = new List<AssemblyReference>();
+            foreach (var refHandle in metadataReader.AssemblyReferences)
+            {
+                var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
+                var name = metadataReader.GetString(assemblyRef.Name);
+                var version = assemblyRef.Version.ToString();
+                var culture = metadataReader.GetString(assemblyRef.Culture);
+                if (string.IsNullOrEmpty(culture))
+                    culture = "neutral";
+
+                string? publicKeyToken = null;
+                var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
+                if (pkToken.Length > 0)
+                {
+                    publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
+                }
+
+                references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
+            }
+
+            if (references.Count > 0)
+            {
+                info.References = references;
+            }
+        }
+
         return info;
+    }
+
+    private static List<AssemblyReferenceNode> BuildTransitiveReferences(
+        List<AssemblyReference> references,
+        string? sourceDir,
+        HashSet<string> visited,
+        VerboseLogger logger,
+        int depth = 0)
+    {
+        var nodes = new List<AssemblyReferenceNode>();
+
+        foreach (var reference in references.OrderBy(r => r.Name))
+        {
+            var node = new AssemblyReferenceNode
+            {
+                Name = reference.Name,
+                Version = reference.Version,
+                PublicKeyToken = reference.PublicKeyToken,
+                Depth = depth
+            };
+
+            // Check for cycles
+            if (visited.Contains(reference.Name))
+            {
+                node.IsCyclic = true;
+                nodes.Add(node);
+                continue;
+            }
+
+            visited.Add(reference.Name);
+
+            // Try to resolve the assembly
+            string? resolvedPath = null;
+            string? resolvedFrom = null;
+
+            // 1. Try same directory as source assembly
+            if (!string.IsNullOrEmpty(sourceDir))
+            {
+                var localPath = Path.Combine(sourceDir, reference.Name + ".dll");
+                if (File.Exists(localPath))
+                {
+                    resolvedPath = localPath;
+                    resolvedFrom = "local";
+                }
+            }
+
+            // 2. Try platform resolver for System.*/Microsoft.* assemblies
+            if (resolvedPath == null)
+            {
+                var (platformPath, _, _, error) = Inspectors.PlatformResolver.ResolveAssembly(reference.Name);
+                if (error == null && platformPath != null)
+                {
+                    resolvedPath = platformPath;
+                    resolvedFrom = "platform";
+                }
+            }
+
+            node.Path = resolvedPath;
+            node.ResolvedFrom = resolvedFrom;
+            nodes.Add(node);
+
+            // Recursively resolve children if we found the assembly
+            if (resolvedPath != null)
+            {
+                try
+                {
+                    var childRefs = ExtractReferencesFromPath(resolvedPath);
+                    if (childRefs.Count > 0)
+                    {
+                        // Clone visited set for this branch to allow diamond dependencies
+                        var branchVisited = new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1);
+                        nodes.AddRange(childNodes);
+                    }
+                }
+                catch
+                {
+                    // Couldn't read the assembly - just skip children
+                }
+            }
+        }
+
+        return nodes;
+    }
+
+    private static List<AssemblyReference> ExtractReferencesFromPath(string assemblyPath)
+    {
+        var references = new List<AssemblyReference>();
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        if (!peReader.HasMetadata)
+            return references;
+
+        var metadataReader = peReader.GetMetadataReader();
+
+        foreach (var refHandle in metadataReader.AssemblyReferences)
+        {
+            var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
+            var name = metadataReader.GetString(assemblyRef.Name);
+            var version = assemblyRef.Version.ToString();
+            var culture = metadataReader.GetString(assemblyRef.Culture);
+            if (string.IsNullOrEmpty(culture))
+                culture = "neutral";
+
+            string? publicKeyToken = null;
+            var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
+            if (pkToken.Length > 0)
+            {
+                publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
+            }
+
+            references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
+        }
+
+        return references;
     }
 
     private static string? GetAttributeName(System.Reflection.Metadata.MetadataReader reader, System.Reflection.Metadata.CustomAttribute attr)
