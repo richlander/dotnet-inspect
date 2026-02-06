@@ -424,7 +424,7 @@ public class AssemblyCommand
             };
 
             // Always extract basic assembly info
-            audit.AssemblyInfo = ExtractAssemblyInfo(peReader);
+            audit.AssemblyInfo = ExtractAssemblyInfo(peReader, options.IncludeReferences);
 
             // Audit if requested
             if (options.IncludeAudit)
@@ -887,7 +887,7 @@ public class AssemblyCommand
         }
     }
 
-    private static AssemblyInfo ExtractAssemblyInfo(PEReader peReader)
+    private static AssemblyInfo ExtractAssemblyInfo(PEReader peReader, bool includeReferences = false)
     {
         var info = new AssemblyInfo();
         var peHeaders = peReader.PEHeaders;
@@ -992,6 +992,35 @@ public class AssemblyCommand
             else if (attrName == "System.Reflection.AssemblyDescriptionAttribute")
             {
                 info.Description = GetAttributeStringValue(metadataReader, attr);
+            }
+        }
+
+        // Extract assembly references if requested
+        if (includeReferences)
+        {
+            var references = new List<AssemblyReference>();
+            foreach (var refHandle in metadataReader.AssemblyReferences)
+            {
+                var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
+                var name = metadataReader.GetString(assemblyRef.Name);
+                var version = assemblyRef.Version.ToString();
+                var culture = metadataReader.GetString(assemblyRef.Culture);
+                if (string.IsNullOrEmpty(culture))
+                    culture = "neutral";
+
+                string? publicKeyToken = null;
+                var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
+                if (pkToken.Length > 0)
+                {
+                    publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
+                }
+
+                references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
+            }
+
+            if (references.Count > 0)
+            {
+                info.References = references;
             }
         }
 

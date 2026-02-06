@@ -122,6 +122,20 @@ public static class OutputFormatter
                 sb.AppendLine($"| Signed | Yes |");
             if (!string.IsNullOrEmpty(info.PublicKeyToken))
                 sb.AppendLine($"| Public Key Token | {info.PublicKeyToken} |");
+
+            // Assembly References section
+            if (info.References is { Count: > 0 })
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Assembly References");
+                sb.AppendLine();
+                sb.AppendLine("| Name | Version | Public Key Token |");
+                sb.AppendLine("| --- | --- | --- |");
+                foreach (var reference in info.References.OrderBy(r => r.Name))
+                {
+                    sb.AppendLine($"| {reference.Name} | {reference.Version} | {reference.PublicKeyToken ?? "-"} |");
+                }
+            }
         }
 
         // Audit section (if --audit was specified)

@@ -1,6 +1,16 @@
+using System.Text.Json.Serialization;
 using Markout;
 
 namespace DotnetInspector;
+
+/// <summary>
+/// Represents a reference to another assembly.
+/// </summary>
+public record AssemblyReference(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
 
 [MarkoutSerializable]
 public class AssemblyInfo
@@ -85,4 +95,11 @@ public class AssemblyInfo
 
     [MarkoutPropertyName("IL Code")]
     public bool HasILCode { get; set; }
+
+    /// <summary>
+    /// List of assemblies referenced by this assembly.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AssemblyReference>? References { get; set; }
 }

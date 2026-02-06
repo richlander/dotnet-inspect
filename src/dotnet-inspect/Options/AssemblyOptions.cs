@@ -13,6 +13,11 @@ public record AssemblyOptions
     public bool IncludeAudit { get; init; }
 
     /// <summary>
+    /// Include assembly references in output.
+    /// </summary>
+    public bool IncludeReferences { get; init; }
+
+    /// <summary>
     /// Enable strict audit mode: verify SourceLink URLs are fetchable
     /// and all source files are accessible or embedded.
     /// </summary>
