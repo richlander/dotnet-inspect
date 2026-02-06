@@ -33,12 +33,13 @@ Start with these common workflows:
 dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 
 # Compare API changes between versions (essential for migrations)
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
 dnx dotnet-inspect -y -- diff Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
-dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
+dnx dotnet-inspect -y -- diff "*Json*" --package System.Text.Json@9.0.0..10.0.0
 
 # Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --oneline
+dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --terse
 
 # Find extension methods for a type
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime
@@ -63,8 +64,9 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 | `-v:d` | Detailed output (full signatures, more info) | all commands |
 | `--docs` | Include XML documentation from source | `type`, `api` |
 | `-m Name` | Filter to specific member(s) | `type`, `api` |
-| `-t Name` | Filter to specific type(s) | `diff` |
+| `-t Name` | Filter to specific type(s), supports globs | `diff` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
+| `--terse` | Compact output (alias for --oneline --grouped) | `find` |
 | `--oneline` | Space-separated type names on one line | `find` |
 | `--name-only` | Show only names, one per line | `find`, `diff` |
 | `--stat` | Show only statistics (no member details) | `diff` |
@@ -72,7 +74,12 @@ dnx dotnet-inspect -y -- type Option --package System.CommandLine --docs
 | `--reachable` | Include extensions on reachable types | `extensions` |
 | `--prerelease` | Include prerelease versions | `package --versions` |
 
+**Signatures include `params` and default values** — you can determine calling conventions directly from output:
+`void .ctor(string name, params string[] aliases)`, `Parse(args, configuration = null)`
+
 **Generic types:** Use quotes around generic types: `'Option<T>'`, `'IEnumerable<T>'`
+
+**Diff supports globs and whole-package comparison:** Omit the type name to see all changes across a package version range. Use glob patterns like `"*Writer*"` to filter.
 
 ## Command Reference
 

@@ -396,23 +396,91 @@ public static class ApiSurfaceExtractor
             string type = paramTypes[i];
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            string paramName = GetParameterName(reader, paramHandles, i + 1) ?? $"arg{i}";
-            parameters.Add($"{type} {paramName}");
+            var (paramName, isParams, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            paramName ??= $"arg{i}";
+
+            var paramStr = isParams ? $"params {type} {paramName}" : $"{type} {paramName}";
+
+            if (hasDefault)
+            {
+                paramStr += $" = {FormatDefaultValue(defaultValue, type)}";
+            }
+
+            parameters.Add(paramStr);
         }
 
-        string paramStr = string.Join(", ", parameters);
-        return $"{signature.ReturnType} {name}({paramStr})";
+        string paramStr2 = string.Join(", ", parameters);
+        return $"{signature.ReturnType} {name}({paramStr2})";
     }
 
-    private static string? GetParameterName(MetadataReader reader, List<ParameterHandle> handles, int sequenceNumber)
+    private static (string? name, bool isParams, bool hasDefault, object? defaultValue) GetParameterInfo(
+        MetadataReader reader, List<ParameterHandle> handles, int sequenceNumber)
     {
         foreach (var handle in handles)
         {
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
-                return reader.GetString(param.Name);
+            {
+                string name = reader.GetString(param.Name);
+                bool isParams = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
+                    "System.ParamArrayAttribute");
+
+                bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;
+                object? defaultValue = null;
+
+                if (hasDefault)
+                {
+                    var constantHandle = param.GetDefaultValue();
+                    if (!constantHandle.IsNil)
+                    {
+                        var constant = reader.GetConstant(constantHandle);
+                        defaultValue = ReadConstantValue(reader, constant);
+                    }
+                }
+
+                return (name, isParams, hasDefault, defaultValue);
+            }
         }
-        return null;
+        return (null, false, false, null);
+    }
+
+    private static object? ReadConstantValue(MetadataReader reader, Constant constant)
+    {
+        var blob = reader.GetBlobReader(constant.Value);
+        return constant.TypeCode switch
+        {
+            ConstantTypeCode.Boolean => blob.ReadBoolean(),
+            ConstantTypeCode.Char => blob.ReadChar(),
+            ConstantTypeCode.SByte => blob.ReadSByte(),
+            ConstantTypeCode.Byte => blob.ReadByte(),
+            ConstantTypeCode.Int16 => blob.ReadInt16(),
+            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+            ConstantTypeCode.Int32 => blob.ReadInt32(),
+            ConstantTypeCode.UInt32 => blob.ReadUInt32(),
+            ConstantTypeCode.Int64 => blob.ReadInt64(),
+            ConstantTypeCode.UInt64 => blob.ReadUInt64(),
+            ConstantTypeCode.Single => blob.ReadSingle(),
+            ConstantTypeCode.Double => blob.ReadDouble(),
+            ConstantTypeCode.String => blob.ReadUTF16(blob.Length),
+            ConstantTypeCode.NullReference => null,
+            _ => null
+        };
+    }
+
+    private static string FormatDefaultValue(object? value, string typeName)
+    {
+        if (value == null)
+            return "null";
+
+        return value switch
+        {
+            bool b => b ? "true" : "false",
+            string s => $"\"{s}\"",
+            char c => $"'{c}'",
+            float f => f.ToString("G") + "f",
+            double d => d.ToString("G"),
+            _ => value.ToString() ?? "default"
+        };
     }
 
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors)
