@@ -657,7 +657,8 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(verboseOption),
+                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption))
             };
 
             return await PlatformCommand.ExecuteAsync(options);

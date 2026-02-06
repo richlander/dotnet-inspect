@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using Markout;
 
@@ -65,7 +66,26 @@ public class PlatformCommand
 
         var writer = new MarkoutWriter();
         writer.WriteHeading(1, "Installed Frameworks");
-        writer.WriteField("Packs Directory", packsDir);
+
+        // Show summary info in detailed mode
+        if (options.Verbosity == Verbosity.Detailed)
+        {
+            var latestVersion = frameworks.Max(f => f.LatestVersion) ?? "";
+            var majorVersion = latestVersion.Contains('.') ? latestVersion[..latestVersion.IndexOf('.')] + ".0" : latestVersion;
+            var majorVersions = frameworks
+                .SelectMany(f => f.AllVersions)
+                .Select(v => v.Contains('.') ? v[..v.IndexOf('.')] : v)
+                .Distinct()
+                .Count();
+            var dotnetRoot = Path.GetDirectoryName(Path.GetDirectoryName(packsDir)) ?? packsDir;
+
+            writer.WriteCompactFields(
+                new MarkoutField("Latest", majorVersion),
+                new MarkoutField("Patch", latestVersion),
+                new MarkoutField("Majors", majorVersions.ToString()),
+                new MarkoutField("Runtimes", frameworks.Count.ToString()),
+                new MarkoutField("Location", dotnetRoot));
+        }
 
         var headers = new[] { "Framework", "Version", "Assemblies" };
         var rows = frameworks.Select(f => new[] { f.ShortName, f.LatestVersion, f.AssemblyCount.ToString() });
@@ -309,4 +329,5 @@ public record PlatformOptions
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Verbose { get; init; }
+    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
 }
