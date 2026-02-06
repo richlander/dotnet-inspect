@@ -4,6 +4,7 @@ using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -291,81 +292,71 @@ public class DiffCommand
         }
 
         // Full output (default)
+        var writer = new MarkoutWriter();
+
         // Header
-        sb.AppendLine($"# API Diff: {name}");
-        sb.AppendLine();
-        sb.AppendLine($"**{fromVersion}** → **{toVersion}**");
-        sb.AppendLine();
+        writer.WriteHeading(1, $"API Diff: {name}");
+        writer.WriteParagraph($"**{fromVersion}** → **{toVersion}**");
 
         // Summary
-        sb.AppendLine($"**Summary:** +{addedTypes.Count} types added, -{removedTypes.Count} types removed, {changedTypes.Count} types changed");
-        sb.AppendLine();
+        writer.WriteParagraph($"**Summary:** +{addedTypes.Count} types added, -{removedTypes.Count} types removed, {changedTypes.Count} types changed");
 
         if (removedTypes.Count == 0 && addedTypes.Count == 0 && changedTypes.Count == 0)
         {
-            sb.AppendLine("*No API changes detected.*");
-            return sb.ToString().TrimEnd();
+            writer.WriteParagraph("*No API changes detected.*");
+            return writer.ToString().TrimEnd();
         }
 
         // Removed Types
         if (removedTypes.Count > 0)
         {
-            sb.AppendLine("## Removed Types");
-            sb.AppendLine();
+            writer.WriteHeading(2, "Removed Types");
             foreach (var t in removedTypes)
             {
-                sb.AppendLine($"- {t}");
+                writer.WriteListItem(t);
             }
-            sb.AppendLine();
         }
 
         // Added Types
         if (addedTypes.Count > 0)
         {
-            sb.AppendLine("## Added Types");
-            sb.AppendLine();
+            writer.WriteHeading(2, "Added Types");
             foreach (var t in addedTypes)
             {
-                sb.AppendLine($"+ {t}");
+                writer.WriteListItem(t);
             }
-            sb.AppendLine();
         }
 
         // Changed Types
         if (changedTypes.Count > 0)
         {
-            sb.AppendLine("## Changed Types");
-            sb.AppendLine();
+            writer.WriteHeading(2, "Changed Types");
             foreach (var (typeName, added, removed, addedMembers, removedMembers) in changedTypes)
             {
-                sb.AppendLine($"### {typeName}");
-                sb.AppendLine();
-                sb.AppendLine($"+{added} added, -{removed} removed");
-                sb.AppendLine();
-                
+                writer.WriteHeading(3, typeName);
+                writer.WriteParagraph($"+{added} added, -{removed} removed");
+
                 foreach (var sig in removedMembers.Take(10))
                 {
-                    sb.AppendLine($"- `{sig}`");
+                    writer.WriteListItem($"`{sig}`");
                 }
                 if (removedMembers.Count > 10)
                 {
-                    sb.AppendLine($"- ... and {removedMembers.Count - 10} more removed");
+                    writer.WriteListItem($"... and {removedMembers.Count - 10} more removed");
                 }
-                
+
                 foreach (var sig in addedMembers.Take(10))
                 {
-                    sb.AppendLine($"+ `{sig}`");
+                    writer.WriteListItem($"`{sig}`");
                 }
                 if (addedMembers.Count > 10)
                 {
-                    sb.AppendLine($"+ ... and {addedMembers.Count - 10} more added");
+                    writer.WriteListItem($"... and {addedMembers.Count - 10} more added");
                 }
-                
-                sb.AppendLine();
             }
         }
 
-        return sb.ToString().TrimEnd();
+        return writer.ToString().TrimEnd();
     }
 
     internal static string GetSimpleName(string fullName)
