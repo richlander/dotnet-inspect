@@ -201,14 +201,14 @@ public class SamplesCommand
         HttpClient httpClient)
     {
         var fetcher = new SourceFetcher(httpClient);
+        var writer = new MarkoutWriter(Console.Out);
 
         // H1 title - output immediately
         var title = assemblyName ?? packageName ?? "Samples";
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
             : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
-        Console.WriteLine($"# Samples: {title}{packageInfo}");
-        Console.WriteLine();
+        writer.WriteHeading(1, $"Samples: {title}{packageInfo}");
 
         // Process samples in batches for parallel fetching with progressive output
         for (int batchStart = 0; batchStart < samples.Count; batchStart += BatchSize)
@@ -233,22 +233,19 @@ public class SamplesCommand
                 var sample = result.TypedSample.Sample;
                 var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
 
-                // Format: ## 1. Namespace.Type - Description
-                Console.WriteLine($"## {result.Index + 1}. {result.TypedSample.FullTypeName} - {description}");
-                Console.WriteLine();
+                writer.WriteHeading(2, $"{result.Index + 1}. {result.TypedSample.FullTypeName} - {description}");
 
                 if (result.Content != null)
                 {
                     var lang = GetLanguageFromPath(sample.RelativePath);
-                    Console.WriteLine($"```{lang}");
-                    Console.WriteLine(result.Content);
-                    Console.WriteLine("```");
+                    writer.WriteCodeBlockStart(lang);
+                    Console.Out.WriteLine(result.Content);
+                    writer.WriteCodeBlockEnd();
                 }
                 else
                 {
-                    Console.WriteLine("*Failed to fetch sample content*");
+                    writer.WriteParagraph("*Failed to fetch sample content*");
                 }
-                Console.WriteLine();
             }
 
             // Small delay between batches to reduce contention
