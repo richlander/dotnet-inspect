@@ -41,14 +41,15 @@ public static class OutputFormatter
 
     private static string RenderMarkout(InspectionResult result, InspectionOptions options)
     {
-        var context = new MarkoutContext
+        var context = new MarkoutContext();
+        var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = options.IncludeSections,
             ExcludeSections = GetExcludeSections(options),
             IncludeDescription = options.Verbosity != Verbosity.Quiet
         };
 
-        return context.Serialize(result).TrimEnd();
+        return context.Serialize(result, writerOptions).TrimEnd();
     }
 
     private static HashSet<int>? GetExcludeSections(InspectionOptions options)
