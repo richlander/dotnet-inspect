@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Options;
+using Markout;
 
 namespace DotnetInspector.Output;
 
@@ -85,182 +86,177 @@ public static class OutputFormatter
 
     private static string RenderAssemblyMarkdown(AssemblyAudit audit, AssemblyOptions options)
     {
-        var sb = new StringBuilder();
+        var writer = new MarkoutWriter();
 
         // Header
-        sb.AppendLine($"# {audit.FileName}");
+        writer.WriteHeading(1, audit.FileName);
 
         // Assembly Info
         if (audit.AssemblyInfo != null)
         {
             var info = audit.AssemblyInfo;
-            sb.AppendLine();
-            sb.AppendLine("## Assembly Info");
-            sb.AppendLine();
-            sb.AppendLine("| Property | Value |");
-            sb.AppendLine("| --- | --- |");
+            writer.WriteHeading(2, "Assembly Info");
 
+            var infoFields = new List<string[]>();
             if (!string.IsNullOrEmpty(info.AssemblyName))
-                sb.AppendLine($"| Name | {info.AssemblyName} |");
+                infoFields.Add(new[] { "Name", info.AssemblyName });
             if (!string.IsNullOrEmpty(info.AssemblyVersion))
-                sb.AppendLine($"| Version | {info.AssemblyVersion} |");
+                infoFields.Add(new[] { "Version", info.AssemblyVersion });
             if (!string.IsNullOrEmpty(info.TargetFramework))
-                sb.AppendLine($"| Target Framework | {info.TargetFramework} |");
+                infoFields.Add(new[] { "Target Framework", info.TargetFramework });
             if (!string.IsNullOrEmpty(info.Architecture))
-                sb.AppendLine($"| Architecture | {info.Architecture} |");
+                infoFields.Add(new[] { "Architecture", info.Architecture });
             if (!string.IsNullOrEmpty(info.CompilationType))
-                sb.AppendLine($"| Compilation | {info.CompilationType} |");
+                infoFields.Add(new[] { "Compilation", info.CompilationType });
             if (!string.IsNullOrEmpty(info.InformationalVersion))
-                sb.AppendLine($"| Informational Version | {info.InformationalVersion} |");
+                infoFields.Add(new[] { "Informational Version", info.InformationalVersion });
             if (!string.IsNullOrEmpty(info.Product))
-                sb.AppendLine($"| Product | {info.Product} |");
+                infoFields.Add(new[] { "Product", info.Product });
             if (!string.IsNullOrEmpty(info.Company))
-                sb.AppendLine($"| Company | {info.Company} |");
+                infoFields.Add(new[] { "Company", info.Company });
             if (!string.IsNullOrEmpty(info.Copyright))
-                sb.AppendLine($"| Copyright | {info.Copyright} |");
+                infoFields.Add(new[] { "Copyright", info.Copyright });
             if (info.IsSigned)
-                sb.AppendLine($"| Signed | Yes |");
+                infoFields.Add(new[] { "Signed", "Yes" });
             if (!string.IsNullOrEmpty(info.PublicKeyToken))
-                sb.AppendLine($"| Public Key Token | {info.PublicKeyToken} |");
+                infoFields.Add(new[] { "Public Key Token", info.PublicKeyToken });
+
+            writer.WriteTable(new[] { "Property", "Value" }, infoFields);
 
             // Assembly References section
             if (info.TransitiveReferences is { Count: > 0 })
             {
-                // Transitive tree takes precedence over flat list
-                sb.AppendLine();
-                sb.AppendLine("## Assembly References (Transitive)");
-                sb.AppendLine();
-                RenderReferenceTree(sb, info.TransitiveReferences, indent: 0);
+                writer.WriteHeading(2, "Assembly References (Transitive)");
+                var refTree = BuildReferenceTree(info.TransitiveReferences);
+                writer.WriteTree(refTree);
             }
             else if (info.References is { Count: > 0 })
             {
-                sb.AppendLine();
-                sb.AppendLine("## Assembly References");
-                sb.AppendLine();
-                sb.AppendLine("| Name | Version | Public Key Token |");
-                sb.AppendLine("| --- | --- | --- |");
-                foreach (var reference in info.References.OrderBy(r => r.Name))
-                {
-                    sb.AppendLine($"| {reference.Name} | {reference.Version} | {reference.PublicKeyToken ?? "-"} |");
-                }
+                writer.WriteHeading(2, "Assembly References");
+                var refRows = info.References.OrderBy(r => r.Name)
+                    .Select(r => new[] { r.Name, r.Version, r.PublicKeyToken ?? "-" });
+                writer.WriteTable(new[] { "Name", "Version", "Public Key Token" }, refRows);
             }
         }
 
         // Audit section (if --audit was specified)
         if (options.IncludeAudit)
         {
-            sb.AppendLine();
-            sb.AppendLine("## Build Audit");
+            writer.WriteHeading(2, "Build Audit");
 
             // Show fields before the table
             if (!string.IsNullOrEmpty(audit.RepositoryUrl))
             {
-                sb.AppendLine();
-                sb.AppendLine($"**Repository:** {audit.RepositoryUrl}");
+                writer.WriteField("Repository", audit.RepositoryUrl);
             }
 
             if (audit.NonNormalizedPaths is { Count: > 0 })
             {
-                sb.AppendLine();
-                sb.AppendLine("**Non-normalized paths:**");
-                foreach (var path in audit.NonNormalizedPaths)
-                {
-                    sb.AppendLine($"- {path}");
-                }
+                writer.WriteArray("Non-normalized paths", audit.NonNormalizedPaths);
             }
 
-            // Show the checkmark table
-            sb.AppendLine();
-            sb.AppendLine("| Check | Status |");
-            sb.AppendLine("| --- | --- |");
-            sb.AppendLine($"| Deterministic | {(audit.IsDeterministic ? "✓" : "✗")} |");
-            sb.AppendLine($"| Reproducible Flag | {(audit.HasReproducibleFlag ? "✓" : "✗")} |");
-            sb.AppendLine($"| SourceLink | {audit.SourceLinkStatus} |");
+            // Build the checkmark table
+            var auditRows = new List<string[]>
+            {
+                new[] { "Deterministic", audit.IsDeterministic ? "✓" : "✗" },
+                new[] { "Reproducible Flag", audit.HasReproducibleFlag ? "✓" : "✗" },
+                new[] { "SourceLink", audit.SourceLinkStatus ?? "Unknown" }
+            };
             if (!string.IsNullOrEmpty(audit.Builder))
             {
-                sb.AppendLine($"| Builder | {audit.Builder} |");
+                auditRows.Add(new[] { "Builder", audit.Builder });
             }
             if (!string.IsNullOrEmpty(audit.Publisher))
             {
                 var publisherStatus = audit.PublisherVerified ? "(Verified)" : "";
-                sb.AppendLine($"| Publisher | {audit.Publisher} {publisherStatus} |");
+                auditRows.Add(new[] { "Publisher", $"{audit.Publisher} {publisherStatus}" });
             }
             else if (!string.IsNullOrEmpty(audit.SignatureStatus))
             {
-                sb.AppendLine($"| Publisher | {audit.SignatureStatus} |");
+                auditRows.Add(new[] { "Publisher", audit.SignatureStatus });
             }
             if (audit.RepositoryVerified)
             {
-                sb.AppendLine($"| Repository | nuget.org (Verified) |");
+                auditRows.Add(new[] { "Repository", "nuget.org (Verified)" });
             }
 
+            writer.WriteTable(new[] { "Check", "Status" }, auditRows);
+
             // PDB section
-            sb.AppendLine();
-            sb.AppendLine("## PDB");
-            sb.AppendLine();
-            sb.AppendLine("| Property | Value |");
-            sb.AppendLine("| --- | --- |");
-            sb.AppendLine($"| Format | {audit.PdbFormat ?? "Unknown"} |");
-            sb.AppendLine($"| Location | {audit.PdbLocation ?? "Unknown"} |");
+            writer.WriteHeading(2, "PDB");
+
+            var pdbRows = new List<string[]>
+            {
+                new[] { "Format", audit.PdbFormat ?? "Unknown" },
+                new[] { "Location", audit.PdbLocation ?? "Unknown" }
+            };
             if (!string.IsNullOrEmpty(audit.SymbolServer))
             {
-                sb.AppendLine($"| Server | {audit.SymbolServer} |");
+                pdbRows.Add(new[] { "Server", audit.SymbolServer });
             }
             if (!string.IsNullOrEmpty(audit.PdbPath))
             {
-                sb.AppendLine($"| Path | {audit.PdbPath} |");
+                pdbRows.Add(new[] { "Path", audit.PdbPath });
             }
+            writer.WriteTable(new[] { "Property", "Value" }, pdbRows);
 
             if (audit.PdbLocation == null && !string.IsNullOrEmpty(audit.PdbPath))
             {
-                sb.AppendLine();
-                sb.AppendLine("*Path is from the CodeView record in the assembly; actual PDB location is unknown.*");
+                writer.WriteParagraph("*Path is from the CodeView record in the assembly; actual PDB location is unknown.*");
             }
 
             if (audit.WindowsPdbDetected)
             {
-                sb.AppendLine();
-                sb.AppendLine("**Note:** Windows PDB format is not supported by this tool.");
-                sb.AppendLine("Only Portable PDBs (embedded or in .snupkg) can be read.");
-                sb.AppendLine("Consider asking the package maintainer to publish Portable PDBs.");
+                writer.WriteParagraph("**Note:** Windows PDB format is not supported by this tool.");
+                writer.WriteParagraph("Only Portable PDBs (embedded or in .snupkg) can be read.");
+                writer.WriteParagraph("Consider asking the package maintainer to publish Portable PDBs.");
             }
 
             // Source Coverage section (shown when strict audit was run)
             if (audit.TotalSourceFiles > 0)
             {
-                sb.AppendLine();
-                sb.AppendLine("## Source Coverage");
-                sb.AppendLine();
+                writer.WriteHeading(2, "Source Coverage");
 
                 int accessible = audit.AccessibleSourceFiles + audit.EmbeddedSourceFiles;
                 string status = audit.AllSourcesAccessible == true ? "✓" : "✗";
-                sb.AppendLine($"**Status:** {status} {accessible}/{audit.TotalSourceFiles} files accessible");
+                writer.WriteField("Status", $"{status} {accessible}/{audit.TotalSourceFiles} files accessible");
 
                 if (audit.EmbeddedSourceFiles > 0)
                 {
-                    sb.AppendLine($"**Embedded:** {audit.EmbeddedSourceFiles} files");
+                    writer.WriteField("Embedded", $"{audit.EmbeddedSourceFiles} files");
                 }
 
                 if (audit.MissingSourceFiles is { Count: > 0 })
                 {
-                    sb.AppendLine();
-                    sb.AppendLine("**Missing sources:**");
                     // Show first 10 missing files, truncate if more
-                    int shown = 0;
-                    foreach (var file in audit.MissingSourceFiles.Take(10))
-                    {
-                        sb.AppendLine($"- `{file}`");
-                        shown++;
-                    }
+                    var displayFiles = audit.MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
                     if (audit.MissingSourceFiles.Count > 10)
                     {
-                        sb.AppendLine($"- ... and {audit.MissingSourceFiles.Count - 10} more");
+                        displayFiles.Add($"... and {audit.MissingSourceFiles.Count - 10} more");
                     }
+                    writer.WriteArray("Missing sources", displayFiles);
                 }
             }
         }
 
-        return sb.ToString().TrimEnd();
+        return writer.ToString().TrimEnd();
+    }
+
+    private static List<TreeNode> BuildReferenceTree(List<AssemblyReferenceNode> nodes)
+    {
+        var result = new List<TreeNode>();
+        foreach (var node in nodes)
+        {
+            var icon = node.ResolvedFrom switch
+            {
+                "local" => "📁",
+                "platform" => "🚢",
+                _ => "❓"
+            };
+            var suffix = node.IsCyclic ? " (circular)" : "";
+            result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", icon));
+        }
+        return result;
     }
 
     /// <summary>
@@ -275,23 +271,6 @@ public static class OutputFormatter
         else
         {
             Console.WriteLine(content);
-        }
-    }
-
-    private static void RenderReferenceTree(StringBuilder sb, List<AssemblyReferenceNode> nodes, int indent)
-    {
-        foreach (var node in nodes)
-        {
-            var prefix = new string(' ', (indent + node.Depth) * 2);
-            var status = node.ResolvedFrom switch
-            {
-                "local" => "📁",
-                "platform" => "🚢",
-                _ => "❓"
-            };
-            
-            var suffix = node.IsCyclic ? " (circular)" : "";
-            sb.AppendLine($"{prefix}- {status} {node.Name} {node.Version}{suffix}");
         }
     }
 }

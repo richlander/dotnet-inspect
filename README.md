@@ -40,7 +40,7 @@ Inspect NuGet packages. This is the default command.
 dotnet-inspect System.Text.Json                    # Metadata (latest version)
 dotnet-inspect System.Text.Json@8.0.4 -v:d         # Detailed (shows vulnerability)
 dotnet-inspect System.Text.Json --versions         # List available versions
-dotnet-inspect System.Text.Json --audit            # Provenance verification
+dotnet-inspect System.Text.Json --audit            # Provenance verification; optional `--strict` mode
 dotnet-inspect System.Text.Json --files --all      # File structure
 ```
 
@@ -54,6 +54,8 @@ dotnet-inspect audit ./bin/MyLib.dll               # Local file
 dotnet-inspect audit ./artifacts/*.nupkg           # Multiple nupkgs
 dotnet-inspect audit Markout@0.1.4 -v:q            # Quiet (pass/fail)
 ```
+
+Note: Strict audit hits the network and will take longer.
 
 ### platform
 

@@ -9,6 +9,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -341,12 +342,14 @@ public class ExtensionsCommand
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results)
     {
-        Console.WriteLine($"# Extension Methods for {targetType}");
-        Console.WriteLine();
+        var writer = new MarkoutWriter();
+
+        writer.WriteHeading(1, $"Extension Methods for {targetType}");
 
         if (results.Count == 0)
         {
-            Console.WriteLine("No extension methods found.");
+            writer.WriteParagraph("No extension methods found.");
+            Console.Write(writer.ToString());
             return;
         }
 
@@ -359,39 +362,34 @@ public class ExtensionsCommand
         // Direct extensions
         if (directExtensions.Count > 0)
         {
-            Console.WriteLine($"## Direct Extensions ({directExtensions.Count})");
-            Console.WriteLine();
-            WriteExtensionTable(directExtensions);
+            writer.WriteHeading(2, $"Direct Extensions ({directExtensions.Count})");
+            WriteExtensionTable(writer, directExtensions);
         }
 
         // Reachable extensions
         foreach (var group in reachableExtensions)
         {
-            Console.WriteLine();
-            Console.WriteLine($"## Via {group.Key} ({group.First().ReachableFromType}) ({group.Count()})");
-            Console.WriteLine();
-            WriteExtensionTable(group.ToList());
+            writer.WriteHeading(2, $"Via {group.Key} ({group.First().ReachableFromType}) ({group.Count()})");
+            WriteExtensionTable(writer, group.ToList());
         }
+
+        Console.Write(writer.ToString());
     }
 
-    private static void WriteExtensionTable(List<ExtensionMethodResult> results)
+    private static void WriteExtensionTable(MarkoutWriter writer, List<ExtensionMethodResult> results)
     {
         // Group by extension class
         var byClass = results.GroupBy(r => r.ExtensionClass).ToList();
 
-        Console.WriteLine("| Method | Class | Assembly | Source |");
-        Console.WriteLine("| --- | --- | --- | --- |");
-
-        foreach (var classGroup in byClass)
+        var headers = new[] { "Method", "Class", "Assembly", "Source" };
+        var rows = byClass.SelectMany(classGroup => classGroup.Select(ext =>
         {
-            foreach (var ext in classGroup)
-            {
-                var sourceDisplay = ext.SourceVersion != null 
-                    ? $"{ext.Source}@{ext.SourceVersion}" 
-                    : ext.Source;
-                Console.WriteLine($"| {ext.MethodName} | {ext.ExtensionClass} | {ext.Assembly} | {sourceDisplay} |");
-            }
-        }
+            var sourceDisplay = ext.SourceVersion != null 
+                ? $"{ext.Source}@{ext.SourceVersion}" 
+                : ext.Source;
+            return new[] { ext.MethodName, ext.ExtensionClass ?? "", ext.Assembly ?? "", sourceDisplay ?? "" };
+        }));
+        writer.WriteTable(headers, rows);
     }
 }
 
