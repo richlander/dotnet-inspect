@@ -23,6 +23,8 @@ public class CliSchemaCommand
                 return 1;
             }
             commands = [match];
+            // Single command always shows full detail
+            verbosity = Verbosity.Detailed;
         }
 
         // Quiet: command names only, space-separated
