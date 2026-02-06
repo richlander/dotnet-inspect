@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -62,20 +63,15 @@ public class PlatformCommand
             return 0;
         }
 
-        var sb = new StringBuilder();
-        sb.AppendLine("# Installed Frameworks");
-        sb.AppendLine();
-        sb.AppendLine($"**Packs Directory:** {packsDir}");
-        sb.AppendLine();
-        sb.AppendLine("| Framework | Version | Assemblies |");
-        sb.AppendLine("| --- | --- | --- |");
+        var writer = new MarkoutWriter();
+        writer.WriteHeading(1, "Installed Frameworks");
+        writer.WriteField("Packs Directory", packsDir);
 
-        foreach (var framework in frameworks)
-        {
-            sb.AppendLine($"| {framework.ShortName} | {framework.LatestVersion} | {framework.AssemblyCount} |");
-        }
+        var headers = new[] { "Framework", "Version", "Assemblies" };
+        var rows = frameworks.Select(f => new[] { f.ShortName, f.LatestVersion, f.AssemblyCount.ToString() });
+        writer.WriteTable(headers, rows);
 
-        Console.WriteLine(sb.ToString().TrimEnd());
+        Console.WriteLine(writer.ToString());
         return 0;
     }
 
@@ -116,14 +112,12 @@ public class PlatformCommand
             return 0;
         }
 
-        var sb = new StringBuilder();
-        sb.AppendLine("# Installed Versions");
-        sb.AppendLine();
+        var writer = new MarkoutWriter();
+        writer.WriteHeading(1, "Installed Versions");
 
         foreach (var framework in frameworks)
         {
-            sb.AppendLine($"## {framework.ShortName}");
-            sb.AppendLine();
+            writer.WriteHeading(2, framework.ShortName);
             
             var versions = framework.AllVersions;
             if (options.Limit.HasValue)
@@ -131,20 +125,15 @@ public class PlatformCommand
                 versions = versions.Take(options.Limit.Value).ToList();
             }
 
-            foreach (var version in versions)
-            {
-                sb.AppendLine($"- {version}");
-            }
+            writer.WriteArray(versions);
 
             if (options.Limit.HasValue && framework.AllVersions.Count > options.Limit.Value)
             {
-                sb.AppendLine($"- *... and {framework.AllVersions.Count - options.Limit.Value} more*");
+                writer.WriteParagraph($"*... and {framework.AllVersions.Count - options.Limit.Value} more*");
             }
-
-            sb.AppendLine();
         }
 
-        Console.WriteLine(sb.ToString().TrimEnd());
+        Console.WriteLine(writer.ToString());
         return 0;
     }
 
@@ -183,7 +172,14 @@ public class PlatformCommand
             return ListAssembliesJson(frameworks, requestedVersion, options);
         }
 
-        var sb = new StringBuilder();
+        var writer = new MarkoutWriter();
+
+        // Add header if multiple frameworks
+        if (frameworks.Count > 1 || string.IsNullOrEmpty(options.Framework))
+        {
+            writer.WriteHeading(1, "Platform Assemblies");
+            writer.WriteField("Packs Directory", packsDir);
+        }
 
         foreach (var framework in frameworks)
         {
@@ -198,19 +194,7 @@ public class PlatformCommand
 
             var assemblies = PlatformResolver.GetAssemblies(refPath);
 
-            sb.AppendLine($"## {framework.ShortName} ({version})");
-            sb.AppendLine();
-
-            if (options.IncludeTypes)
-            {
-                sb.AppendLine("| Assembly | Types |");
-                sb.AppendLine("| --- | --- |");
-            }
-            else
-            {
-                sb.AppendLine("| Assembly |");
-                sb.AppendLine("| --- |");
-            }
+            writer.WriteHeading(2, $"{framework.ShortName} ({version})");
 
             var displayAssemblies = assemblies.AsEnumerable();
             if (options.Limit.HasValue)
@@ -218,38 +202,26 @@ public class PlatformCommand
                 displayAssemblies = displayAssemblies.Take(options.Limit.Value);
             }
 
-            foreach (var assembly in displayAssemblies)
+            if (options.IncludeTypes)
             {
-                if (options.IncludeTypes)
-                {
-                    var typeCount = CountPublicTypes(assembly.Path);
-                    sb.AppendLine($"| {assembly.Name} | {typeCount} |");
-                }
-                else
-                {
-                    sb.AppendLine($"| {assembly.Name} |");
-                }
+                var headers = new[] { "Assembly", "Types" };
+                var rows = displayAssemblies.Select(a => new[] { a.Name, CountPublicTypes(a.Path).ToString() });
+                writer.WriteTable(headers, rows);
+            }
+            else
+            {
+                var headers = new[] { "Assembly" };
+                var rows = displayAssemblies.Select(a => new[] { a.Name });
+                writer.WriteTable(headers, rows);
             }
 
             if (options.Limit.HasValue && assemblies.Count > options.Limit.Value)
             {
-                sb.AppendLine();
-                sb.AppendLine($"*... and {assemblies.Count - options.Limit.Value} more assemblies*");
+                writer.WriteParagraph($"*... and {assemblies.Count - options.Limit.Value} more assemblies*");
             }
-
-            sb.AppendLine();
         }
 
-        // Add header if multiple frameworks
-        if (frameworks.Count > 1 || string.IsNullOrEmpty(options.Framework))
-        {
-            Console.WriteLine("# Platform Assemblies");
-            Console.WriteLine();
-            Console.WriteLine($"**Packs Directory:** {packsDir}");
-            Console.WriteLine();
-        }
-
-        Console.WriteLine(sb.ToString().TrimEnd());
+        Console.WriteLine(writer.ToString());
         return 0;
     }
 
