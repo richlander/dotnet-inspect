@@ -696,7 +696,7 @@ public class FindCommand
         return results;
     }
 
-    private static bool MatchesGlobPattern(string text, string pattern)
+    internal static bool MatchesGlobPattern(string text, string pattern)
     {
         // Convert glob pattern to regex
         // * matches any characters, ? matches single character

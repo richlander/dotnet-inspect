@@ -40,6 +40,10 @@ public static class OutputFormatter
 
     private static HashSet<string>? GetExcludeSections(InspectionOptions options)
     {
+        // Don't set excludes when includes are specified
+        if (options.IncludeSections != null)
+            return null;
+
         // If user specified explicit excludes, use those
         if (options.ExcludeSections != null)
             return options.ExcludeSections;
