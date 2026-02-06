@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -119,6 +119,19 @@ public static class CommandLineBuilder
         // Type command
         var typeCommand = CreateTypeCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(typeCommand);
+
+        // CLI command (meta command)
+        var schemaCommand = new Command("cli", "Show CLI command structure as API listing");
+        var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
+        schemaCommand.Arguments.Add(schemaCommandArg);
+        schemaCommand.Options.Add(verbosityOption);
+        schemaCommand.SetAction((parseResult) =>
+        {
+            var commandFilter = parseResult.GetValue(schemaCommandArg);
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            return CliSchemaCommand.Execute(rootCommand, commandFilter, verbosity);
+        });
+        rootCommand.Subcommands.Add(schemaCommand);
 
         // LLMs.txt command (meta command, listed last)
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
