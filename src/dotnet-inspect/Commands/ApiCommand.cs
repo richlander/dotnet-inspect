@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using DotnetInspector.Packages;
+using Markout;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -1594,84 +1595,63 @@ public class ApiCommand
 
     private static string RenderFullApiMarkdown(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
-        var sb = new StringBuilder();
+        var writer = new MarkoutWriter();
 
         // H1 header
         if (!string.IsNullOrEmpty(api.Name))
         {
-            sb.AppendLine($"# {api.Name}");
-            sb.AppendLine();
+            writer.WriteHeading(1, api.Name);
         }
 
         var types = api.Types.AsEnumerable();
         var totalCount = api.Types.Count;
 
         // Summary fields
-        sb.AppendLine($"**Types:** {totalCount}  ");
-        sb.AppendLine($"**Methods:** {api.PublicMethodCount}  ");
-        sb.AppendLine($"**Properties:** {api.PublicPropertyCount}  ");
+        writer.WriteField("Types", totalCount);
+        writer.WriteField("Methods", api.PublicMethodCount);
+        writer.WriteField("Properties", api.PublicPropertyCount);
         if (selectedTfm != null || api.Tfm != null)
         {
-            sb.AppendLine($"**TFM:** {selectedTfm ?? api.Tfm}  ");
+            writer.WriteField("TFM", selectedTfm ?? api.Tfm);
         }
         if (!string.IsNullOrEmpty(api.RepositoryUrl))
         {
-            sb.AppendLine($"**Repository:** {api.RepositoryUrl}  ");
+            writer.WriteField("Repository", api.RepositoryUrl);
         }
 
         // In fields-only mode, stop here
         if (options.FieldsOnly)
         {
-            return sb.ToString().TrimEnd();
+            return writer.ToString().TrimEnd();
         }
-
-        sb.AppendLine();
 
         // If no types and couldn't resolve forwarders, show a note
         if (totalCount == 0)
         {
-            sb.AppendLine("This assembly contains no public types.");
-            
+            writer.WriteParagraph("This assembly contains no public types.");
+
             if (api.TypeForwarders.Count > 0)
             {
-                sb.AppendLine();
-                sb.AppendLine("Type forwarders could not be resolved. Target assemblies:");
-                sb.AppendLine();
-                
+                writer.WriteParagraph("Type forwarders could not be resolved. Target assemblies:");
+
                 // Group forwarders by target assembly
                 var byAssembly = api.TypeForwarders
                     .GroupBy(f => f.TargetAssembly)
                     .OrderBy(g => g.Key)
                     .ToList();
 
-                sb.AppendLine("| Target Assembly | Types |");
-                sb.AppendLine("| --- | --- |");
-                
-                foreach (var group in byAssembly)
-                {
-                    sb.AppendLine($"| {group.Key} | {group.Count()} |");
-                }
+                var headers = new[] { "Target Assembly", "Types" };
+                var rows = byAssembly.Select(g => new[] { g.Key, g.Count().ToString() });
+                writer.WriteTable(headers, rows);
             }
-            
-            return sb.ToString().TrimEnd();
+
+            return writer.ToString().TrimEnd();
         }
 
         // Show note for type-forwarding assemblies
         if (api.IsTypeForwardingAssembly)
         {
-            sb.AppendLine("*This is a type-forwarding assembly. Types shown are resolved from target assemblies.*");
-            sb.AppendLine();
-        }
-
-        if (options.ShowDocs)
-        {
-            sb.AppendLine("| Type | Kind | Members | Description |");
-            sb.AppendLine("| --- | --- | --- | --- |");
-        }
-        else
-        {
-            sb.AppendLine("| Type | Kind | Members |");
-            sb.AppendLine("| --- | --- | --- |");
+            writer.WriteParagraph("*This is a type-forwarding assembly. Types shown are resolved from target assemblies.*");
         }
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
@@ -1679,35 +1659,42 @@ public class ApiCommand
             types = types.Take(options.Limit.Value);
         }
 
-        foreach (var type in types)
+        if (options.ShowDocs)
         {
-            var memberCount = type.Members?.Count ?? 0;
-            var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-            if (options.ShowDocs)
+            var headers = new[] { "Type", "Kind", "Members", "Description" };
+            var rows = types.Select(type =>
             {
+                var memberCount = type.Members?.Count ?? 0;
+                var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
                 var summary = type.Documentation?.Summary ?? "";
-                // Truncate and clean up for table display
-                summary = summary.Replace("\n", " ").Replace("\r", "").Replace("|", "\\|");
+                summary = summary.Replace("\n", " ").Replace("\r", "");
                 if (summary.Length > 80)
                 {
                     summary = summary[..77] + "...";
                 }
-                sb.AppendLine($"| {fullName} | {type.Kind} | {memberCount} | {summary} |");
-            }
-            else
+                return new[] { fullName, type.Kind, memberCount.ToString(), summary };
+            });
+            writer.WriteTable(headers, rows);
+        }
+        else
+        {
+            var headers = new[] { "Type", "Kind", "Members" };
+            var rows = types.Select(type =>
             {
-                sb.AppendLine($"| {fullName} | {type.Kind} | {memberCount} |");
-            }
+                var memberCount = type.Members?.Count ?? 0;
+                var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
+                return new[] { fullName, type.Kind, memberCount.ToString() };
+            });
+            writer.WriteTable(headers, rows);
         }
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
         {
             var remaining = totalCount - options.Limit.Value;
-            sb.AppendLine();
-            sb.AppendLine($"*... and {remaining} more types*");
+            writer.WriteParagraph($"*... and {remaining} more types*");
         }
 
-        return sb.ToString().TrimEnd();
+        return writer.ToString().TrimEnd();
     }
 
     private static bool MatchesGlobPattern(string text, string pattern)
@@ -1807,29 +1794,24 @@ public class ApiCommand
         };
     }
 
-    private static string RenderTypeHeader(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options, int? memberCount = null)
+    private static void RenderTypeHeader(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options, int? memberCount = null)
     {
-        var sb = new StringBuilder();
-
         var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-        
+
         // H1 title with package info
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
             : packageName != null ? $" ({packageName})" : "";
-        sb.AppendLine($"# {fullName}{packageInfo}");
+        writer.WriteHeading(1, $"{fullName}{packageInfo}");
 
         // Description paragraph (plain text, not blockquote)
         if (options.ShowDocs && type.Documentation?.Summary != null)
         {
-            sb.AppendLine();
-            sb.AppendLine(type.Documentation.Summary);
+            writer.WriteParagraph(type.Documentation.Summary);
         }
 
-        sb.AppendLine();
-
         // Key-value fields
-        sb.AppendLine($"**Kind:** {type.Kind}");
+        writer.WriteField("Kind", type.Kind);
 
         // Modifiers field (only if there are modifiers)
         var modifiers = new List<string>();
@@ -1838,73 +1820,71 @@ public class ApiCommand
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
         if (modifiers.Count > 0)
         {
-            sb.AppendLine($"**Modifiers:** {string.Join(", ", modifiers)}");
+            writer.WriteField("Modifiers", string.Join(", ", modifiers));
         }
 
         // Base type (if non-trivial)
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
         {
-            sb.AppendLine($"**Base:** {type.BaseType}");
+            writer.WriteField("Base", type.BaseType);
         }
 
         // Type parameters with constraints (compact inline format for q/m verbosity)
         // At n/d verbosity, a table section is shown instead
-        if (type.TypeParameters is { Count: > 0 } && 
+        if (type.TypeParameters is { Count: > 0 } &&
             (options.Verbosity == Verbosity.Quiet || options.Verbosity == Verbosity.Minimal))
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
                     ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
                     : tp.DisplayName);
-            sb.AppendLine($"**Type Parameters:** {string.Join(", ", paramDescriptions)}");
+            writer.WriteField("Type Parameters", string.Join(", ", paramDescriptions));
         }
 
         // Interfaces
         if (options.ShowInterfaces && type.Interfaces is { Count: > 0 })
         {
-            sb.AppendLine($"**Implements:** {string.Join(", ", type.Interfaces)}");
+            writer.WriteField("Implements", string.Join(", ", type.Interfaces));
         }
 
         // Assembly
         if (foundIn != null)
         {
-            sb.AppendLine($"**Assembly:** {foundIn}");
+            writer.WriteField("Assembly", foundIn);
         }
 
         // Package fields
         if (packageName != null)
         {
-            sb.AppendLine($"**Package:** {packageName}");
+            writer.WriteField("Package", packageName);
         }
         if (packageVersion != null)
         {
-            sb.AppendLine($"**Version:** {packageVersion}");
+            writer.WriteField("Version", packageVersion);
         }
 
         // Source URL
         if (type.GitHubBrowseUrl != null)
         {
             var sourceUrl = options.BrowsableUrls ? ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl;
-            sb.AppendLine($"**Source:** {sourceUrl}");
+            writer.WriteField("Source", sourceUrl);
             if (type.SourceResolution != null)
             {
-                sb.AppendLine($"**Source Resolution:** {type.SourceResolution}");
+                writer.WriteField("Source Resolution", type.SourceResolution);
             }
-            
+
             // Show additional source files for partial types
             if (type.IsPartialType && type.AdditionalSourceFiles != null)
             {
-                sb.AppendLine($"**Partial Type:** {type.AdditionalSourceFiles.Count + 1} source files");
+                writer.WriteField("Partial Type", $"{type.AdditionalSourceFiles.Count + 1} source files");
             }
         }
 
         // Samples count
         if ((options.ShowDocs || options.ShowSamples) && type.Documentation?.Samples?.Count > 0)
         {
-            sb.AppendLine($"**Samples:** {type.Documentation.Samples.Count} available");
+            writer.WriteField("Samples", $"{type.Documentation.Samples.Count} available");
         }
-
-        return sb.ToString();
     }
 
     private static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false)
@@ -1979,16 +1959,14 @@ public class ApiCommand
 
     private static string RenderTypeQuiet(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        var sb = new StringBuilder();
-        sb.Append(RenderTypeHeader(type, foundIn, packageName, packageVersion, options));
+        var writer = new MarkoutWriter();
+        RenderTypeHeader(writer, type, foundIn, packageName, packageVersion, options);
 
         // Skip member output in fields-only mode
-        if (options.FieldsOnly) return sb.ToString().TrimEnd();
+        if (options.FieldsOnly) return writer.ToString().TrimEnd();
 
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-        if (grouped.Count == 0) return sb.ToString().TrimEnd();
-
-        sb.AppendLine();
+        if (grouped.Count == 0) return writer.ToString().TrimEnd();
 
         // When filtering by member, show compact signatures instead of just names
         if (options.MemberFilter?.Count > 0)
@@ -1997,12 +1975,12 @@ public class ApiCommand
             {
                 foreach (var member in members.OrderBy(m => m.Signature ?? m.Name))
                 {
-                    sb.AppendLine($"- `{member.Signature ?? member.Name}`");
+                    writer.WriteListItem($"`{member.Signature ?? member.Name}`");
 
                     // Show member documentation if available (when --docs is used with member filter)
                     if (options.ShowDocs && member.Documentation?.Summary != null)
                     {
-                        sb.AppendLine($"  > {member.Documentation.Summary}");
+                        writer.WriteParagraph($"  > {member.Documentation.Summary}");
                     }
                 }
             }
@@ -2012,32 +1990,30 @@ public class ApiCommand
             foreach (var (kind, members) in grouped)
             {
                 var names = members.Select(m => m.Name).Distinct().OrderBy(n => n);
-                sb.AppendLine($"**{PluralizeKind(kind)}:** {string.Join(", ", names)}");
+                writer.WriteField(PluralizeKind(kind), string.Join(", ", names));
             }
         }
 
-        return sb.ToString().TrimEnd();
+        return writer.ToString().TrimEnd();
     }
 
     private static string RenderTypeMinimal(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        var sb = new StringBuilder();
+        var writer = new MarkoutWriter();
         var allMembers = type.Members?.Where(m => !IsCompilerGenerated(m.Name)).ToList() ?? [];
-        sb.Append(RenderTypeHeader(type, foundIn, packageName, packageVersion, options, allMembers.Count));
+        RenderTypeHeader(writer, type, foundIn, packageName, packageVersion, options, allMembers.Count);
 
         // Skip member output in fields-only mode
-        if (options.FieldsOnly) return sb.ToString().TrimEnd();
+        if (options.FieldsOnly) return writer.ToString().TrimEnd();
 
         // Render type hierarchy when --hierarchy is enabled
         if (options.ShowHierarchy)
         {
-            sb.Append(RenderTypeHierarchy(type));
+            RenderTypeHierarchy(writer, type);
         }
 
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-        if (grouped.Count == 0) return sb.ToString().TrimEnd();
-
-        sb.AppendLine();
+        if (grouped.Count == 0) return writer.ToString().TrimEnd();
 
         // When using member filter with --docs, show detailed output with docs
         if (options.MemberFilter?.Count > 0 && options.ShowDocs)
@@ -2046,15 +2022,15 @@ public class ApiCommand
             {
                 foreach (var member in members.OrderBy(m => m.Signature ?? m.Name))
                 {
-                    sb.AppendLine($"- `{member.Signature ?? member.Name}`");
+                    writer.WriteListItem($"`{member.Signature ?? member.Name}`");
 
                     if (member.Documentation?.Summary != null)
                     {
-                        sb.AppendLine($"  > {member.Documentation.Summary}");
+                        writer.WriteParagraph($"  > {member.Documentation.Summary}");
                     }
                 }
             }
-            return sb.ToString().TrimEnd();
+            return writer.ToString().TrimEnd();
         }
 
         foreach (var (kind, members) in grouped)
@@ -2065,7 +2041,7 @@ public class ApiCommand
             if (kind == "method" || kind == "constructor")
             {
                 // Add section header for methods/constructors
-                sb.AppendLine($"**{PluralizeKind(kind)}:**");
+                writer.WriteParagraph($"**{PluralizeKind(kind)}:**");
                 foreach (var nameGroup in byName)
                 {
                     var overloads = nameGroup.ToList();
@@ -2080,12 +2056,12 @@ public class ApiCommand
                             .ToList();
 
                         var hintText = paramHints.Count > 0 ? $" ({string.Join(", ", paramHints)}, ...)" : "";
-                        sb.AppendLine($"- **{nameGroup.Key}**: {overloads.Count} overloads{hintText}");
+                        writer.WriteListItem($"**{nameGroup.Key}**: {overloads.Count} overloads{hintText}");
                     }
                     else
                     {
                         // Single method
-                        sb.AppendLine($"- **{nameGroup.Key}**");
+                        writer.WriteListItem($"**{nameGroup.Key}**");
                     }
                 }
             }
@@ -2093,36 +2069,36 @@ public class ApiCommand
             {
                 // Properties, fields, events - just list names
                 var names = byName.Select(g => g.Key);
-                sb.AppendLine($"**{PluralizeKind(kind)}:** {string.Join(", ", names)}");
+                writer.WriteField(PluralizeKind(kind), string.Join(", ", names));
             }
         }
 
-        return sb.ToString().TrimEnd();
+        return writer.ToString().TrimEnd();
     }
 
     private static string RenderTypeNormalOrDetailed(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        var sb = new StringBuilder();
+        var writer = new MarkoutWriter();
 
         // In signatures-only mode, skip the header entirely
         if (!options.SignaturesOnly)
         {
-            sb.Append(RenderTypeHeader(type, foundIn, packageName, packageVersion, options));
+            RenderTypeHeader(writer, type, foundIn, packageName, packageVersion, options);
         }
 
         // Skip member output in fields-only mode
-        if (options.FieldsOnly) return sb.ToString().TrimEnd();
+        if (options.FieldsOnly) return writer.ToString().TrimEnd();
 
         // Render type parameters table for generic types
         if (!options.SignaturesOnly && type.TypeParameters is { Count: > 0 })
         {
-            sb.Append(RenderTypeParametersTable(type.TypeParameters));
+            RenderTypeParametersTable(writer, type.TypeParameters);
         }
 
         // Render type hierarchy when --hierarchy is enabled
         if (!options.SignaturesOnly && options.ShowHierarchy)
         {
-            sb.Append(RenderTypeHierarchy(type));
+            RenderTypeHierarchy(writer, type);
         }
 
         if (type.Members is { Count: > 0 })
@@ -2149,134 +2125,130 @@ public class ApiCommand
             // Use enhanced constructor output when --ctor is specified
             if (options.CtorOnly && members.Any(m => m.Kind == "constructor"))
             {
-                sb.Append(RenderConstructorEmphasis(type, members.Where(m => m.Kind == "constructor").ToList()));
+                RenderConstructorEmphasis(writer, type, members.Where(m => m.Kind == "constructor").ToList());
+                return writer.ToString().TrimEnd();
+            }
+
+            // In signatures-only mode, output plain signatures (not markdown)
+            if (options.SignaturesOnly)
+            {
+                var sb = new StringBuilder();
+                var displayMembers = members.AsEnumerable();
+                if (options.Limit.HasValue && options.Limit.Value < members.Count)
+                {
+                    displayMembers = displayMembers.Take(options.Limit.Value);
+                }
+
+                if (type.Kind == "enum")
+                {
+                    // Enum signatures: "Name = Value" format
+                    var enumMembers = members
+                        .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
+                        .OrderBy(m => m.EnumValue);
+                    foreach (var member in options.Limit.HasValue && options.Limit.Value < members.Count
+                        ? enumMembers.Take(options.Limit.Value)
+                        : enumMembers)
+                    {
+                        sb.AppendLine($"{member.Name} = {member.EnumValue}");
+                    }
+                }
+                else
+                {
+                    foreach (var member in displayMembers)
+                    {
+                        sb.AppendLine(member.Signature ?? member.ReturnType ?? "");
+                    }
+                }
                 return sb.ToString().TrimEnd();
             }
 
             // Use specialized enum output for enum types
             if (type.Kind == "enum")
             {
-                sb.Append(RenderEnumValues(members, options));
-                return sb.ToString().TrimEnd();
+                RenderEnumValues(writer, members, options);
+                return writer.ToString().TrimEnd();
             }
 
             // Check if we should include a description column
             bool hasAnyDocs = options.ShowDocs && members.Any(m => m.Documentation?.Summary != null);
 
-            if (!options.SignaturesOnly)
-            {
-                // Add Members section heading
-                sb.AppendLine();
-                sb.AppendLine("## Members");
-                sb.AppendLine();
-                if (hasAnyDocs)
-                {
-                    sb.AppendLine("| Member | Kind | Signature | Description |");
-                    sb.AppendLine("| --- | --- | --- | --- |");
-                }
-                else
-                {
-                    sb.AppendLine("| Member | Kind | Signature |");
-                    sb.AppendLine("| --- | --- | --- |");
-                }
-            }
+            writer.WriteHeading(2, "Members");
 
             var totalCount = members.Count;
-            var displayMembers = members.AsEnumerable();
+            var displayMembersList = options.Limit.HasValue && options.Limit.Value < totalCount
+                ? members.Take(options.Limit.Value).ToList()
+                : members;
+
+            if (hasAnyDocs)
+            {
+                var headers = new[] { "Member", "Kind", "Signature", "Description" };
+                var rows = displayMembersList.Select(member =>
+                {
+                    string sig = member.Signature ?? member.ReturnType ?? "";
+                    string desc = member.Documentation?.Summary ?? "";
+                    return new[] { member.Name, member.Kind, $"`{sig}`", desc };
+                });
+                writer.WriteTable(headers, rows);
+            }
+            else
+            {
+                var headers = new[] { "Member", "Kind", "Signature" };
+                var rows = displayMembersList.Select(member =>
+                {
+                    string sig = member.Signature ?? member.ReturnType ?? "";
+                    return new[] { member.Name, member.Kind, $"`{sig}`" };
+                });
+                writer.WriteTable(headers, rows);
+            }
 
             if (options.Limit.HasValue && options.Limit.Value < totalCount)
             {
-                displayMembers = displayMembers.Take(options.Limit.Value);
-            }
-
-            foreach (var member in displayMembers)
-            {
-                string sig = member.Signature ?? member.ReturnType ?? "";
-
-                if (options.SignaturesOnly)
-                {
-                    // Plain signature output, one per line
-                    sb.AppendLine(sig);
-                }
-                else
-                {
-                    // Escape pipes in signatures for markdown table
-                    sig = sig.Replace("|", "\\|");
-
-                    if (hasAnyDocs)
-                    {
-                        string desc = member.Documentation?.Summary ?? "";
-                        desc = desc.Replace("|", "\\|");
-                        sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` | {desc} |");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"| {member.Name} | {member.Kind} | `{sig}` |");
-                    }
-                }
-            }
-
-            if (!options.SignaturesOnly && options.Limit.HasValue && options.Limit.Value < totalCount)
-            {
                 var remaining = totalCount - options.Limit.Value;
-                sb.AppendLine();
-                sb.AppendLine($"*... and {remaining} more members*");
+                writer.WriteParagraph($"*... and {remaining} more members*");
             }
         }
 
-        return sb.ToString().TrimEnd();
+        return writer.ToString().TrimEnd();
     }
 
     /// <summary>
     /// Renders a table of generic type parameters with their constraints.
     /// </summary>
-    private static string RenderTypeParametersTable(List<TypeParameter> typeParameters)
+    private static void RenderTypeParametersTable(MarkoutWriter writer, List<TypeParameter> typeParameters)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine();
-        sb.AppendLine("## Type Parameters");
-        sb.AppendLine();
-        sb.AppendLine("| Parameter | Constraints |");
-        sb.AppendLine("| --- | --- |");
+        writer.WriteHeading(2, "Type Parameters");
 
-        foreach (var param in typeParameters)
-        {
-            var constraints = param.ConstraintsSummary ?? "";
-            sb.AppendLine($"| {param.DisplayName} | {constraints} |");
-        }
-
-        return sb.ToString();
+        var headers = new[] { "Parameter", "Constraints" };
+        var rows = typeParameters.Select(param => new[] { param.DisplayName, param.ConstraintsSummary ?? "" });
+        writer.WriteTable(headers, rows);
     }
 
-    private static string RenderTypeHierarchy(ApiType type)
+    private static void RenderTypeHierarchy(MarkoutWriter writer, ApiType type)
     {
-        var hasBase = !string.IsNullOrEmpty(type.BaseType) && 
-                      type.BaseType != "System.Object" && 
-                      type.BaseType != "System.ValueType" && 
+        var hasBase = !string.IsNullOrEmpty(type.BaseType) &&
+                      type.BaseType != "System.Object" &&
+                      type.BaseType != "System.ValueType" &&
                       type.BaseType != "System.Enum";
         var hasInterfaces = type.Interfaces is { Count: > 0 };
         var hasDerived = type.DerivedTypes is { Count: > 0 };
 
         if (!hasBase && !hasInterfaces && !hasDerived)
-            return "";
+            return;
 
-        var sb = new StringBuilder();
-        sb.AppendLine();
-        sb.AppendLine("## Type Hierarchy");
-        sb.AppendLine();
-        sb.AppendLine("| Relationship | Type |");
-        sb.AppendLine("| --- | --- |");
+        writer.WriteHeading(2, "Type Hierarchy");
+
+        var rows = new List<string[]>();
 
         if (hasBase)
         {
-            sb.AppendLine($"| Base | {type.BaseType} |");
+            rows.Add(new[] { "Base", type.BaseType! });
         }
 
         if (hasInterfaces)
         {
             foreach (var iface in type.Interfaces!)
             {
-                sb.AppendLine($"| Implements | {iface} |");
+                rows.Add(new[] { "Implements", iface });
             }
         }
 
@@ -2284,20 +2256,18 @@ public class ApiCommand
         {
             foreach (var derived in type.DerivedTypes!)
             {
-                sb.AppendLine($"| Derived | {derived} |");
+                rows.Add(new[] { "Derived", derived });
             }
         }
 
-        return sb.ToString();
+        writer.WriteTable(new[] { "Relationship", "Type" }, rows);
     }
 
     /// <summary>
     /// Renders enum values with a specialized format: Name | Value | Description
     /// </summary>
-    private static string RenderEnumValues(List<ApiMember> members, ApiOptions options)
+    private static void RenderEnumValues(MarkoutWriter writer, List<ApiMember> members, ApiOptions options)
     {
-        var sb = new StringBuilder();
-        
         // Sort by enum value (numeric order)
         var enumMembers = members
             .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
@@ -2305,61 +2275,39 @@ public class ApiCommand
             .ToList();
 
         if (enumMembers.Count == 0)
-            return "";
+            return;
 
         bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation?.Summary != null);
 
-        if (!options.SignaturesOnly)
-        {
-            sb.AppendLine();
-            sb.AppendLine("## Values");
-            sb.AppendLine();
-            if (hasAnyDocs)
-            {
-                sb.AppendLine("| Name | Value | Description |");
-                sb.AppendLine("| --- | --- | --- |");
-            }
-            else
-            {
-                sb.AppendLine("| Name | Value |");
-                sb.AppendLine("| --- | --- |");
-            }
-        }
-
         var totalCount = enumMembers.Count;
-        var displayMembers = enumMembers.AsEnumerable();
+        var displayMembers = options.Limit.HasValue && options.Limit.Value < totalCount
+            ? enumMembers.Take(options.Limit.Value).ToList()
+            : enumMembers;
+
+        writer.WriteHeading(2, "Values");
+
+        if (hasAnyDocs)
+        {
+            var headers = new[] { "Name", "Value", "Description" };
+            var rows = displayMembers.Select(member =>
+            {
+                string desc = member.Documentation?.Summary ?? "";
+                return new[] { member.Name, member.EnumValue.ToString()!, desc };
+            });
+            writer.WriteTable(headers, rows);
+        }
+        else
+        {
+            var headers = new[] { "Name", "Value" };
+            var rows = displayMembers.Select(member => new[] { member.Name, member.EnumValue.ToString()! });
+            writer.WriteTable(headers, rows);
+        }
 
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
         {
-            displayMembers = displayMembers.Take(options.Limit.Value);
-        }
-
-        foreach (var member in displayMembers)
-        {
-            if (options.SignaturesOnly)
-            {
-                sb.AppendLine($"{member.Name} = {member.EnumValue}");
-            }
-            else if (hasAnyDocs)
-            {
-                string desc = member.Documentation?.Summary ?? "";
-                desc = desc.Replace("|", "\\|");
-                sb.AppendLine($"| {member.Name} | {member.EnumValue} | {desc} |");
-            }
-            else
-            {
-                sb.AppendLine($"| {member.Name} | {member.EnumValue} |");
-            }
-        }
-
-        if (!options.SignaturesOnly && options.Limit.HasValue && options.Limit.Value < totalCount)
-        {
             var remaining = totalCount - options.Limit.Value;
-            sb.AppendLine();
-            sb.AppendLine($"*... and {remaining} more values*");
+            writer.WriteParagraph($"*... and {remaining} more values*");
         }
-
-        return sb.ToString();
     }
 
     private static bool IsCompilerGenerated(string name)
@@ -2385,12 +2333,9 @@ public class ApiCommand
     /// Renders enhanced constructor output for --ctor mode.
     /// Shows all overloads prominently with parameter details.
     /// </summary>
-    private static string RenderConstructorEmphasis(ApiType type, List<ApiMember> constructors)
+    private static void RenderConstructorEmphasis(MarkoutWriter writer, ApiType type, List<ApiMember> constructors)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine();
-        sb.AppendLine($"## Constructors ({constructors.Count} overload{(constructors.Count != 1 ? "s" : "")})");
-        sb.AppendLine();
+        writer.WriteHeading(2, $"Constructors ({constructors.Count} overload{(constructors.Count != 1 ? "s" : "")})");
 
         // Sort by parameter count for logical ordering
         var sorted = constructors
@@ -2403,27 +2348,19 @@ public class ApiCommand
             var paramCount = CountParameters(ctor.Signature);
             var paramInfo = ExtractParameterInfo(ctor.Signature);
 
-            sb.AppendLine($"### Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}");
-            sb.AppendLine();
-            sb.AppendLine("```csharp");
-            sb.AppendLine($"new {type.Name}{FormatConstructorCall(ctor.Signature)}");
-            sb.AppendLine("```");
+            writer.WriteHeading(3, $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}");
+
+            writer.WriteCodeBlockStart("csharp");
+            writer.WriteParagraph($"new {type.Name}{FormatConstructorCall(ctor.Signature)}");
+            writer.WriteCodeBlockEnd();
 
             if (paramInfo.Count > 0)
             {
-                sb.AppendLine();
-                sb.AppendLine("| Parameter | Type | Notes |");
-                sb.AppendLine("| --- | --- | --- |");
-                foreach (var (paramName, paramType, hasDefault) in paramInfo)
-                {
-                    string notes = hasDefault ? "optional" : "required";
-                    sb.AppendLine($"| {paramName} | `{paramType}` | {notes} |");
-                }
+                var headers = new[] { "Parameter", "Type", "Notes" };
+                var rows = paramInfo.Select(p => new[] { p.name, $"`{p.type}`", p.hasDefault ? "optional" : "required" });
+                writer.WriteTable(headers, rows);
             }
-            sb.AppendLine();
         }
-
-        return sb.ToString();
     }
 
     /// <summary>
