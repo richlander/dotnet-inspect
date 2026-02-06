@@ -48,8 +48,8 @@ jobs:
 
   # Build the pointer package (once, on any platform)
   build-pointer:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, markdownlint]
+    if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,8 +77,8 @@ jobs:
 
   # Build RID-specific Native AOT packages
   build-rid:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, markdownlint]
+    if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
     strategy:
       fail-fast: false
       matrix:
