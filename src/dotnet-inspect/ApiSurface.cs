@@ -6,14 +6,12 @@ namespace DotnetInspector;
 /// <summary>
 /// Represents extracted documentation comments from source code.
 /// </summary>
-[MarkoutSerializable]
 public class DocComment
 {
     public string? Summary { get; set; }
     public string? Remarks { get; set; }
 
-    [MarkoutIgnore]
-    public Dictionary<string, string>? Parameters { get; set; }
+    internal Dictionary<string, string>? Parameters { get; set; }
     public string? Returns { get; set; }
 
     /// <summary>
