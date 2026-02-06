@@ -54,8 +54,22 @@
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
   </ItemGroup>
 
+  <!--
+    Markout references: Use ProjectReference for local development, PackageReference for releases.
+    To switch: comment out one block and uncomment the other.
+  -->
+  <!-- ProjectReference: Use when developing against local Markout changes -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\markout\src\Markout\Markout.csproj" />
+    <ProjectReference Include="..\..\..\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <!-- PackageReference: Use for releases after new Markout version is published
   <ItemGroup>
     <PackageReference Include="Markout" Version="0.1.7" />
+  </ItemGroup>
+  -->
+
+  <ItemGroup>
     <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />
   </ItemGroup>

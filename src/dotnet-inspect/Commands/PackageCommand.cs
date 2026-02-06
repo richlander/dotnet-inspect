@@ -412,12 +412,9 @@ public class PackageCommand
             }
         }
 
-        // Convert to TreeNode structure
-        var treeNodes = BuildTreeNodes(root);
-        
-        // Write using Markout
-        var writer = new MarkoutWriter(Console.Out);
-        writer.WriteTree(treeNodes);
+        // Convert to TreeNode structure and serialize
+        var view = new FileTreeView { Files = BuildTreeNodes(root) };
+        MarkoutSerializer.Serialize(view, Console.Out, FileTreeContext.Default);
     }
 
     private static List<TreeNode> BuildTreeNodes(Dictionary<string, object> dict)
@@ -953,4 +950,19 @@ public class PackageCommand
             _ => "Unknown"
         };
     }
+}
+
+/// <summary>
+/// View model for file tree output (minimal wrapper for tree serialization).
+/// </summary>
+[MarkoutSerializable]
+public class FileTreeView
+{
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Files { get; set; } = [];
+}
+
+[MarkoutContext(typeof(FileTreeView))]
+public partial class FileTreeContext : MarkoutSerializerContext
+{
 }

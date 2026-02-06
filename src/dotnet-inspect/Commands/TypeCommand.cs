@@ -56,14 +56,12 @@ public class TypeCommand
 
     private static void WriteTreeOutput(ApiType type, string? memberFilter)
     {
-        var writer = new MarkoutWriter(Console.Out);
-        
-        // Header
-        writer.WriteHeading(2, type.Namespace != null ? $"{type.Namespace}.{type.Name}" : type.Name);
-        Console.WriteLine($"*{type.Kind}*");
-        Console.WriteLine();
+        var view = BuildTypeView(type, memberFilter);
+        MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
+    }
 
-        // Build tree
+    private static TypeShapeView BuildTypeView(ApiType type, string? memberFilter)
+    {
         var nodes = new List<TreeNode>();
 
         // Inheritance (always show)
@@ -120,7 +118,12 @@ public class TypeCommand
             }
         }
 
-        writer.WriteTree(nodes);
+        return new TypeShapeView
+        {
+            FullName = type.Namespace != null ? $"{type.Namespace}.{type.Name}" : type.Name,
+            Kind = type.Kind,
+            Members = nodes
+        };
     }
 
     private static void WriteJsonOutput(ApiType type, bool compact)
@@ -166,6 +169,30 @@ public class TypeCommand
         };
         return $"{plural} ({count})";
     }
+}
+
+/// <summary>
+/// View model for type shape output.
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(FullName), DescriptionProperty = nameof(KindDisplay))]
+public class TypeShapeView
+{
+    [MarkoutIgnore]
+    public string FullName { get; set; } = "";
+    
+    [MarkoutIgnore]
+    public string Kind { get; set; } = "";
+    
+    [MarkoutIgnore]
+    public string KindDisplay => $"*{Kind}*";
+    
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Members { get; set; } = [];
+}
+
+[MarkoutContext(typeof(TypeShapeView))]
+public partial class TypeViewContext : MarkoutSerializerContext
+{
 }
 
 public record TypeOptions
