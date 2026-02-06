@@ -122,7 +122,15 @@ public static class CommandLineBuilder
 
         // Schema command (meta command)
         var schemaCommand = new Command("schema", "Show CLI command structure as API listing");
-        schemaCommand.SetAction((parseResult) => CliSchemaCommand.Execute(rootCommand));
+        var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
+        schemaCommand.Arguments.Add(schemaCommandArg);
+        schemaCommand.Options.Add(verbosityOption);
+        schemaCommand.SetAction((parseResult) =>
+        {
+            var commandFilter = parseResult.GetValue(schemaCommandArg);
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            return CliSchemaCommand.Execute(rootCommand, commandFilter, verbosity);
+        });
         rootCommand.Subcommands.Add(schemaCommand);
 
         // LLMs.txt command (meta command, listed last)

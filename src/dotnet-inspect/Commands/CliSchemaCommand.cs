@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Help;
+using DotnetInspector.Options;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -9,66 +10,81 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class CliSchemaCommand
 {
-    public static int Execute(RootCommand rootCommand)
+    public static int Execute(RootCommand rootCommand, string? commandFilter, Verbosity verbosity)
     {
-        var view = BuildSchemaView(rootCommand);
-        MarkoutSerializer.Serialize(view, Console.Out, CliSchemaContext.Default);
-        return 0;
-    }
+        var commands = rootCommand.Subcommands.OrderBy(c => c.Name).ToList();
 
-    private static CliSchemaView BuildSchemaView(RootCommand rootCommand)
-    {
-        var nodes = new List<TreeNode>();
-
-        foreach (var cmd in rootCommand.Subcommands.OrderBy(c => c.Name))
+        if (!string.IsNullOrEmpty(commandFilter))
         {
-            nodes.Add(BuildCommandNode(cmd));
+            var match = commands.FirstOrDefault(c => c.Name.Equals(commandFilter, StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                Console.Error.WriteLine($"Error: Command '{commandFilter}' not found.");
+                return 1;
+            }
+            commands = [match];
         }
 
-        return new CliSchemaView
+        // Quiet: command names only, space-separated
+        if (verbosity == Verbosity.Quiet)
+        {
+            Console.WriteLine(string.Join(" ", commands.Select(c => c.Name)));
+            return 0;
+        }
+
+        var nodes = commands.Select(c => BuildCommandNode(c, verbosity)).ToList();
+
+        var view = new CliSchemaView
         {
             Name = "dotnet-inspect",
             Version = VersionInfo.Version,
             Description = "CLI tool for inspecting .NET assemblies and NuGet packages",
             Commands = nodes
         };
+
+        MarkoutSerializer.Serialize(view, Console.Out, CliSchemaContext.Default);
+        return 0;
     }
 
-    private static TreeNode BuildCommandNode(Command command)
+    private static TreeNode BuildCommandNode(Command command, Verbosity verbosity)
     {
         var children = new List<TreeNode>();
 
-        // Arguments
-        foreach (var arg in command.Arguments)
+        // Minimal: command + description only, no children
+        if (verbosity > Verbosity.Minimal)
         {
-            if (arg.Hidden) continue;
-            var label = $"<{arg.Name}>";
-            if (!string.IsNullOrEmpty(arg.Description))
-                label += $"  {arg.Description}";
-            children.Add(new TreeNode(label));
-        }
+            // Arguments
+            foreach (var arg in command.Arguments)
+            {
+                if (arg.Hidden) continue;
+                var label = $"<{arg.Name}>";
+                if (verbosity >= Verbosity.Detailed && !string.IsNullOrEmpty(arg.Description))
+                    label += $"  {arg.Description}";
+                children.Add(new TreeNode(label));
+            }
 
-        // Options (excluding help)
-        foreach (var opt in command.Options.Where(o => !o.Hidden && o is not HelpOption))
-        {
-            var label = FormatOption(opt);
-            children.Add(new TreeNode(label));
-        }
+            // Options (excluding help)
+            foreach (var opt in command.Options.Where(o => !o.Hidden && o is not HelpOption))
+            {
+                var label = FormatOption(opt, verbosity);
+                children.Add(new TreeNode(label));
+            }
 
-        // Subcommands
-        foreach (var sub in command.Subcommands.OrderBy(c => c.Name))
-        {
-            children.Add(BuildCommandNode(sub));
+            // Subcommands
+            foreach (var sub in command.Subcommands.OrderBy(c => c.Name))
+            {
+                children.Add(BuildCommandNode(sub, verbosity));
+            }
         }
 
         var nodeLabel = command.Name;
-        if (!string.IsNullOrEmpty(command.Description))
+        if (verbosity >= Verbosity.Minimal && !string.IsNullOrEmpty(command.Description))
             nodeLabel += $"  {command.Description}";
 
         return new TreeNode(nodeLabel, children);
     }
 
-    private static string FormatOption(Option option)
+    private static string FormatOption(Option option, Verbosity verbosity)
     {
         var aliases = option.Aliases.OrderBy(a => a.Length).ThenBy(a => a);
         var allNames = new[] { option.Name }.Concat(aliases).Distinct();
@@ -81,7 +97,7 @@ public class CliSchemaCommand
             name += $" <{helpName}>";
         }
 
-        if (!string.IsNullOrEmpty(option.Description))
+        if (verbosity >= Verbosity.Detailed && !string.IsNullOrEmpty(option.Description))
             name += $"  {option.Description}";
 
         return name;
