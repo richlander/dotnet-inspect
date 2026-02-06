@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "schema", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -119,6 +119,11 @@ public static class CommandLineBuilder
         // Type command
         var typeCommand = CreateTypeCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(typeCommand);
+
+        // Schema command (meta command)
+        var schemaCommand = new Command("schema", "Show CLI command structure as API listing");
+        schemaCommand.SetAction((parseResult) => CliSchemaCommand.Execute(rootCommand));
+        rootCommand.Subcommands.Add(schemaCommand);
 
         // LLMs.txt command (meta command, listed last)
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
