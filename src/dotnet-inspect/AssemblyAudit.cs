@@ -5,7 +5,6 @@ namespace DotnetInspector;
 
 // Summary helper for AssemblyInfo in table display
 
-[MarkoutSerializable]
 public class AssemblyAudit
 {
     [MarkoutPropertyName("File")]

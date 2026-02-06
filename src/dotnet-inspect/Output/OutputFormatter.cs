@@ -10,20 +10,6 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class OutputFormatter
 {
-    /// <summary>
-    /// Section names in order for package command.
-    /// </summary>
-    public static readonly string[] SectionNames =
-    [
-        "Metadata",
-        "Statistics",
-        "Package Dependencies",
-        "Files",
-        "Vulnerabilities",
-        "RID Packages",
-        "Runtime Dependencies"
-    ];
-
     public static void WriteResult(InspectionResult result, InspectionOptions options)
     {
         string output;
@@ -52,7 +38,7 @@ public static class OutputFormatter
         return context.Serialize(result, writerOptions).TrimEnd();
     }
 
-    private static HashSet<int>? GetExcludeSections(InspectionOptions options)
+    private static HashSet<string>? GetExcludeSections(InspectionOptions options)
     {
         // If user specified explicit excludes, use those
         if (options.ExcludeSections != null)
@@ -62,11 +48,11 @@ public static class OutputFormatter
         return options.Verbosity switch
         {
             // Quiet: exclude all sections (just title + compact line)
-            Verbosity.Quiet => [1, 2, 3, 4, 5, 6, 7, 8],
+            Verbosity.Quiet => ["Metadata", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
             // Minimal: exclude all sections (just title + description + compact line)
-            Verbosity.Minimal => [1, 2, 3, 4, 5, 6, 7, 8],
-            // Normal: show Metadata (1), exclude Statistics (2), Package Deps (3), Files (4)
-            Verbosity.Normal => [2, 3, 4],
+            Verbosity.Minimal => ["Metadata", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
+            // Normal: show Metadata, exclude Statistics, Package Dependencies, Files
+            Verbosity.Normal => ["Statistics", "Package Dependencies", "Files"],
             // Detailed: show everything
             Verbosity.Detailed => null,
             _ => null

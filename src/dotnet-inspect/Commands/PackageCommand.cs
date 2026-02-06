@@ -18,9 +18,10 @@ public class PackageCommand
         // Handle --discover mode: list sections and exit early
         if (options.Discover)
         {
-            for (int i = 0; i < OutputFormatter.SectionNames.Length; i++)
+            string[] sectionNames = ["Metadata", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"];
+            foreach (var name in sectionNames)
             {
-                Console.WriteLine($"{i + 1}. {OutputFormatter.SectionNames[i]}");
+                Console.WriteLine(name);
             }
             return 0;
         }
@@ -963,7 +964,6 @@ public class PackageCommand
 /// <summary>
 /// View model for file tree output (minimal wrapper for tree serialization).
 /// </summary>
-[MarkoutSerializable]
 public class FileTreeView
 {
     [MarkoutIgnoreInTable]

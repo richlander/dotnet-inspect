@@ -73,14 +73,14 @@ public record InspectionOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
-    /// Sections to include (1-indexed). If empty, all sections are included.
+    /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
-    public HashSet<int>? IncludeSections { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
-    /// Sections to exclude (1-indexed).
+    /// Sections to exclude by heading name.
     /// </summary>
-    public HashSet<int>? ExcludeSections { get; init; }
+    public HashSet<string>? ExcludeSections { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.

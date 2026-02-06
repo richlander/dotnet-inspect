@@ -47,7 +47,6 @@ public class AssemblyReferenceNode
     public bool IsCyclic { get; set; }
 }
 
-[MarkoutSerializable]
 public class AssemblyInfo
 {
     [MarkoutPropertyName("Name")]
