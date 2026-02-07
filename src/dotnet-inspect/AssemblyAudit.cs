@@ -5,6 +5,7 @@ namespace DotnetInspector;
 
 // Summary helper for AssemblyInfo in table display
 
+[MarkoutSerializable(TitleProperty = nameof(FileName), AutoFields = false)]
 public class AssemblyAudit
 {
     [MarkoutPropertyName("File")]
@@ -213,4 +214,110 @@ public class AssemblyAudit
         null => null,
         var api => $"{api.PublicTypeCount} types, {api.PublicMethodCount} methods"
     };
+
+    // ===== Field Collection Sections for Source-Gen Serializer =====
+
+    [MarkoutSection(Name = "Assembly Info")]
+    [JsonIgnore]
+    public List<MarkoutField> AssemblyInfoSection => GetAssemblyInfoFields();
+
+    [MarkoutSection(Name = "Build Audit")]
+    [JsonIgnore]
+    public List<MarkoutField> BuildAuditSection => GetBuildAuditFields();
+
+    [MarkoutSection(Name = "PDB")]
+    [JsonIgnore]
+    public List<MarkoutField> PdbSection => GetPdbFields();
+
+    [MarkoutSection(Name = "Source Coverage")]
+    [JsonIgnore]
+    public List<MarkoutField> SourceCoverageSection => GetSourceCoverageFields();
+
+    private List<MarkoutField> GetAssemblyInfoFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (AssemblyInfo is not { } info) return fields;
+
+        if (!string.IsNullOrEmpty(info.AssemblyName))
+            fields.Add(new("Name", info.AssemblyName));
+        if (!string.IsNullOrEmpty(info.AssemblyVersion))
+            fields.Add(new("Version", info.AssemblyVersion));
+        if (!string.IsNullOrEmpty(info.TargetFramework))
+            fields.Add(new("Target Framework", info.TargetFramework));
+        if (!string.IsNullOrEmpty(info.Architecture))
+            fields.Add(new("Architecture", info.Architecture));
+        if (!string.IsNullOrEmpty(info.CompilationType))
+            fields.Add(new("Compilation", info.CompilationType));
+        if (!string.IsNullOrEmpty(info.InformationalVersion))
+            fields.Add(new("Informational Version", info.InformationalVersion));
+        if (!string.IsNullOrEmpty(info.Product))
+            fields.Add(new("Product", info.Product));
+        if (!string.IsNullOrEmpty(info.Company))
+            fields.Add(new("Company", info.Company));
+        if (!string.IsNullOrEmpty(info.Copyright))
+            fields.Add(new("Copyright", info.Copyright));
+        if (info.IsSigned)
+            fields.Add(new("Signed", "Yes"));
+        if (!string.IsNullOrEmpty(info.PublicKeyToken))
+            fields.Add(new("Public Key Token", info.PublicKeyToken));
+
+        return fields;
+    }
+
+    private List<MarkoutField> GetBuildAuditFields()
+    {
+        var fields = new List<MarkoutField>
+        {
+            new("Deterministic", IsDeterministic ? "✓" : "✗"),
+            new("Reproducible Flag", HasReproducibleFlag ? "✓" : "✗"),
+            new("SourceLink", SourceLinkStatus)
+        };
+
+        if (!string.IsNullOrEmpty(Builder))
+            fields.Add(new("Builder", Builder));
+        if (!string.IsNullOrEmpty(Publisher))
+        {
+            var publisherStatus = PublisherVerified ? "(Verified)" : "";
+            fields.Add(new("Publisher", $"{Publisher} {publisherStatus}".Trim()));
+        }
+        else if (!string.IsNullOrEmpty(SignatureStatus))
+        {
+            fields.Add(new("Publisher", SignatureStatus));
+        }
+        if (RepositoryVerified)
+            fields.Add(new("Repository", "nuget.org (Verified)"));
+
+        return fields;
+    }
+
+    private List<MarkoutField> GetPdbFields()
+    {
+        var fields = new List<MarkoutField>
+        {
+            new("Format", PdbFormat ?? "Unknown"),
+            new("Location", PdbLocation ?? "Unknown")
+        };
+
+        if (!string.IsNullOrEmpty(SymbolServer))
+            fields.Add(new("Server", SymbolServer));
+        if (!string.IsNullOrEmpty(PdbPath))
+            fields.Add(new("Path", PdbPath));
+
+        return fields;
+    }
+
+    private List<MarkoutField> GetSourceCoverageFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (TotalSourceFiles <= 0) return fields;
+
+        int accessible = AccessibleSourceFiles + EmbeddedSourceFiles;
+        string status = AllSourcesAccessible == true ? "✓" : "✗";
+        fields.Add(new("Status", $"{status} {accessible}/{TotalSourceFiles} files accessible"));
+
+        if (EmbeddedSourceFiles > 0)
+            fields.Add(new("Embedded", $"{EmbeddedSourceFiles} files"));
+
+        return fields;
+    }
 }
