@@ -349,7 +349,7 @@ public class ExtensionsCommand
         if (results.Count == 0)
         {
             writer.WriteParagraph("No extension methods found.");
-            Console.Write(writer.ToString());
+            Console.WriteLine(writer.ToString());
             return;
         }
 
@@ -373,7 +373,7 @@ public class ExtensionsCommand
             WriteExtensionTable(writer, group.ToList());
         }
 
-        Console.Write(writer.ToString());
+        Console.WriteLine(writer.ToString());
     }
 
     private static void WriteExtensionTable(MarkoutWriter writer, List<ExtensionMethodResult> results)
