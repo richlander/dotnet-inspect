@@ -7,7 +7,7 @@ namespace DotnetInspector;
     TitleProperty = nameof(PackageName), 
     TitleContextProperty = nameof(Version), 
     DescriptionProperty = nameof(Description),
-    RenderScalars = false)]
+    AutoFields = false)]
 public class InspectionResult
 {
     [MarkoutPropertyName("Package")]
@@ -162,6 +162,7 @@ public class InspectionResult
     /// <summary>
     /// Indicates whether the package contains a README.md file.
     /// </summary>
+    [MarkoutSkipDefault]
     public bool HasReadme { get; set; }
 
     /// <summary>
@@ -170,6 +171,7 @@ public class InspectionResult
     [JsonIgnore]
     public string? ReadmeFile { get; set; }
 
+    [MarkoutSkipDefault]
     public bool IsToolPackage { get; set; }
 
     [MarkoutIgnoreInTable]
@@ -290,12 +292,15 @@ public class InspectionResult
     public int AssemblyCount { get; set; }
 
     [MarkoutPropertyName("Framework Dependent")]
+    [MarkoutSkipDefault]
     public bool IsFrameworkDependent { get; set; }
 
     [MarkoutPropertyName("RID-Specific Assets")]
+    [MarkoutSkipDefault]
     public bool HasRidSpecificAssets { get; set; }
 
     [MarkoutPropertyName("Native Dependencies")]
+    [MarkoutSkipDefault]
     public bool HasNativeDependencies { get; set; }
 
     // RID-specific tool (DotNetCliTool Version="2") properties
@@ -303,6 +308,7 @@ public class InspectionResult
     public string? ToolFormat { get; set; }
 
     [MarkoutPropertyName("RID-Specific Pointer Package")]
+    [MarkoutSkipDefault]
     public bool IsRidSpecificPointerPackage { get; set; }
 
     [MarkoutIgnoreInTable]
