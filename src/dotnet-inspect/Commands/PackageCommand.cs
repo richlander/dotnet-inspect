@@ -234,12 +234,6 @@ public class PackageCommand
                 await RidPackageVerifier.VerifyAsync(client, result, result.Version, localDir, logger);
             }
 
-            // Populate files for detailed verbosity
-            if (options.Verbosity == Verbosity.Detailed)
-            {
-                PopulateFilesForDetailedView(extractPath, result);
-            }
-
             // Fetch package metadata from NuGet (only for remote packages)
             if (!isLocalFile)
             {
@@ -377,17 +371,7 @@ public class PackageCommand
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
 
-        if (options.TreeView)
-        {
-            WriteFileTree(results);
-        }
-        else
-        {
-            foreach (var path in results)
-            {
-                Console.WriteLine(path);
-            }
-        }
+        WriteFileTree(results);
     }
 
     private static void WriteFileTree(List<string> paths)

@@ -56,7 +56,7 @@ public static class OutputFormatter
             Verbosity.Minimal => ["Statistics", "Package Dependencies", "Files"],
             // Normal and Detailed: show everything
             Verbosity.Normal => null,
-            Verbosity.Detailed => null,
+            Verbosity.Detailed => ["Files"],
             _ => null
         };
     }

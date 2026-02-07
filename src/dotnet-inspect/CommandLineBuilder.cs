@@ -832,7 +832,6 @@ public static class CommandLineBuilder
         var depsOption = new Option<bool>("--deps") { Description = "Include dependency analysis" };
         var filesOption = new Option<bool>("--files") { Description = "List DLLs in the package" };
         var allFilesOption = new Option<bool>("--all") { Description = "With --files: list all files in entire package" };
-        var treeOption = new Option<bool>("--tree") { Description = "With --files: display as tree view" };
         var versionsOption = new Option<bool>("--versions") { Description = "List available versions from nuget.org" };
         var prereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
         prereleaseOption.Aliases.Add("--prerelease");
@@ -849,7 +848,6 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(depsOption);
         packageCommand.Options.Add(filesOption);
         packageCommand.Options.Add(allFilesOption);
-        packageCommand.Options.Add(treeOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(readmeOption);
@@ -913,7 +911,6 @@ public static class CommandLineBuilder
                 IncludeDeps = parseResult.GetValue(depsOption),
                 ListFiles = parseResult.GetValue(filesOption),
                 ListAllFiles = parseResult.GetValue(allFilesOption),
-                TreeView = parseResult.GetValue(treeOption),
                 ListVersions = parseResult.GetValue(versionsOption),
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 ShowReadme = parseResult.GetValue(readmeOption),
