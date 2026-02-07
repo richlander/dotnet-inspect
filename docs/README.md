@@ -49,6 +49,7 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 | Document | Description |
 | -------- | ----------- |
 | [Style Guide](design/style-guide.md) | Output formatting conventions |
+| [Rendering Model](design/rendering-model.md) | Verbosity vs mode-switch flags: how output is controlled |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool |
 
 ## Getting Started

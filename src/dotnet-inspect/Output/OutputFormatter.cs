@@ -52,12 +52,11 @@ public static class OutputFormatter
         {
             // Quiet: exclude all sections (just title + compact line)
             Verbosity.Quiet => ["Metadata", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
-            // Minimal: exclude all sections (just title + description + compact line)
-            Verbosity.Minimal => ["Metadata", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
-            // Normal: show Metadata, exclude Statistics, Package Dependencies, Files
-            Verbosity.Normal => ["Statistics", "Package Dependencies", "Files"],
-            // Detailed: show everything
-            Verbosity.Detailed => null,
+            // Minimal: show Metadata, exclude Statistics, Package Dependencies, Files
+            Verbosity.Minimal => ["Statistics", "Package Dependencies", "Files"],
+            // Normal and Detailed: show everything
+            Verbosity.Normal => null,
+            Verbosity.Detailed => ["Files"],
             _ => null
         };
     }

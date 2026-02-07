@@ -91,7 +91,7 @@ public class PlatformCommand
         var rows = frameworks.Select(f => new[] { f.ShortName, f.LatestVersion, f.AssemblyCount.ToString() });
         writer.WriteTable(headers, rows);
 
-        Console.Write(writer.ToString());
+        Console.WriteLine(writer.ToString());
         return 0;
     }
 
@@ -153,7 +153,7 @@ public class PlatformCommand
             }
         }
 
-        Console.Write(writer.ToString());
+        Console.WriteLine(writer.ToString());
         return 0;
     }
 
@@ -241,7 +241,7 @@ public class PlatformCommand
             }
         }
 
-        Console.Write(writer.ToString());
+        Console.WriteLine(writer.ToString());
         return 0;
     }
 

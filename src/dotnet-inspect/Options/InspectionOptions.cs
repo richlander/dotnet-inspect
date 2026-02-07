@@ -23,11 +23,6 @@ public record InspectionOptions
     public bool ListAllFiles { get; init; }
 
     /// <summary>
-    /// Display files as a tree view instead of flat list.
-    /// </summary>
-    public bool TreeView { get; init; }
-
-    /// <summary>
     /// List available versions of the package from nuget.org.
     /// </summary>
     public bool ListVersions { get; init; }
