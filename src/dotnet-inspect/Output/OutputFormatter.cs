@@ -75,44 +75,27 @@ public static class OutputFormatter
 
     private static string RenderAssemblyMarkdown(AssemblyAudit audit, AssemblyOptions options)
     {
+        // Determine which sections to exclude
+        HashSet<string>? excludeSections = null;
+        if (!options.IncludeAudit)
+        {
+            excludeSections = ["Build Audit", "PDB", "Source Coverage"];
+        }
+
+        var context = new MarkoutContext(new MarkoutWriterOptions
+        {
+            ExcludeSections = excludeSections
+        });
+
+        var output = context.Serialize(audit);
+
+        // Append sections that need imperative rendering
         var writer = new MarkoutWriter();
 
-        // Header
-        writer.WriteHeading(1, audit.FileName);
-
-        // Assembly Info
+        // Assembly References (tree vs table format requires imperative control)
         if (audit.AssemblyInfo != null)
         {
             var info = audit.AssemblyInfo;
-            writer.WriteHeading(2, "Assembly Info");
-
-            var infoFields = new List<string[]>();
-            if (!string.IsNullOrEmpty(info.AssemblyName))
-                infoFields.Add(new[] { "Name", info.AssemblyName });
-            if (!string.IsNullOrEmpty(info.AssemblyVersion))
-                infoFields.Add(new[] { "Version", info.AssemblyVersion });
-            if (!string.IsNullOrEmpty(info.TargetFramework))
-                infoFields.Add(new[] { "Target Framework", info.TargetFramework });
-            if (!string.IsNullOrEmpty(info.Architecture))
-                infoFields.Add(new[] { "Architecture", info.Architecture });
-            if (!string.IsNullOrEmpty(info.CompilationType))
-                infoFields.Add(new[] { "Compilation", info.CompilationType });
-            if (!string.IsNullOrEmpty(info.InformationalVersion))
-                infoFields.Add(new[] { "Informational Version", info.InformationalVersion });
-            if (!string.IsNullOrEmpty(info.Product))
-                infoFields.Add(new[] { "Product", info.Product });
-            if (!string.IsNullOrEmpty(info.Company))
-                infoFields.Add(new[] { "Company", info.Company });
-            if (!string.IsNullOrEmpty(info.Copyright))
-                infoFields.Add(new[] { "Copyright", info.Copyright });
-            if (info.IsSigned)
-                infoFields.Add(new[] { "Signed", "Yes" });
-            if (!string.IsNullOrEmpty(info.PublicKeyToken))
-                infoFields.Add(new[] { "Public Key Token", info.PublicKeyToken });
-
-            writer.WriteTable(new[] { "Property", "Value" }, infoFields);
-
-            // Assembly References section
             if (info.TransitiveReferences is { Count: > 0 })
             {
                 writer.WriteHeading(2, "Assembly References (Transitive)");
@@ -128,12 +111,10 @@ public static class OutputFormatter
             }
         }
 
-        // Audit section (if --audit was specified)
         if (options.IncludeAudit)
         {
-            writer.WriteHeading(2, "Build Audit");
-
-            // Show fields before the table
+            // RepositoryUrl and NonNormalizedPaths appear before the audit table
+            // but after the Assembly Info section — append them here
             if (!string.IsNullOrEmpty(audit.RepositoryUrl))
             {
                 writer.WriteField("Repository", audit.RepositoryUrl);
@@ -144,51 +125,7 @@ public static class OutputFormatter
                 writer.WriteArray("Non-normalized paths", audit.NonNormalizedPaths);
             }
 
-            // Build the checkmark table
-            var auditRows = new List<string[]>
-            {
-                new[] { "Deterministic", audit.IsDeterministic ? "✓" : "✗" },
-                new[] { "Reproducible Flag", audit.HasReproducibleFlag ? "✓" : "✗" },
-                new[] { "SourceLink", audit.SourceLinkStatus ?? "Unknown" }
-            };
-            if (!string.IsNullOrEmpty(audit.Builder))
-            {
-                auditRows.Add(new[] { "Builder", audit.Builder });
-            }
-            if (!string.IsNullOrEmpty(audit.Publisher))
-            {
-                var publisherStatus = audit.PublisherVerified ? "(Verified)" : "";
-                auditRows.Add(new[] { "Publisher", $"{audit.Publisher} {publisherStatus}" });
-            }
-            else if (!string.IsNullOrEmpty(audit.SignatureStatus))
-            {
-                auditRows.Add(new[] { "Publisher", audit.SignatureStatus });
-            }
-            if (audit.RepositoryVerified)
-            {
-                auditRows.Add(new[] { "Repository", "nuget.org (Verified)" });
-            }
-
-            writer.WriteTable(new[] { "Check", "Status" }, auditRows);
-
-            // PDB section
-            writer.WriteHeading(2, "PDB");
-
-            var pdbRows = new List<string[]>
-            {
-                new[] { "Format", audit.PdbFormat ?? "Unknown" },
-                new[] { "Location", audit.PdbLocation ?? "Unknown" }
-            };
-            if (!string.IsNullOrEmpty(audit.SymbolServer))
-            {
-                pdbRows.Add(new[] { "Server", audit.SymbolServer });
-            }
-            if (!string.IsNullOrEmpty(audit.PdbPath))
-            {
-                pdbRows.Add(new[] { "Path", audit.PdbPath });
-            }
-            writer.WriteTable(new[] { "Property", "Value" }, pdbRows);
-
+            // Windows PDB warning
             if (audit.PdbLocation == null && !string.IsNullOrEmpty(audit.PdbPath))
             {
                 writer.WriteParagraph("*Path is from the CodeView record in the assembly; actual PDB location is unknown.*");
@@ -201,34 +138,20 @@ public static class OutputFormatter
                 writer.WriteParagraph("Consider asking the package maintainer to publish Portable PDBs.");
             }
 
-            // Source Coverage section (shown when strict audit was run)
-            if (audit.TotalSourceFiles > 0)
+            // Missing source files (truncated to 10)
+            if (audit.MissingSourceFiles is { Count: > 0 })
             {
-                writer.WriteHeading(2, "Source Coverage");
-
-                int accessible = audit.AccessibleSourceFiles + audit.EmbeddedSourceFiles;
-                string status = audit.AllSourcesAccessible == true ? "✓" : "✗";
-                writer.WriteField("Status", $"{status} {accessible}/{audit.TotalSourceFiles} files accessible");
-
-                if (audit.EmbeddedSourceFiles > 0)
+                var displayFiles = audit.MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
+                if (audit.MissingSourceFiles.Count > 10)
                 {
-                    writer.WriteField("Embedded", $"{audit.EmbeddedSourceFiles} files");
+                    displayFiles.Add($"... and {audit.MissingSourceFiles.Count - 10} more");
                 }
-
-                if (audit.MissingSourceFiles is { Count: > 0 })
-                {
-                    // Show first 10 missing files, truncate if more
-                    var displayFiles = audit.MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
-                    if (audit.MissingSourceFiles.Count > 10)
-                    {
-                        displayFiles.Add($"... and {audit.MissingSourceFiles.Count - 10} more");
-                    }
-                    writer.WriteArray("Missing sources", displayFiles);
-                }
+                writer.WriteArray("Missing sources", displayFiles);
             }
         }
 
-        return writer.ToString().TrimEnd();
+        var additional = writer.ToString();
+        return (output + additional).TrimEnd();
     }
 
     private static List<TreeNode> BuildReferenceTree(List<AssemblyReferenceNode> nodes)
