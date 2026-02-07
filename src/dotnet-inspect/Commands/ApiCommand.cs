@@ -618,7 +618,7 @@ public class ApiCommand
         logger.Log($"Phase 3: Parsed docs for {typeSourceInfo.Count} types ({stopwatch.ElapsedMilliseconds}ms total)");
     }
 
-    private static (ApiType? type, string? assembly, string? dllPath, ApiSurface? surface) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
+    internal static (ApiType? type, string? assembly, string? dllPath, ApiSurface? surface) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory
         string[] dllFiles;
@@ -670,7 +670,7 @@ public class ApiCommand
         return (null, null, null, null);
     }
 
-    private static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         // If --use-local-docs is specified for platform assemblies, use XML docs directly
         if (options.UseLocalDocs && !string.IsNullOrEmpty(options.PlatformAssembly))
@@ -1091,7 +1091,7 @@ public class ApiCommand
     /// <summary>
     /// Extracts the repository URL from SourceLink information in the assembly's PDB.
     /// </summary>
-    private static async Task<string?> ExtractRepositoryUrlAsync(string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    internal static async Task<string?> ExtractRepositoryUrlAsync(string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         try
         {
@@ -1245,7 +1245,7 @@ public class ApiCommand
         return true;
     }
 
-    private static List<string> GetPackageDlls(string extractPath)
+    internal static List<string> GetPackageDlls(string extractPath)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
         var libDir = Path.Combine(extractPath, "lib");
@@ -1267,7 +1267,7 @@ public class ApiCommand
         return candidates.OrderBy(f => f).ToList();
     }
 
-    private static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath)
+    internal static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath)
     {
         // Filter out resource DLLs
         dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -1409,7 +1409,7 @@ public class ApiCommand
         return null;
     }
 
-    private static (ApiSurface? api, string? dllPath) ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
+    internal static (ApiSurface? api, string? dllPath) ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
     {
         // Determine if searchPath is a file or directory
         string? dllFile;
@@ -1470,7 +1470,7 @@ public class ApiCommand
     /// <summary>
     /// Resolves types from forwarded assemblies when the primary assembly is a type-forwarding assembly.
     /// </summary>
-    private static void ResolveForwardedTypes(ApiSurface api, string dllPath, VerboseLogger logger, bool includeAll)
+    internal static void ResolveForwardedTypes(ApiSurface api, string dllPath, VerboseLogger logger, bool includeAll)
     {
         if (api.Types.Count > 0 || api.TypeForwarders.Count == 0)
             return;
@@ -2520,7 +2520,7 @@ public class ApiCommand
     /// Parses a package reference string into name and version.
     /// Handles formats: "PackageName", "PackageName@1.0.0", "path/to/package.nupkg"
     /// </summary>
-    private static (string? name, string? version) ParsePackageReference(string packageSource)
+    internal static (string? name, string? version) ParsePackageReference(string packageSource)
     {
         // Local file - can't determine package name/version reliably
         if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))

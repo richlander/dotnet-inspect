@@ -8,6 +8,8 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ApiSurface))]
 [MarkoutContext(typeof(ApiType))]
 [MarkoutContext(typeof(ApiMember))]
+[MarkoutContext(typeof(ApiTypeView))]
+[MarkoutContext(typeof(ApiTypeSummary))]
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]

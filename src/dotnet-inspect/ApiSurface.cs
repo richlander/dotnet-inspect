@@ -70,6 +70,7 @@ public class PartialSourceFileInfo
     public string? GitHubBrowseUrl { get; set; }
 }
 
+[MarkoutSerializable(TitleProperty = nameof(Name), AutoFields = false)]
 public class ApiSurface
 {
     /// <summary>
@@ -82,30 +83,37 @@ public class ApiSurface
     public List<ApiType> Types { get; set; } = [];
 
     [MarkoutPropertyName("Public Types")]
+    [MarkoutIgnore]
     public int PublicTypeCount { get; set; }
 
     [MarkoutPropertyName("Public Methods")]
+    [MarkoutIgnore]
     public int PublicMethodCount { get; set; }
 
     [MarkoutPropertyName("Public Properties")]
+    [MarkoutIgnore]
     public int PublicPropertyCount { get; set; }
 
     [MarkoutPropertyName("Public Events")]
+    [MarkoutIgnore]
     public int PublicEventCount { get; set; }
 
     [MarkoutPropertyName("Public Fields")]
+    [MarkoutIgnore]
     public int PublicFieldCount { get; set; }
 
     /// <summary>
     /// Target framework moniker for the API surface.
     /// </summary>
     [MarkoutPropertyName("TFM")]
+    [MarkoutIgnore]
     public string? Tfm { get; set; }
 
     /// <summary>
     /// Repository URL extracted from SourceLink (if available).
     /// </summary>
     [MarkoutPropertyName("Repository")]
+    [MarkoutIgnore]
     public string? RepositoryUrl { get; set; }
 
     /// <summary>
@@ -119,6 +127,113 @@ public class ApiSurface
     /// </summary>
     [MarkoutIgnore]
     public bool IsTypeForwardingAssembly { get; set; }
+
+    // ===== Field Collections for Serializer =====
+
+    /// <summary>
+    /// Summary fields (rendered as key-value fields under the title).
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Summary => GetSummaryFields();
+
+    /// <summary>
+    /// Types section without Description column (default rendering).
+    /// </summary>
+    [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiTypeSummary.Description))]
+    [JsonIgnore]
+    public List<ApiTypeSummary>? TypeSummaries { get; set; }
+
+    /// <summary>
+    /// Types section with Description column (--docs rendering).
+    /// </summary>
+    [MarkoutSection(Name = "Types")]
+    [JsonIgnore]
+    public List<ApiTypeSummary>? TypeDocSummaries { get; set; }
+
+    private List<MarkoutField> GetSummaryFields()
+    {
+        var fields = new List<MarkoutField>();
+        fields.Add(new("Types", PublicTypeCount.ToString()));
+        fields.Add(new("Methods", PublicMethodCount.ToString()));
+        fields.Add(new("Properties", PublicPropertyCount.ToString()));
+        if (Tfm != null)
+            fields.Add(new("TFM", Tfm));
+        if (!string.IsNullOrEmpty(RepositoryUrl))
+            fields.Add(new("Repository", RepositoryUrl));
+        return fields;
+    }
+}
+
+/// <summary>
+/// Summary row for the types listing table in ApiSurface.
+/// </summary>
+public class ApiTypeSummary
+{
+    public string Type { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public int Members { get; set; }
+    public string? Description { get; set; }
+}
+
+/// <summary>
+/// View model for single-type rendering. Pre-computes all display values from ApiType + options.
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), AutoFields = false)]
+public class ApiTypeView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    [MarkoutIgnore] public string? Description { get; set; }
+
+    // Backing data (all [MarkoutIgnore] for JSON/table serialization)
+    [MarkoutIgnore] public string Kind { get; set; } = "";
+    [MarkoutIgnore] public string? Modifiers { get; set; }
+    [MarkoutIgnore] public string? BaseType { get; set; }
+    [MarkoutIgnore] public string? TypeParametersInline { get; set; }
+    [MarkoutIgnore] public string? Implements { get; set; }
+    [MarkoutIgnore] public string? Assembly { get; set; }
+    [MarkoutIgnore] public string? Package { get; set; }
+    [MarkoutIgnore] public string? Version { get; set; }
+    [MarkoutIgnore] public string? Source { get; set; }
+    [MarkoutIgnore] public string? SourceResolution { get; set; }
+    [MarkoutIgnore] public string? PartialInfo { get; set; }
+    [MarkoutIgnore] public string? SamplesInfo { get; set; }
+
+    /// <summary>
+    /// Identity fields (rendered as key-value fields under the title).
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Identity => GetIdentityFields();
+
+    private List<MarkoutField> GetIdentityFields()
+    {
+        var fields = new List<MarkoutField>();
+        fields.Add(new("Kind", Kind));
+        if (!string.IsNullOrEmpty(Modifiers))
+            fields.Add(new("Modifiers", Modifiers));
+        if (!string.IsNullOrEmpty(BaseType))
+            fields.Add(new("Base", BaseType));
+        if (!string.IsNullOrEmpty(TypeParametersInline))
+            fields.Add(new("Type Parameters", TypeParametersInline));
+        if (!string.IsNullOrEmpty(Implements))
+            fields.Add(new("Implements", Implements));
+        if (!string.IsNullOrEmpty(Assembly))
+            fields.Add(new("Assembly", Assembly));
+        if (!string.IsNullOrEmpty(Package))
+            fields.Add(new("Package", Package));
+        if (!string.IsNullOrEmpty(Version))
+            fields.Add(new("Version", Version));
+        if (!string.IsNullOrEmpty(Source))
+            fields.Add(new("Source", Source));
+        if (!string.IsNullOrEmpty(SourceResolution))
+            fields.Add(new("Source Resolution", SourceResolution));
+        if (!string.IsNullOrEmpty(PartialInfo))
+            fields.Add(new("Partial Type", PartialInfo));
+        if (!string.IsNullOrEmpty(SamplesInfo))
+            fields.Add(new("Samples", SamplesInfo));
+        return fields;
+    }
 }
 
 /// <summary>
