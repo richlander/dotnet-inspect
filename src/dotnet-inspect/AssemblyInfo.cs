@@ -86,6 +86,7 @@ public class AssemblyInfo
     public bool IsAnyCpu { get; set; }
 
     [MarkoutPropertyName("Prefers 32-bit")]
+    [MarkoutSkipDefault]
     public bool Prefers32Bit { get; set; }
 
     [MarkoutPropertyName("Executable")]
@@ -102,6 +103,7 @@ public class AssemblyInfo
     public string? PublicKeyToken { get; set; }
 
     [MarkoutPropertyName("Unsafe Code")]
+    [MarkoutSkipDefault]
     public bool HasUnsafeCode { get; set; }
 
     // Metadata
@@ -116,9 +118,11 @@ public class AssemblyInfo
     public string? CompilationType { get; set; }  // "CoreCLR", "NativeAOT", "Native", "ReadyToRun"
 
     [MarkoutPropertyName("Native AOT")]
+    [MarkoutSkipDefault]
     public bool IsNativeAot { get; set; }
 
     [MarkoutPropertyName("Ready To Run")]
+    [MarkoutSkipDefault]
     public bool IsReadyToRun { get; set; }
 
     [MarkoutPropertyName("Managed Metadata")]

@@ -184,25 +184,23 @@ public class ApiType
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
 
     [MarkoutPropertyName("Sealed")]
+    [MarkoutSkipDefault]
     public bool IsSealed { get; set; }
 
     [MarkoutPropertyName("Abstract")]
+    [MarkoutSkipDefault]
     public bool IsAbstract { get; set; }
 
     [MarkoutPropertyName("Static")]
+    [MarkoutSkipDefault]
     public bool IsStatic { get; set; }
 
     [MarkoutPropertyName("Base Type")]
     public string? BaseType { get; set; }
 
-    [MarkoutIgnore]
-    public List<string>? Interfaces { get; set; }
-
     [MarkoutPropertyName("Interfaces")]
-    [JsonIgnore]
-    public string? InterfacesSummary => Interfaces is { Count: > 0 }
-        ? string.Join(", ", Interfaces)
-        : null;
+    [MarkoutJoin(", ")]
+    public List<string>? Interfaces { get; set; }
 
     /// <summary>
     /// Known derived types within the same assembly.
@@ -273,21 +271,26 @@ public class ApiMember
     public string? Signature { get; set; }
 
     [MarkoutPropertyName("Static")]
+    [MarkoutSkipDefault]
     public bool IsStatic { get; set; }
 
     [MarkoutPropertyName("Virtual")]
+    [MarkoutSkipDefault]
     public bool IsVirtual { get; set; }
 
     [MarkoutPropertyName("Abstract")]
+    [MarkoutSkipDefault]
     public bool IsAbstract { get; set; }
 
     [MarkoutPropertyName("Unsafe")]
+    [MarkoutSkipDefault]
     public bool IsUnsafe { get; set; }
 
     /// <summary>
     /// True if this is an extension method.
     /// </summary>
     [MarkoutPropertyName("Extension")]
+    [MarkoutSkipDefault]
     public bool IsExtension { get; set; }
 
     /// <summary>
