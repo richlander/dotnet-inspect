@@ -1,5 +1,4 @@
 using DotnetInspector.Commands;
-using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -12,46 +11,43 @@ public class DiffCommandTests
     [Fact]
     public void GetSimpleName_WithNamespace_ReturnsSimpleName()
     {
-        var result = DiffCommand.GetSimpleName("System.Text.Json.JsonSerializer");
+        var result = TypeMatcher.GetSimpleName("System.Text.Json.JsonSerializer");
         Assert.Equal("JsonSerializer", result);
     }
 
     [Fact]
     public void GetSimpleName_WithoutNamespace_ReturnsSameName()
     {
-        var result = DiffCommand.GetSimpleName("JsonSerializer");
+        var result = TypeMatcher.GetSimpleName("JsonSerializer");
         Assert.Equal("JsonSerializer", result);
     }
 
     [Fact]
     public void GetSimpleName_WithGenericType_ReturnsSimpleName()
     {
-        var result = DiffCommand.GetSimpleName("System.Collections.Generic.List`1");
+        var result = TypeMatcher.GetSimpleName("System.Collections.Generic.List`1");
         Assert.Equal("List`1", result);
     }
 
     [Fact]
-    public void GetTypeFullName_WithNamespace_ReturnsFullName()
+    public void ApiType_FullName_WithNamespace_ReturnsFullName()
     {
         var type = new ApiType { Name = "JsonSerializer", Namespace = "System.Text.Json" };
-        var result = DiffCommand.GetTypeFullName(type);
-        Assert.Equal("System.Text.Json.JsonSerializer", result);
+        Assert.Equal("System.Text.Json.JsonSerializer", type.FullName);
     }
 
     [Fact]
-    public void GetTypeFullName_WithoutNamespace_ReturnsName()
+    public void ApiType_FullName_WithoutNamespace_ReturnsName()
     {
         var type = new ApiType { Name = "MyType", Namespace = null };
-        var result = DiffCommand.GetTypeFullName(type);
-        Assert.Equal("MyType", result);
+        Assert.Equal("MyType", type.FullName);
     }
 
     [Fact]
-    public void GetTypeFullName_WithEmptyNamespace_ReturnsName()
+    public void ApiType_FullName_WithEmptyNamespace_ReturnsName()
     {
         var type = new ApiType { Name = "MyType", Namespace = "" };
-        var result = DiffCommand.GetTypeFullName(type);
-        Assert.Equal("MyType", result);
+        Assert.Equal("MyType", type.FullName);
     }
 
     [Fact]

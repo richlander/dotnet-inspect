@@ -203,41 +203,18 @@ public class DiffCommand
         string fromVersion, string toVersion, DiffOptions options)
     {
         // Build type dictionaries by full name
-        var fromTypes = fromSurface.Types.ToDictionary(GetTypeFullName, t => t);
-        var toTypes = toSurface.Types.ToDictionary(GetTypeFullName, t => t);
+        var fromTypes = fromSurface.Types.ToDictionary(t => t.FullName, t => t);
+        var toTypes = toSurface.Types.ToDictionary(t => t.FullName, t => t);
 
         // Determine which types to compare
         var allTypeNames = fromTypes.Keys.Union(toTypes.Keys).ToHashSet();
-        
+
         // Apply type filter if specified
         if (options.TypeFilter?.Count > 0)
         {
-            allTypeNames = allTypeNames.Where(fullName =>
-            {
-                var simpleName = fullName.Contains('.') ? fullName.Split('.').Last() : fullName;
-                // Convert generic types for matching (e.g., Option`1 -> Option<T>)
-                var convertedSimple = GenericTypeNameConverter.Convert(simpleName);
-                var convertedFull = GenericTypeNameConverter.Convert(fullName);
-
-                return options.TypeFilter.Any(f =>
-                {
-                    var convertedFilter = GenericTypeNameConverter.Convert(f);
-                    bool isGlob = f.Contains('*') || f.Contains('?');
-
-                    if (isGlob)
-                    {
-                        return FindCommand.MatchesGlobPattern(simpleName, f) ||
-                               FindCommand.MatchesGlobPattern(fullName, f) ||
-                               FindCommand.MatchesGlobPattern(convertedSimple, convertedFilter) ||
-                               FindCommand.MatchesGlobPattern(convertedFull, convertedFilter);
-                    }
-
-                    return simpleName.Equals(f, StringComparison.OrdinalIgnoreCase) ||
-                           fullName.Equals(f, StringComparison.OrdinalIgnoreCase) ||
-                           convertedSimple.Equals(convertedFilter, StringComparison.OrdinalIgnoreCase) ||
-                           convertedFull.Equals(convertedFilter, StringComparison.OrdinalIgnoreCase);
-                });
-            }).ToHashSet();
+            allTypeNames = allTypeNames
+                .Where(fullName => TypeMatcher.MatchesAnyTypeFilter(fullName, options.TypeFilter))
+                .ToHashSet();
         }
 
         // Categorize types
@@ -274,15 +251,15 @@ public class DiffCommand
             sb.AppendLine($"{name} {fromVersion}..{toVersion}  +{addedTypes.Count} -{removedTypes.Count} ~{changedTypes.Count} types");
             foreach (var t in removedTypes)
             {
-                sb.AppendLine($" - {GetSimpleName(t)}");
+                sb.AppendLine($" - {TypeMatcher.GetSimpleName(t)}");
             }
             foreach (var t in addedTypes)
             {
-                sb.AppendLine($" + {GetSimpleName(t)}");
+                sb.AppendLine($" + {TypeMatcher.GetSimpleName(t)}");
             }
             foreach (var (typeName, added, removed, _, _) in changedTypes)
             {
-                sb.AppendLine($" ~ {GetSimpleName(typeName),-40} +{added} -{removed}");
+                sb.AppendLine($" ~ {TypeMatcher.GetSimpleName(typeName),-40} +{added} -{removed}");
             }
             return sb.ToString().TrimEnd();
         }
@@ -345,17 +322,6 @@ public class DiffCommand
         }
 
         return writer.ToString().TrimEnd();
-    }
-
-    internal static string GetSimpleName(string fullName)
-    {
-        var lastDot = fullName.LastIndexOf('.');
-        return lastDot >= 0 ? fullName[(lastDot + 1)..] : fullName;
-    }
-
-    internal static string GetTypeFullName(ApiType type)
-    {
-        return string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
     }
 
     internal static (int added, int removed, List<string> addedMembers, List<string> removedMembers) CompareTypeMembers(ApiType fromType, ApiType toType)

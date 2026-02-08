@@ -225,6 +225,12 @@ public class ApiType
     [JsonPropertyName("is_partial_type")]
     public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
 
+    /// <summary>
+    /// Full name of the type (Namespace.Name, or just Name if no namespace).
+    /// </summary>
+    [JsonIgnore]
+    public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";
+
     // Documentation (populated with --docs)
     [MarkoutIgnoreInTable]
     public DocComment? Documentation { get; set; }
