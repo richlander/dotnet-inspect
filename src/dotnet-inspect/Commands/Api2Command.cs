@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using Markout;
@@ -176,22 +177,82 @@ public class Api2Command
             {
                 typeName = ApiCommand.ConvertGenericTypeName(typeName);
 
-                var (apiType, foundIn, dllPath, surface) = FindType(typeName, searchPath, logger, options.IncludeAll);
-                if (apiType == null || dllPath == null)
+                var (api, apiDllPath) = ExtractFullApi(searchPath, logger, options.IncludeAll);
+                if (api == null)
+                {
+                    Console.Error.WriteLine("Error: Could not extract API from assembly.");
+                    return 1;
+                }
+
+                if (api.Types.Count == 0 && api.TypeForwarders.Count > 0 && apiDllPath != null)
+                    ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
+
+                var allTypeNames = api.Types.Select(t => FullName(t)).ToList();
+                var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName);
+
+                if (lookupResult.Match != null)
+                {
+                    var apiType = api.Types.First(t => FullName(t) == lookupResult.Match);
+
+                    if (options.ShowHierarchy)
+                        Inspectors.ApiSurfaceExtractor.PopulateDerivedTypes(api, apiType);
+
+                    // Check each member filter before producing output
+                    if (options.MemberFilter?.Count > 0 && apiType.Members != null)
+                    {
+                        var memberNames = apiType.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        var missedFilters = new List<string>();
+
+                        foreach (var filter in options.MemberFilter)
+                        {
+                            bool isGlob = filter.Contains('*') || filter.Contains('?');
+                            bool anyMatch = isGlob
+                                ? memberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
+                                : memberNames.Any(n => string.Equals(n, filter, StringComparison.OrdinalIgnoreCase));
+
+                            if (!anyMatch)
+                                missedFilters.Add(filter);
+                        }
+
+                        if (missedFilters.Count > 0)
+                        {
+                            Console.Error.WriteLine($"Error: No members matched filter '{string.Join(", ", missedFilters)}'");
+                            var memberResult = TypeMatcher.LookupMembers(memberNames, missedFilters);
+                            if (memberResult.Suggestions.Count > 0)
+                            {
+                                Console.Error.WriteLine();
+                                Console.Error.WriteLine("Did you mean:");
+                                foreach (var s in memberResult.Suggestions)
+                                    Console.Error.WriteLine($"  {s}");
+                            }
+                            return 1;
+                        }
+                    }
+
+                    var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
+                    var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
+                    if (pdbLookupPath != null)
+                        await ApiCommand.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
+
+                    WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
+                }
+                else if (lookupResult.Suggestions.Count > 0)
+                {
+                    bool isGlob = typeName.Contains('*') || typeName.Contains('?');
+                    Console.Error.WriteLine(isGlob
+                        ? $"Error: Multiple types match '{typeName}'."
+                        : $"Error: Type '{typeName}' not found.");
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("Did you mean:");
+                    foreach (var s in lookupResult.Suggestions)
+                        Console.Error.WriteLine($"  {s}");
+                    return 1;
+                }
+                else
                 {
                     Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
                     return 1;
                 }
-
-                if (options.ShowHierarchy && surface != null)
-                {
-                    Inspectors.ApiSurfaceExtractor.PopulateDerivedTypes(surface, apiType);
-                }
-
-                var pdbLookupPath = runtimeAssemblyPath ?? dllPath;
-                await ApiCommand.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
-
-                WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
             }
 
             return 0;
@@ -220,8 +281,8 @@ public class Api2Command
             api.Types = api.Types.Where(t =>
             {
                 var fullName = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
-                return MatchesGlobPattern(fullName, options.TypeFilter) ||
-                       MatchesGlobPattern(t.Name, options.TypeFilter);
+                return TypeMatcher.MatchesGlob(fullName, options.TypeFilter) ||
+                       TypeMatcher.MatchesGlob(t.Name, options.TypeFilter);
             }).ToList();
             api.PublicTypeCount = api.Types.Count;
         }
@@ -421,19 +482,6 @@ public class Api2Command
 
     private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        // Check for member filter miss and warn
-        if (options.MemberFilter?.Count > 0 && type.Members != null)
-        {
-            var matchingMembers = type.Members
-                .Where(m => MatchesMemberFilter(m.Name, options.MemberFilter))
-                .ToList();
-
-            if (matchingMembers.Count == 0)
-            {
-                Console.Error.WriteLine($"Warning: No members matched filter '{string.Join(", ", options.MemberFilter)}'");
-            }
-        }
-
         if (options.JsonOutput)
         {
             WriteJsonTypeOutput(type, options);
@@ -450,7 +498,7 @@ public class Api2Command
         var members = type.Members;
 
         if (options.MemberFilter?.Count > 0 && members != null)
-            members = members.Where(m => MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
 
         if (options.UnsafeOnly && members != null)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -1050,7 +1098,7 @@ public class Api2Command
             .ToList() ?? [];
 
         if (options.MemberFilter?.Count > 0)
-            members = members.Where(m => MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
 
         if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -1122,7 +1170,7 @@ public class Api2Command
             .ToList() ?? [];
 
         if (memberFilter?.Count > 0)
-            members = members.Where(m => MatchesMemberFilter(m.Name, memberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -1131,24 +1179,6 @@ public class Api2Command
             .GroupBy(m => m.Kind)
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToDictionary(g => g.Key, g => g.ToList());
-    }
-
-    private static bool MatchesMemberFilter(string name, HashSet<string> filter)
-    {
-        foreach (var pattern in filter)
-        {
-            if (pattern.Contains('*') || pattern.Contains('?'))
-            {
-                if (MatchesGlobPattern(name, pattern))
-                    return true;
-            }
-            else
-            {
-                if (filter.Contains(name))
-                    return true;
-            }
-        }
-        return false;
     }
 
     /// <summary>
@@ -1320,26 +1350,15 @@ public class Api2Command
         return url.Replace("/raw/", "/blob/");
     }
 
-    private static bool MatchesGlobPattern(string text, string pattern)
-    {
-        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
-            .Replace("\\*", ".*")
-            .Replace("\\?", ".") + "$";
-        return System.Text.RegularExpressions.Regex.IsMatch(text, regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-    }
+    private static string FullName(ApiType t) =>
+        string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
 
     // ===== Extraction Logic Delegation =====
     // These delegate to ApiCommand's internal static methods
 
     private static (ApiSurface? api, string? dllPath) ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
     {
-        // Reuse ApiCommand's ExtractFullApi
         return ApiCommand.ExtractFullApi(searchPath, logger, includeAll);
-    }
-
-    private static (ApiType? type, string? assembly, string? dllPath, ApiSurface? surface) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
-    {
-        return ApiCommand.FindType(typeName, searchPath, logger, includeAll);
     }
 
     private static void ResolveForwardedTypes(ApiSurface api, string dllPath, VerboseLogger logger, bool includeAll)

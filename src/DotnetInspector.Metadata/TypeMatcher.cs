@@ -1,4 +1,16 @@
+using System.Text.RegularExpressions;
+
 namespace DotnetInspector.Metadata;
+
+/// <summary>
+/// Result of a type name lookup: either a single match or a list of suggestions.
+/// </summary>
+public record LookupResult(string? Match, IReadOnlyList<string> Suggestions);
+
+/// <summary>
+/// Result of a member name lookup: matching names and/or suggestions.
+/// </summary>
+public record MemberLookupResult(IReadOnlyList<string> Matches, IReadOnlyList<string> Suggestions);
 
 /// <summary>
 /// Generic-aware type name matching for searching types.
@@ -161,5 +173,122 @@ public static class TypeMatcher
             arityStr = arityStr[..plusIdx];
 
         return int.TryParse(arityStr, out var arity) ? arity : 0;
+    }
+
+    /// <summary>
+    /// Tests whether <paramref name="text"/> matches a glob pattern (* and ? wildcards).
+    /// Case-insensitive.
+    /// </summary>
+    public static bool MatchesGlob(string text, string pattern)
+    {
+        var regexPattern = "^" + Regex.Escape(pattern)
+            .Replace("\\*", ".*")
+            .Replace("\\?", ".") + "$";
+        return Regex.IsMatch(text, regexPattern, RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>
+    /// Checks whether a member name matches any filter in the set.
+    /// Supports exact (case-insensitive) and glob patterns.
+    /// </summary>
+    public static bool MatchesMemberFilter(string name, HashSet<string> filter)
+    {
+        foreach (var pattern in filter)
+        {
+            if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                if (MatchesGlob(name, pattern))
+                    return true;
+            }
+            else
+            {
+                if (string.Equals(name, pattern, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Cascading type name lookup: exact → glob → fuzzy.
+    /// Returns a single match when unambiguous, or suggestions when not found / multiple glob hits.
+    /// </summary>
+    public static LookupResult Lookup(
+        IEnumerable<string> candidates, string pattern, int maxSuggestions = 6)
+    {
+        var list = candidates as IList<string> ?? candidates.ToList();
+
+        bool isGlob = pattern.Contains('*') || pattern.Contains('?');
+
+        if (isGlob)
+        {
+            var hits = list.Where(c =>
+                MatchesGlob(c, pattern) || MatchesGlob(GetSimpleName(c), pattern)).ToList();
+
+            return hits.Count switch
+            {
+                1 => new LookupResult(hits[0], []),
+                > 1 => new LookupResult(null, hits.Take(maxSuggestions).ToList()),
+                _ => new LookupResult(null, [])
+            };
+        }
+
+        // Exact match via Matches (handles namespace prefix, generic arity, case-insensitive)
+        var exact = list.FirstOrDefault(c => Matches(c, pattern));
+        if (exact != null)
+            return new LookupResult(exact, []);
+
+        // Fuzzy fallback
+        var suggestions = FindClosest(list, pattern, maxResults: maxSuggestions)
+            .Select(s => s.Name)
+            .ToList();
+        return new LookupResult(null, suggestions);
+    }
+
+    /// <summary>
+    /// Member name lookup with suggestions. Filters by exact/glob, then falls back to
+    /// prefix + fuzzy suggestions when nothing matches.
+    /// </summary>
+    public static MemberLookupResult LookupMembers(
+        IEnumerable<string> memberNames, IEnumerable<string> filters, int maxSuggestions = 6)
+    {
+        var names = memberNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var filterList = filters as IList<string> ?? filters.ToList();
+
+        // Check each name against all filters
+        var matched = names.Where(name =>
+            filterList.Any(f =>
+                (f.Contains('*') || f.Contains('?'))
+                    ? MatchesGlob(name, f)
+                    : string.Equals(name, f, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (matched.Count > 0)
+            return new MemberLookupResult(matched, []);
+
+        // Build suggestions from non-glob filters
+        var suggestionSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in filterList)
+        {
+            if (f.Contains('*') || f.Contains('?'))
+                continue;
+
+            // Prefix matches (e.g. "Deseri" → "Deserialize", "DeserializeAsync")
+            foreach (var n in names)
+                if (n.StartsWith(f, StringComparison.OrdinalIgnoreCase))
+                    suggestionSet.Add(n);
+
+            // Fuzzy matches
+            foreach (var (name, _) in FindClosest(names, f, minSimilarity: 0.5, maxResults: maxSuggestions))
+                suggestionSet.Add(name);
+        }
+
+        // Rank all suggestions by similarity to the first non-glob filter
+        var rankTarget = filterList.FirstOrDefault(f => !f.Contains('*') && !f.Contains('?')) ?? "";
+        var ranked = suggestionSet
+            .OrderByDescending(s => StringDistance.Similarity(s, rankTarget))
+            .Take(maxSuggestions)
+            .ToList();
+        return new MemberLookupResult([], ranked);
     }
 }
