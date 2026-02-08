@@ -230,12 +230,12 @@ public class DiffCommand
             {
                 var simpleName = fullName.Contains('.') ? fullName.Split('.').Last() : fullName;
                 // Convert generic types for matching (e.g., Option`1 -> Option<T>)
-                var convertedSimple = ApiServices.ConvertGenericTypeName(simpleName);
-                var convertedFull = ApiServices.ConvertGenericTypeName(fullName);
+                var convertedSimple = GenericTypeNameConverter.Convert(simpleName);
+                var convertedFull = GenericTypeNameConverter.Convert(fullName);
 
                 return options.TypeFilter.Any(f =>
                 {
-                    var convertedFilter = ApiServices.ConvertGenericTypeName(f);
+                    var convertedFilter = GenericTypeNameConverter.Convert(f);
                     bool isGlob = f.Contains('*') || f.Contains('?');
 
                     if (isGlob)

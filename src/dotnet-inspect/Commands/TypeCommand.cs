@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -14,7 +15,7 @@ public class TypeCommand
     public static async Task<int> ExecuteAsync(string typeName, TypeOptions options)
     {
         // Convert C# generic syntax (List<T>) to metadata format (List`1)
-        typeName = ApiServices.ConvertGenericTypeName(typeName);
+        typeName = GenericTypeNameConverter.Convert(typeName);
 
         // Leverage ApiCommand's infrastructure for package extraction
         var apiOptions = new ApiOptions

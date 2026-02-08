@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using DotnetInspector.Packages;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -39,13 +38,13 @@ internal static class ApiServices
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
-                    var tfmAssembly = FindAssemblyByTfm(searchPath, options.Tfm);
+                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm);
                     if (tfmAssembly != null)
                         searchPath = tfmAssembly;
                 }
                 else
                 {
-                    var (highestPath, _) = SelectHighestTfmAssembly(GetPackageDlls(searchPath), searchPath);
+                    var (highestPath, _) = TfmSelector.SelectHighestTfmAssembly(TfmSelector.GetPackageDlls(searchPath), searchPath);
                     if (highestPath != null)
                         searchPath = highestPath;
                 }
@@ -89,11 +88,6 @@ internal static class ApiServices
             }
 
             var (apiType, foundIn, dllPath, surface) = FindType(typeName, searchPath, logger, options.IncludeAll);
-
-            if (options.ShowHierarchy && surface != null && apiType != null)
-            {
-                ApiSurfaceExtractor.PopulateDerivedTypes(surface, apiType);
-            }
 
             if (apiType != null && dllPath != null && options.ShowDocs)
             {
@@ -142,7 +136,7 @@ internal static class ApiServices
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
-                    var tfmAssembly = FindAssemblyByTfm(searchPath, options.Tfm);
+                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm);
                     if (tfmAssembly != null)
                         searchPath = tfmAssembly;
                 }
@@ -159,10 +153,10 @@ internal static class ApiServices
             string? selectedTfm = null;
             if (Directory.Exists(searchPath))
             {
-                var dlls = GetPackageDlls(searchPath);
+                var dlls = TfmSelector.GetPackageDlls(searchPath);
                 if (dlls.Count > 1)
                 {
-                    var (selectedPath, tfm) = SelectHighestTfmAssembly(dlls, searchPath);
+                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
                     if (selectedPath != null)
                     {
                         searchPath = selectedPath;
@@ -257,7 +251,7 @@ internal static class ApiServices
             if (Directory.Exists(libDir))
             {
                 var dlls = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories).ToList();
-                var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(dlls, searchPath);
+                var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
                 dllFile = selectedPath;
                 if (selectedTfm != null)
                 {
@@ -267,7 +261,7 @@ internal static class ApiServices
             else
             {
                 var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories).ToList();
-                var (selectedPath, _) = SelectHighestTfmAssembly(dlls, searchPath);
+                var (selectedPath, _) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
                 dllFile = selectedPath ?? dlls.FirstOrDefault();
             }
         }
@@ -389,11 +383,11 @@ internal static class ApiServices
             string? packageVersion = null;
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+                (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
 
                 if (packageVersion == null && !string.IsNullOrEmpty(packageName))
                 {
-                    packageVersion = ExtractVersionFromPath(dllPath, packageName);
+                    packageVersion = PackageReferenceParser.ExtractVersionFromPath(dllPath, packageName);
                 }
             }
 
@@ -570,10 +564,10 @@ internal static class ApiServices
         string? packageVersion = null;
         if (!string.IsNullOrEmpty(options.PackagePath))
         {
-            (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+            (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
             if (packageVersion == null && !string.IsNullOrEmpty(packageName))
             {
-                packageVersion = ExtractVersionFromPath(dllPath, packageName);
+                packageVersion = PackageReferenceParser.ExtractVersionFromPath(dllPath, packageName);
             }
         }
 
@@ -842,7 +836,7 @@ internal static class ApiServices
                         RelativePath = s.RelativePath,
                         Description = s.Description,
                         Region = s.Region,
-                        ResolvedUrl = ResolveSampleUrl(url, s.RelativePath)
+                        ResolvedUrl = GitHubUrlResolver.ResolveSampleUrl(url, s.RelativePath)
                     }));
                 }
             }
@@ -871,7 +865,7 @@ internal static class ApiServices
                                     RelativePath = s.RelativePath,
                                     Description = s.Description,
                                     Region = s.Region,
-                                    ResolvedUrl = ResolveSampleUrl(url, s.RelativePath)
+                                    ResolvedUrl = GitHubUrlResolver.ResolveSampleUrl(url, s.RelativePath)
                                 }).ToList()
                             };
                         }
@@ -904,10 +898,10 @@ internal static class ApiServices
             string? packageVersion = null;
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+                (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
                 if (packageVersion == null && !string.IsNullOrEmpty(packageName))
                 {
-                    packageVersion = ExtractVersionFromPath(dllPath, packageName);
+                    packageVersion = PackageReferenceParser.ExtractVersionFromPath(dllPath, packageName);
                 }
             }
 
@@ -1045,343 +1039,4 @@ internal static class ApiServices
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    // ===== Package/Assembly Utilities =====
-
-    internal static List<string> GetPackageDlls(string extractPath)
-    {
-        var toolsDir = Path.Combine(extractPath, "tools");
-        var libDir = Path.Combine(extractPath, "lib");
-
-        string[] candidates;
-        if (Directory.Exists(toolsDir))
-        {
-            candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
-        }
-        else if (Directory.Exists(libDir))
-        {
-            candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
-        }
-        else
-        {
-            candidates = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
-        }
-
-        return candidates.OrderBy(f => f).ToList();
-    }
-
-    internal static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath)
-    {
-        dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
-
-        var byTfm = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var dll in dlls)
-        {
-            var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
-            var tfm = ExtractTfmFromPath(relativePath);
-            if (tfm != null)
-            {
-                if (!byTfm.TryGetValue(tfm, out var list))
-                {
-                    list = [];
-                    byTfm[tfm] = list;
-                }
-                list.Add(dll);
-            }
-        }
-
-        if (byTfm.Count == 0)
-            return (null, null);
-
-        var sortedTfms = byTfm.Keys
-            .Select(tfm => (tfm, priority: GetTfmPriority(tfm)))
-            .OrderByDescending(x => x.priority)
-            .ToList();
-
-        var highestTfm = sortedTfms[0].tfm;
-        var assemblies = byTfm[highestTfm];
-
-        var directDll = assemblies.FirstOrDefault(d =>
-        {
-            var relativePath = Path.GetRelativePath(extractPath, d).Replace('\\', '/');
-            var parts = relativePath.Split('/');
-            return parts.Length <= 3;
-        });
-
-        return (directDll ?? assemblies[0], highestTfm);
-    }
-
-    internal static string? FindAssemblyByTfm(string extractPath, string tfm)
-    {
-        var libDir = Path.Combine(extractPath, "lib");
-        var toolsDir = Path.Combine(extractPath, "tools");
-
-        if (Directory.Exists(libDir))
-        {
-            var tfmDir = Path.Combine(libDir, tfm);
-            if (Directory.Exists(tfmDir))
-            {
-                var dlls = Directory.GetFiles(tfmDir, "*.dll");
-                if (dlls.Length > 0)
-                    return dlls[0];
-            }
-        }
-
-        if (Directory.Exists(toolsDir))
-        {
-            var dlls = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories)
-                .Where(f => f.Replace('\\', '/').Contains($"/{tfm}/", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (dlls.Count > 0)
-                return dlls[0];
-        }
-
-        return null;
-    }
-
-    internal static string? ExtractTfmFromPath(string relativePath)
-    {
-        var parts = relativePath.Split('/');
-        foreach (var part in parts)
-        {
-            if (IsTfmFolder(part))
-                return part;
-        }
-        return null;
-    }
-
-    private static bool IsTfmFolder(string folderName)
-    {
-        return folderName.StartsWith("net", StringComparison.OrdinalIgnoreCase) &&
-               (folderName.Contains('.') || char.IsDigit(folderName[3]));
-    }
-
-    internal static int GetTfmPriority(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework"))
-        {
-            var versionPart = lower[3..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 10000 + (version.Major * 100) + version.Minor;
-            }
-            if (int.TryParse(versionPart.Replace(".", ""), out var legacyVersion))
-            {
-                return 1000 + legacyVersion;
-            }
-        }
-
-        if (lower.StartsWith("netcoreapp"))
-        {
-            var versionPart = lower[10..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 5000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        if (lower.StartsWith("netstandard"))
-        {
-            var versionPart = lower[11..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 3000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        return 0;
-    }
-
-    internal static (string? name, string? version) ParsePackageReference(string packageSource)
-    {
-        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-        {
-            var fileName = Path.GetFileNameWithoutExtension(packageSource);
-            return ParsePackageFileName(fileName);
-        }
-
-        int atIndex = packageSource.IndexOf('@');
-        if (atIndex > 0)
-        {
-            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
-        }
-
-        return (packageSource, null);
-    }
-
-    private static (string? name, string? version) ParsePackageFileName(string fileName)
-    {
-        var parts = fileName.Split('.');
-        for (int i = 0; i < parts.Length; i++)
-        {
-            if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
-            {
-                var name = string.Join(".", parts.Take(i));
-                var version = string.Join(".", parts.Skip(i));
-                return (name, version);
-            }
-        }
-        return (fileName, null);
-    }
-
-    private static string? ExtractVersionFromPath(string dllPath, string packageName)
-    {
-        var normalizedPath = dllPath.Replace('\\', '/');
-        var normalizedPackageName = packageName.ToLowerInvariant();
-
-        var searchPattern = $"/{normalizedPackageName}/";
-        var index = normalizedPath.ToLowerInvariant().IndexOf(searchPattern, StringComparison.Ordinal);
-        if (index < 0)
-            return null;
-
-        var afterPackage = normalizedPath[(index + searchPattern.Length)..];
-        var nextSlash = afterPackage.IndexOf('/');
-        if (nextSlash > 0)
-        {
-            var possibleVersion = afterPackage[..nextSlash];
-            if (possibleVersion.Length > 0 && char.IsDigit(possibleVersion[0]))
-            {
-                return possibleVersion;
-            }
-        }
-
-        return null;
-    }
-
-    // ===== Generic Type Name Conversion =====
-
-    /// <summary>
-    /// Converts C#-style generic type names to CLR backtick notation.
-    /// e.g., "Dictionary&lt;TKey,TValue&gt;" → "Dictionary`2"
-    /// </summary>
-    internal static string ConvertGenericTypeName(string typeName)
-    {
-        int angleBracketStart = typeName.IndexOf('<');
-        if (angleBracketStart < 0)
-            return typeName;
-
-        int angleBracketEnd = typeName.LastIndexOf('>');
-        if (angleBracketEnd < angleBracketStart)
-            return typeName;
-
-        string baseName = typeName[..angleBracketStart];
-
-        string typeParamSection = typeName[(angleBracketStart + 1)..angleBracketEnd];
-        int arity = CountTypeParameters(typeParamSection);
-
-        return $"{baseName}`{arity}";
-    }
-
-    private static int CountTypeParameters(string typeParams)
-    {
-        if (string.IsNullOrWhiteSpace(typeParams))
-            return 0;
-
-        int count = 1;
-        int depth = 0;
-
-        foreach (char c in typeParams)
-        {
-            if (c == '<')
-                depth++;
-            else if (c == '>')
-                depth--;
-            else if (c == ',' && depth == 0)
-                count++;
-        }
-
-        return count;
-    }
-
-    // ===== URL Utilities =====
-
-    /// <summary>
-    /// Resolves a relative sample path to a full URL based on the source file URL.
-    /// </summary>
-    internal static string? ResolveSampleUrl(string sourceUrl, string relativePath)
-    {
-        try
-        {
-            var uri = new Uri(sourceUrl);
-
-            var pathSegments = uri.AbsolutePath.Split('/').ToList();
-
-            if (pathSegments.Count > 0)
-                pathSegments.RemoveAt(pathSegments.Count - 1);
-
-            var relativeSegments = relativePath.Split('/');
-            int i = 0;
-
-            while (i < relativeSegments.Length && relativeSegments[i] == "..")
-            {
-                if (pathSegments.Count > 0)
-                    pathSegments.RemoveAt(pathSegments.Count - 1);
-                i++;
-            }
-
-            if (i < relativeSegments.Length)
-            {
-                var firstSegment = relativeSegments[i];
-                int metadataEnd = Math.Min(4, pathSegments.Count);
-                for (int j = metadataEnd; j < pathSegments.Count; j++)
-                {
-                    if (pathSegments[j] == firstSegment)
-                    {
-                        pathSegments = pathSegments.Take(j).ToList();
-                        break;
-                    }
-                }
-            }
-
-            while (i < relativeSegments.Length)
-            {
-                var segment = relativeSegments[i];
-
-                if (segment == "." || string.IsNullOrEmpty(segment))
-                {
-                    i++;
-                    continue;
-                }
-
-                pathSegments.Add(segment);
-                i++;
-            }
-
-            var newPath = string.Join("/", pathSegments);
-            var resolvedUri = new UriBuilder(uri.Scheme, uri.Host)
-            {
-                Path = newPath
-            };
-
-            return resolvedUri.Uri.ToString();
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    internal static string ConvertRawToBlobUrl(string url)
-    {
-        return url.Replace("/raw/", "/blob/");
-    }
-
-    internal static string? ConvertToGitHubRawUrl(string rawUrl)
-    {
-        if (rawUrl.StartsWith("https://raw.githubusercontent.com/"))
-        {
-            return rawUrl
-                .Replace("https://raw.githubusercontent.com/", "https://github.com/")
-                .Replace($"/{GetCommitFromUrl(rawUrl)}/", $"/raw/{GetCommitFromUrl(rawUrl)}/");
-        }
-        return rawUrl;
-    }
-
-    private static string? GetCommitFromUrl(string url)
-    {
-        var match = Regex.Match(url, @"githubusercontent\.com/[^/]+/[^/]+/([^/]+)/");
-        return match.Success ? match.Groups[1].Value : null;
-    }
 }

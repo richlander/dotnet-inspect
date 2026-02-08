@@ -44,7 +44,7 @@ public class SamplesCommand
         HttpClient httpClient)
     {
         // Convert C# generic syntax (List<T>) to metadata format (List`1)
-        typeName = ApiServices.ConvertGenericTypeName(typeName);
+        typeName = GenericTypeNameConverter.Convert(typeName);
 
         var apiOptions = new ApiOptions
         {
@@ -57,7 +57,7 @@ public class SamplesCommand
             ShowSamples = true,
             BrowsableUrls = options.BrowsableUrls,
             Verbose = options.Verbose,
-            FieldsOnly = true
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         };
 
         var (apiType, foundIn) = await ApiServices.ExtractTypeAsync(typeName, apiOptions, logger, httpClient);
@@ -100,7 +100,7 @@ public class SamplesCommand
             SourceLinkOnly = true, // Only types with sourcelink
             BrowsableUrls = options.BrowsableUrls,
             Verbose = options.Verbose,
-            FieldsOnly = true
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         };
 
         logger.Log("Extracting samples from all types in assembly...");

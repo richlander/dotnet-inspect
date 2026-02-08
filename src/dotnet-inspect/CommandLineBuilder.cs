@@ -73,7 +73,7 @@ public static class CommandLineBuilder
         // Commands in alphabetical order (llmstxt last as meta command)
         
         // API command
-        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
 
         // Audit command (opinionated, always strict)
@@ -1163,6 +1163,7 @@ public static class CommandLineBuilder
         Option<string?> verbosityOption,
         Option<int?> limitOption,
         Option<string?> includeSectionsOption,
+        Option<string?> excludeSectionsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -1219,6 +1220,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(signaturesOnlyOption);
         apiCommand.Options.Add(unsafeOption);
         apiCommand.Options.Add(includeSectionsOption);
+        apiCommand.Options.Add(excludeSectionsOption);
         apiCommand.Options.Add(markoutOption);
         apiCommand.Options.Add(verboseOption);
         apiCommand.Options.Add(verbosityOption);
@@ -1274,8 +1276,9 @@ public static class CommandLineBuilder
             }
 
             var includeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption));
-            // Bare -s with no value means "header only" (no sections)
-            var fieldsOnly = includeSections == null && parseResult.GetResult(includeSectionsOption) != null;
+            // Bare -s with no value means "header only" (empty set excludes all sections)
+            if (includeSections == null && parseResult.GetResult(includeSectionsOption) != null)
+                includeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var options = new ApiOptions
             {
@@ -1298,8 +1301,8 @@ public static class CommandLineBuilder
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
-                FieldsOnly = fieldsOnly,
                 IncludeSections = includeSections,
+                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)

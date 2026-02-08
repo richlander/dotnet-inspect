@@ -192,6 +192,27 @@ public class ApiTypeView
     [JsonIgnore]
     public List<EnumValueRow>? EnumValuesWithDocs { get; set; }
 
+    /// <summary>
+    /// Type parameters table (Normal+ verbosity). Null → section skipped.
+    /// </summary>
+    [MarkoutSection(Name = "Type Parameters")]
+    [JsonIgnore]
+    public List<TypeParameterRow>? TypeParameterRows { get; set; }
+
+    /// <summary>
+    /// Implemented interfaces (Detailed+ verbosity). Null → section skipped.
+    /// </summary>
+    [MarkoutSection(Name = "Interfaces")]
+    [JsonIgnore]
+    public List<InterfaceRow>? InterfaceRows { get; set; }
+
+    /// <summary>
+    /// Base class hierarchy (Detailed+ verbosity). Null → section skipped.
+    /// </summary>
+    [MarkoutSection(Name = "Baseclass")]
+    [JsonIgnore]
+    public List<BaseclassRow>? BaseclassRows { get; set; }
+
     private List<MarkoutField> GetIdentityFields()
     {
         var fields = new List<MarkoutField>();
@@ -359,6 +380,25 @@ public class EnumValueRow
     public string Name { get; set; } = "";
     public string Value { get; set; } = "";
     public string? Description { get; set; }
+}
+
+[MarkoutSerializable]
+public class TypeParameterRow
+{
+    public string Parameter { get; set; } = "";
+    public string Constraints { get; set; } = "";
+}
+
+[MarkoutSerializable]
+public class InterfaceRow
+{
+    public string Interface { get; set; } = "";
+}
+
+[MarkoutSerializable]
+public class BaseclassRow
+{
+    public string Type { get; set; } = "";
 }
 
 public class ApiMember
