@@ -26,6 +26,7 @@ public record ApiOptions
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
     public bool SignaturesOnly { get; init; }
+    public bool TreeOutput { get; init; }
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
     public HashSet<string>? IncludeSections { get; init; }

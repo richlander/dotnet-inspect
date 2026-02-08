@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "audit", "api", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -116,10 +116,6 @@ public static class CommandLineBuilder
         var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(samplesCommand);
 
-        // Type command
-        var typeCommand = CreateTypeCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
-        rootCommand.Subcommands.Add(typeCommand);
-
         // CLI command (meta command)
         var schemaCommand = new Command("cli", "Show CLI command structure as API listing");
         var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
@@ -139,70 +135,6 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(llmsTxtCommand);
 
         return rootCommand;
-    }
-
-    private static Command CreateTypeCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
-    {
-        var typeCommand = new Command("type", "Show type shape with hierarchy and members (tree view)");
-
-        var typeNameArg = new Argument<string>("type")
-        {
-            Description = "Type name to inspect"
-        };
-
-        var typePackageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
-        var typeAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
-        var typePlatformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
-        var typeFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
-        var typeTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
-        var typeAllOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var memberOption = new Option<string?>("-m") { Description = "Filter to members matching name (keeps constructors)" };
-
-        typeCommand.Arguments.Add(typeNameArg);
-        typeCommand.Options.Add(typePackageOption);
-        typeCommand.Options.Add(typeAssemblyOption);
-        typeCommand.Options.Add(typePlatformOption);
-        typeCommand.Options.Add(typeFrameworkOption);
-        typeCommand.Options.Add(typeTfmOption);
-        typeCommand.Options.Add(typeAllOption);
-        typeCommand.Options.Add(memberOption);
-        typeCommand.Options.Add(jsonOption);
-        typeCommand.Options.Add(compactOption);
-        typeCommand.Options.Add(verboseOption);
-        typeCommand.Options.Add(verbosityOption);
-        typeCommand.Options.Add(sourceOption);
-        typeCommand.Options.Add(addSourceOption);
-        typeCommand.Options.Add(nugetConfigOption);
-
-        typeCommand.SetAction(async (parseResult, ct) =>
-        {
-            var typeName = parseResult.GetValue(typeNameArg);
-            var options = new TypeOptions
-            {
-                PackagePath = parseResult.GetValue(typePackageOption),
-                AssemblyPath = parseResult.GetValue(typeAssemblyOption),
-                PlatformAssembly = parseResult.GetValue(typePlatformOption),
-                PlatformFramework = parseResult.GetValue(typeFrameworkOption),
-                Tfm = parseResult.GetValue(typeTfmOption),
-                IncludeAll = parseResult.GetValue(typeAllOption),
-                MemberFilter = parseResult.GetValue(memberOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
-                CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
-            };
-
-            return await TypeCommand.ExecuteAsync(typeName!, options);
-        });
-
-        return typeCommand;
     }
 
     private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
@@ -327,7 +259,7 @@ public static class CommandLineBuilder
                     var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
                     Hints.WriteHint($"dotnet-inspect diff {sourceFlag} {versionRange}   # diff all types");
                 }
-                // If showing all types, suggest type command for inspection
+                // If showing all types, suggest api --tree for inspection
                 else if (!options.Stat && !options.NameOnly)
                 {
                     var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
@@ -340,7 +272,7 @@ public static class CommandLineBuilder
                             var pkgName = versionRange[..atIdx];
                             var toVersion = versionRange[(dotDotIdx + 2)..];
                             var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
-                            Hints.WriteHint($"dotnet-inspect type <TypeName> {sourceFlag} {pkgName}@{toVersion}   # view current type shape");
+                            Hints.WriteHint($"dotnet-inspect api <TypeName> {sourceFlag} {pkgName}@{toVersion} --tree   # view current type shape");
                         }
                     }
                 }
@@ -553,10 +485,10 @@ public static class CommandLineBuilder
             if (exitCode == 0 && !options.JsonOutput && verbosity != Verbosity.Quiet
                 && !options.OneLine && !options.NameOnly)
             {
-                // Suggest type command for drilling into results
+                // Suggest api --tree for drilling into results
                 var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
                 var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <assembly>";
-                Hints.WriteHint($"dotnet-inspect type <TypeName> {sourceFlag}   # view type shape");
+                Hints.WriteHint($"dotnet-inspect api <TypeName> {sourceFlag} --tree   # view type shape");
             }
 
             return exitCode;
@@ -1196,6 +1128,7 @@ public static class CommandLineBuilder
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
+        var treeOption = new Option<bool>("--tree") { Description = "Tree view of type shape" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
 
@@ -1218,6 +1151,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
         apiCommand.Options.Add(signaturesOnlyOption);
+        apiCommand.Options.Add(treeOption);
         apiCommand.Options.Add(unsafeOption);
         apiCommand.Options.Add(includeSectionsOption);
         apiCommand.Options.Add(excludeSectionsOption);
@@ -1299,6 +1233,7 @@ public static class CommandLineBuilder
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
+                TreeOutput = parseResult.GetValue(treeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
                 IncludeSections = includeSections,

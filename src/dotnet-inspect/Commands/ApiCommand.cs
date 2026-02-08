@@ -483,7 +483,11 @@ public class ApiCommand
 
     private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        if (options.JsonOutput)
+        if (options.TreeOutput)
+        {
+            WriteTreeOutput(type, options.MemberFilter);
+        }
+        else if (options.JsonOutput)
         {
             WriteJsonTypeOutput(type, options);
         }
@@ -950,4 +954,120 @@ public class ApiCommand
     private static string FullName(ApiType t) =>
         string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
 
+    // ===== Tree Output (--tree) =====
+
+    private static void WriteTreeOutput(ApiType type, HashSet<string>? memberFilter)
+    {
+        var view = BuildTypeView(type, memberFilter);
+        MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
+    }
+
+    private static TypeShapeView BuildTypeView(ApiType type, HashSet<string>? memberFilter)
+    {
+        var nodes = new List<TreeNode>();
+
+        // Inheritance (always show)
+        if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
+        {
+            nodes.Add(new TreeNode("Inherits", new[] { type.BaseType }));
+        }
+
+        // Interfaces (always show)
+        if (type.Interfaces is { Count: > 0 })
+        {
+            nodes.Add(new TreeNode("Implements", type.Interfaces));
+        }
+
+        // Type parameters with constraints (always show)
+        if (type.TypeParameters is { Count: > 0 })
+        {
+            var typeParamDescriptions = type.TypeParameters
+                .Select(tp => tp.Constraints.Count > 0
+                    ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                    : tp.DisplayName)
+                .ToList();
+            nodes.Add(new TreeNode("Type Parameters", typeParamDescriptions));
+        }
+
+        // Group members by kind
+        if (type.Members is { Count: > 0 })
+        {
+            var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+
+            if (memberFilter?.Count > 0)
+            {
+                members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+            }
+
+            var membersByKind = members
+                .GroupBy(m => m.Kind)
+                .OrderBy(g => GetTreeKindOrder(g.Key));
+
+            foreach (var group in membersByKind)
+            {
+                var kindLabel = GetTreeKindLabel(group.Key, group.Count());
+                var memberSignatures = group
+                    .OrderBy(m => m.Name)
+                    .Select(m => m.Signature ?? m.Name)
+                    .ToList();
+
+                nodes.Add(new TreeNode(kindLabel, memberSignatures));
+            }
+        }
+
+        return new TypeShapeView
+        {
+            FullName = type.Namespace != null ? $"{type.Namespace}.{type.Name}" : type.Name,
+            Kind = type.Kind,
+            Members = nodes
+        };
+    }
+
+    private static int GetTreeKindOrder(string kind) => kind switch
+    {
+        "constructor" => 0,
+        "property" => 1,
+        "method" => 2,
+        "event" => 3,
+        "field" => 4,
+        _ => 5
+    };
+
+    private static string GetTreeKindLabel(string kind, int count)
+    {
+        var plural = kind switch
+        {
+            "property" => "Properties",
+            "method" => "Methods",
+            "constructor" => "Constructors",
+            "event" => "Events",
+            "field" => "Fields",
+            _ => kind + "s"
+        };
+        return $"{plural} ({count})";
+    }
+}
+
+/// <summary>
+/// View model for type shape output (--tree).
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(FullName), DescriptionProperty = nameof(KindDisplay))]
+public class TypeShapeView
+{
+    [MarkoutIgnore]
+    public string FullName { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string Kind { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string KindDisplay => $"*{Kind}*";
+
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Members { get; set; } = [];
+}
+
+[MarkoutContext(typeof(TypeShapeView))]
+public partial class TypeViewContext : MarkoutSerializerContext
+{
 }

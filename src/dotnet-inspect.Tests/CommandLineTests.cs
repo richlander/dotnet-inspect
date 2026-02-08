@@ -103,43 +103,43 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void TypeCommand_WithPackage_ParsesCorrectly()
+    public void ApiCommand_WithTree_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--tree"]);
 
         Assert.Empty(result.Errors);
-        Assert.Equal("type", result.CommandResult.Command.Name);
+        Assert.Equal("api", result.CommandResult.Command.Name);
     }
 
     [Fact]
-    public void TypeCommand_WithTfm_ParsesCorrectly()
+    public void ApiCommand_WithTreeAndTfm_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json", "--tfm", "net8.0"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void TypeCommand_WithJson_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json", "--json"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--tfm", "net8.0", "--tree"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Fact]
-    public void TypeCommand_WithPlatform_ParsesCorrectly()
+    public void ApiCommand_WithTreeAndJson_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--json", "--tree"]);
 
         Assert.Empty(result.Errors);
-        Assert.Equal("type", result.CommandResult.Command.Name);
     }
 
     [Fact]
-    public void TypeCommand_WithPlatformAndFramework_ParsesCorrectly()
+    public void ApiCommand_WithTreeAndPlatform_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--framework", "runtime"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "List`1", "--platform", "System.Collections", "--tree"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("api", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void ApiCommand_WithTreeAndPlatformAndFramework_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "List`1", "--platform", "System.Collections", "--framework", "runtime", "--tree"]);
 
         Assert.Empty(result.Errors);
     }

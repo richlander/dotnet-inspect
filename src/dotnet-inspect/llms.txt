@@ -187,14 +187,13 @@ dotnet-inspect implements IDisposable --framework runtime --json # JSON output
 | `-n` | Limit results |
 | `--all` | Include hidden/obsolete types |
 
-### type
+### api --tree
 
 Show type shape with hierarchy and members in tree format.
 
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json     # From package
-dotnet-inspect type "List\`1" --platform System.Collections        # From platform
-dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
+dotnet-inspect api JsonSerializer --package System.Text.Json --tree     # From package
+dotnet-inspect api "List\`1" --platform System.Collections --tree        # From platform
 ```
 
 ### platform
@@ -347,7 +346,7 @@ dotnet-inspect api "List<T>" --platform System.Collections --json
 
 **To see type hierarchy with members (tree view):**
 ```bash
-dotnet-inspect type "List<T>" --platform System.Collections
+dotnet-inspect api "List<T>" --platform System.Collections --tree
 ```
 
 **To search for a type by name:**
@@ -398,7 +397,7 @@ dotnet-inspect find "*List*" --framework runtime
 dotnet-inspect api "List<T>" --platform System.Collections --interfaces
 
 # Get full type shape with members
-dotnet-inspect type "Dictionary<TKey, TValue>" --platform System.Collections
+dotnet-inspect api "Dictionary<TKey, TValue>" --platform System.Collections --tree
 
 # See all overloads of a method with full signatures
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:d
@@ -419,8 +418,8 @@ When you don't know where a type lives:
 dotnet-inspect find "JsonSerializer" --framework runtime
 # Shows: System.Text.Json.JsonSerializer in System.Text.Json.dll
 
-# Step 2: Get overview with type command
-dotnet-inspect type JsonSerializer --platform System.Text.Json
+# Step 2: Get overview with tree view
+dotnet-inspect api JsonSerializer --platform System.Text.Json --tree
 
 # Step 3: Drill into specific members
 dotnet-inspect api JsonSerializer --platform System.Text.Json -m Serialize -v:d
