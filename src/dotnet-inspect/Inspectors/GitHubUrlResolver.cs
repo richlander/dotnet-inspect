@@ -82,22 +82,32 @@ internal static class GitHubUrlResolver
     }
 
     /// <summary>
-    /// Converts a raw.githubusercontent.com URL to a github.com/raw/ URL.
+    /// Converts a raw.githubusercontent.com URL to a github.com/raw/ URL for display.
     /// </summary>
-    internal static string? ConvertToGitHubRawUrl(string rawUrl)
+    internal static string? ConvertToGitHubRawUrl(string? rawUrl)
     {
-        if (rawUrl.StartsWith("https://raw.githubusercontent.com/"))
-        {
-            return rawUrl
-                .Replace("https://raw.githubusercontent.com/", "https://github.com/")
-                .Replace($"/{GetCommitFromUrl(rawUrl)}/", $"/raw/{GetCommitFromUrl(rawUrl)}/");
-        }
+        if (rawUrl == null) return null;
+
+        var match = Regex.Match(rawUrl,
+            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
+        if (match.Success)
+            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}/raw/{match.Groups[3].Value}/{match.Groups[4].Value}";
+
         return rawUrl;
     }
 
-    private static string? GetCommitFromUrl(string url)
+    /// <summary>
+    /// Converts a github.com raw/blob URL to a raw.githubusercontent.com URL for fetching content.
+    /// </summary>
+    internal static string ConvertToRawGitHubContentUrl(string url)
     {
-        var match = Regex.Match(url, @"githubusercontent\.com/[^/]+/[^/]+/([^/]+)/");
-        return match.Success ? match.Groups[1].Value : null;
+        if (url.Contains("github.com"))
+        {
+            var match = Regex.Match(url,
+                @"https://github\.com/([^/]+)/([^/]+)/(raw|blob)/([^/]+)/(.+)");
+            if (match.Success)
+                return $"https://raw.githubusercontent.com/{match.Groups[1].Value}/{match.Groups[2].Value}/{match.Groups[4].Value}/{match.Groups[5].Value}";
+        }
+        return url;
     }
 }

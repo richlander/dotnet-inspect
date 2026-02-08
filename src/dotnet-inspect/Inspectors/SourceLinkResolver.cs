@@ -305,33 +305,7 @@ public class SourceLinkResolver
         return null;
     }
 
-    /// <summary>
-    /// Converts a raw.githubusercontent.com URL to a github.com/raw URL.
-    /// Uses /raw/ format which redirects to raw content but is easy to convert to /blob/ for browsing.
-    /// Line numbers are not included for type-level URLs since they point to arbitrary members.
-    /// </summary>
-    private static string? ConvertToGitHubRawUrl(string? rawUrl)
-    {
-        if (rawUrl == null)
-            return null;
-
-        // Convert raw.githubusercontent.com/owner/repo/commit/path
-        // to github.com/owner/repo/raw/commit/path
-        var match = Regex.Match(rawUrl,
-            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
-
-        if (match.Success)
-        {
-            string owner = match.Groups[1].Value;
-            string repo = match.Groups[2].Value;
-            string commit = match.Groups[3].Value;
-            string path = match.Groups[4].Value;
-
-            return $"https://github.com/{owner}/{repo}/raw/{commit}/{path}";
-        }
-
-        return rawUrl;
-    }
+    private static string? ConvertToGitHubRawUrl(string? rawUrl) => GitHubUrlResolver.ConvertToGitHubRawUrl(rawUrl);
 
     private static string? ExtractSourceLinkFromReader(MetadataReader reader)
     {

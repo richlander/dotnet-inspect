@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -393,13 +394,7 @@ public class DiffCommand
         return (addedMembers.Count, removedMembers.Count, addedMembers, removedMembers);
     }
 
-    private static bool IsCompilerGenerated(string name)
-    {
-        return name.StartsWith('<') ||
-               name.StartsWith("__") ||
-               name.StartsWith("s_") ||
-               name.Contains("__BackingField");
-    }
+    private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 }
 
 /// <summary>

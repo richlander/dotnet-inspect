@@ -37,7 +37,7 @@ public class AssemblyCommand
             string? packageVersion = null;
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+                (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
             }
 
             if (!string.IsNullOrEmpty(options.PlatformAssembly))
@@ -1251,47 +1251,6 @@ public class AssemblyCommand
         return 0;
     }
 
-    /// <summary>
-    /// Parses a package reference like "PackageName@1.0.0" or "PackageName" or "path/to/package.nupkg"
-    /// </summary>
-    private static (string? name, string? version) ParsePackageReference(string packageSource)
-    {
-        // Local file - try to extract from filename
-        if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-        {
-            var fileName = Path.GetFileNameWithoutExtension(packageSource);
-            return ParsePackageFileName(fileName);
-        }
-
-        // Package name with optional version: "PackageName@1.0.0" or "PackageName"
-        int atIndex = packageSource.IndexOf('@');
-        if (atIndex > 0)
-        {
-            return (packageSource[..atIndex], packageSource[(atIndex + 1)..]);
-        }
-
-        // Just package name - version will need to be resolved
-        return (packageSource, null);
-    }
-
-    /// <summary>
-    /// Attempts to parse a package file name like "Microsoft.Extensions.Logging.8.0.0"
-    /// </summary>
-    private static (string? name, string? version) ParsePackageFileName(string fileName)
-    {
-        // Find the version part (first segment that starts with a digit)
-        var parts = fileName.Split('.');
-        for (int i = 0; i < parts.Length; i++)
-        {
-            if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
-            {
-                var name = string.Join(".", parts.Take(i));
-                var version = string.Join(".", parts.Skip(i));
-                return (name, version);
-            }
-        }
-        return (fileName, null);
-    }
 
     /// <summary>
     /// Extracts version from a cached package path.

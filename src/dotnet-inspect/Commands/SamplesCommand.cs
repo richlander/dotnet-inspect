@@ -22,7 +22,7 @@ public class SamplesCommand
         string? packageVersion = null;
         if (!string.IsNullOrEmpty(options.PackagePath))
         {
-            (packageName, packageVersion) = ParsePackageReference(options.PackagePath);
+            (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
         }
 
         // If type name is specified, get samples for that type only
@@ -280,12 +280,12 @@ public class SamplesCommand
             var sample = typedSample.Sample;
             var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
             var url = sample.ResolvedUrl != null
-                ? ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
+                ? GitHubUrlResolver.ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
                 : sample.RelativePath;
 
             if (options.BrowsableUrls && url != sample.RelativePath)
             {
-                url = ConvertRawToBlobUrl(url);
+                url = GitHubUrlResolver.ConvertRawToBlobUrl(url);
             }
 
             return $"{typedSample.FullTypeName} - {description}: {url}";
@@ -304,7 +304,7 @@ public class SamplesCommand
             return null;
         }
 
-        var rawUrl = ConvertToRawGitHubUrl(sample.ResolvedUrl);
+        var rawUrl = GitHubUrlResolver.ConvertToRawGitHubContentUrl(sample.ResolvedUrl);
         logger.Log($"Fetching: {rawUrl}");
 
         var content = await fetcher.FetchSourceAsync(rawUrl);
@@ -324,23 +324,6 @@ public class SamplesCommand
         return content;
     }
 
-    private static string ConvertToRawGitHubUrl(string url)
-    {
-        if (url.Contains("github.com"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(url,
-                @"https://github\.com/([^/]+)/([^/]+)/(raw|blob)/([^/]+)/(.+)");
-            if (match.Success)
-            {
-                return $"https://raw.githubusercontent.com/{match.Groups[1].Value}/{match.Groups[2].Value}/{match.Groups[4].Value}/{match.Groups[5].Value}";
-            }
-        }
-        if (url.Contains("raw.githubusercontent.com"))
-            return url;
-
-        return url;
-    }
-
     private static string GetLanguageFromPath(string path)
     {
         var ext = Path.GetExtension(path).ToLowerInvariant();
@@ -357,48 +340,6 @@ public class SamplesCommand
         };
     }
 
-    private static (string name, string? version) ParsePackageReference(string packageRef)
-    {
-        var atIndex = packageRef.LastIndexOf('@');
-        if (atIndex > 0)
-        {
-            return (packageRef[..atIndex], packageRef[(atIndex + 1)..]);
-        }
-        if (packageRef.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-        {
-            var fileName = Path.GetFileNameWithoutExtension(packageRef);
-            var parts = fileName.Split('.');
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
-                {
-                    var name = string.Join(".", parts[..i]);
-                    var version = string.Join(".", parts[i..]);
-                    return (name, version);
-                }
-            }
-        }
-        return (packageRef, null);
-    }
-
-    private static string? ConvertToGitHubRawUrl(string url)
-    {
-        if (url.Contains("raw.githubusercontent.com"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(url,
-                @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
-            if (match.Success)
-            {
-                return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}/raw/{match.Groups[3].Value}/{match.Groups[4].Value}";
-            }
-        }
-        return url;
-    }
-
-    private static string ConvertRawToBlobUrl(string url)
-    {
-        return url.Replace("/raw/", "/blob/");
-    }
 }
 
 /// <summary>

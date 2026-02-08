@@ -935,13 +935,7 @@ public class ApiCommand
         _ => char.ToUpper(kind[0]) + kind[1..] + "s"
     };
 
-    private static bool IsCompilerGenerated(string name)
-    {
-        return name.StartsWith('<') ||
-               name.StartsWith('_') ||
-               name.Contains("__BackingField") ||
-               name == "value__";
-    }
+    private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 
     private static readonly string[] MemberKinds = ["constructor", "field", "property", "method", "event"];
 
