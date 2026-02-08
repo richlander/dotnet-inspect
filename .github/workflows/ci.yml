@@ -19,7 +19,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -40,34 +40,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Run markdownlint
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
 
-  # Build the pointer package (once, on any platform)
-  build-pointer:
+  # Build, test, pack (pointer + any + linux-x64), and smoke test — all on one runner
+  build-and-test:
     needs: [changes, markdownlint]
     if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      
+
       - name: Build
         run: dotnet build src/dotnet-inspect -c Release
-      
+
       - name: Run unit tests
         run: dotnet test src/dotnet-inspect.Tests -c Release --no-build
-      
+
       - name: Pack pointer package
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
-      
+
       - name: Upload pointer package
         uses: actions/upload-artifact@v4
         with:
@@ -75,7 +75,71 @@ jobs:
           path: artifacts/package/release/*.nupkg
           if-no-files-found: error
 
-  # Build RID-specific Native AOT packages
+      - name: Pack any (non-AOT) package
+        run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+
+      - name: Upload any package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-any
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+
+      - name: Pack linux-x64 AOT package
+        run: dotnet pack src/dotnet-inspect -c Release -r linux-x64 -p:PublishAot=true -p:OfficialBuild=true
+
+      - name: Upload linux-x64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-linux-x64
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+
+      - name: Install tool from local packages
+        run: dotnet tool install --global dotnet-inspect --add-source ./artifacts/package/release --no-cache
+
+      - name: Smoke test - version
+        run: |
+          OUTPUT=$(dotnet-inspect --version --tips:q)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
+
+      - name: Smoke test - help
+        run: |
+          OUTPUT=$(dotnet-inspect --help --tips:q)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "dotnet-inspect"
+
+      - name: Smoke test - package info
+        run: |
+          dotnet-inspect System.Text.Json 10.0.0 -v:q --tips:q > smoke-package.md
+          cat smoke-package.md
+          grep -q "System.Text.Json" smoke-package.md
+          grep -q "Library" smoke-package.md
+
+      - name: Smoke test - api command
+        run: |
+          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 --tips:q > smoke-api.md
+          cat smoke-api.md
+          grep -q "JsonSerializer" smoke-api.md
+          grep -q "Serialize" smoke-api.md
+          grep -q "Deserialize" smoke-api.md
+
+      - name: Smoke test - platform command
+        run: |
+          dotnet-inspect platform --tips:q > smoke-platform.md
+          cat smoke-platform.md
+          grep -q "runtime" smoke-platform.md
+
+      - name: Validate markdown output
+        run: |
+          npm install -g markdownlint-cli
+          markdownlint smoke-*.md
+
+      - name: Uninstall tool
+        run: dotnet tool uninstall --global dotnet-inspect
+
+  # Build RID-specific Native AOT packages (cross-platform)
   build-rid:
     needs: [changes, markdownlint]
     if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
@@ -85,182 +149,29 @@ jobs:
         include:
           - rid: win-x64
             os: windows-latest
-            aot: true
           - rid: win-arm64
             os: windows-latest
-            aot: true
-          - rid: linux-x64
-            os: ubuntu-latest
-            aot: true
           - rid: linux-arm64
             os: ubuntu-24.04-arm
-            aot: true
           - rid: osx-arm64
             os: macos-latest
-            aot: true
-          - rid: any
-            os: ubuntu-latest
-            aot: false
-    
+
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      
+
       - name: Pack RID-specific package
-        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:PublishAot=${{ matrix.aot }} -p:OfficialBuild=true
-      
+        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:OfficialBuild=true
+
       - name: Upload RID package
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.rid }}
           path: artifacts/package/release/*.nupkg
           if-no-files-found: error
-
-  # Smoke test installed tool on each platform
-  smoke-test:
-    needs: [changes, build-pointer, build-rid]
-    if: always() && needs.changes.outputs.code == 'true' && needs.build-pointer.result == 'success' && needs.build-rid.result == 'success'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - rid: win-x64
-            os: windows-latest
-          - rid: linux-x64
-            os: ubuntu-latest
-          - rid: linux-arm64
-            os: ubuntu-24.04-arm
-          - rid: osx-arm64
-            os: macos-latest
-    
-    runs-on: ${{ matrix.os }}
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      
-      - name: Download all packages
-        uses: actions/download-artifact@v4
-        with:
-          path: packages
-          pattern: package-*
-          merge-multiple: true
-      
-      - name: List packages
-        run: ls -la packages/
-        shell: bash
-      
-      - name: Install tool from local packages
-        run: dotnet tool install --global dotnet-inspect --add-source ./packages --no-cache
-      
-      - name: Smoke test - version (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          $output = dotnet-inspect --version
-          Write-Output $output
-          if ($output -notmatch '^\d+\.\d+\.\d+') { exit 1 }
-        shell: pwsh
-      
-      - name: Smoke test - version (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          OUTPUT=$(dotnet-inspect --version)
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
-        shell: bash
-      
-      - name: Smoke test - help (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          $output = dotnet-inspect --help | Out-String
-          Write-Output $output
-          if ($output -notmatch 'dotnet-inspect') { exit 1 }
-        shell: pwsh
-      
-      - name: Smoke test - help (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          OUTPUT=$(dotnet-inspect --help)
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -q "dotnet-inspect"
-        shell: bash
-      
-      - name: Smoke test - package info (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          dotnet-inspect System.Text.Json 10.0.0 -v:q | Out-File -Encoding utf8 smoke-package.md
-          Get-Content smoke-package.md
-          if (-not (Select-String -Path smoke-package.md -Pattern 'System.Text.Json' -Quiet)) { exit 1 }
-          if (-not (Select-String -Path smoke-package.md -Pattern 'Library' -Quiet)) { exit 1 }
-        shell: pwsh
-      
-      - name: Smoke test - package info (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
-          cat smoke-package.md
-          grep -q "System.Text.Json" smoke-package.md
-          grep -q "Library" smoke-package.md
-        shell: bash
-      
-      - name: Smoke test - api command (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 | Out-File -Encoding utf8 smoke-api.md
-          Get-Content smoke-api.md
-          if (-not (Select-String -Path smoke-api.md -Pattern 'JsonSerializer' -Quiet)) { exit 1 }
-          if (-not (Select-String -Path smoke-api.md -Pattern 'Serialize' -Quiet)) { exit 1 }
-        shell: pwsh
-      
-      - name: Smoke test - api command (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
-          cat smoke-api.md
-          grep -q "JsonSerializer" smoke-api.md
-          grep -q "Serialize" smoke-api.md
-          grep -q "Deserialize" smoke-api.md
-        shell: bash
-      
-      - name: Smoke test - platform command (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          dotnet-inspect platform | Out-File -Encoding utf8 smoke-platform.md
-          Get-Content smoke-platform.md
-          if (-not (Select-String -Path smoke-platform.md -Pattern 'runtime' -Quiet)) { exit 1 }
-        shell: pwsh
-      
-      - name: Smoke test - platform command (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          dotnet-inspect platform > smoke-platform.md
-          cat smoke-platform.md
-          grep -q "runtime" smoke-platform.md
-        shell: bash
-      
-      - name: Validate markdown output (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          npm install -g markdownlint-cli
-          markdownlint smoke-*.md
-        shell: pwsh
-      
-      - name: Validate markdown output (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          npm install -g markdownlint-cli
-          markdownlint smoke-*.md
-        shell: bash
-      
-      - name: Uninstall tool
-        run: dotnet tool uninstall --global dotnet-inspect
