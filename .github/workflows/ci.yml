@@ -51,6 +51,8 @@ jobs:
     needs: [changes, markdownlint]
     if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
     runs-on: ubuntu-latest
+    env:
+      DOTNET_INSPECT_TIPS: q
     steps:
       - uses: actions/checkout@v4
 
@@ -100,26 +102,26 @@ jobs:
 
       - name: Smoke test - version
         run: |
-          OUTPUT=$(dotnet-inspect --version --tips:q)
+          OUTPUT=$(dotnet-inspect --version)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
 
       - name: Smoke test - help
         run: |
-          OUTPUT=$(dotnet-inspect --help --tips:q)
+          OUTPUT=$(dotnet-inspect --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "dotnet-inspect"
 
       - name: Smoke test - package info
         run: |
-          dotnet-inspect System.Text.Json 10.0.0 -v:q --tips:q > smoke-package.md
+          dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
           cat smoke-package.md
           grep -q "System.Text.Json" smoke-package.md
           grep -q "Library" smoke-package.md
 
       - name: Smoke test - api command
         run: |
-          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 --tips:q > smoke-api.md
+          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
           cat smoke-api.md
           grep -q "JsonSerializer" smoke-api.md
           grep -q "Serialize" smoke-api.md
@@ -127,7 +129,7 @@ jobs:
 
       - name: Smoke test - platform command
         run: |
-          dotnet-inspect platform --tips:q > smoke-platform.md
+          dotnet-inspect platform > smoke-platform.md
           cat smoke-platform.md
           grep -q "runtime" smoke-platform.md
 
