@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Markout;
 
 namespace DotnetInspector.Metadata;
 
@@ -87,11 +88,13 @@ public class AssemblyInfo
     /// List of assemblies referenced by this assembly.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [MarkoutIgnoreInTable]
     public List<AssemblyReference>? References { get; set; }
 
     /// <summary>
     /// Transitive reference tree (when --transitive is used).
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [MarkoutIgnoreInTable]
     public List<AssemblyReferenceNode>? TransitiveReferences { get; set; }
 }
