@@ -380,7 +380,7 @@ public class ApiCommand
 
             if (truncatedCount.HasValue)
             {
-                writer.WriteParagraph($"*... and {truncatedCount.Value} more types*");
+                writer.WriteParagraph($"... *and {truncatedCount.Value} more types*");
             }
         }
 
@@ -593,7 +593,7 @@ public class ApiCommand
 
         // Truncation message
         if (truncatedCount > 0)
-            writer.WriteParagraph($"*... and {truncatedCount} more {truncatedNoun}*");
+            writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
 
         return writer.ToString().TrimEnd();
     }

@@ -149,7 +149,7 @@ public class PlatformCommand
 
             if (options.Limit.HasValue && framework.AllVersions.Count > options.Limit.Value)
             {
-                writer.WriteParagraph($"*... and {framework.AllVersions.Count - options.Limit.Value} more*");
+                writer.WriteParagraph($"... *and {framework.AllVersions.Count - options.Limit.Value} more*");
             }
         }
 
@@ -237,7 +237,7 @@ public class PlatformCommand
 
             if (options.Limit.HasValue && assemblies.Count > options.Limit.Value)
             {
-                writer.WriteParagraph($"*... and {assemblies.Count - options.Limit.Value} more assemblies*");
+                writer.WriteParagraph($"... *and {assemblies.Count - options.Limit.Value} more assemblies*");
             }
         }
 
