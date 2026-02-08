@@ -253,11 +253,15 @@ public static class ExtensionMethodScanner
 
     private static string UnwrapAsyncType(string type)
     {
-        if (type.StartsWith("Task<") && type.EndsWith(">"))
-            return type.Substring(5, type.Length - 6);
-        if (type.StartsWith("ValueTask<") && type.EndsWith(">"))
-            return type.Substring(10, type.Length - 11);
-        if (type.StartsWith("Task") && !type.Contains('<'))
+        // Strip namespace prefix if present
+        const string taskNs = "System.Threading.Tasks.";
+        var t = type.StartsWith(taskNs, StringComparison.Ordinal) ? type[taskNs.Length..] : type;
+
+        if (t.StartsWith("Task<", StringComparison.Ordinal) && t.EndsWith(">"))
+            return t[5..^1];
+        if (t.StartsWith("ValueTask<", StringComparison.Ordinal) && t.EndsWith(">"))
+            return t[10..^1];
+        if (t is "Task" or "ValueTask")
             return "";
         return type;
     }
