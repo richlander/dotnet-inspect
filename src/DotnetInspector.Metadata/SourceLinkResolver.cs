@@ -1,9 +1,10 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Metadata;
 
 /// <summary>
 /// Resolves types and members to their source file locations using SourceLink information from PDBs.
@@ -36,13 +37,13 @@ public class SourceLinkResolver
         /// Only populated when type has multiple source files.
         /// </summary>
         public List<PartialSourceFile>? AdditionalSourceFiles { get; init; }
-        
+
         /// <summary>
         /// Indicates whether this type is defined across multiple partial files.
         /// </summary>
         public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
     }
-    
+
     /// <summary>
     /// Represents a source file that is part of a partial type definition.
     /// </summary>
@@ -86,7 +87,7 @@ public class SourceLinkResolver
 
         // Collect ALL unique source files from all methods of this type
         var allSourceFiles = CollectAllSourceFiles(metadata, pdb, typeHandle);
-        
+
         // Also check PDB documents for files matching the type name pattern
         // This catches files that may not have any methods (e.g., partial with only fields)
         var documentFiles = FindDocumentsMatchingTypeName(pdb, typeName);
@@ -107,7 +108,7 @@ public class SourceLinkResolver
 
         // Determine the primary file (prefer {TypeName}.cs over {TypeName}.*.cs)
         var primaryFile = SelectPrimarySourceFile(allSourceFiles.Values.ToList(), typeName);
-        
+
         // Build additional source files list (excluding primary)
         List<PartialSourceFile>? additionalFiles = null;
         if (allSourceFiles.Count > 1)
@@ -129,7 +130,66 @@ public class SourceLinkResolver
             AdditionalSourceFiles = additionalFiles
         };
     }
-    
+
+    /// <summary>
+    /// Resolves source information for a type by name, without requiring a TypeDefinitionHandle.
+    /// Finds the type definition handle internally.
+    /// </summary>
+    public TypeSourceInfo? ResolveTypeSource(MetadataReader metadata, MetadataReader pdb, string typeName)
+    {
+        var typeHandle = FindTypeDefinitionHandle(metadata, typeName);
+        if (typeHandle == null)
+            return null;
+
+        return ResolveTypeSource(metadata, pdb, typeHandle.Value);
+    }
+
+    /// <summary>
+    /// Extracts the repository URL from SourceLink document mappings.
+    /// </summary>
+    public string? ExtractRepositoryUrl()
+    {
+        foreach (var (_, urlTemplate) in _documentMappings)
+        {
+            // Extract repository URL from raw.githubusercontent.com patterns
+            var match = Regex.Match(urlTemplate,
+                @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/");
+            if (match.Success)
+                return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts the repository URL from a PDB reader's SourceLink information.
+    /// </summary>
+    public static string? ExtractRepositoryUrl(MetadataReader pdbReader)
+    {
+        var resolver = Create(pdbReader);
+        return resolver?.ExtractRepositoryUrl();
+    }
+
+    /// <summary>
+    /// Finds a TypeDefinitionHandle by type name in the metadata reader.
+    /// </summary>
+    private static TypeDefinitionHandle? FindTypeDefinitionHandle(MetadataReader reader, string typeName)
+    {
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            string name = reader.GetString(typeDef.Name);
+            string ns = reader.GetString(typeDef.Namespace);
+            string fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+
+            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return typeDefHandle;
+            }
+        }
+        return null;
+    }
+
     /// <summary>
     /// Collects all unique source files from all methods of a type.
     /// </summary>
@@ -158,34 +218,34 @@ public class SourceLinkResolver
 
         return sourceFiles;
     }
-    
+
     /// <summary>
     /// Finds PDB documents matching the type name pattern (e.g., JObject.cs, JObject.Async.cs).
     /// </summary>
     private List<PartialSourceFile> FindDocumentsMatchingTypeName(MetadataReader pdb, string typeName)
     {
         var matches = new List<PartialSourceFile>();
-        
+
         foreach (var docHandle in pdb.Documents)
         {
             var document = pdb.GetDocument(docHandle);
             string filePath = pdb.GetString(document.Name);
             string fileName = Path.GetFileName(filePath);
-            
+
             // Match {TypeName}.cs or {TypeName}.*.cs patterns
             if (fileName.Equals($"{typeName}.cs", StringComparison.OrdinalIgnoreCase) ||
-                (fileName.StartsWith($"{typeName}.", StringComparison.OrdinalIgnoreCase) && 
+                (fileName.StartsWith($"{typeName}.", StringComparison.OrdinalIgnoreCase) &&
                  fileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
             {
                 string? sourceUrl = ApplySourceLinkMapping(filePath);
-                string? browseUrl = ConvertToGitHubRawUrl(sourceUrl);
+                string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
                 matches.Add(new PartialSourceFile(filePath, sourceUrl, browseUrl));
             }
         }
 
         return matches;
     }
-    
+
     /// <summary>
     /// Selects the primary source file from a list of candidates.
     /// Prefers {TypeName}.cs over {TypeName}.*.cs patterns.
@@ -194,9 +254,9 @@ public class SourceLinkResolver
     {
         // Prefer exact match: {TypeName}.cs
         var primaryPattern = $"{typeName}.cs";
-        var primary = files.FirstOrDefault(f => 
+        var primary = files.FirstOrDefault(f =>
             Path.GetFileName(f.FilePath).Equals(primaryPattern, StringComparison.OrdinalIgnoreCase));
-        
+
         if (primary != null)
             return primary;
 
@@ -210,19 +270,16 @@ public class SourceLinkResolver
     /// </summary>
     private TypeSourceInfo? ResolveTypeSourceByDocumentName(MetadataReader pdb, string typeName)
     {
-        // Look for documents that match the type name pattern
-        // e.g., for "IContractResolver", look for "*IContractResolver.cs" or similar
         foreach (var docHandle in pdb.Documents)
         {
             var document = pdb.GetDocument(docHandle);
             string filePath = pdb.GetString(document.Name);
-            
-            // Check if the file name matches the type name
+
             string fileName = Path.GetFileNameWithoutExtension(filePath);
             if (fileName.Equals(typeName, StringComparison.OrdinalIgnoreCase))
             {
                 string? sourceUrl = ApplySourceLinkMapping(filePath);
-                string? browseUrl = ConvertToGitHubRawUrl(sourceUrl);
+                string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
                 return new TypeSourceInfo(filePath, sourceUrl, null, browseUrl, SourceResolutionMethod.Inferred);
             }
         }
@@ -235,7 +292,6 @@ public class SourceLinkResolver
     /// </summary>
     public TypeSourceInfo? ResolveMethodSource(MetadataReader pdb, MethodDefinitionHandle methodHandle)
     {
-        // Method debug information row ID matches the method row ID
         var debugInfoHandle = MetadataTokens.MethodDebugInformationHandle(MetadataTokens.GetRowNumber(methodHandle));
 
         try
@@ -248,7 +304,6 @@ public class SourceLinkResolver
             var document = pdb.GetDocument(debugInfo.Document);
             string filePath = pdb.GetString(document.Name);
 
-            // Get the first sequence point for line number
             int? lineNumber = null;
             foreach (var sp in debugInfo.GetSequencePoints())
             {
@@ -259,9 +314,8 @@ public class SourceLinkResolver
                 }
             }
 
-            // Apply SourceLink mapping (no line number for type-level URLs - they're not useful)
             string? sourceUrl = ApplySourceLinkMapping(filePath);
-            string? browseUrl = ConvertToGitHubRawUrl(sourceUrl);
+            string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
 
             return new TypeSourceInfo(filePath, sourceUrl, lineNumber, browseUrl);
         }
@@ -276,22 +330,17 @@ public class SourceLinkResolver
     /// </summary>
     private string? ApplySourceLinkMapping(string filePath)
     {
-        // Normalize path separators
         filePath = filePath.Replace('\\', '/');
 
         foreach (var (pattern, urlTemplate) in _documentMappings)
         {
-            // SourceLink patterns use * as wildcard
-            // e.g., "/_/*" -> "https://raw.githubusercontent.com/dotnet/runtime/abc123/*"
             if (pattern.Contains('*'))
             {
-                // Convert pattern to regex: "/_/*" becomes "^/_/(.*)$"
                 string regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", "(.*)") + "$";
                 var match = Regex.Match(filePath, regexPattern);
 
                 if (match.Success && match.Groups.Count > 1)
                 {
-                    // Replace * in URL template with captured group
                     string captured = match.Groups[1].Value;
                     return urlTemplate.Replace("*", captured);
                 }
@@ -305,7 +354,20 @@ public class SourceLinkResolver
         return null;
     }
 
-    private static string? ConvertToGitHubRawUrl(string? rawUrl) => GitHubUrlResolver.ConvertToGitHubRawUrl(rawUrl);
+    /// <summary>
+    /// Converts a raw.githubusercontent.com URL to a github.com browse URL.
+    /// </summary>
+    private static string? ConvertToGitHubBrowseUrl(string? rawUrl)
+    {
+        if (rawUrl == null) return null;
+
+        var match = Regex.Match(rawUrl,
+            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
+        if (match.Success)
+            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}/raw/{match.Groups[3].Value}/{match.Groups[4].Value}";
+
+        return rawUrl;
+    }
 
     private static string? ExtractSourceLinkFromReader(MetadataReader reader)
     {

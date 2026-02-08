@@ -1,4 +1,3 @@
-using System.Reflection.PortableExecutable;
 using DotnetInspector.Packages;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -89,15 +88,9 @@ public class ImplementsCommand
 
         try
         {
-            using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(stream);
-
-            if (!peReader.HasMetadata)
-                return results;
-
             var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
-            foreach (var relationship in TypeHierarchyScanner.FindImplementers(peReader, targetType, includeAll))
+            foreach (var relationship in AssemblyReader.FindImplementers(assemblyPath, targetType, includeAll))
             {
                 results.Add(new ImplementerResult
                 {

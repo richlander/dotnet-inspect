@@ -1,3 +1,4 @@
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 
 namespace DotnetInspector.Commands;

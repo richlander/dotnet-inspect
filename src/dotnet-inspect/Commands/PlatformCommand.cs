@@ -1,7 +1,6 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using Markout;
@@ -282,41 +281,7 @@ public class PlatformCommand
 
     private static int CountPublicTypes(string assemblyPath)
     {
-        try
-        {
-            using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(stream);
-            
-            if (!peReader.HasMetadata)
-                return 0;
-
-            var reader = peReader.GetMetadataReader();
-            int count = 0;
-
-            foreach (var typeDefHandle in reader.TypeDefinitions)
-            {
-                var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                var attributes = typeDef.Attributes;
-
-                bool isPublic = (attributes & System.Reflection.TypeAttributes.VisibilityMask) == System.Reflection.TypeAttributes.Public ||
-                                (attributes & System.Reflection.TypeAttributes.VisibilityMask) == System.Reflection.TypeAttributes.NestedPublic;
-
-                if (isPublic)
-                {
-                    var name = reader.GetString(typeDef.Name);
-                    if (!name.StartsWith("<") && !name.StartsWith("__"))
-                    {
-                        count++;
-                    }
-                }
-            }
-
-            return count;
-        }
-        catch
-        {
-            return 0;
-        }
+        return AssemblyReader.CountPublicTypes(assemblyPath);
     }
 }
 

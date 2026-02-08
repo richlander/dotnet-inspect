@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
+using DotnetInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 

@@ -1,7 +1,6 @@
-using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
-using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 
 namespace DotnetInspector.Tests;
