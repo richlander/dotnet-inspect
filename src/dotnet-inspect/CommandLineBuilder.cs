@@ -50,8 +50,8 @@ public static class CommandLineBuilder
         var markoutOption = new Option<bool>("--markout") { Description = "Output as Markout (default)" };
         var verboseOption = new Option<bool>("--verbose") { Description = "Show progress messages on stderr" };
         var verbosityOption = new Option<string?>("-v") { Description = "Verbosity level: q(uiet), m(inimal), n(ormal), d(etailed)" };
-        var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections (comma-separated, e.g., -s:1,3)" };
-        var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections (comma-separated, e.g., -x:4)" };
+        var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections by name (comma-separated, e.g., -s:Methods,Properties).\nUse -s alone for header only.", Arity = ArgumentArity.ZeroOrOne };
+        var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
 
         // NuGet source options (shared across package-consuming commands)
@@ -77,7 +77,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(apiCommand);
 
         // API2 command (hybrid serializer + imperative rendering)
-        var api2Command = CreateApi2Command(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var api2Command = CreateApi2Command(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(api2Command);
 
         // Audit command (opinionated, always strict)
@@ -1303,7 +1303,6 @@ public static class CommandLineBuilder
         Option<string?> verbosityOption,
         Option<int?> limitOption,
         Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -1321,8 +1320,6 @@ public static class CommandLineBuilder
         var apiPlatformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
         var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
         var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
-        var interfacesOption = new Option<bool>("--interfaces") { Description = "Show implemented interfaces" };
-        var hierarchyOption = new Option<bool>("--hierarchy") { Description = "Show type hierarchy (base, interfaces, derived types)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
         var filterOption = new Option<string?>("--filter") { Description = "Filter type names by glob pattern (e.g., *Json*, Progress*)" };
         var memberOption = new Option<string[]>("-m")
@@ -1340,7 +1337,6 @@ public static class CommandLineBuilder
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
-        var fieldsOnlyOption = new Option<bool>("--fields-only") { Description = "Show only type info (source URL, docs) without member tables" };
 
         apiCommand.Arguments.Add(argsArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -1348,8 +1344,6 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(apiPlatformOption);
         apiCommand.Options.Add(apiFrameworkOption);
         apiCommand.Options.Add(apiTfmOption);
-        apiCommand.Options.Add(interfacesOption);
-        apiCommand.Options.Add(hierarchyOption);
         apiCommand.Options.Add(allOption);
         apiCommand.Options.Add(filterOption);
         apiCommand.Options.Add(memberOption);
@@ -1364,9 +1358,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(compactOption);
         apiCommand.Options.Add(signaturesOnlyOption);
         apiCommand.Options.Add(unsafeOption);
-        apiCommand.Options.Add(fieldsOnlyOption);
         apiCommand.Options.Add(includeSectionsOption);
-        apiCommand.Options.Add(excludeSectionsOption);
         apiCommand.Options.Add(markoutOption);
         apiCommand.Options.Add(verboseOption);
         apiCommand.Options.Add(verbosityOption);
@@ -1400,6 +1392,13 @@ public static class CommandLineBuilder
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
             }
 
+            var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
+            if (badOption != null)
+            {
+                Console.Error.WriteLine($"Error: Unrecognized option '{badOption}'.");
+                return 1;
+            }
+
             var members = parseResult.GetValue(memberOption) ?? [];
             var allMembers = members.Concat(positionalMembers).ToArray();
             var ctorOnly = parseResult.GetValue(ctorOption);
@@ -1414,6 +1413,10 @@ public static class CommandLineBuilder
                 memberFilter = new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase);
             }
 
+            var includeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption));
+            // Bare -s with no value means "header only" (no sections)
+            var fieldsOnly = includeSections == null && parseResult.GetResult(includeSectionsOption) != null;
+
             var options = new ApiOptions
             {
                 PackagePath = packagePath,
@@ -1421,8 +1424,6 @@ public static class CommandLineBuilder
                 PlatformAssembly = explicitPlatform,
                 PlatformFramework = parseResult.GetValue(apiFrameworkOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
-                ShowInterfaces = parseResult.GetValue(interfacesOption),
-                ShowHierarchy = parseResult.GetValue(hierarchyOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 TypeFilter = parseResult.GetValue(filterOption),
                 MemberFilter = memberFilter,
@@ -1437,9 +1438,8 @@ public static class CommandLineBuilder
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
-                FieldsOnly = parseResult.GetValue(fieldsOnlyOption),
-                IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                FieldsOnly = fieldsOnly,
+                IncludeSections = includeSections,
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
@@ -1480,6 +1480,7 @@ public static class CommandLineBuilder
         }
         return sections.Count > 0 ? sections : null;
     }
+
 
     /// <summary>
     /// Creates NuGetSourceOptions from parsed command line values.

@@ -103,8 +103,9 @@ public class Api2Command
             }
             else
             {
-                Console.Error.WriteLine("Error: Must specify --package, --assembly, or --platform.");
-                Console.Error.WriteLine("Run 'dotnet-inspect api --help' for usage.");
+                Console.Error.WriteLine("Error: No package, assembly, or platform specified.");
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Example: dotnet-inspect api2 System.Text.Json JsonSerializer");
                 return 1;
             }
 
@@ -194,9 +195,6 @@ public class Api2Command
                 {
                     var apiType = api.Types.First(t => FullName(t) == lookupResult.Match);
 
-                    if (options.ShowHierarchy)
-                        Inspectors.ApiSurfaceExtractor.PopulateDerivedTypes(api, apiType);
-
                     // Check each member filter before producing output
                     if (options.MemberFilter?.Count > 0 && apiType.Members != null)
                     {
@@ -230,9 +228,12 @@ public class Api2Command
                     }
 
                     var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
-                    var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                    if (pdbLookupPath != null)
-                        await ApiCommand.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
+                    if (options.ShowDocs || options.ShowSamples || options.SourceLinkOnly)
+                    {
+                        var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
+                        if (pdbLookupPath != null)
+                            await ApiCommand.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
+                    }
 
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
                 }
@@ -583,9 +584,13 @@ public class Api2Command
         if (options.Verbosity >= Verbosity.Normal && options.ShouldRenderSection("Type Parameters"))
             RenderTypeParametersTable(writer, type);
 
-        // Type hierarchy table (Detailed or --hierarchy)
-        if ((options.Verbosity >= Verbosity.Detailed || options.ShowHierarchy) && options.ShouldRenderSection("Hierarchy"))
-            RenderTypeHierarchy(writer, type);
+        // Interfaces table (Detailed+)
+        if (options.Verbosity >= Verbosity.Detailed && options.ShouldRenderSection("Interfaces"))
+            RenderInterfaces(writer, type);
+
+        // Baseclass table (Detailed+)
+        if (options.Verbosity >= Verbosity.Detailed && options.ShouldRenderSection("Baseclass"))
+            RenderBaseclass(writer, type);
 
         // Source info section (--docs/--samples)
         if ((options.ShowDocs || options.ShowSamples) && options.ShouldRenderSection("Source"))
@@ -632,11 +637,6 @@ public class Api2Command
             typeParamsInline = string.Join(", ", paramDescriptions);
         }
 
-        // Interfaces
-        string? implements = null;
-        if (options.ShowInterfaces && type.Interfaces is { Count: > 0 })
-            implements = string.Join(", ", type.Interfaces);
-
         // Description (from docs)
         string? description = null;
         if (options.ShowDocs && type.Documentation?.Summary != null)
@@ -655,7 +655,6 @@ public class Api2Command
             Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
             BaseType = baseType,
             TypeParametersInline = typeParamsInline,
-            Implements = implements,
             Assembly = foundIn,
             Package = packageName,
             Version = packageVersion,
@@ -871,32 +870,32 @@ public class Api2Command
     }
 
     /// <summary>
-    /// Renders type hierarchy table (Detailed or --hierarchy).
+    /// Renders interfaces table (Detailed or --hierarchy).
     /// </summary>
-    private static void RenderTypeHierarchy(MarkoutWriter writer, ApiType type)
+    private static void RenderInterfaces(MarkoutWriter writer, ApiType type)
+    {
+        if (type.Interfaces is not { Count: > 0 })
+            return;
+
+        writer.WriteHeading(2, "Interfaces");
+        writer.WriteTable(["Interface"], type.Interfaces.Order().Select(i => new[] { i }));
+    }
+
+    /// <summary>
+    /// Renders base class and derived types table (Detailed or --hierarchy).
+    /// </summary>
+    private static void RenderBaseclass(MarkoutWriter writer, ApiType type)
     {
         var hasBase = !string.IsNullOrEmpty(type.BaseType) &&
                       type.BaseType != "System.Object" &&
                       type.BaseType != "System.ValueType" &&
                       type.BaseType != "System.Enum";
-        var hasInterfaces = type.Interfaces is { Count: > 0 };
-        var hasDerived = type.DerivedTypes is { Count: > 0 };
 
-        if (!hasBase && !hasInterfaces && !hasDerived)
+        if (!hasBase)
             return;
 
-        var rows = new List<string[]>();
-        if (hasBase)
-            rows.Add(new[] { "Base", type.BaseType! });
-        if (hasInterfaces)
-            foreach (var iface in type.Interfaces!)
-                rows.Add(new[] { "Implements", iface });
-        if (hasDerived)
-            foreach (var derived in type.DerivedTypes!)
-                rows.Add(new[] { "Derived", derived });
-
-        writer.WriteHeading(2, "Type Hierarchy");
-        writer.WriteTable(new[] { "Relationship", "Type" }, rows);
+        writer.WriteHeading(2, "Baseclass");
+        writer.WriteTable(["Type"], [new[] { type.BaseType! }]);
     }
 
     /// <summary>
@@ -1205,15 +1204,14 @@ public class Api2Command
                name == "value__";
     }
 
-    private static int GetMemberSortOrder(string kind) => kind switch
+    private static readonly string[] MemberKinds = ["constructor", "field", "property", "method", "event"];
+
+    private static int GetMemberSortOrder(string kind)
     {
-        "constructor" => 0,
-        "field" => 1,
-        "property" => 2,
-        "method" => 3,
-        "event" => 4,
-        _ => 5
-    };
+        var index = Array.IndexOf(MemberKinds, kind);
+        return index >= 0 ? index : MemberKinds.Length;
+    }
+
 
     private static string ExtractFirstParamType(string? signature)
     {

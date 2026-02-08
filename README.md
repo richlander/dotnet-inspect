@@ -68,9 +68,46 @@ dotnet-inspect platform System.Text.Json           # Inspect assembly
 dotnet-inspect platform System.Text.Json --audit   # Audit platform assembly
 ```
 
+### api2
+
+Extract public API surface with positional syntax and fuzzy matching.
+
+```bash
+dotnet-inspect api2 System.Text.Json                              # All types in package
+dotnet-inspect api2 System.Text.Json JsonSerializer               # Specific type
+dotnet-inspect api2 System.Text.Json JsonSerializer Serialize     # Filter to member(s)
+dotnet-inspect api2 System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
+dotnet-inspect api2 System.Text.Json JsonSerializer -s:Methods    # Methods section only
+dotnet-inspect api2 System.Text.Json JsonSerializer -s            # Header only (no sections)
+dotnet-inspect api2 --platform System.Text.Json JsonSerializer    # Platform assembly
+```
+
+Example: `dotnet-inspect api2 System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass`
+
+```text
+# System.Text.Json.Nodes.JsonArray (System.Text.Json 10.0.2)
+
+Kind: class | Modifiers: sealed | Base: System.Text.Json.Nodes.JsonNode | Assembly: System.Text.Json | Package: System.Text.Json | Version: 10.0.2
+
+## Interfaces
+
+| Interface |
+| --------- |
+| System.Collections.Generic.ICollection<System.Text.Json.Nodes.JsonNode> |
+| System.Collections.Generic.IEnumerable<System.Text.Json.Nodes.JsonNode> |
+| System.Collections.Generic.IList<System.Text.Json.Nodes.JsonNode> |
+| System.Collections.IEnumerable |
+
+## Baseclass
+
+| Type |
+| ---- |
+| System.Text.Json.Nodes.JsonNode |
+```
+
 ### api
 
-Extract public API surface.
+Extract public API surface (explicit flags).
 
 ```bash
 dotnet-inspect api --package System.Text.Json                     # All types
@@ -117,18 +154,18 @@ dotnet-inspect package MyPackage --nugetconfig ./nuget.config
 
 **Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed)
 
-<<<<<<< HEAD
 Each level includes a **compact summary line** with key metadata:
 
 ```text
 Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 ```
 
-**Sections**: Use `--discover` to list, then `-s:1,2` (include) or `-x:3` (exclude)
+**Sections**: Use `-s:Name` to include or `-x:Name` to exclude sections by name. Bare `-s` shows header only.
 
 ```bash
-dotnet-inspect System.Text.Json -v:d               # All sections
-dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude sections 3,4
+dotnet-inspect System.Text.Json -v:d -x:Statistics,Files   # Exclude by name
+dotnet-inspect api2 System.Text.Json JsonSerializer -s:Methods  # Include only Methods
+dotnet-inspect api2 System.Text.Json JsonSerializer -s      # Header only
 ```
 
 ## LLM Integration

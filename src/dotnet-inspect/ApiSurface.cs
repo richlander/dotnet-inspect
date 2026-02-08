@@ -202,8 +202,6 @@ public class ApiTypeView
             fields.Add(new("Base", BaseType));
         if (!string.IsNullOrEmpty(TypeParametersInline))
             fields.Add(new("Type Parameters", TypeParametersInline));
-        if (!string.IsNullOrEmpty(Implements))
-            fields.Add(new("Implements", Implements));
         if (!string.IsNullOrEmpty(Assembly))
             fields.Add(new("Assembly", Assembly));
         if (!string.IsNullOrEmpty(Package))
