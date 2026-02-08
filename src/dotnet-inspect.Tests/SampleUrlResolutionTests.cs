@@ -1,4 +1,4 @@
-using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 
 namespace DotnetInspector.Tests;
 
@@ -15,7 +15,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/user/markout/abc123/src/MarkOut/TreeNode.cs";
         var relativePath = "../../samples/Serialization/WriterUsage.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/user/markout/abc123/samples/Serialization/WriterUsage.cs", result);
     }
@@ -28,7 +28,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/abc123/Src/Newtonsoft.Json/Serialization/IContractResolver.cs";
         var relativePath = "../Src/Newtonsoft.Json.Tests/Documentation/SerializationTests.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/abc123/Src/Newtonsoft.Json.Tests/Documentation/SerializationTests.cs", result);
     }
@@ -40,7 +40,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/user/repo/abc123/src/Lib/File.cs";
         var relativePath = "../Tests/TestFile.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/user/repo/abc123/src/Tests/TestFile.cs", result);
     }
@@ -52,7 +52,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/user/repo/abc123/src/Lib/File.cs";
         var relativePath = "Samples/Demo.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/user/repo/abc123/src/Lib/Samples/Demo.cs", result);
     }
@@ -64,7 +64,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/user/repo/abc123/src/Core/Internal/Helpers/Utils.cs";
         var relativePath = "../../../../samples/Demo.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/user/repo/abc123/samples/Demo.cs", result);
     }
@@ -76,7 +76,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/user/repo/abc123/src/Lib/File.cs";
         var relativePath = "..//Tests//Demo.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/user/repo/abc123/src/Tests/Demo.cs", result);
     }
@@ -88,7 +88,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://raw.githubusercontent.com/user/repo/abc123/src/Lib/File.cs";
         var relativePath = "./../Tests/./Demo.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://raw.githubusercontent.com/user/repo/abc123/src/Tests/Demo.cs", result);
     }
@@ -96,7 +96,7 @@ public class SampleUrlResolutionTests
     [Fact]
     public void ResolveSampleUrl_InvalidUrl_ReturnsNull()
     {
-        var result = ApiCommand.ResolveSampleUrl("not-a-valid-url", "../test.cs");
+        var result = GitHubUrlResolver.ResolveSampleUrl("not-a-valid-url", "../test.cs");
         
         Assert.Null(result);
     }
@@ -108,7 +108,7 @@ public class SampleUrlResolutionTests
         var sourceUrl = "https://github.com/user/repo/raw/abc123/src/Lib/File.cs";
         var relativePath = "../../samples/Demo.cs";
         
-        var result = ApiCommand.ResolveSampleUrl(sourceUrl, relativePath);
+        var result = GitHubUrlResolver.ResolveSampleUrl(sourceUrl, relativePath);
         
         Assert.Equal("https://github.com/user/repo/raw/abc123/samples/Demo.cs", result);
     }

@@ -739,7 +739,7 @@ public class FindCommand
 
             if (limit.HasValue && totalCount > limit.Value)
             {
-                writer.WriteParagraph($"*... and {totalCount - limit.Value} more types*");
+                writer.WriteParagraph($"... *and {totalCount - limit.Value} more types*");
             }
         }
 

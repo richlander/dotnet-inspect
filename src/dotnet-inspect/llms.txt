@@ -36,17 +36,23 @@ dotnet-inspect System.Text.Json --versions -n 5    # List versions
 
 ### api
 
+Supports positional arguments (no `--package` needed) and fuzzy matching for misspelled type/member names.
+
 ```bash
-dotnet-inspect api --package System.Text.Json                     # List all types
-dotnet-inspect api --package System.Text.Json --filter "*Json*"   # Filter by glob
-dotnet-inspect api JsonSerializer --package System.Text.Json      # Single type
-dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0  # Specific version
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize  # Single member
-dotnet-inspect api JsonSerializer --package System.Text.Json --signatures-only  # Plain output
-dotnet-inspect api 'Option<T>' --package System.CommandLine       # Generic types
-dotnet-inspect api Command --package System.CommandLine --ctor    # Constructors
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # With documentation
-dotnet-inspect api --platform System.Text.Json                    # Platform assembly
+dotnet-inspect api System.Text.Json                              # List all types
+dotnet-inspect api System.Text.Json JsonSerializer               # Single type
+dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to member(s)
+dotnet-inspect api System.Text.Json JsonSerializer -m 'Deseri*'  # Glob member filter
+dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
+dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass  # Both
+dotnet-inspect api System.Text.Json JsonSerializer -s:Methods    # Methods section only
+dotnet-inspect api System.Text.Json JsonSerializer -s            # Header only (no sections)
+dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform assembly
+dotnet-inspect api System.Text.Json@9.0.0 JsonSerializer        # Specific version
+dotnet-inspect api System.Text.Json JsonSerializer --signatures-only  # Plain output
+dotnet-inspect api 'Option<T>' --package System.CommandLine      # Generic types
+dotnet-inspect api Command --package System.CommandLine --ctor   # Constructors
+dotnet-inspect api System.Text.Json JsonSerializer --docs        # With documentation
 dotnet-inspect api 'IEnumerable<T>' --platform System.Runtime -v n  # Type parameters with constraints
 ```
 
@@ -181,14 +187,13 @@ dotnet-inspect implements IDisposable --framework runtime --json # JSON output
 | `-n` | Limit results |
 | `--all` | Include hidden/obsolete types |
 
-### type
+### api --tree
 
 Show type shape with hierarchy and members in tree format.
 
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json     # From package
-dotnet-inspect type "List\`1" --platform System.Collections        # From platform
-dotnet-inspect type JsonSerializer --package System.Text.Json --json  # JSON output
+dotnet-inspect api JsonSerializer --package System.Text.Json --tree     # From package
+dotnet-inspect api "List\`1" --platform System.Collections --tree        # From platform
 ```
 
 ### platform
@@ -232,9 +237,16 @@ Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 
 Section filtering:
 ```bash
-dotnet-inspect package --discover                  # List sections with numbers
-dotnet-inspect System.Text.Json -v:d -x:3,4        # Exclude sections 3 and 4
-dotnet-inspect System.Text.Json -v:d -s:1,2        # Include only sections 1 and 2
+dotnet-inspect package --discover                            # List available section names
+dotnet-inspect System.Text.Json -v:d -x:Statistics,Files     # Exclude sections by name
+dotnet-inspect System.Text.Json -v:d -s:Metadata             # Include only named sections
+```
+
+For `api` command, `-s` and `-x` filter by section name (e.g., Methods, Properties, Constructors):
+```bash
+dotnet-inspect api System.Text.Json JsonSerializer -s:Methods     # Methods only
+dotnet-inspect api System.Text.Json JsonSerializer -x:Properties  # Exclude Properties
+dotnet-inspect api System.Text.Json JsonSerializer -s              # Header only (no sections)
 ```
 
 ### JSON
@@ -334,7 +346,7 @@ dotnet-inspect api "List<T>" --platform System.Collections --json
 
 **To see type hierarchy with members (tree view):**
 ```bash
-dotnet-inspect type "List<T>" --platform System.Collections
+dotnet-inspect api "List<T>" --platform System.Collections --tree
 ```
 
 **To search for a type by name:**
@@ -385,7 +397,7 @@ dotnet-inspect find "*List*" --framework runtime
 dotnet-inspect api "List<T>" --platform System.Collections --interfaces
 
 # Get full type shape with members
-dotnet-inspect type "Dictionary<TKey, TValue>" --platform System.Collections
+dotnet-inspect api "Dictionary<TKey, TValue>" --platform System.Collections --tree
 
 # See all overloads of a method with full signatures
 dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:d
@@ -406,8 +418,8 @@ When you don't know where a type lives:
 dotnet-inspect find "JsonSerializer" --framework runtime
 # Shows: System.Text.Json.JsonSerializer in System.Text.Json.dll
 
-# Step 2: Get overview with type command
-dotnet-inspect type JsonSerializer --platform System.Text.Json
+# Step 2: Get overview with tree view
+dotnet-inspect api JsonSerializer --platform System.Text.Json --tree
 
 # Step 3: Drill into specific members
 dotnet-inspect api JsonSerializer --platform System.Text.Json -m Serialize -v:d

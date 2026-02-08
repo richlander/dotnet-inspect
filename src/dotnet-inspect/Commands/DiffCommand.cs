@@ -2,6 +2,8 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using Markout;
@@ -113,8 +115,8 @@ public class DiffCommand
             Verbose = options.Verbose
         };
 
-        var (fromSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(fromOptions, logger, httpClient);
-        var (toSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(toOptions, logger, httpClient);
+        var (fromSurface, _) = await ApiServices.ExtractApiSurfaceAsync(fromOptions, logger, httpClient);
+        var (toSurface, _) = await ApiServices.ExtractApiSurfaceAsync(toOptions, logger, httpClient);
 
         if (fromSurface == null || toSurface == null)
         {
@@ -229,12 +231,12 @@ public class DiffCommand
             {
                 var simpleName = fullName.Contains('.') ? fullName.Split('.').Last() : fullName;
                 // Convert generic types for matching (e.g., Option`1 -> Option<T>)
-                var convertedSimple = ApiCommand.ConvertGenericTypeName(simpleName);
-                var convertedFull = ApiCommand.ConvertGenericTypeName(fullName);
+                var convertedSimple = GenericTypeNameConverter.Convert(simpleName);
+                var convertedFull = GenericTypeNameConverter.Convert(fullName);
 
                 return options.TypeFilter.Any(f =>
                 {
-                    var convertedFilter = ApiCommand.ConvertGenericTypeName(f);
+                    var convertedFilter = GenericTypeNameConverter.Convert(f);
                     bool isGlob = f.Contains('*') || f.Contains('?');
 
                     if (isGlob)
@@ -392,13 +394,7 @@ public class DiffCommand
         return (addedMembers.Count, removedMembers.Count, addedMembers, removedMembers);
     }
 
-    private static bool IsCompilerGenerated(string name)
-    {
-        return name.StartsWith('<') ||
-               name.StartsWith("__") ||
-               name.StartsWith("s_") ||
-               name.Contains("__BackingField");
-    }
+    private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 }
 
 /// <summary>
