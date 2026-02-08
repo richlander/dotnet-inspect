@@ -47,7 +47,7 @@ public class ExtensionsCommand
             }
 
             // If --reachable, find extensions on reachable types
-            if (options.Reachable && results.Count > 0)
+            if (options.Reachable)
             {
                 var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
                 var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
@@ -115,7 +115,8 @@ public class ExtensionsCommand
                     ExtensionClass = ext.ExtensionClass,
                     ExtendedType = ext.ExtendedType,
                     Assembly = assemblyName,
-                    Signature = ext.Signature
+                    Signature = ext.Signature,
+                    Kind = ext.Kind
                 });
             }
         }
@@ -141,30 +142,24 @@ public class ExtensionsCommand
 
         writer.WriteHeading(1, $"Extension Methods for {targetType}");
 
-        if (results.Count == 0)
-        {
-            writer.WriteParagraph("No extension methods found.");
-            Console.WriteLine(writer.ToString());
-            return;
-        }
-
         // Group by source, then by reachable path
         var directExtensions = results.Where(r => r.ReachablePath == null).ToList();
         var reachableExtensions = results.Where(r => r.ReachablePath != null)
             .GroupBy(r => r.ReachablePath)
             .ToList();
 
-        // Direct extensions
+        // Direct extensions (always shown)
+        writer.WriteHeading(2, $"{targetType} Extensions ({directExtensions.Count})");
         if (directExtensions.Count > 0)
-        {
-            writer.WriteHeading(2, $"Direct Extensions ({directExtensions.Count})");
             WriteExtensionTable(writer, directExtensions);
-        }
+        else
+            writer.WriteParagraph("None found.");
 
         // Reachable extensions
         foreach (var group in reachableExtensions)
         {
-            writer.WriteHeading(2, $"Via {group.Key} ({group.First().ReachableFromType}) ({group.Count()})");
+            var reachableType = group.First().ReachableFromType;
+            writer.WriteHeading(2, $"{reachableType} Extensions ({group.Count()}; Via {group.Key})");
             WriteExtensionTable(writer, group.ToList());
         }
 
@@ -176,13 +171,13 @@ public class ExtensionsCommand
         // Group by extension class
         var byClass = results.GroupBy(r => r.ExtensionClass).ToList();
 
-        var headers = new[] { "Method", "Class", "Assembly", "Source" };
+        var headers = new[] { "Name", "Kind", "Class", "Assembly", "Source" };
         var rows = byClass.SelectMany(classGroup => classGroup.Select(ext =>
         {
             var sourceDisplay = ext.SourceVersion != null
                 ? $"{ext.Source}@{ext.SourceVersion}"
                 : ext.Source;
-            return new[] { ext.MethodName, ext.ExtensionClass ?? "", ext.Assembly ?? "", sourceDisplay ?? "" };
+            return new[] { ext.MethodName, ext.Kind, ext.ExtensionClass ?? "", ext.Assembly ?? "", sourceDisplay ?? "" };
         }));
         writer.WriteTable(headers, rows);
     }
@@ -207,6 +202,9 @@ public class ExtensionMethodResult
 
     [JsonPropertyName("signature")]
     public string? Signature { get; set; }
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "method";
 
     [JsonPropertyName("source")]
     public string? Source { get; set; }

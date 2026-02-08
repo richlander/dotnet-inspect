@@ -19,6 +19,7 @@ dotnet tool install -g dotnet-inspect
 | `api X` | Public API surface |
 | `type X` | Type hierarchy and members |
 | `diff X` | Compare versions |
+| `extensions X` | Find extension methods/properties for a type |
 | `find X` | Search for types |
 
 ### Common Flags
@@ -104,6 +105,26 @@ Kind: class | Modifiers: sealed | Base: System.Text.Json.Nodes.JsonNode | Assemb
 | ---- |
 | System.Text.Json.Nodes.JsonNode |
 ```
+
+### extensions
+
+Find extension methods and properties for a type. Scopes control where to search.
+
+```bash
+dotnet-inspect extensions string                                          # Runtime extensions (default scope)
+dotnet-inspect extensions 'IEnumerable<T>'                                # Generic types
+dotnet-inspect extensions string --assembly ./MyLib.dll                   # Search a local assembly
+dotnet-inspect extensions ChatClient --package Microsoft.Extensions.AI.OpenAI  # Cross-package extensions
+dotnet-inspect extensions IServiceCollection \
+  --package Microsoft.Extensions.DependencyInjection \
+  --package Microsoft.Extensions.Azure \
+  --package AWSSDK.Extensions.NETCore.Setup                                   # Multi-package scan
+dotnet-inspect extensions string --framework runtime --assembly ./MyLib.dll  # Multiple scopes
+dotnet-inspect extensions HttpClient --reachable                          # Include extensions on reachable types
+dotnet-inspect extensions HttpResponseMessage --reachable                  # Useful when the type itself has no extensions
+```
+
+Detects both classic extension methods and C# 14 extension properties.
 
 ### assembly
 
