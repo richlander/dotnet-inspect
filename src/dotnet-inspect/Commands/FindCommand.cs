@@ -65,7 +65,7 @@ public class FindCommand
             var matches = new List<TypeSearchResult>();
             foreach (var type in allTypes)
             {
-                if (MatchesGlobPattern(type.FullName, pattern) || MatchesGlobPattern(type.TypeName, pattern))
+                if (TypeMatcher.MatchesGlob(type.FullName, pattern) || TypeMatcher.MatchesGlob(type.TypeName, pattern))
                 {
                     matches.Add(type);
                 }
@@ -541,12 +541,11 @@ public class FindCommand
 
             foreach (var type in api.Types)
             {
-                var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
                 results.Add(new TypeSearchResult
                 {
                     TypeName = type.Name,
                     Namespace = type.Namespace,
-                    FullName = fullName,
+                    FullName = type.FullName,
                     Kind = type.Kind,
                     Assembly = assemblyName
                 });
@@ -666,15 +665,13 @@ public class FindCommand
 
             foreach (var type in api.Types)
             {
-                var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-
-                if (MatchesGlobPattern(fullName, pattern) || MatchesGlobPattern(type.Name, pattern))
+                if (TypeMatcher.MatchesGlob(type.FullName, pattern) || TypeMatcher.MatchesGlob(type.Name, pattern))
                 {
                     results.Add(new TypeSearchResult
                     {
                         TypeName = type.Name,
                         Namespace = type.Namespace,
-                        FullName = fullName,
+                        FullName = type.FullName,
                         Kind = type.Kind,
                         Assembly = assemblyName
                     });
@@ -687,16 +684,6 @@ public class FindCommand
         }
 
         return results;
-    }
-
-    internal static bool MatchesGlobPattern(string text, string pattern)
-    {
-        // Convert glob pattern to regex
-        // * matches any characters, ? matches single character
-        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
-            .Replace("\\*", ".*")
-            .Replace("\\?", ".") + "$";
-        return System.Text.RegularExpressions.Regex.IsMatch(text, regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
     private static void WriteJsonOutput(List<TypeSearchResult> results, bool compact)

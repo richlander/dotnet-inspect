@@ -188,6 +188,29 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Checks whether a full type name matches a single filter pattern (glob or exact).
+    /// For globs, tries both the full name and simple name.
+    /// For non-globs, delegates to <see cref="Matches"/> which handles namespace prefix and generic arity.
+    /// </summary>
+    public static bool MatchesTypeFilter(string fullName, string pattern)
+    {
+        if (pattern.Contains('*') || pattern.Contains('?'))
+            return MatchesGlob(fullName, pattern) || MatchesGlob(GetSimpleName(fullName), pattern);
+        return Matches(fullName, pattern);
+    }
+
+    /// <summary>
+    /// Checks whether a full type name matches any filter in the set.
+    /// </summary>
+    public static bool MatchesAnyTypeFilter(string fullName, IEnumerable<string> patterns)
+    {
+        foreach (var pattern in patterns)
+            if (MatchesTypeFilter(fullName, pattern))
+                return true;
+        return false;
+    }
+
+    /// <summary>
     /// Checks whether a member name matches any filter in the set.
     /// Supports exact (case-insensitive) and glob patterns.
     /// </summary>

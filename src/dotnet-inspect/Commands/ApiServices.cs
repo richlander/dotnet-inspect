@@ -209,11 +209,8 @@ internal static class ApiServices
                 continue;
 
             var match = api.Types.FirstOrDefault(t =>
-            {
-                var fullName = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
-                return fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
-                       t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase);
-            });
+                t.FullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
+                t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase));
 
             if (match != null)
             {
@@ -303,8 +300,7 @@ internal static class ApiServices
 
                 foreach (var type in targetApi.Types)
                 {
-                    var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-                    if (forwardedTypeNames.Contains(fullName))
+                    if (forwardedTypeNames.Contains(type.FullName))
                     {
                         api.Types.Add(type);
                         api.PublicMethodCount += type.Members?.Count(m => m.Kind == "method" || m.Kind == "constructor") ?? 0;
@@ -324,7 +320,7 @@ internal static class ApiServices
         {
             api.IsTypeForwardingAssembly = true;
             api.PublicTypeCount = api.Types.Count;
-            api.Types = api.Types.OrderBy(t => string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}").ToList();
+            api.Types = api.Types.OrderBy(t => t.FullName).ToList();
             logger.Log($"Resolved {api.Types.Count} types from forwarded assemblies.");
         }
     }
@@ -592,7 +588,7 @@ internal static class ApiServices
 
         foreach (var apiType in types)
         {
-            var typeName = string.IsNullOrEmpty(apiType.Namespace) ? apiType.Name : $"{apiType.Namespace}.{apiType.Name}";
+            var typeName = apiType.FullName;
             var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeName);
             typeSourceInfo.Add((apiType, typeName, sourceInfo));
 
@@ -722,11 +718,7 @@ internal static class ApiServices
             return;
         }
 
-        var fullTypeName = string.IsNullOrEmpty(apiType.Namespace)
-            ? apiType.Name
-            : $"{apiType.Namespace}.{apiType.Name}";
-
-        var typeDoc = xmlParser.GetTypeDocumentation(fullTypeName);
+        var typeDoc = xmlParser.GetTypeDocumentation(apiType.FullName);
         if (typeDoc != null)
         {
             apiType.Documentation = new DocComment
@@ -734,14 +726,14 @@ internal static class ApiServices
                 Summary = typeDoc.Summary,
                 Remarks = typeDoc.Remarks
             };
-            logger.Log($"Found type documentation for {fullTypeName}");
+            logger.Log($"Found type documentation for {apiType.FullName}");
         }
 
         if (options.ShowDocs && apiType.Members != null)
         {
             foreach (var member in apiType.Members)
             {
-                var memberDoc = xmlParser.GetMemberDocumentation(fullTypeName, member.Name, member.Kind);
+                var memberDoc = xmlParser.GetMemberDocumentation(apiType.FullName, member.Name, member.Kind);
                 if (memberDoc != null)
                 {
                     member.Documentation = new DocComment

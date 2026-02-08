@@ -168,8 +168,7 @@ public class ApiCommand
                     logger.Log("Enriching types with source info...");
                     foreach (var type in api.Types)
                     {
-                        var fullTypeName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-                        await ApiServices.EnrichTypeWithSourceInfoAsync(type, fullTypeName, pdbLookupPath, options, logger, context.HttpClient);
+                        await ApiServices.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
                     }
                 }
 
@@ -189,12 +188,12 @@ public class ApiCommand
                 if (api.Types.Count == 0 && api.TypeForwarders.Count > 0 && apiDllPath != null)
                     ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
 
-                var allTypeNames = api.Types.Select(t => FullName(t)).ToList();
+                var allTypeNames = api.Types.Select(t => t.FullName).ToList();
                 var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName);
 
                 if (lookupResult.Match != null)
                 {
-                    var apiType = api.Types.First(t => FullName(t) == lookupResult.Match);
+                    var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
 
                     // Check each member filter before producing output
                     if (options.MemberFilter?.Count > 0 && apiType.Members != null)
@@ -280,12 +279,9 @@ public class ApiCommand
         // Apply type filter
         if (!string.IsNullOrEmpty(options.TypeFilter))
         {
-            api.Types = api.Types.Where(t =>
-            {
-                var fullName = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
-                return TypeMatcher.MatchesGlob(fullName, options.TypeFilter) ||
-                       TypeMatcher.MatchesGlob(t.Name, options.TypeFilter);
-            }).ToList();
+            api.Types = api.Types
+                .Where(t => TypeMatcher.MatchesTypeFilter(t.FullName, options.TypeFilter))
+                .ToList();
             api.PublicTypeCount = api.Types.Count;
         }
 
@@ -602,8 +598,6 @@ public class ApiCommand
 
     private static ApiTypeView BuildApiTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        var fullName = string.IsNullOrEmpty(type.Namespace) ? type.Name : $"{type.Namespace}.{type.Name}";
-
         // Build title with package context
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
@@ -669,7 +663,7 @@ public class ApiCommand
 
         return new ApiTypeView
         {
-            Title = $"{fullName}{packageInfo}",
+            Title = $"{type.FullName}{packageInfo}",
             Description = description,
             Kind = type.Kind,
             Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
@@ -945,9 +939,6 @@ public class ApiCommand
         return index >= 0 ? index : MemberKinds.Length;
     }
 
-    private static string FullName(ApiType t) =>
-        string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
-
     // ===== Tree Output (--tree) =====
 
     private static void WriteTreeOutput(ApiType type, HashSet<string>? memberFilter)
@@ -1011,7 +1002,7 @@ public class ApiCommand
 
         return new TypeShapeView
         {
-            FullName = type.Namespace != null ? $"{type.Namespace}.{type.Name}" : type.Name,
+            FullName = type.FullName,
             Kind = type.Kind,
             Members = nodes
         };
