@@ -15,7 +15,6 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]
-[MarkoutContext(typeof(AuditSummary))]
 [MarkoutContext(typeof(RidPackageReference))]
 public partial class MarkoutContext : MarkoutSerializerContext
 {
