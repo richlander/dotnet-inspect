@@ -12,6 +12,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class PlatformCommand
 {
+    public const string Name = "platform";
     public static Task<int> ExecuteAsync(PlatformOptions options)
     {
         var context = new CommandContext(options.Verbose);

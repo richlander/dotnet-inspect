@@ -15,6 +15,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class FindCommand
 {
+    public const string Name = "find";
     public static async Task<int> ExecuteAsync(string patternInput, FindOptions options)
     {
         var context = new CommandContext(options.Verbose);

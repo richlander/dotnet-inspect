@@ -13,6 +13,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class DiffCommand
 {
+    public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);

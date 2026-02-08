@@ -7,6 +7,8 @@ namespace DotnetInspector;
 /// </summary>
 public static class VersionInfo
 {
+    public const string ToolName = "dotnet-inspect";
+
     private static string? _version;
 
     /// <summary>

@@ -13,6 +13,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class PackageCommand
 {
+    public const string Name = "package";
     public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options, string? explicitVersion = null)
     {
         // Handle --discover mode: list sections and exit early
