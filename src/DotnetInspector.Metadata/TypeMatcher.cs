@@ -100,6 +100,51 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Finds the closest matching type names from a set of candidates, ranked by similarity.
+    /// Compares using base names (without namespace or generic arity) for best results.
+    /// </summary>
+    /// <param name="candidates">Type names to search through</param>
+    /// <param name="target">The type name to match against</param>
+    /// <param name="minSimilarity">Minimum similarity score (0.0–1.0) to include in results</param>
+    /// <param name="maxResults">Maximum number of results to return</param>
+    public static IEnumerable<(string Name, double Similarity)> FindClosest(
+        IEnumerable<string> candidates,
+        string target,
+        double minSimilarity = 0.6,
+        int maxResults = 5)
+    {
+        if (string.IsNullOrEmpty(target))
+            yield break;
+
+        var targetBase = GetBaseName(GetSimpleName(Normalize(target)));
+
+        var scored = new List<(string Name, double Similarity)>();
+
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrEmpty(candidate))
+                continue;
+
+            // Exact match is handled by Matches — skip here
+            if (Matches(candidate, target))
+                continue;
+
+            var candidateBase = GetBaseName(GetSimpleName(Normalize(candidate)));
+            var similarity = StringDistance.Similarity(candidateBase, targetBase);
+
+            if (similarity >= minSimilarity)
+            {
+                scored.Add((candidate, similarity));
+            }
+        }
+
+        foreach (var result in scored.OrderByDescending(s => s.Similarity).Take(maxResults))
+        {
+            yield return result;
+        }
+    }
+
+    /// <summary>
     /// Gets the generic arity from a type name.
     /// "List`1" → 1, "Dictionary`2" → 2, "String" → 0
     /// </summary>

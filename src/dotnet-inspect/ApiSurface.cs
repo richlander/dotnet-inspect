@@ -137,20 +137,6 @@ public class ApiSurface
     [MarkoutIgnoreInTable]
     public List<MarkoutField> Summary => GetSummaryFields();
 
-    /// <summary>
-    /// Types section without Description column (default rendering).
-    /// </summary>
-    [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiTypeSummary.Description))]
-    [JsonIgnore]
-    public List<ApiTypeSummary>? TypeSummaries { get; set; }
-
-    /// <summary>
-    /// Types section with Description column (--docs rendering).
-    /// </summary>
-    [MarkoutSection(Name = "Types")]
-    [JsonIgnore]
-    public List<ApiTypeSummary>? TypeDocSummaries { get; set; }
-
     private List<MarkoutField> GetSummaryFields()
     {
         var fields = new List<MarkoutField>();
@@ -163,17 +149,6 @@ public class ApiSurface
             fields.Add(new("Repository", RepositoryUrl));
         return fields;
     }
-}
-
-/// <summary>
-/// Summary row for the types listing table in ApiSurface.
-/// </summary>
-public class ApiTypeSummary
-{
-    public string Type { get; set; } = "";
-    public string Kind { get; set; } = "";
-    public int Members { get; set; }
-    public string? Description { get; set; }
 }
 
 /// <summary>
@@ -194,9 +169,6 @@ public class ApiTypeView
     [MarkoutIgnore] public string? Assembly { get; set; }
     [MarkoutIgnore] public string? Package { get; set; }
     [MarkoutIgnore] public string? Version { get; set; }
-    [MarkoutIgnore] public string? Source { get; set; }
-    [MarkoutIgnore] public string? SourceResolution { get; set; }
-    [MarkoutIgnore] public string? PartialInfo { get; set; }
     [MarkoutIgnore] public string? SamplesInfo { get; set; }
 
     /// <summary>
@@ -205,6 +177,20 @@ public class ApiTypeView
     [JsonIgnore]
     [MarkoutIgnoreInTable]
     public List<MarkoutField> Identity => GetIdentityFields();
+
+    /// <summary>
+    /// Enum values without Description column (default).
+    /// </summary>
+    [MarkoutSection(Name = "Values", IgnoreProperty = nameof(EnumValueRow.Description))]
+    [JsonIgnore]
+    public List<EnumValueRow>? EnumValues { get; set; }
+
+    /// <summary>
+    /// Enum values with Description column (--docs).
+    /// </summary>
+    [MarkoutSection(Name = "Values")]
+    [JsonIgnore]
+    public List<EnumValueRow>? EnumValuesWithDocs { get; set; }
 
     private List<MarkoutField> GetIdentityFields()
     {
@@ -224,12 +210,6 @@ public class ApiTypeView
             fields.Add(new("Package", Package));
         if (!string.IsNullOrEmpty(Version))
             fields.Add(new("Version", Version));
-        if (!string.IsNullOrEmpty(Source))
-            fields.Add(new("Source", Source));
-        if (!string.IsNullOrEmpty(SourceResolution))
-            fields.Add(new("Source Resolution", SourceResolution));
-        if (!string.IsNullOrEmpty(PartialInfo))
-            fields.Add(new("Partial Type", PartialInfo));
         if (!string.IsNullOrEmpty(SamplesInfo))
             fields.Add(new("Samples", SamplesInfo));
         return fields;
@@ -373,6 +353,14 @@ public class ApiType
     // Documentation (populated with --docs)
     [MarkoutIgnore]
     public DocComment? Documentation { get; set; }
+}
+
+[MarkoutSerializable]
+public class EnumValueRow
+{
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
+    public string? Description { get; set; }
 }
 
 public class ApiMember

@@ -2740,5 +2740,22 @@ public record ApiOptions
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
     public bool FieldsOnly { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
+    public HashSet<string>? ExcludeSections { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
+
+    /// <summary>
+    /// Returns true if the named section should be rendered.
+    /// IncludeSections takes precedence: if set, only listed sections appear.
+    /// Otherwise ExcludeSections hides listed sections.
+    /// Matching is case-insensitive.
+    /// </summary>
+    public bool ShouldRenderSection(string name)
+    {
+        if (IncludeSections != null)
+            return IncludeSections.Contains(name, StringComparer.OrdinalIgnoreCase);
+        if (ExcludeSections != null)
+            return !ExcludeSections.Contains(name, StringComparer.OrdinalIgnoreCase);
+        return true;
+    }
 }

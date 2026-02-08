@@ -146,7 +146,7 @@ public static class ApiSurfaceExtractor
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.Public) == 0)
+                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
                     continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -194,12 +194,12 @@ public static class ApiSurfaceExtractor
                 if (!accessors.Getter.IsNil)
                 {
                     var getter = reader.GetMethodDefinition(accessors.Getter);
-                    isPublicProp = (getter.Attributes & MethodAttributes.Public) != 0;
+                    isPublicProp = (getter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
                 }
                 if (!isPublicProp && !accessors.Setter.IsNil)
                 {
                     var setter = reader.GetMethodDefinition(accessors.Setter);
-                    isPublicProp = (setter.Attributes & MethodAttributes.Public) != 0;
+                    isPublicProp = (setter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
                 }
 
                 if (!isPublicProp)
@@ -225,7 +225,7 @@ public static class ApiSurfaceExtractor
             foreach (var fieldHandle in typeDef.GetFields())
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
-                if ((field.Attributes & FieldAttributes.Public) == 0)
+                if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public)
                     continue;
 
                 string fieldName = reader.GetString(field.Name);
@@ -236,10 +236,19 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && AttributeReader.HasHiddenAttribute(reader, field.GetCustomAttributes()))
                     continue;
 
+                // Decode field type
+                string? fieldType = null;
+                if (!isEnum)
+                {
+                    var context = Metadata.GenericContext.ForType(reader, typeDef);
+                    fieldType = field.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
+                }
+
                 var member = new ApiMember
                 {
                     Name = fieldName,
                     Kind = "field",
+                    ReturnType = fieldType,
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0
                 };
 
@@ -281,7 +290,7 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var adder = reader.GetMethodDefinition(accessors.Adder);
-                if ((adder.Attributes & MethodAttributes.Public) == 0)
+                if ((adder.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete events unless --all
@@ -497,13 +506,13 @@ public static class ApiSurfaceExtractor
         if (!accessors.Getter.IsNil)
         {
             var getter = reader.GetMethodDefinition(accessors.Getter);
-            hasPublicGetter = (getter.Attributes & MethodAttributes.Public) != 0;
+            hasPublicGetter = (getter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
         }
 
         if (!accessors.Setter.IsNil)
         {
             var setter = reader.GetMethodDefinition(accessors.Setter);
-            hasPublicSetter = (setter.Attributes & MethodAttributes.Public) != 0;
+            hasPublicSetter = (setter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
             hasPrivateSetter = !hasPublicSetter;
         }
 

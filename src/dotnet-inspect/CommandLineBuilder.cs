@@ -77,7 +77,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(apiCommand);
 
         // API2 command (hybrid serializer + imperative rendering)
-        var api2Command = CreateApi2Command(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var api2Command = CreateApi2Command(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(api2Command);
 
         // Audit command (opinionated, always strict)
@@ -1302,6 +1302,8 @@ public static class CommandLineBuilder
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
         Option<int?> limitOption,
+        Option<string?> includeSectionsOption,
+        Option<string?> excludeSectionsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -1364,6 +1366,8 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(signaturesOnlyOption);
         apiCommand.Options.Add(unsafeOption);
         apiCommand.Options.Add(fieldsOnlyOption);
+        apiCommand.Options.Add(includeSectionsOption);
+        apiCommand.Options.Add(excludeSectionsOption);
         apiCommand.Options.Add(markoutOption);
         apiCommand.Options.Add(verboseOption);
         apiCommand.Options.Add(verbosityOption);
@@ -1411,6 +1415,8 @@ public static class CommandLineBuilder
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
                 FieldsOnly = parseResult.GetValue(fieldsOnlyOption),
+                IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
+                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)

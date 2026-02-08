@@ -275,50 +275,14 @@ public class Api2Command
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
 
-        // Populate the appropriate type summary property for the serializer
-        if (api.Types.Count > 0 && !options.FieldsOnly)
-        {
-            var summaries = api.Types.Select(t =>
-            {
-                var summary = new ApiTypeSummary
-                {
-                    Type = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}",
-                    Kind = t.Kind,
-                    Members = t.Members?.Count ?? 0
-                };
-                if (options.ShowDocs)
-                {
-                    var desc = t.Documentation?.Summary ?? "";
-                    desc = desc.Replace("\n", " ").Replace("\r", "");
-                    if (desc.Length > 80)
-                        desc = desc[..77] + "...";
-                    summary.Description = desc;
-                }
-                return summary;
-            }).ToList();
-
-            if (options.ShowDocs)
-                api.TypeDocSummaries = summaries;
-            else
-                api.TypeSummaries = summaries;
-        }
-
-        // Determine which sections to exclude from the serializer
-        var excludeSections = new HashSet<string>();
-        if (options.FieldsOnly)
-            excludeSections.Add("Types");
-
-        // Serializer handles: title + summary fields + types table
-        var markoutContext = new MarkoutContext(new MarkoutWriterOptions
-        {
-            ExcludeSections = excludeSections.Count > 0 ? excludeSections : null
-        });
+        // Serializer handles: title + summary fields only (types rendered imperatively per-kind)
+        var markoutContext = new MarkoutContext();
         var output = markoutContext.Serialize(api);
 
         if (options.FieldsOnly)
             return output.TrimEnd();
 
-        // Imperative additions for cases the serializer doesn't cover
+        // Imperative rendering
         var writer = new MarkoutWriter();
 
         if (totalCount == 0)
@@ -346,13 +310,111 @@ public class Api2Command
                 writer.WriteParagraph("*This is a type-forwarding assembly. Types shown are resolved from target assemblies.*");
             }
 
+            // Per-kind type sections (verbosity-independent)
+            RenderTypesPerKind(writer, api.Types, options);
+
             if (truncatedCount.HasValue)
             {
                 writer.WriteParagraph($"*... and {truncatedCount.Value} more types*");
             }
         }
 
+        // Source section (--docs/--samples): simple Resolution + URL from first type
+        if ((options.ShowDocs || options.ShowSamples) && options.ShouldRenderSection("Source"))
+            RenderAssemblySourceInfo(writer, api, options);
+
         return JoinSerializerAndImperative(output, writer);
+    }
+
+    private static string PluralizeTypeKind(string kind) => kind switch
+    {
+        "class" => "Classes",
+        "struct" => "Structs",
+        "interface" => "Interfaces",
+        "enum" => "Enums",
+        "delegate" => "Delegates",
+        _ => char.ToUpper(kind[0]) + kind[1..] + "s"
+    };
+
+    /// <summary>
+    /// Converts CLR backtick generic names to C#-style: "Dictionary`2" → "Dictionary&lt;TKey, TValue&gt;".
+    /// Falls back to placeholder letters if TypeParameters is not populated.
+    /// </summary>
+    private static string FormatGenericTypeName(string name, List<TypeParameter>? typeParameters)
+    {
+        int backtickIndex = name.IndexOf('`');
+        if (backtickIndex < 0)
+            return name;
+
+        var baseName = name[..backtickIndex];
+        if (typeParameters is { Count: > 0 })
+            return $"{baseName}<{string.Join(", ", typeParameters.Select(tp => tp.Name))}>";
+
+        // Fallback: use arity to generate T, T1, T2, ...
+        if (int.TryParse(name[(backtickIndex + 1)..], out int arity) && arity > 0)
+        {
+            var names = arity == 1 ? "T" : string.Join(", ", Enumerable.Range(1, arity).Select(i => $"T{i}"));
+            return $"{baseName}<{names}>";
+        }
+
+        return name;
+    }
+
+    private static int GetTypeKindSortOrder(string kind) => kind switch
+    {
+        "class" => 0,
+        "struct" => 1,
+        "interface" => 2,
+        "enum" => 3,
+        "delegate" => 4,
+        _ => 5
+    };
+
+    /// <summary>
+    /// Renders per-kind type sections. Verbosity does not affect the types view;
+    /// the only variation is whether --docs adds a Description column.
+    /// </summary>
+    private static void RenderTypesPerKind(MarkoutWriter writer, List<ApiType> types, ApiOptions options)
+    {
+        bool showDocs = options.ShowDocs;
+
+        var byKind = types
+            .GroupBy(t => t.Kind)
+            .OrderBy(g => GetTypeKindSortOrder(g.Key))
+            .ToList();
+
+        foreach (var group in byKind)
+        {
+            var sectionName = PluralizeTypeKind(group.Key);
+            if (!options.ShouldRenderSection(sectionName))
+                continue;
+
+            writer.WriteHeading(2, sectionName);
+
+            var headers = showDocs
+                ? new[] { "Type", "Members", "Description" }
+                : new[] { "Type", "Members" };
+
+            var rows = group.Select(t =>
+            {
+                var displayName = FormatGenericTypeName(t.Name, t.TypeParameters);
+                var fullName = string.IsNullOrEmpty(t.Namespace) ? displayName : $"{t.Namespace}.{displayName}";
+                var members = (t.Members?.Count ?? 0).ToString();
+
+                if (showDocs)
+                {
+                    var desc = t.Documentation?.Summary ?? "";
+                    desc = desc.Replace("\n", " ").Replace("\r", "");
+                    if (desc.Length > 80)
+                        desc = desc[..77] + "...";
+                    return new[] { fullName, members, desc };
+                }
+
+                return new[] { fullName, members };
+            });
+
+            writer.WriteTable(headers, rows);
+        }
     }
 
     // ===== Single Type Rendering =====
@@ -363,7 +425,7 @@ public class Api2Command
         if (options.MemberFilter?.Count > 0 && type.Members != null)
         {
             var matchingMembers = type.Members
-                .Where(m => options.MemberFilter.Contains(m.Name))
+                .Where(m => MatchesMemberFilter(m.Name, options.MemberFilter))
                 .ToList();
 
             if (matchingMembers.Count == 0)
@@ -388,7 +450,7 @@ public class Api2Command
         var members = type.Members;
 
         if (options.MemberFilter?.Count > 0 && members != null)
-            members = members.Where(m => options.MemberFilter.Contains(m.Name)).ToList();
+            members = members.Where(m => MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
 
         if (options.UnsafeOnly && members != null)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -432,7 +494,11 @@ public class Api2Command
         // Build the view model
         var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, options);
 
-        // Serialize title + description + identity fields
+        // Populate enum values declaratively for Normal+ non-fields-only enums
+        if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal && !options.FieldsOnly)
+            PopulateEnumValues(view, type, options);
+
+        // Serialize title + description + identity fields + enum values
         var markoutContext = new MarkoutContext();
         var output = markoutContext.Serialize(view);
 
@@ -440,26 +506,46 @@ public class Api2Command
         if (options.FieldsOnly)
             return output.TrimEnd();
 
-        // Imperative rendering for the rest
+        // Imperative rendering for everything after serialized output
         var writer = new MarkoutWriter();
+        int truncatedCount = 0;
+        string truncatedNoun = "";
 
-        // Type parameters table: only at Normal+
-        if (options.Verbosity >= Verbosity.Normal && type.TypeParameters is { Count: > 0 })
+        if (view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            RenderTypeParametersTable(writer, type.TypeParameters);
+            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal &&
+                type.Members?.Any(m => m.Kind == "constructor") == true)
+            {
+                // --ctor emphasis mode
+                var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+                var members = grouped
+                    .SelectMany(g => g.Value)
+                    .Where(m => m.Kind == "constructor")
+                    .ToList();
+                RenderConstructorEmphasis(writer, type, members);
+            }
+            else
+            {
+                // Per-kind member sections (all verbosity levels)
+                (truncatedCount, truncatedNoun) = RenderMembersPerKind(writer, type, options);
+            }
         }
 
-        // Hierarchy table: only at Detailed (or explicit --hierarchy)
-        if (options.Verbosity >= Verbosity.Detailed || options.ShowHierarchy)
-        {
+        // Type parameters table (Normal+)
+        if (options.Verbosity >= Verbosity.Normal && options.ShouldRenderSection("Type Parameters"))
+            RenderTypeParametersTable(writer, type);
+
+        // Type hierarchy table (Detailed or --hierarchy)
+        if ((options.Verbosity >= Verbosity.Detailed || options.ShowHierarchy) && options.ShouldRenderSection("Hierarchy"))
             RenderTypeHierarchy(writer, type);
-        }
 
-        // Members: only at Minimal+
-        if (options.Verbosity >= Verbosity.Minimal)
-        {
-            RenderMembers(writer, type, options);
-        }
+        // Source info section (--docs/--samples)
+        if ((options.ShowDocs || options.ShowSamples) && options.ShouldRenderSection("Source"))
+            RenderSourceInfo(writer, type, options);
+
+        // Truncation message
+        if (truncatedCount > 0)
+            writer.WriteParagraph($"*... and {truncatedCount} more {truncatedNoun}*");
 
         return JoinSerializerAndImperative(output, writer);
     }
@@ -503,22 +589,12 @@ public class Api2Command
         if (options.ShowInterfaces && type.Interfaces is { Count: > 0 })
             implements = string.Join(", ", type.Interfaces);
 
-        // Source URL
-        string? source = null;
-        if (type.GitHubBrowseUrl != null)
-            source = options.BrowsableUrls ? ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl;
-
         // Description (from docs)
         string? description = null;
         if (options.ShowDocs && type.Documentation?.Summary != null)
             description = type.Documentation.Summary;
 
-        // Partial type info
-        string? partialInfo = null;
-        if (type.IsPartialType && type.AdditionalSourceFiles != null)
-            partialInfo = $"{type.AdditionalSourceFiles.Count + 1} source files";
-
-        // Samples info
+        // Samples info (only with --docs/--samples)
         string? samplesInfo = null;
         if ((options.ShowDocs || options.ShowSamples) && type.Documentation?.Samples?.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
@@ -535,145 +611,432 @@ public class Api2Command
             Assembly = foundIn,
             Package = packageName,
             Version = packageVersion,
-            Source = source,
-            SourceResolution = type.SourceResolution,
-            PartialInfo = partialInfo,
             SamplesInfo = samplesInfo
         };
     }
 
     // ===== Member Rendering =====
 
-    private static void RenderMembers(MarkoutWriter writer, ApiType type, ApiOptions options)
+    /// <summary>
+    /// Populates enum value rows on the view model for declarative serialization.
+    /// </summary>
+    private static void PopulateEnumValues(ApiTypeView view, ApiType type, ApiOptions options)
+    {
+        var enumMembers = (type.Members ?? [])
+            .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
+            .OrderBy(m => m.EnumValue)
+            .ToList();
+
+        if (enumMembers.Count == 0)
+            return;
+
+        if (options.Limit.HasValue && options.Limit.Value < enumMembers.Count)
+            enumMembers = enumMembers.Take(options.Limit.Value).ToList();
+
+        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation?.Summary != null);
+
+        var rows = enumMembers.Select(m => new EnumValueRow
+        {
+            Name = m.Name,
+            Value = m.EnumValue.ToString()!,
+            Description = hasAnyDocs ? (m.Documentation?.Summary ?? "") : null
+        }).ToList();
+
+        if (hasAnyDocs)
+            view.EnumValuesWithDocs = rows;
+        else
+            view.EnumValues = rows;
+    }
+
+    /// <summary>
+    /// Writes per-kind member section tables. Returns (truncated, noun) for truncation message.
+    /// </summary>
+    private static (int truncated, string noun) RenderMembersPerKind(
+        MarkoutWriter writer, ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-        if (grouped.Count == 0) return;
+        if (grouped.Count == 0) return (0, "");
 
-        if (options.Verbosity == Verbosity.Minimal)
-        {
-            RenderMembersMinimal(writer, type, grouped, options);
-        }
-        else
-        {
-            RenderMembersNormalOrDetailed(writer, type, grouped, options);
-        }
-    }
-
-    private static void RenderMembersMinimal(MarkoutWriter writer, ApiType type, Dictionary<string, List<ApiMember>> grouped, ApiOptions options)
-    {
-        // When using member filter with --docs, show detailed output with docs
-        if (options.MemberFilter?.Count > 0 && options.ShowDocs)
-        {
-            foreach (var (kind, members) in grouped)
-            {
-                foreach (var member in members.OrderBy(m => m.Signature ?? m.Name))
-                {
-                    writer.WriteListItem($"`{member.Signature ?? member.Name}`");
-
-                    if (member.Documentation?.Summary != null)
-                    {
-                        writer.WriteParagraph($"  > {member.Documentation.Summary}");
-                    }
-                }
-            }
-            return;
-        }
-
-        foreach (var (kind, members) in grouped)
-        {
-            var byName = members.GroupBy(m => m.Name).OrderBy(g => g.Key).ToList();
-
-            if (kind == "method" || kind == "constructor")
-            {
-                writer.WriteParagraph($"**{PluralizeKind(kind)}:**");
-                foreach (var nameGroup in byName)
-                {
-                    var overloads = nameGroup.ToList();
-                    if (overloads.Count > 1)
-                    {
-                        var paramHints = overloads
-                            .Select(m => ExtractFirstParamType(m.Signature))
-                            .Where(p => !string.IsNullOrEmpty(p))
-                            .Distinct()
-                            .Take(4)
-                            .ToList();
-
-                        var hintText = paramHints.Count > 0 ? $" ({string.Join(", ", paramHints)}, ...)" : "";
-                        writer.WriteListItem($"**{nameGroup.Key}**: {overloads.Count} overloads{hintText}");
-                    }
-                    else
-                    {
-                        writer.WriteListItem($"**{nameGroup.Key}**");
-                    }
-                }
-            }
-            else
-            {
-                var names = byName.Select(g => g.Key);
-                writer.WriteField(PluralizeKind(kind), string.Join(", ", names));
-            }
-        }
-    }
-
-    private static void RenderMembersNormalOrDetailed(MarkoutWriter writer, ApiType type, Dictionary<string, List<ApiMember>> grouped, ApiOptions options)
-    {
-        // Flatten for table display
-        var members = grouped
+        // Flatten sorted for --limit application
+        var allMembers = grouped
             .SelectMany(g => g.Value)
             .OrderBy(m => GetMemberSortOrder(m.Kind))
             .ThenBy(m => m.Name)
             .ToList();
 
-        // Use enhanced constructor output when --ctor is specified
-        if (options.CtorOnly && members.Any(m => m.Kind == "constructor"))
+        int truncated = 0;
+        if (options.Limit.HasValue && options.Limit.Value < allMembers.Count)
         {
-            RenderConstructorEmphasis(writer, type, members.Where(m => m.Kind == "constructor").ToList());
-            return;
+            truncated = allMembers.Count - options.Limit.Value;
+            allMembers = allMembers.Take(options.Limit.Value).ToList();
         }
 
-        // Use specialized enum output for enum types
-        if (type.Kind == "enum")
+        // Re-group after truncation
+        var kindGroups = allMembers
+            .GroupBy(m => m.Kind)
+            .OrderBy(g => GetMemberSortOrder(g.Key))
+            .ToList();
+
+        bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation?.Summary != null);
+
+        foreach (var group in kindGroups)
         {
-            RenderEnumValues(writer, members, options);
-            return;
+            var kind = group.Key;
+            var sectionName = PluralizeKind(kind);
+            if (!options.ShouldRenderSection(sectionName))
+                continue;
+
+            var members = group.ToList();
+
+            writer.WriteHeading(2, sectionName);
+
+            if (options.Verbosity == Verbosity.Quiet)
+                RenderQuietKindTable(writer, kind, members, hasDocs);
+            else
+                RenderPerMemberKindTable(writer, kind, members, options, hasDocs);
         }
 
-        bool hasAnyDocs = options.ShowDocs && members.Any(m => m.Documentation?.Summary != null);
+        return (truncated, "members");
+    }
 
-        writer.WriteHeading(2, "Members");
+    /// <summary>
+    /// Quiet: group by unique name within each kind, kind-specific columns.
+    /// </summary>
+    private static void RenderQuietKindTable(MarkoutWriter writer, string kind, List<ApiMember> members, bool showDocs)
+    {
+        var byName = members.GroupBy(m => m.Name).OrderBy(g => g.Key).ToList();
+        bool hasOverloads = byName.Any(g => g.Count() > 1);
 
-        var totalCount = members.Count;
-        var displayMembers = options.Limit.HasValue && options.Limit.Value < totalCount
-            ? members.Take(options.Limit.Value).ToList()
-            : members;
-
-        if (hasAnyDocs)
+        switch (kind)
         {
-            var headers = new[] { "Member", "Kind", "Signature", "Description" };
-            var rows = displayMembers.Select(member =>
+            case "constructor":
+            case "method":
             {
-                string sig = member.Signature ?? member.ReturnType ?? "";
-                string desc = member.Documentation?.Summary ?? "";
-                return new[] { member.Name, member.Kind, $"`{sig}`", desc };
-            });
-            writer.WriteTable(headers, rows);
-        }
-        else
-        {
-            var headers = new[] { "Member", "Kind", "Signature" };
-            var rows = displayMembers.Select(member =>
+                var headers = new List<string> { "Name" };
+                if (kind == "method") headers.Add("Return Type");
+                if (hasOverloads) headers.Add("Overloads");
+                if (showDocs) headers.Add("Description");
+
+                var rows = byName.Select(g =>
+                {
+                    var row = new List<string> { g.Key };
+                    if (kind == "method")
+                        row.Add(ExtractReturnType(g.First().Signature));
+                    if (hasOverloads)
+                        row.Add(g.Count().ToString());
+                    if (showDocs)
+                        row.Add(FirstDocSummary(g));
+                    return row.ToArray();
+                });
+                writer.WriteTable(headers.ToArray(), rows);
+                break;
+            }
+            case "property":
             {
-                string sig = member.Signature ?? member.ReturnType ?? "";
-                return new[] { member.Name, member.Kind, $"`{sig}`" };
+                var headers = new List<string> { "Name", "Return Type", "Accessors" };
+                if (showDocs) headers.Add("Description");
+                var rows = byName.Select(g =>
+                {
+                    var m = g.First();
+                    var row = new List<string>
+                    {
+                        g.Key,
+                        ExtractReturnType(m.Signature),
+                        ExtractAccessors(m.Signature)
+                    };
+                    if (showDocs) row.Add(FirstDocSummary(g));
+                    return row.ToArray();
+                });
+                writer.WriteTable(headers.ToArray(), rows);
+                break;
+            }
+            case "event":
+            {
+                var headers = new List<string> { "Name", "Type" };
+                if (showDocs) headers.Add("Description");
+                var rows = byName.Select(g =>
+                {
+                    var m = g.First();
+                    var row = new List<string> { g.Key, m.ReturnType ?? m.Signature ?? "" };
+                    if (showDocs) row.Add(FirstDocSummary(g));
+                    return row.ToArray();
+                });
+                writer.WriteTable(headers.ToArray(), rows);
+                break;
+            }
+            case "field":
+            default:
+            {
+                var headers = new List<string> { "Name", "Return Type" };
+                if (showDocs) headers.Add("Description");
+                var rows = byName.Select(g =>
+                {
+                    var m = g.First();
+                    var row = new List<string> { g.Key, m.ReturnType ?? "" };
+                    if (showDocs) row.Add(FirstDocSummary(g));
+                    return row.ToArray();
+                });
+                writer.WriteTable(headers.ToArray(), rows);
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Minimal/Normal/Detailed: one row per member with Name | Signature columns.
+    /// Minimal uses abbreviated signatures; Normal/Detailed use full signatures.
+    /// </summary>
+    private static void RenderPerMemberKindTable(MarkoutWriter writer, string kind, List<ApiMember> members, ApiOptions options, bool showDocs)
+    {
+        var headers = showDocs
+            ? new[] { "Name", "Signature", "Description" }
+            : new[] { "Name", "Signature" };
+
+        var rows = members
+            .OrderBy(m => m.Name)
+            .ThenBy(m => m.Signature)
+            .Select(m =>
+            {
+                var sig = m.Signature ?? m.ReturnType ?? "";
+                if (options.Verbosity == Verbosity.Minimal)
+                    sig = AbbreviateSignature(sig);
+                return showDocs
+                    ? new[] { m.Name, $"`{sig}`", m.Documentation?.Summary ?? "" }
+                    : new[] { m.Name, $"`{sig}`" };
             });
-            writer.WriteTable(headers, rows);
+
+        writer.WriteTable(headers, rows);
+    }
+
+    /// <summary>
+    /// Renders a type parameters table (Normal+ verbosity).
+    /// </summary>
+    private static void RenderTypeParametersTable(MarkoutWriter writer, ApiType type)
+    {
+        if (type.TypeParameters is not { Count: > 0 })
+            return;
+
+        writer.WriteHeading(2, "Type Parameters");
+        writer.WriteTable(
+            new[] { "Parameter", "Constraints" },
+            type.TypeParameters.Select(tp => new[] { tp.DisplayName, tp.ConstraintsSummary ?? "" }));
+    }
+
+    /// <summary>
+    /// Renders type hierarchy table (Detailed or --hierarchy).
+    /// </summary>
+    private static void RenderTypeHierarchy(MarkoutWriter writer, ApiType type)
+    {
+        var hasBase = !string.IsNullOrEmpty(type.BaseType) &&
+                      type.BaseType != "System.Object" &&
+                      type.BaseType != "System.ValueType" &&
+                      type.BaseType != "System.Enum";
+        var hasInterfaces = type.Interfaces is { Count: > 0 };
+        var hasDerived = type.DerivedTypes is { Count: > 0 };
+
+        if (!hasBase && !hasInterfaces && !hasDerived)
+            return;
+
+        var rows = new List<string[]>();
+        if (hasBase)
+            rows.Add(new[] { "Base", type.BaseType! });
+        if (hasInterfaces)
+            foreach (var iface in type.Interfaces!)
+                rows.Add(new[] { "Implements", iface });
+        if (hasDerived)
+            foreach (var derived in type.DerivedTypes!)
+                rows.Add(new[] { "Derived", derived });
+
+        writer.WriteHeading(2, "Type Hierarchy");
+        writer.WriteTable(new[] { "Relationship", "Type" }, rows);
+    }
+
+    /// <summary>
+    /// Renders source information as a separate section (--docs/--samples).
+    /// </summary>
+    private static void RenderSourceInfo(MarkoutWriter writer, ApiType type, ApiOptions options)
+    {
+        var resolution = type.SourceResolution;
+        string? primaryUrl = type.GitHubBrowseUrl != null
+            ? (options.BrowsableUrls ? ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl)
+            : null;
+
+        if (resolution == null && primaryUrl == null)
+            return;
+
+        bool isPartial = type.IsPartialType;
+        int fileCount = 1 + (type.AdditionalSourceFiles?.Count ?? 0);
+
+        var rows = new List<string[]>();
+        if (!string.IsNullOrEmpty(resolution))
+            rows.Add(new[] { "Resolution", resolution });
+        rows.Add(new[] { "Partial Type", isPartial ? "true" : "false" });
+        rows.Add(new[] { "Files", fileCount.ToString() });
+
+        // Primary source file
+        if (!string.IsNullOrEmpty(primaryUrl))
+        {
+            var fileName = Path.GetFileName(type.SourceFilePath) ?? Path.GetFileName(primaryUrl);
+            rows.Add(new[] { fileName, primaryUrl });
         }
 
-        if (options.Limit.HasValue && options.Limit.Value < totalCount)
+        // Additional source files for partial types
+        if (type.AdditionalSourceFiles != null)
         {
-            var remaining = totalCount - options.Limit.Value;
-            writer.WriteParagraph($"*... and {remaining} more members*");
+            foreach (var file in type.AdditionalSourceFiles)
+            {
+                var url = file.GitHubBrowseUrl != null
+                    ? (options.BrowsableUrls ? ConvertRawToBlobUrl(file.GitHubBrowseUrl) : file.GitHubBrowseUrl)
+                    : file.SourceUrl ?? "";
+                var fileName = Path.GetFileName(file.FilePath) ?? Path.GetFileName(url);
+                rows.Add(new[] { fileName, url });
+            }
         }
+
+        writer.WriteHeading(2, "Source");
+        writer.WriteTable(new[] { "Property", "Value" }, rows);
+    }
+
+    /// <summary>
+    /// Renders a simple Source section for the full-assembly view (Resolution + URL).
+    /// </summary>
+    private static void RenderAssemblySourceInfo(MarkoutWriter writer, ApiSurface api, ApiOptions options)
+    {
+        var resolution = api.Types.FirstOrDefault(t => t.SourceResolution != null)?.SourceResolution;
+        if (resolution == null && string.IsNullOrEmpty(api.RepositoryUrl))
+            return;
+
+        var rows = new List<string[]>();
+        if (!string.IsNullOrEmpty(resolution))
+            rows.Add(new[] { "Resolution", resolution });
+        if (!string.IsNullOrEmpty(api.RepositoryUrl))
+            rows.Add(new[] { "Repository", api.RepositoryUrl });
+
+        writer.WriteHeading(2, "Source");
+        writer.WriteTable(new[] { "Property", "Value" }, rows);
+    }
+
+    /// <summary>
+    /// Extracts return type from signature: "int Compare(string strA)" → "int".
+    /// For properties: "char Chars { get; }" → "char".
+    /// </summary>
+    private static string ExtractReturnType(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return "";
+
+        // Find first space that's not inside generics
+        int depth = 0;
+        for (int i = 0; i < signature.Length; i++)
+        {
+            char c = signature[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ' ' && depth == 0)
+                return signature[..i];
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Strips parameter names from signature: "int Compare(string strA, int idx)" → "int Compare(string, int)".
+    /// Properties/fields/events pass through unchanged.
+    /// </summary>
+    private static string AbbreviateSignature(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return "";
+
+        int parenStart = signature.IndexOf('(');
+        if (parenStart < 0)
+            return signature;
+
+        int parenEnd = signature.LastIndexOf(')');
+        if (parenEnd < 0)
+            return signature;
+
+        string prefix = signature[..(parenStart + 1)];
+        string suffix = signature[parenEnd..];
+
+        string paramSection = signature[(parenStart + 1)..parenEnd].Trim();
+        if (string.IsNullOrEmpty(paramSection))
+            return signature;
+
+        // Split parameters respecting generic depth
+        var paramTypes = new List<string>();
+        int depth = 0;
+        int lastSplit = 0;
+        for (int i = 0; i < paramSection.Length; i++)
+        {
+            char c = paramSection[i];
+            if (c == '<' || c == '(') depth++;
+            else if (c == '>' || c == ')') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
+                lastSplit = i + 1;
+            }
+        }
+        paramTypes.Add(ExtractParamType(paramSection[lastSplit..].Trim()));
+
+        return prefix + string.Join(", ", paramTypes) + suffix;
+    }
+
+    /// <summary>
+    /// Extracts just the type portion from "type name" or "type name = default".
+    /// Handles keywords like "out", "ref", "in", "params" before the type.
+    /// </summary>
+    private static string ExtractParamType(string param)
+    {
+        // Remove default value
+        int eqIndex = param.IndexOf('=');
+        if (eqIndex >= 0)
+            param = param[..eqIndex].Trim();
+
+        // The type is everything except the last word (the parameter name).
+        // But we need to handle generic types with spaces inside <>.
+        // Find the last space that's not inside generics.
+        int depth = 0;
+        int lastSpace = -1;
+        for (int i = 0; i < param.Length; i++)
+        {
+            char c = param[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ' ' && depth == 0)
+                lastSpace = i;
+        }
+
+        if (lastSpace > 0)
+            return param[..lastSpace];
+
+        return param;
+    }
+
+    /// <summary>
+    /// Extracts public accessor names from a property signature.
+    /// "char Chars { get; private set; }" → "get" (private accessors filtered out).
+    /// "TValue Item { get; set; }" → "get, set".
+    /// </summary>
+    private static string ExtractAccessors(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return "";
+
+        int braceStart = signature.IndexOf('{');
+        int braceEnd = signature.LastIndexOf('}');
+        if (braceStart < 0 || braceEnd <= braceStart)
+            return "";
+
+        var accessorBlock = signature[(braceStart + 1)..braceEnd].Trim();
+        var accessors = accessorBlock.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(a => !a.StartsWith("private", StringComparison.Ordinal) &&
+                        !a.StartsWith("protected", StringComparison.Ordinal) &&
+                        !a.StartsWith("internal", StringComparison.Ordinal))
+            .ToList();
+
+        return string.Join(", ", accessors);
     }
 
     // ===== Signatures-Only Mode =====
@@ -687,7 +1050,7 @@ public class Api2Command
             .ToList() ?? [];
 
         if (options.MemberFilter?.Count > 0)
-            members = members.Where(m => options.MemberFilter.Contains(m.Name)).ToList();
+            members = members.Where(m => MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
 
         if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -720,92 +1083,6 @@ public class Api2Command
     }
 
     // ===== Rendering Helpers =====
-
-    private static void RenderTypeParametersTable(MarkoutWriter writer, List<TypeParameter> typeParameters)
-    {
-        writer.WriteHeading(2, "Type Parameters");
-
-        var headers = new[] { "Parameter", "Constraints" };
-        var rows = typeParameters.Select(param => new[] { param.DisplayName, param.ConstraintsSummary ?? "" });
-        writer.WriteTable(headers, rows);
-    }
-
-    private static void RenderTypeHierarchy(MarkoutWriter writer, ApiType type)
-    {
-        var hasBase = !string.IsNullOrEmpty(type.BaseType) &&
-                      type.BaseType != "System.Object" &&
-                      type.BaseType != "System.ValueType" &&
-                      type.BaseType != "System.Enum";
-        var hasInterfaces = type.Interfaces is { Count: > 0 };
-        var hasDerived = type.DerivedTypes is { Count: > 0 };
-
-        if (!hasBase && !hasInterfaces && !hasDerived)
-            return;
-
-        writer.WriteHeading(2, "Type Hierarchy");
-
-        var rows = new List<string[]>();
-
-        if (hasBase)
-            rows.Add(new[] { "Base", type.BaseType! });
-
-        if (hasInterfaces)
-        {
-            foreach (var iface in type.Interfaces!)
-                rows.Add(new[] { "Implements", iface });
-        }
-
-        if (hasDerived)
-        {
-            foreach (var derived in type.DerivedTypes!)
-                rows.Add(new[] { "Derived", derived });
-        }
-
-        writer.WriteTable(new[] { "Relationship", "Type" }, rows);
-    }
-
-    private static void RenderEnumValues(MarkoutWriter writer, List<ApiMember> members, ApiOptions options)
-    {
-        var enumMembers = members
-            .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
-            .OrderBy(m => m.EnumValue)
-            .ToList();
-
-        if (enumMembers.Count == 0)
-            return;
-
-        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation?.Summary != null);
-
-        var totalCount = enumMembers.Count;
-        var displayMembers = options.Limit.HasValue && options.Limit.Value < totalCount
-            ? enumMembers.Take(options.Limit.Value).ToList()
-            : enumMembers;
-
-        writer.WriteHeading(2, "Values");
-
-        if (hasAnyDocs)
-        {
-            var headers = new[] { "Name", "Value", "Description" };
-            var rows = displayMembers.Select(member =>
-            {
-                string desc = member.Documentation?.Summary ?? "";
-                return new[] { member.Name, member.EnumValue.ToString()!, desc };
-            });
-            writer.WriteTable(headers, rows);
-        }
-        else
-        {
-            var headers = new[] { "Name", "Value" };
-            var rows = displayMembers.Select(member => new[] { member.Name, member.EnumValue.ToString()! });
-            writer.WriteTable(headers, rows);
-        }
-
-        if (options.Limit.HasValue && options.Limit.Value < totalCount)
-        {
-            var remaining = totalCount - options.Limit.Value;
-            writer.WriteParagraph($"*... and {remaining} more values*");
-        }
-    }
 
     private static void RenderConstructorEmphasis(MarkoutWriter writer, ApiType type, List<ApiMember> constructors)
     {
@@ -845,7 +1122,7 @@ public class Api2Command
             .ToList() ?? [];
 
         if (memberFilter?.Count > 0)
-            members = members.Where(m => memberFilter.Contains(m.Name)).ToList();
+            members = members.Where(m => MatchesMemberFilter(m.Name, memberFilter)).ToList();
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -855,6 +1132,30 @@ public class Api2Command
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToDictionary(g => g.Key, g => g.ToList());
     }
+
+    private static bool MatchesMemberFilter(string name, HashSet<string> filter)
+    {
+        foreach (var pattern in filter)
+        {
+            if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                if (MatchesGlobPattern(name, pattern))
+                    return true;
+            }
+            else
+            {
+                if (filter.Contains(name))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the doc summary from the first member in the group that has one.
+    /// </summary>
+    private static string FirstDocSummary(IGrouping<string, ApiMember> group) =>
+        group.Select(m => m.Documentation?.Summary).FirstOrDefault(s => s != null) ?? "";
 
     private static string PluralizeKind(string kind) => kind switch
     {

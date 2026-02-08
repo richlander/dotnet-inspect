@@ -107,6 +107,10 @@ Note: The dotnet CLI uses minimal as the default verbosity level, not normal. Th
 
 The H1, description, and fields are always present regardless of verbosity.
 
+### Verbosity-independent views
+
+Some views use the same layout at all verbosity levels because differentiation would not be meaningful. The **types listing** (full-assembly view) is verbosity-independent: it always shows per-kind sections (`## Classes`, `## Structs`, etc.) with `Type | Members` columns. The only variation is `--docs` adding a Description column. Verbosity differentiation is reserved for the **member view** (per-type), where quiet groups by name, minimal abbreviates signatures, and normal/detailed show full signatures.
+
 ## Table Formatting
 
 Tables use pipe-delimited markdown:

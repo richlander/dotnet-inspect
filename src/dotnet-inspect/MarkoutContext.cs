@@ -9,7 +9,7 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ApiType))]
 [MarkoutContext(typeof(ApiMember))]
 [MarkoutContext(typeof(ApiTypeView))]
-[MarkoutContext(typeof(ApiTypeSummary))]
+[MarkoutContext(typeof(EnumValueRow))]
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]

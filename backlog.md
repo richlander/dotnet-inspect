@@ -4,6 +4,22 @@ Ideas for improving dotnet-inspect for LLM-driven C# development.
 
 > **Note:** Completed features are removed from this backlog. See git history for implemented items.
 
+## SourceLink Command
+
+A top-level `sourcelink` command for inspecting SourceLink metadata across packages and assemblies:
+
+```bash
+dotnet-inspect sourcelink --package System.Text.Json           # table of all types with source URLs
+dotnet-inspect sourcelink --package System.Text.Json JsonSerializer  # source URL for a specific type
+dotnet-inspect sourcelink --assembly ./bin/MyLib.dll           # local assembly
+```
+
+Default output: a table with Type, Source URL, and Resolution (SourceLink/Inferred/XmlDoc) columns for all public types. When a type name is given, output the full source URL for that type (useful for fetching source).
+
+This replaces the current behaviour where Source, Source Resolution, and Partial Type fields appear in the default `api`/`api2` view. Those fields now only appear with `--docs`. A dedicated command surfaces this information more intentionally and avoids the network cost of SourceLink resolution in the default API view.
+
+Could also integrate with the audit command to show SourceLink coverage as part of provenance checks.
+
 ## Audit Command
 
 A dedicated `audit` subcommand for streamlined package provenance checks:
