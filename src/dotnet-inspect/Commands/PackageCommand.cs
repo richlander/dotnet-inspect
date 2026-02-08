@@ -296,10 +296,6 @@ public class PackageCommand
 
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)
     {
-        // Assembly audits are no longer part of package inspection
-        result.AssemblyAudits = null;
-        result.AuditSummary = null;
-
         // If deps is not requested, clear runtime dependencies
         if (!options.IncludeDeps)
         {

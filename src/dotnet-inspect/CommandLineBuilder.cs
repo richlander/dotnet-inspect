@@ -1,7 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Help;
 using DotnetInspector.Commands;
-using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -18,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "audit", "api", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -76,10 +75,6 @@ public static class CommandLineBuilder
         // API command
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
-
-        // Audit command (opinionated, always strict)
-        var auditCommand = CreateAuditCommand(jsonOption, verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
-        rootCommand.Subcommands.Add(auditCommand);
 
         // Assembly command
         var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -634,16 +629,6 @@ public static class CommandLineBuilder
         {
             Description = "Full provenance verification (parallel HTTP HEAD on all source files)"
         };
-        // Deprecated flags
-        var auditOption = new Option<bool>("--audit")
-        {
-            Description = "[Deprecated: use --sourcelink-audit] Full provenance verification"
-        };
-        var sourcelinkOption = new Option<bool>("--sourcelink")
-        {
-            Description = "[Deprecated: use --symbols] Show SourceLink presence and URL"
-        };
-
         platformCommand.Arguments.Add(assemblyNameArg);
         platformCommand.Options.Add(frameworkOption);
         platformCommand.Options.Add(listVersionsOption);
@@ -651,8 +636,6 @@ public static class CommandLineBuilder
         platformCommand.Options.Add(metadataOption);
         platformCommand.Options.Add(symbolsOption);
         platformCommand.Options.Add(sourcelinkAuditOption);
-        platformCommand.Options.Add(auditOption);
-        platformCommand.Options.Add(sourcelinkOption);
         platformCommand.Options.Add(limitOption);
         platformCommand.Options.Add(jsonOption);
         platformCommand.Options.Add(compactOption);
@@ -667,20 +650,6 @@ public static class CommandLineBuilder
             bool showMetadata = parseResult.GetValue(metadataOption);
             bool showSymbols = parseResult.GetValue(symbolsOption);
             bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
-
-            // Deprecated flag mapping
-            bool runAudit = parseResult.GetValue(auditOption);
-            bool showSourcelink = parseResult.GetValue(sourcelinkOption);
-            if (runAudit)
-            {
-                Console.Error.WriteLine("Warning: --audit is deprecated. Use --sourcelink-audit instead.");
-                runSourcelinkAudit = true;
-            }
-            if (showSourcelink)
-            {
-                Console.Error.WriteLine("Warning: --sourcelink is deprecated. Use --symbols instead.");
-                showSymbols = true;
-            }
 
             // If an assembly name is specified, delegate to AssemblyCommand
             if (!string.IsNullOrEmpty(assemblyName))
@@ -837,10 +806,6 @@ public static class CommandLineBuilder
         var metadataOption = new Option<bool>("--metadata") { Description = "Show assembly info (PE metadata: name, version, TFM, architecture)" };
         var symbolsOption = new Option<bool>("--symbols") { Description = "Show Build Audit + PDB info (downloads PDB if needed)" };
         var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
-        // Deprecated flags
-        var assemblyOption = new Option<bool>("--assembly") { Description = "[Deprecated: use --metadata] Show assembly info" };
-        var auditOption = new Option<bool>("--audit") { Description = "[Deprecated: use --sourcelink-audit] Verify SourceLink, determinism, and signature" };
-        var sourcelinkOption = new Option<bool>("--sourcelink") { Description = "[Deprecated: use --symbols] Show SourceLink presence and URL" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
         var versionOption = new Option<string?>("--version") { Description = "Package version" };
 
@@ -855,9 +820,6 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(metadataOption);
         packageCommand.Options.Add(symbolsOption);
         packageCommand.Options.Add(sourcelinkAuditOption);
-        packageCommand.Options.Add(assemblyOption);
-        packageCommand.Options.Add(auditOption);
-        packageCommand.Options.Add(sourcelinkOption);
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(outOption);
@@ -883,26 +845,6 @@ public static class CommandLineBuilder
             bool showMetadata = parseResult.GetValue(metadataOption);
             bool showSymbols = parseResult.GetValue(symbolsOption);
             bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
-
-            // Deprecated flag mapping
-            bool showAssembly = parseResult.GetValue(assemblyOption);
-            bool runAudit = parseResult.GetValue(auditOption);
-            bool showSourcelink = parseResult.GetValue(sourcelinkOption);
-            if (showAssembly)
-            {
-                Console.Error.WriteLine("Warning: --assembly is deprecated. Use --metadata instead.");
-                showMetadata = true;
-            }
-            if (runAudit)
-            {
-                Console.Error.WriteLine("Warning: --audit is deprecated. Use --sourcelink-audit instead.");
-                runSourcelinkAudit = true;
-            }
-            if (showSourcelink)
-            {
-                Console.Error.WriteLine("Warning: --sourcelink is deprecated. Use --symbols instead.");
-                showSymbols = true;
-            }
 
             // Handle --metadata, --symbols, --sourcelink-audit: delegate to AssemblyCommand
             if (showMetadata || showSymbols || runSourcelinkAudit)
@@ -985,143 +927,6 @@ public static class CommandLineBuilder
         return packageCommand;
     }
 
-    private static Command CreateAuditCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
-    {
-        var auditCommand = new Command("audit", "Verify package/assembly provenance (SourceLink, determinism, signature)");
-
-        var targetArg = new Argument<string[]>("target")
-        {
-            Description = "Package name, file path, or .nupkg path (can specify multiple)",
-            Arity = ArgumentArity.OneOrMore
-        };
-
-        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
-        var versionOption = new Option<string?>("--version") { Description = "Package version" };
-
-        auditCommand.Arguments.Add(targetArg);
-        auditCommand.Options.Add(tfmOption);
-        auditCommand.Options.Add(versionOption);
-        auditCommand.Options.Add(jsonOption);
-        auditCommand.Options.Add(verboseOption);
-        auditCommand.Options.Add(verbosityOption);
-        auditCommand.Options.Add(tipsOption);
-        auditCommand.Options.Add(sourceOption);
-        auditCommand.Options.Add(addSourceOption);
-        auditCommand.Options.Add(nugetConfigOption);
-
-        auditCommand.SetAction(async (parseResult, ct) =>
-        {
-            var targets = parseResult.GetValue(targetArg) ?? [];
-            if (targets.Length == 0)
-            {
-                Console.Error.WriteLine("Error: At least one target required (package name, file path, or .nupkg).");
-                return 1;
-            }
-
-            var tfm = parseResult.GetValue(tfmOption);
-            var explicitVersion = parseResult.GetValue(versionOption);
-            var verbose = parseResult.GetValue(verboseOption);
-            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            var jsonOutput = parseResult.GetValue(jsonOption);
-            var sourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
-
-            int failures = 0;
-
-            foreach (var target in targets)
-            {
-                // Determine input type and create appropriate options
-                bool isFilePath = target.Contains('/') || target.Contains('\\') ||
-                                  target.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                                  target.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-
-                // Disambiguation for System.*/Microsoft.* bare names
-                if (!isFilePath && !target.Contains('@') && explicitVersion == null)
-                {
-                    string bareName = target;
-                    if (bareName.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
-                        bareName.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var (platformPath, _, _, platformError) =
-                            PlatformResolver.ResolveAssembly(bareName);
-
-                        if (platformError == null && platformPath != null)
-                        {
-                            var cmd = VersionInfo.ToolName;
-                            Console.Error.WriteLine($"'{bareName}' is available as both a NuGet package and a platform assembly.");
-                            Console.Error.WriteLine();
-                            Console.Error.WriteLine($"  {cmd} audit {bareName}@<version>       # audit NuGet package (specific version)");
-                            Console.Error.WriteLine($"  {cmd} {PackageCommand.Name} {bareName} --audit        # audit NuGet package (latest)");
-                            Console.Error.WriteLine($"  {cmd} {PlatformCommand.Name} {bareName} --audit       # audit platform assembly");
-
-                            var disambigTipLevel = jsonOutput || verbosity == Verbosity.Quiet
-                                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
-                            Hints.WriteTips(disambigTipLevel,
-                                new Tip(PackageCommand.Name, $"{bareName} --versions -n 5", "find recent versions"));
-                            failures++;
-                            continue;
-                        }
-                    }
-                }
-
-                // Apply --version to bare package names
-                var effectiveTarget = target;
-                if (explicitVersion != null && !isFilePath && !target.Contains('@'))
-                {
-                    effectiveTarget = $"{target}@{explicitVersion}";
-                }
-
-                var options = new AssemblyOptions
-                {
-                    IncludeSourcelinkAudit = true,
-                    PackagePath = isFilePath ? null : effectiveTarget,
-                    Tfm = tfm,
-                    JsonOutput = jsonOutput,
-                    Verbose = verbose,
-                    Verbosity = verbosity,
-                    SourceOptions = sourceOptions
-                };
-
-                // For file paths, pass as assemblyPath; for packages, pass as PackagePath
-                string? assemblyPath = isFilePath ? target : null;
-
-                int result = await AssemblyCommand.ExecuteAsync(assemblyPath, options);
-                if (result != 0)
-                {
-                    failures++;
-                }
-            }
-
-            var auditTipLevel = jsonOutput || verbosity == Verbosity.Quiet
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
-
-            if (failures == 0)
-            {
-                var firstTarget = targets[0];
-                bool firstIsFile = firstTarget.Contains('/') || firstTarget.Contains('\\') ||
-                                   firstTarget.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                                   firstTarget.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-                if (!firstIsFile)
-                {
-                    Hints.WriteTips(auditTipLevel,
-                        new(PackageCommand.Name, $"{firstTarget} --symbols", "quick SourceLink check"),
-                        new(PackageCommand.Name, $"{firstTarget} -v:d", "detailed package metadata"),
-                        new(ApiCommand.Name, $"--package {firstTarget}", "view public API surface"));
-                }
-            }
-
-            return failures > 0 ? 1 : 0;
-        });
-
-        return auditCommand;
-    }
-
     private static Command CreateAssemblyCommand(
         Option<bool> jsonOption,
         Option<bool> markoutOption,
@@ -1146,9 +951,6 @@ public static class CommandLineBuilder
         var metadataOption = new Option<bool>("--metadata") { Description = "Show assembly info (PE metadata: name, version, TFM, architecture)" };
         var symbolsOption = new Option<bool>("--symbols") { Description = "Show Build Audit + PDB info (downloads PDB if needed)" };
         var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
-        // Deprecated flags
-        var auditOption = new Option<bool>("--audit") { Description = "[Deprecated: use --sourcelink-audit] Full provenance verification" };
-        var sourcelinkOption = new Option<bool>("--sourcelink") { Description = "[Deprecated: use --symbols] Show SourceLink presence and URL" };
         var referencesOption = new Option<bool>("--references") { Description = "Show assembly references" };
         var transitiveOption = new Option<bool>("--transitive") { Description = "Show transitive assembly references (full dependency tree)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --metadata'] Extract from package" };
@@ -1160,8 +962,6 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(metadataOption);
         assemblyCommand.Options.Add(symbolsOption);
         assemblyCommand.Options.Add(sourcelinkAuditOption);
-        assemblyCommand.Options.Add(auditOption);
-        assemblyCommand.Options.Add(sourcelinkOption);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(transitiveOption);
         assemblyCommand.Options.Add(asmPackageOption);
@@ -1193,20 +993,6 @@ public static class CommandLineBuilder
             bool showMetadata = parseResult.GetValue(metadataOption);
             bool showSymbols = parseResult.GetValue(symbolsOption);
             bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
-
-            // Deprecated flag mapping
-            bool runAudit = parseResult.GetValue(auditOption);
-            bool showSourcelink = parseResult.GetValue(sourcelinkOption);
-            if (runAudit)
-            {
-                Console.Error.WriteLine("Warning: --audit is deprecated. Use --sourcelink-audit instead.");
-                runSourcelinkAudit = true;
-            }
-            if (showSourcelink)
-            {
-                Console.Error.WriteLine("Warning: --sourcelink is deprecated. Use --symbols instead.");
-                showSymbols = true;
-            }
 
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showTransitive = parseResult.GetValue(transitiveOption);

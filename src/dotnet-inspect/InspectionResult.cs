@@ -377,12 +377,6 @@ public class InspectionResult
     [MarkoutSection(Name = "Files")]
     public List<string>? Files { get; set; }
 
-    [MarkoutSection(Name = "Audit Summary")]
-    public AuditSummary? AuditSummary { get; set; }
-
-    [MarkoutSection(Name = "Assembly Audit")]
-    public List<AssemblyAudit>? AssemblyAudits { get; set; }
-
     private List<MarkoutField> GetCompactFields()
     {
         var fields = new List<MarkoutField>();
