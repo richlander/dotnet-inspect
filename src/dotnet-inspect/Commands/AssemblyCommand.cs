@@ -1,11 +1,13 @@
 using System.IO.Compression;
-using DotnetInspector.Packages;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
+using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
 
 namespace DotnetInspector.Commands;
 
@@ -414,7 +416,17 @@ public class AssemblyCommand
             if (!peReader.HasMetadata)
             {
                 // Native binary - still provide basic info
-                return CreateNativeAudit(peReader, path);
+                var nativeInfo = AssemblyInspector.CreateNativeInfo(peReader);
+                bool isNativeAot = AssemblyInspector.DetectNativeAot(peReader);
+                nativeInfo.IsNativeAot = isNativeAot;
+                nativeInfo.CompilationType = isNativeAot ? "NativeAOT" : "Native";
+
+                return new AssemblyAudit
+                {
+                    FileName = Path.GetFileName(path),
+                    FileType = "native",
+                    AssemblyInfo = nativeInfo
+                };
             }
 
             var audit = new AssemblyAudit
@@ -424,7 +436,7 @@ public class AssemblyCommand
             };
 
             // Always extract basic assembly info
-            audit.AssemblyInfo = ExtractAssemblyInfo(peReader, options.IncludeReferences || options.TransitiveReferences);
+            audit.AssemblyInfo = AssemblyInspector.ExtractAssemblyInfo(peReader, options.IncludeReferences || options.TransitiveReferences);
 
             // Build transitive reference tree if requested
             if (options.TransitiveReferences && audit.AssemblyInfo?.References != null)
@@ -432,10 +444,10 @@ public class AssemblyCommand
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(audit.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
-                
+
                 audit.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    audit.AssemblyInfo.References, 
-                    sourceDir, 
+                    audit.AssemblyInfo.References,
+                    sourceDir,
                     visited,
                     logger);
             }
@@ -454,38 +466,6 @@ public class AssemblyCommand
         }
     }
 
-    private static AssemblyAudit CreateNativeAudit(PEReader peReader, string path)
-    {
-        var audit = new AssemblyAudit
-        {
-            FileName = Path.GetFileName(path),
-            FileType = "native"
-        };
-
-        var peHeaders = peReader.PEHeaders;
-        var coffHeader = peHeaders.CoffHeader;
-
-        audit.AssemblyInfo = new AssemblyInfo
-        {
-            HasCorHeader = false,
-            HasManagedMetadata = false,
-            HasILCode = false,
-            IsExecutable = peHeaders.IsExe,
-            IsDll = peHeaders.IsDll,
-            Architecture = coffHeader.Machine switch
-            {
-                System.Reflection.PortableExecutable.Machine.I386 => "x86",
-                System.Reflection.PortableExecutable.Machine.Amd64 => "x64",
-                System.Reflection.PortableExecutable.Machine.Arm => "ARM",
-                System.Reflection.PortableExecutable.Machine.Arm64 => "ARM64",
-                _ => coffHeader.Machine.ToString()
-            },
-            CompilationType = "Native"
-        };
-
-        return audit;
-    }
-
     private static async Task AuditAssemblyAsync(
         PEReader peReader,
         AssemblyAudit audit,
@@ -502,12 +482,12 @@ public class AssemblyCommand
         MetadataReader? pdbReader = null;
         foreach (var entry in peReader.ReadDebugDirectory())
         {
-            if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.Reproducible)
+            if (entry.Type == DebugDirectoryEntryType.Reproducible)
             {
                 audit.HasReproducibleFlag = true;
             }
 
-            if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.CodeView)
+            if (entry.Type == DebugDirectoryEntryType.CodeView)
             {
                 var cvData = peReader.ReadCodeViewDebugDirectoryData(entry);
                 audit.PdbPath = cvData.Path;
@@ -525,7 +505,7 @@ public class AssemblyCommand
                 }
             }
 
-            if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.EmbeddedPortablePdb)
+            if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
             {
                 audit.HasEmbeddedPdb = true;
                 audit.PdbFormat = "Portable";
@@ -533,7 +513,7 @@ public class AssemblyCommand
                 embeddedPdbProvider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
                 pdbReader = embeddedPdbProvider.GetMetadataReader();
 
-                string? sourceLink = ExtractSourceLink(pdbReader);
+                string? sourceLink = AssemblyInspector.ExtractSourceLinkFromReader(pdbReader);
                 if (sourceLink != null)
                 {
                     audit.HasSourceLink = true;
@@ -548,13 +528,13 @@ public class AssemblyCommand
             var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
             if (File.Exists(pdbPath))
             {
-                if (IsWindowsPdb(pdbPath))
+                if (AssemblyInspector.IsWindowsPdb(pdbPath))
                 {
                     audit.WindowsPdbDetected = true;
                     audit.PdbFormat = "Windows";
                     audit.PdbLocation = "Standalone";
                 }
-                else if (IsPortablePdb(pdbPath))
+                else if (AssemblyInspector.IsPortablePdb(pdbPath))
                 {
                     audit.PdbFormat = "Portable";
                     audit.PdbLocation = "Standalone";
@@ -563,7 +543,7 @@ public class AssemblyCommand
                     var standalonePdbProvider = MetadataReaderProvider.FromPortablePdbStream(stream);
                     externalPdbProvider = standalonePdbProvider;
                     pdbReader = standalonePdbProvider.GetMetadataReader();
-                    audit.SourceLinkJson = ExtractSourceLink(pdbReader);
+                    audit.SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(pdbReader);
                     audit.HasSourceLink = audit.SourceLinkJson != null;
                 }
             }
@@ -582,7 +562,7 @@ public class AssemblyCommand
                     audit.PdbLocation = "Symbol Package";
                     audit.SymbolServer = pdbResult.SymbolServer;
 
-                    string? sourceLink = ExtractSourceLink(pdbReader);
+                    string? sourceLink = AssemblyInspector.ExtractSourceLinkFromReader(pdbReader);
                     if (sourceLink != null)
                     {
                         audit.HasSourceLink = true;
@@ -732,9 +712,6 @@ public class AssemblyCommand
         logger.Log($"Source coverage: {accessibleFiles + embeddedFiles}/{totalFiles} files accessible");
     }
 
-    /// <summary>
-    /// Parses SourceLink JSON into path prefix to URL mappings.
-    /// </summary>
     private static Dictionary<string, string> ParseSourceLinkMappings(string sourceLinkJson)
     {
         var mappings = new Dictionary<string, string>();
@@ -756,17 +733,13 @@ public class AssemblyCommand
         return mappings;
     }
 
-    /// <summary>
-    /// Applies SourceLink mappings to convert a file path to a source URL.
-    /// </summary>
     private static string? ApplySourceLinkMapping(string filePath, Dictionary<string, string> mappings)
     {
         foreach (var (pattern, urlTemplate) in mappings)
         {
-            // SourceLink patterns use * as wildcard
             if (pattern.EndsWith("*"))
             {
-                string prefix = pattern[..^1]; // Remove trailing *
+                string prefix = pattern[..^1];
                 if (filePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
                     string relativePath = filePath[prefix.Length..];
@@ -776,24 +749,6 @@ public class AssemblyCommand
             else if (filePath.Equals(pattern, StringComparison.OrdinalIgnoreCase))
             {
                 return urlTemplate;
-            }
-        }
-        return null;
-    }
-
-    private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
-
-    private static string? ExtractSourceLink(System.Reflection.Metadata.MetadataReader reader)
-    {
-        foreach (var handle in reader.CustomDebugInformation)
-        {
-            var info = reader.GetCustomDebugInformation(handle);
-            Guid kind = reader.GetGuid(info.Kind);
-
-            if (kind == SourceLinkGuid)
-            {
-                byte[] bytes = reader.GetBlobBytes(info.Value);
-                return System.Text.Encoding.UTF8.GetString(bytes);
             }
         }
         return null;
@@ -839,206 +794,6 @@ public class AssemblyCommand
 
         // Can't determine (e.g., Windows PDB case)
         return null;
-    }
-
-    /// <summary>
-    /// Extracts SourceLink JSON from a standalone Portable PDB file.
-    /// </summary>
-    private static string? ExtractSourceLinkFromFile(string pdbPath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(pdbPath);
-            using var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
-            var reader = provider.GetMetadataReader();
-            return ExtractSourceLink(reader);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Checks if a PDB file is a Windows PDB (MSF format) rather than a Portable PDB.
-    /// </summary>
-    private static bool IsWindowsPdb(string pdbPath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(pdbPath);
-            byte[] header = new byte[4];
-            if (stream.Read(header, 0, 4) < 4)
-                return false;
-
-            // Windows PDB starts with "Microsoft C/C++ MSF 7.00" - first 4 bytes are "Micr"
-            return header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Checks if a PDB file is a Portable PDB.
-    /// </summary>
-    private static bool IsPortablePdb(string pdbPath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(pdbPath);
-            byte[] header = new byte[4];
-            if (stream.Read(header, 0, 4) < 4)
-                return false;
-
-            // Portable PDB starts with "BSJB"
-            return header[0] == 'B' && header[1] == 'S' && header[2] == 'J' && header[3] == 'B';
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static AssemblyInfo ExtractAssemblyInfo(PEReader peReader, bool includeReferences = false)
-    {
-        var info = new AssemblyInfo();
-        var peHeaders = peReader.PEHeaders;
-        var coffHeader = peHeaders.CoffHeader;
-        var corHeader = peHeaders.CorHeader;
-
-        info.HasCorHeader = corHeader != null;
-        info.HasManagedMetadata = peReader.HasMetadata;
-
-        bool hasR2R = corHeader != null && corHeader.ManagedNativeHeaderDirectory.Size > 0;
-        bool hasILCode = corHeader != null && peReader.HasMetadata;
-        bool isILOnly = corHeader?.Flags.HasFlag(System.Reflection.PortableExecutable.CorFlags.ILOnly) == true;
-
-        info.HasILCode = hasILCode;
-        info.IsReadyToRun = hasR2R;
-
-        if (corHeader == null)
-        {
-            info.CompilationType = "Native";
-        }
-        else if (hasR2R)
-        {
-            info.CompilationType = "ReadyToRun";
-        }
-        else if (isILOnly || hasILCode)
-        {
-            info.CompilationType = "CoreCLR";
-        }
-        else
-        {
-            info.CompilationType = "Unknown";
-        }
-
-        info.Architecture = coffHeader.Machine switch
-        {
-            System.Reflection.PortableExecutable.Machine.I386 =>
-                corHeader?.Flags.HasFlag(System.Reflection.PortableExecutable.CorFlags.Requires32Bit) == true ? "x86" :
-                corHeader?.Flags.HasFlag(System.Reflection.PortableExecutable.CorFlags.Prefers32Bit) == true ? "AnyCPU (32-bit preferred)" : "AnyCPU",
-            System.Reflection.PortableExecutable.Machine.Amd64 => "x64",
-            System.Reflection.PortableExecutable.Machine.Arm => "ARM",
-            System.Reflection.PortableExecutable.Machine.Arm64 => "ARM64",
-            _ => coffHeader.Machine.ToString()
-        };
-
-        info.IsAnyCpu = coffHeader.Machine == System.Reflection.PortableExecutable.Machine.I386 &&
-                        corHeader?.Flags.HasFlag(System.Reflection.PortableExecutable.CorFlags.Requires32Bit) != true;
-        info.Prefers32Bit = corHeader?.Flags.HasFlag(System.Reflection.PortableExecutable.CorFlags.Prefers32Bit) == true;
-        info.IsSigned = corHeader?.Flags.HasFlag(System.Reflection.PortableExecutable.CorFlags.StrongNameSigned) == true;
-
-        info.IsExecutable = peHeaders.IsExe;
-        info.IsDll = peHeaders.IsDll;
-
-        var metadataReader = peReader.GetMetadataReader();
-        info.RuntimeVersion = metadataReader.MetadataVersion;
-
-        if (metadataReader.IsAssembly)
-        {
-            var assemblyDef = metadataReader.GetAssemblyDefinition();
-            info.AssemblyName = metadataReader.GetString(assemblyDef.Name);
-            info.AssemblyVersion = assemblyDef.Version.ToString();
-            info.Culture = metadataReader.GetString(assemblyDef.Culture);
-            if (string.IsNullOrEmpty(info.Culture))
-                info.Culture = "neutral";
-
-            var publicKey = metadataReader.GetBlobBytes(assemblyDef.PublicKey);
-            if (publicKey.Length > 0)
-            {
-                info.PublicKeyToken = Convert.ToHexString(publicKey.TakeLast(8).ToArray()).ToLowerInvariant();
-            }
-        }
-
-        // Get target framework from custom attributes
-        foreach (var attrHandle in metadataReader.CustomAttributes)
-        {
-            var attr = metadataReader.GetCustomAttribute(attrHandle);
-            string? attrName = GetAttributeName(metadataReader, attr);
-
-            if (attrName == "System.Runtime.Versioning.TargetFrameworkAttribute")
-            {
-                info.TargetFramework = GetAttributeStringValue(metadataReader, attr);
-            }
-            else if (attrName == "System.Reflection.AssemblyFileVersionAttribute")
-            {
-                info.FileVersion = GetAttributeStringValue(metadataReader, attr);
-            }
-            else if (attrName == "System.Reflection.AssemblyInformationalVersionAttribute")
-            {
-                info.InformationalVersion = GetAttributeStringValue(metadataReader, attr);
-            }
-            else if (attrName == "System.Reflection.AssemblyProductAttribute")
-            {
-                info.Product = GetAttributeStringValue(metadataReader, attr);
-            }
-            else if (attrName == "System.Reflection.AssemblyCompanyAttribute")
-            {
-                info.Company = GetAttributeStringValue(metadataReader, attr);
-            }
-            else if (attrName == "System.Reflection.AssemblyCopyrightAttribute")
-            {
-                info.Copyright = GetAttributeStringValue(metadataReader, attr);
-            }
-            else if (attrName == "System.Reflection.AssemblyDescriptionAttribute")
-            {
-                info.Description = GetAttributeStringValue(metadataReader, attr);
-            }
-        }
-
-        // Extract assembly references if requested
-        if (includeReferences)
-        {
-            var references = new List<AssemblyReference>();
-            foreach (var refHandle in metadataReader.AssemblyReferences)
-            {
-                var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
-                var name = metadataReader.GetString(assemblyRef.Name);
-                var version = assemblyRef.Version.ToString();
-                var culture = metadataReader.GetString(assemblyRef.Culture);
-                if (string.IsNullOrEmpty(culture))
-                    culture = "neutral";
-
-                string? publicKeyToken = null;
-                var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-                if (pkToken.Length > 0)
-                {
-                    publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
-                }
-
-                references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
-            }
-
-            if (references.Count > 0)
-            {
-                info.References = references;
-            }
-        }
-
-        return info;
     }
 
     private static List<AssemblyReferenceNode> BuildTransitiveReferences(
@@ -1105,7 +860,7 @@ public class AssemblyCommand
             {
                 try
                 {
-                    var childRefs = ExtractReferencesFromPath(resolvedPath);
+                    var childRefs = AssemblyInspector.ExtractReferences(resolvedPath);
                     if (childRefs.Count > 0)
                     {
                         // Clone visited set for this branch to allow diamond dependencies
@@ -1122,70 +877,6 @@ public class AssemblyCommand
         }
 
         return nodes;
-    }
-
-    private static List<AssemblyReference> ExtractReferencesFromPath(string assemblyPath)
-    {
-        var references = new List<AssemblyReference>();
-
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-
-        if (!peReader.HasMetadata)
-            return references;
-
-        var metadataReader = peReader.GetMetadataReader();
-
-        foreach (var refHandle in metadataReader.AssemblyReferences)
-        {
-            var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
-            var name = metadataReader.GetString(assemblyRef.Name);
-            var version = assemblyRef.Version.ToString();
-            var culture = metadataReader.GetString(assemblyRef.Culture);
-            if (string.IsNullOrEmpty(culture))
-                culture = "neutral";
-
-            string? publicKeyToken = null;
-            var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-            if (pkToken.Length > 0)
-            {
-                publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
-            }
-
-            references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
-        }
-
-        return references;
-    }
-
-    private static string? GetAttributeName(System.Reflection.Metadata.MetadataReader reader, System.Reflection.Metadata.CustomAttribute attr)
-    {
-        if (attr.Constructor.Kind == System.Reflection.Metadata.HandleKind.MemberReference)
-        {
-            var memberRef = reader.GetMemberReference((System.Reflection.Metadata.MemberReferenceHandle)attr.Constructor);
-            if (memberRef.Parent.Kind == System.Reflection.Metadata.HandleKind.TypeReference)
-            {
-                var typeRef = reader.GetTypeReference((System.Reflection.Metadata.TypeReferenceHandle)memberRef.Parent);
-                string ns = reader.GetString(typeRef.Namespace);
-                string name = reader.GetString(typeRef.Name);
-                return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-            }
-        }
-        return null;
-    }
-
-    private static string? GetAttributeStringValue(System.Reflection.Metadata.MetadataReader reader, System.Reflection.Metadata.CustomAttribute attr)
-    {
-        try
-        {
-            var value = reader.GetBlobReader(attr.Value);
-            value.ReadUInt16(); // Skip prolog
-            return value.ReadSerializedString();
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static string? ExtractTfmFromPath(string relativePath)

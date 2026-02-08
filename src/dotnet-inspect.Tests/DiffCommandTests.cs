@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 

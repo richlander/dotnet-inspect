@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -175,20 +173,7 @@ public class DiffCommand
 
     private static ApiSurface? ExtractApiSurface(string assemblyPath, bool includeAll)
     {
-        try
-        {
-            using FileStream stream = File.OpenRead(assemblyPath);
-            using PEReader peReader = new(stream);
-
-            if (!peReader.HasMetadata)
-                return null;
-
-            return ApiSurfaceExtractor.Extract(peReader, includeAll);
-        }
-        catch
-        {
-            return null;
-        }
+        return AssemblyReader.ExtractApiSurface(assemblyPath, includeAll);
     }
 
     private static (string? package, string? fromVersion, string? toVersion) ParseVersionRange(string input)

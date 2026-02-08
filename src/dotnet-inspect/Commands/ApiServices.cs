@@ -1,9 +1,9 @@
 using DotnetInspector.Packages;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 
@@ -206,32 +206,21 @@ internal static class ApiServices
 
         foreach (var dllFile in dllFiles)
         {
-            try
+            var api = AssemblyReader.ExtractApiSurface(dllFile, includeAll);
+            if (api == null)
+                continue;
+
+            var match = api.Types.FirstOrDefault(t =>
             {
-                using FileStream stream = File.OpenRead(dllFile);
-                using PEReader peReader = new(stream);
+                var fullName = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
+                return fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
+                       t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase);
+            });
 
-                if (!peReader.HasMetadata)
-                    continue;
-
-                var api = ApiSurfaceExtractor.Extract(peReader, includeAll);
-
-                var match = api.Types.FirstOrDefault(t =>
-                {
-                    var fullName = string.IsNullOrEmpty(t.Namespace) ? t.Name : $"{t.Namespace}.{t.Name}";
-                    return fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
-                           t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase);
-                });
-
-                if (match != null)
-                {
-                    logger.Log($"Found in: {Path.GetFileName(dllFile)}");
-                    return (match, Path.GetFileName(dllFile), dllFile, api);
-                }
-            }
-            catch
+            if (match != null)
             {
-                // Skip unreadable files
+                logger.Log($"Found in: {Path.GetFileName(dllFile)}");
+                return (match, Path.GetFileName(dllFile), dllFile, api);
             }
         }
 
@@ -277,20 +266,8 @@ internal static class ApiServices
 
         logger.Log($"Extracting API from: {Path.GetFileName(dllFile)}");
 
-        try
-        {
-            using FileStream stream = File.OpenRead(dllFile);
-            using PEReader peReader = new(stream);
-
-            if (!peReader.HasMetadata)
-                return (null, null);
-
-            return (ApiSurfaceExtractor.Extract(peReader, includeAll), dllFile);
-        }
-        catch
-        {
-            return (null, null);
-        }
+        var api = AssemblyReader.ExtractApiSurface(dllFile, includeAll);
+        return (api, api != null ? dllFile : null);
     }
 
     /// <summary>
@@ -322,13 +299,9 @@ internal static class ApiServices
 
             try
             {
-                using FileStream stream = File.OpenRead(targetPath);
-                using PEReader peReader = new(stream);
-
-                if (!peReader.HasMetadata)
+                var targetApi = AssemblyReader.ExtractApiSurface(targetPath, includeAll);
+                if (targetApi == null)
                     continue;
-
-                var targetApi = ApiSurfaceExtractor.Extract(peReader, includeAll);
 
                 foreach (var type in targetApi.Types)
                 {
@@ -434,8 +407,8 @@ internal static class ApiServices
                 return;
             }
 
-            TypeDefinitionHandle? typeHandle = FindTypeDefinitionHandle(metadataReader, typeName);
-            if (typeHandle == null)
+            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeName);
+            if (sourceInfo == null)
             {
                 var forwardTarget = FindTypeForwarderTarget(metadataReader, typeName);
                 if (forwardTarget != null)
@@ -451,8 +424,6 @@ internal static class ApiServices
                 logger.Log($"Could not find type definition for '{typeName}'.");
                 return;
             }
-
-            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeHandle.Value);
             if (sourceInfo != null)
             {
                 apiType.SourceFilePath = sourceInfo.SourceFilePath;
@@ -614,12 +585,7 @@ internal static class ApiServices
         foreach (var apiType in types)
         {
             var typeName = string.IsNullOrEmpty(apiType.Namespace) ? apiType.Name : $"{apiType.Namespace}.{apiType.Name}";
-            TypeDefinitionHandle? typeHandle = FindTypeDefinitionHandle(metadataReader, typeName);
-
-            if (typeHandle == null)
-                continue;
-
-            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeHandle.Value);
+            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeName);
             typeSourceInfo.Add((apiType, typeName, sourceInfo));
 
             if (sourceInfo?.SourceUrl != null)
@@ -915,40 +881,7 @@ internal static class ApiServices
 
             using var _ = pdbResult.Provider;
 
-            string? sourceLinkJson = null;
-            foreach (var handle in pdbResult.Reader.CustomDebugInformation)
-            {
-                var info = pdbResult.Reader.GetCustomDebugInformation(handle);
-                var guid = pdbResult.Reader.GetGuid(info.Kind);
-                if (guid == new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A"))
-                {
-                    var bytes = pdbResult.Reader.GetBlobBytes(info.Value);
-                    sourceLinkJson = System.Text.Encoding.UTF8.GetString(bytes);
-                    break;
-                }
-            }
-
-            if (sourceLinkJson == null)
-                return null;
-
-            using var doc = JsonDocument.Parse(sourceLinkJson);
-            if (doc.RootElement.TryGetProperty("documents", out var documents))
-            {
-                foreach (var prop in documents.EnumerateObject())
-                {
-                    string url = prop.Value.GetString() ?? "";
-                    if (url.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var match = Regex.Match(url,
-                            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/");
-                        if (match.Success)
-                        {
-                            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
-                        }
-                    }
-                    break;
-                }
-            }
+            return SourceLinkResolver.ExtractRepositoryUrl(pdbResult.Reader);
         }
         catch (Exception ex)
         {
@@ -958,24 +891,6 @@ internal static class ApiServices
     }
 
     // ===== Private Enrichment Helpers =====
-
-    private static TypeDefinitionHandle? FindTypeDefinitionHandle(MetadataReader reader, string typeName)
-    {
-        foreach (var typeHandle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            string name = reader.GetString(typeDef.Name);
-            string ns = reader.GetString(typeDef.Namespace);
-            string fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-
-            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
-                name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
-            {
-                return typeHandle;
-            }
-        }
-        return null;
-    }
 
     private static string? FindTypeForwarderTarget(MetadataReader reader, string typeName)
     {

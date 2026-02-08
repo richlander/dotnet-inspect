@@ -1,10 +1,9 @@
-using System.Reflection.Metadata;
 using DotnetInspector.Packages;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using Markout;
@@ -534,13 +533,10 @@ public class FindCommand
 
         try
         {
-            using var fs = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(fs);
-
-            if (!peReader.HasMetadata)
+            var api = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll);
+            if (api == null)
                 return results;
 
-            var api = ApiSurfaceExtractor.Extract(peReader, includeAll);
             var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
             foreach (var type in api.Types)
@@ -662,13 +658,10 @@ public class FindCommand
 
         try
         {
-            using var fs = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(fs);
-
-            if (!peReader.HasMetadata)
+            var api = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll);
+            if (api == null)
                 return results;
 
-            var api = ApiSurfaceExtractor.Extract(peReader, includeAll);
             var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
             foreach (var type in api.Types)

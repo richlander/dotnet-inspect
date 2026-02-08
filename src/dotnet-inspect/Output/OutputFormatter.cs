@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using Markout;
 

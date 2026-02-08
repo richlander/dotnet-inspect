@@ -347,8 +347,8 @@ public class ApiCommand
         };
         var writer = new MarkoutWriter(writerOptions);
 
-        // Serialize title + summary fields
-        new MarkoutContext().Serialize(api, writer);
+        // Serialize title + summary fields via CLI wrapper
+        new MarkoutContext().Serialize(new CliApiSurface(api), writer);
 
         if (totalCount == 0)
         {

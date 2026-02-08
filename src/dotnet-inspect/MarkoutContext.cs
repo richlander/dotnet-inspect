@@ -4,10 +4,7 @@ namespace DotnetInspector;
 
 [MarkoutContext(typeof(InspectionResult))]
 [MarkoutContext(typeof(AssemblyAudit))]
-[MarkoutContext(typeof(AssemblyInfo))]
-[MarkoutContext(typeof(ApiSurface))]
-[MarkoutContext(typeof(ApiType))]
-[MarkoutContext(typeof(ApiMember))]
+[MarkoutContext(typeof(CliApiSurface))]
 [MarkoutContext(typeof(ApiTypeView))]
 [MarkoutContext(typeof(EnumValueRow))]
 [MarkoutContext(typeof(TypeParameterRow))]

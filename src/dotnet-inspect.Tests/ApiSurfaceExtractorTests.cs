@@ -1,6 +1,5 @@
-using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Inspectors;
+using DotnetInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 

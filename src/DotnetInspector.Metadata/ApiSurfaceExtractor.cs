@@ -1,9 +1,8 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Metadata;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Metadata;
 
 /// <summary>
 /// Extracts public API surface from assemblies.
@@ -74,7 +73,7 @@ public static class ApiSurfaceExtractor
             bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
 
             // Get type's generic context for resolving interface type parameters
-            var typeContext = Metadata.GenericContext.ForType(reader, typeDef);
+            var typeContext = GenericContext.ForType(reader, typeDef);
 
             // Get generic type parameters with constraints
             var genericParams = typeDef.GetGenericParameters();
@@ -240,8 +239,8 @@ public static class ApiSurfaceExtractor
                 string? fieldType = null;
                 if (!isEnum)
                 {
-                    var context = Metadata.GenericContext.ForType(reader, typeDef);
-                    fieldType = field.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
+                    var context = GenericContext.ForType(reader, typeDef);
+                    fieldType = field.DecodeSignature(SignatureDecoder.Instance, context);
                 }
 
                 var member = new ApiMember
@@ -316,14 +315,14 @@ public static class ApiSurfaceExtractor
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
             var exportedType = reader.GetExportedType(exportedTypeHandle);
-            
+
             // Type forwarders have IsForwarder flag set
             if (!exportedType.IsForwarder)
                 continue;
 
-            var typeName = reader.GetString(exportedType.Name);
+            var eTypeName = reader.GetString(exportedType.Name);
             var ns = reader.GetString(exportedType.Namespace);
-            var fullName = string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}";
+            var fullName = string.IsNullOrEmpty(ns) ? eTypeName : $"{ns}.{eTypeName}";
 
             // Get the target assembly
             string targetAssembly = "";
@@ -348,8 +347,8 @@ public static class ApiSurfaceExtractor
     /// </summary>
     public static void PopulateDerivedTypes(ApiSurface surface, ApiType targetType)
     {
-        var fullName = string.IsNullOrEmpty(targetType.Namespace) 
-            ? targetType.Name 
+        var fullName = string.IsNullOrEmpty(targetType.Namespace)
+            ? targetType.Name
             : $"{targetType.Namespace}.{targetType.Name}";
 
         var derivedTypes = new List<string>();
@@ -392,8 +391,8 @@ public static class ApiSurfaceExtractor
     private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         string name = reader.GetString(method.Name);
-        var context = Metadata.GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
 
         // Get parameter names from metadata
         var paramHandles = method.GetParameters().ToList();
@@ -495,8 +494,8 @@ public static class ApiSurfaceExtractor
     private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors)
     {
         string name = reader.GetString(prop.Name);
-        var context = Metadata.GenericContext.ForType(reader, typeDef);
-        var signature = prop.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
+        var context = GenericContext.ForType(reader, typeDef);
+        var signature = prop.DecodeSignature(SignatureDecoder.Instance, context);
 
         // Determine accessor visibility
         bool hasPublicGetter = false;
@@ -537,8 +536,8 @@ public static class ApiSurfaceExtractor
     /// </summary>
     private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
-        var context = Metadata.GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(Metadata.SignatureDecoder.Instance, context);
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
         return signature.ParameterTypes.Length > 0 ? signature.ParameterTypes[0] : null;
     }
 
