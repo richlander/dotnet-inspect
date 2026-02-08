@@ -1310,12 +1310,11 @@ public static class CommandLineBuilder
     {
         var apiCommand = new Command("api2", "Extract public API surface (hybrid rendering)");
 
-        var typeNameArg = new Argument<string?>("type")
+        var argsArg = new Argument<string[]>("args")
         {
-            Description = "Type name (full or simple). If omitted, lists all types.",
-            Arity = ArgumentArity.ZeroOrOne
+            Description = "Package and type name. When no --package/--assembly/--platform is given, first arg is the package.",
+            Arity = ArgumentArity.ZeroOrMore
         };
-        typeNameArg.DefaultValueFactory = _ => null;
 
         var apiPackageOption = new Option<string?>("--package") { Description = "Extract from package (file, name, or name@version)" };
         var apiAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path (local file, or relative path within package)" };
@@ -1343,7 +1342,7 @@ public static class CommandLineBuilder
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
         var fieldsOnlyOption = new Option<bool>("--fields-only") { Description = "Show only type info (source URL, docs) without member tables" };
 
-        apiCommand.Arguments.Add(typeNameArg);
+        apiCommand.Arguments.Add(argsArg);
         apiCommand.Options.Add(apiPackageOption);
         apiCommand.Options.Add(apiAssemblyOption);
         apiCommand.Options.Add(apiPlatformOption);
@@ -1377,8 +1376,32 @@ public static class CommandLineBuilder
 
         apiCommand.SetAction(async (parseResult, ct) =>
         {
-            var typeName = parseResult.GetValue(typeNameArg);
-            var members = parseResult.GetValue(memberOption);
+            var args = parseResult.GetValue(argsArg) ?? [];
+            var explicitPackage = parseResult.GetValue(apiPackageOption);
+            var explicitAssembly = parseResult.GetValue(apiAssemblyOption);
+            var explicitPlatform = parseResult.GetValue(apiPlatformOption);
+            bool hasExplicitSource = explicitPackage != null || explicitAssembly != null || explicitPlatform != null;
+
+            string? packagePath = explicitPackage;
+            string? typeName = null;
+            List<string> positionalMembers = [];
+
+            if (hasExplicitSource)
+            {
+                // All positionals are type + member filters
+                if (args.Length >= 1) typeName = args[0];
+                if (args.Length >= 2) positionalMembers.AddRange(args[1..]);
+            }
+            else
+            {
+                // First positional is the package
+                if (args.Length >= 1) packagePath = args[0];
+                if (args.Length >= 2) typeName = args[1];
+                if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
+            }
+
+            var members = parseResult.GetValue(memberOption) ?? [];
+            var allMembers = members.Concat(positionalMembers).ToArray();
             var ctorOnly = parseResult.GetValue(ctorOption);
 
             HashSet<string>? memberFilter = null;
@@ -1386,16 +1409,16 @@ public static class CommandLineBuilder
             {
                 memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
             }
-            else if (members?.Length > 0)
+            else if (allMembers.Length > 0)
             {
-                memberFilter = new HashSet<string>(members, StringComparer.OrdinalIgnoreCase);
+                memberFilter = new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase);
             }
 
             var options = new ApiOptions
             {
-                PackagePath = parseResult.GetValue(apiPackageOption),
-                AssemblyPath = parseResult.GetValue(apiAssemblyOption),
-                PlatformAssembly = parseResult.GetValue(apiPlatformOption),
+                PackagePath = packagePath,
+                AssemblyPath = explicitAssembly,
+                PlatformAssembly = explicitPlatform,
                 PlatformFramework = parseResult.GetValue(apiFrameworkOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
                 ShowInterfaces = parseResult.GetValue(interfacesOption),
