@@ -15,6 +15,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class ApiCommand
 {
+    public const string Name = "api";
     public static async Task<int> ExecuteAsync(string? typeName, ApiOptions options)
     {
         if (options.MemberFilter?.Count > 0 && string.IsNullOrEmpty(typeName))

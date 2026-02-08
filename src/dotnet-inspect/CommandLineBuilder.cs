@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -25,7 +26,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
     {
-        if (args.Length > 0 && !KnownCommands.Contains(args[0]))
+        if (args.Length > 0 && !args[0].StartsWith('-') && !KnownCommands.Contains(args[0]))
         {
             // Prepend "package" to treat as package command
             return ["package", .. args];
@@ -38,12 +39,8 @@ public static class CommandLineBuilder
     /// </summary>
     public static RootCommand CreateRootCommand()
     {
-        var rootCommand = new RootCommand($"""
-            dotnet-inspect {VersionInfo.Version} - A CLI tool for inspecting .NET assemblies and NuGet packages
-            
-            Tip: Use -v:d for detailed output, --docs for XML documentation, --terse for compact find results.
-            Run 'dotnet-inspect llmstxt' for complete usage examples.
-            """);
+        var rootCommand = new RootCommand(
+            $"{VersionInfo.ToolName} {VersionInfo.Version} - A CLI tool for inspecting .NET assemblies and NuGet packages");
 
         // Shared options (defined once, reused across commands)
         var jsonOption = new Option<bool>("--json") { Description = "Output as JSON" };
@@ -53,6 +50,7 @@ public static class CommandLineBuilder
         var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections by name (comma-separated, e.g., -s:Methods,Properties).\nUse -s alone for header only.", Arity = ArgumentArity.ZeroOrOne };
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
+        var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Hidden = true };
 
         // NuGet source options (shared across package-consuming commands)
         var sourceOption = new Option<string[]>("--source")
@@ -71,13 +69,16 @@ public static class CommandLineBuilder
         };
 
         // Commands in alphabetical order (llmstxt last as meta command)
-        
+
+        // Root-level display option (distinct instance so it appears in root help)
+        rootCommand.Options.Add(new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" });
+
         // API command
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
 
         // Audit command (opinionated, always strict)
-        var auditCommand = CreateAuditCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
+        var auditCommand = CreateAuditCommand(jsonOption, verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(auditCommand);
 
         // Assembly command
@@ -89,7 +90,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(cacheCommand);
 
         // Diff command
-        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
+        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(diffCommand);
 
         // Extensions command
@@ -97,7 +98,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(extensionsCommand);
 
         // Find command
-        var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(findCommand);
 
         // Implements command
@@ -105,7 +106,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(implementsCommand);
 
         // Package command
-        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(packageCommand);
 
         // Platform command
@@ -133,6 +134,21 @@ public static class CommandLineBuilder
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
+
+        // No-args: show help + tips
+        rootCommand.SetAction((parseResult) =>
+        {
+            new HelpAction().Invoke(parseResult);
+
+            var tipLevel = ParseTipLevel(null);
+            Hints.WriteTips(tipLevel,
+                new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
+                new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
+                new Tip("--tips:d", "", "show more tips per command"),
+                new Tip(ApiCommand.Name, "--package <package>", "view public API surface"),
+                new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
+                new Tip(FindCommand.Name, "<pattern> --platform <assembly>", "search platform types"));
+        });
 
         return rootCommand;
     }
@@ -163,11 +179,12 @@ public static class CommandLineBuilder
     private static Command CreateDiffCommand(
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var diffCommand = new Command("diff", "Compare API surfaces between package or platform versions");
+        var diffCommand = new Command(DiffCommand.Name, "Compare API surfaces between package or platform versions");
 
         var typeNameArg = new Argument<string?>("type")
         {
@@ -210,6 +227,7 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(verboseOption);
         diffCommand.Options.Add(verbosityOption);
+        diffCommand.Options.Add(tipsOption);
         diffCommand.Options.Add(sourceOption);
         diffCommand.Options.Add(addSourceOption);
         diffCommand.Options.Add(nugetConfigOption);
@@ -250,32 +268,35 @@ public static class CommandLineBuilder
             var exitCode = await DiffCommand.ExecuteAsync(options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            if (exitCode == 0 && verbosity != Verbosity.Quiet)
+            var tipLevel = verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+
+            if (exitCode == 0)
             {
-                // If filtered to specific type(s), suggest viewing all changes
+                var tips = new List<Tip>();
+                var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
+                var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
+
                 if (typeFilter != null)
+                    tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange}", "diff all types"));
+
+                if (versionRange != null)
                 {
-                    var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
-                    var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
-                    Hints.WriteHint($"dotnet-inspect diff {sourceFlag} {versionRange}   # diff all types");
-                }
-                // If showing all types, suggest api --tree for inspection
-                else if (!options.Stat && !options.NameOnly)
-                {
-                    var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
-                    if (versionRange != null)
+                    var atIdx = versionRange.IndexOf('@');
+                    var dotDotIdx = versionRange.IndexOf("..", StringComparison.Ordinal);
+                    if (atIdx > 0 && dotDotIdx > atIdx)
                     {
-                        var atIdx = versionRange.IndexOf('@');
-                        var dotDotIdx = versionRange.IndexOf("..", StringComparison.Ordinal);
-                        if (atIdx > 0 && dotDotIdx > atIdx)
-                        {
-                            var pkgName = versionRange[..atIdx];
-                            var toVersion = versionRange[(dotDotIdx + 2)..];
-                            var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
-                            Hints.WriteHint($"dotnet-inspect api <TypeName> {sourceFlag} {pkgName}@{toVersion} --tree   # view current type shape");
-                        }
+                        var pkgName = versionRange[..atIdx];
+                        var toVersion = versionRange[(dotDotIdx + 2)..];
+                        if (!options.Stat && !options.NameOnly)
+                            tips.Add(new(ApiCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --tree", "view current type shape"));
+                        if (!options.Stat)
+                            tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --stat", "summary statistics"));
                     }
                 }
+
+                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+                Hints.WriteTips(tipLevel, [.. tips]);
             }
 
             return exitCode;
@@ -382,12 +403,13 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var findCommand = new Command("find", "Search for types across packages and assemblies");
+        var findCommand = new Command(FindCommand.Name, "Search for types across packages and assemblies");
         findCommand.Aliases.Add("search");
 
         var patternArg = new Argument<string>("pattern")
@@ -451,6 +473,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(nameOnlyOption);
         findCommand.Options.Add(verboseOption);
         findCommand.Options.Add(verbosityOption);
+        findCommand.Options.Add(tipsOption);
         findCommand.Options.Add(sourceOption);
         findCommand.Options.Add(addSourceOption);
         findCommand.Options.Add(nugetConfigOption);
@@ -482,13 +505,19 @@ public static class CommandLineBuilder
             var exitCode = await FindCommand.ExecuteAsync(pattern!, options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            if (exitCode == 0 && !options.JsonOutput && verbosity != Verbosity.Quiet
-                && !options.OneLine && !options.NameOnly)
+            var tipLevel = options.JsonOutput || verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+
+            if (exitCode == 0 && !options.OneLine && !options.NameOnly)
             {
-                // Suggest api --tree for drilling into results
                 var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
                 var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <assembly>";
-                Hints.WriteHint($"dotnet-inspect api <TypeName> {sourceFlag} --tree   # view type shape");
+
+                Hints.WriteTips(tipLevel,
+                    new(ApiCommand.Name, $"<TypeName> {sourceFlag} --tree", "view type shape"),
+                    new(FindCommand.Name, $"{pattern} {sourceFlag} --terse", "compact output"),
+                    new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results"),
+                    new(LlmsTxtCommand.Name, "", "complete usage examples"));
             }
 
             return exitCode;
@@ -568,7 +597,7 @@ public static class CommandLineBuilder
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption)
     {
-        var platformCommand = new Command("platform", "List installed frameworks and assemblies, or inspect a platform assembly");
+        var platformCommand = new Command(PlatformCommand.Name, "List installed frameworks and assemblies, or inspect a platform assembly");
 
         var assemblyNameArg = new Argument<string?>("assembly")
         {
@@ -778,6 +807,7 @@ public static class CommandLineBuilder
         Option<bool> markoutOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption,
         Option<int?> limitOption,
@@ -785,7 +815,7 @@ public static class CommandLineBuilder
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var packageCommand = new Command("package", "Inspect a NuGet package");
+        var packageCommand = new Command(PackageCommand.Name, "Inspect a NuGet package");
 
         var packageNameArg = new Argument<string[]>("package")
         {
@@ -837,6 +867,7 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(markoutOption);
         packageCommand.Options.Add(verboseOption);
         packageCommand.Options.Add(verbosityOption);
+        packageCommand.Options.Add(tipsOption);
         packageCommand.Options.Add(includeSectionsOption);
         packageCommand.Options.Add(excludeSectionsOption);
         packageCommand.Options.Add(sourceOption);
@@ -924,12 +955,28 @@ public static class CommandLineBuilder
 
             var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options, explicitVersion);
 
-            if (exitCode == 0 && !options.JsonOutput && options.Verbosity != Verbosity.Quiet
-                && packageArgs.Length > 0 && !options.ListVersions && !options.ListFiles && !options.ListTfms && !options.Discover && !options.ShowReadme)
+            var tipLevel = options.JsonOutput || options.Verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+
+            if (exitCode == 0 && packageArgs.Length > 0
+                && !options.ListVersions && !options.ListFiles && !options.ListTfms && !options.Discover && !options.ShowReadme)
             {
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
-                Hints.WriteHint($"dotnet-inspect api --package {pkg}   # view public API surface");
+
+                var tips = new List<Tip>();
+
+                if (options.Verbosity < Verbosity.Detailed)
+                    tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
+
+                tips.Add(new(ApiCommand.Name, $"--package {pkg}", "view public API surface"));
+                tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
+                tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
+                tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
+                tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
+                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+                Hints.WriteTips(tipLevel, [.. tips]);
             }
 
             return exitCode;
@@ -942,6 +989,7 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -963,6 +1011,7 @@ public static class CommandLineBuilder
         auditCommand.Options.Add(jsonOption);
         auditCommand.Options.Add(verboseOption);
         auditCommand.Options.Add(verbosityOption);
+        auditCommand.Options.Add(tipsOption);
         auditCommand.Options.Add(sourceOption);
         auditCommand.Options.Add(addSourceOption);
         auditCommand.Options.Add(nugetConfigOption);
@@ -1004,13 +1053,17 @@ public static class CommandLineBuilder
 
                         if (platformError == null && platformPath != null)
                         {
+                            var cmd = VersionInfo.ToolName;
                             Console.Error.WriteLine($"'{bareName}' is available as both a NuGet package and a platform assembly.");
                             Console.Error.WriteLine();
-                            Console.Error.WriteLine($"  dotnet-inspect audit {bareName}@<version>       # audit NuGet package (specific version)");
-                            Console.Error.WriteLine($"  dotnet-inspect package {bareName} --audit        # audit NuGet package (latest)");
-                            Console.Error.WriteLine($"  dotnet-inspect platform {bareName} --audit       # audit platform assembly");
-                            Console.Error.WriteLine();
-                            Console.Error.WriteLine($"Tip: Use 'dotnet-inspect package {bareName} --versions -n 5' to find recent versions.");
+                            Console.Error.WriteLine($"  {cmd} audit {bareName}@<version>       # audit NuGet package (specific version)");
+                            Console.Error.WriteLine($"  {cmd} {PackageCommand.Name} {bareName} --audit        # audit NuGet package (latest)");
+                            Console.Error.WriteLine($"  {cmd} {PlatformCommand.Name} {bareName} --audit       # audit platform assembly");
+
+                            var disambigTipLevel = jsonOutput || verbosity == Verbosity.Quiet
+                                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+                            Hints.WriteTips(disambigTipLevel,
+                                new Tip(PackageCommand.Name, $"{bareName} --versions -n 5", "find recent versions"));
                             failures++;
                             continue;
                         }
@@ -1045,16 +1098,21 @@ public static class CommandLineBuilder
                 }
             }
 
-            if (failures == 0 && !jsonOutput && verbosity != Verbosity.Quiet)
+            var auditTipLevel = jsonOutput || verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+
+            if (failures == 0)
             {
-                // Hint about --sourcelink for quick checks when auditing packages
                 var firstTarget = targets[0];
                 bool firstIsFile = firstTarget.Contains('/') || firstTarget.Contains('\\') ||
                                    firstTarget.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
                                    firstTarget.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
                 if (!firstIsFile)
                 {
-                    Hints.WriteHint($"dotnet-inspect package {firstTarget} --sourcelink   # quick SourceLink check (no verification)");
+                    Hints.WriteTips(auditTipLevel,
+                        new(PackageCommand.Name, $"{firstTarget} --symbols", "quick SourceLink check"),
+                        new(PackageCommand.Name, $"{firstTarget} -v:d", "detailed package metadata"),
+                        new(ApiCommand.Name, $"--package {firstTarget}", "view public API surface"));
                 }
             }
 
@@ -1190,7 +1248,7 @@ public static class CommandLineBuilder
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var apiCommand = new Command("api", "Extract public API surface");
+        var apiCommand = new Command(ApiCommand.Name, "Extract public API surface");
 
         var argsArg = new Argument<string[]>("args")
         {
@@ -1351,6 +1409,23 @@ public static class CommandLineBuilder
             "n" or "normal" => Verbosity.Normal,
             "d" or "detailed" => Verbosity.Detailed,
             _ => Verbosity.Minimal
+        };
+    }
+
+    public static TipLevel ParseTipLevel(string? value)
+    {
+        // --tips flag takes precedence, then DOTNET_INSPECT_TIPS env var, then default
+        if (string.IsNullOrEmpty(value))
+            value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
+        if (string.IsNullOrEmpty(value)) return TipLevel.Minimal;
+
+        var v = value.TrimStart(':').ToLowerInvariant();
+        return v switch
+        {
+            "q" or "quiet" => TipLevel.Quiet,
+            "m" or "minimal" => TipLevel.Minimal,
+            "d" or "detailed" => TipLevel.Detailed,
+            _ => TipLevel.Minimal
         };
     }
 

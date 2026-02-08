@@ -7,6 +7,7 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class LlmsTxtCommand
 {
+    public const string Name = "llmstxt";
     public static int Execute()
     {
         var assembly = Assembly.GetExecutingAssembly();
