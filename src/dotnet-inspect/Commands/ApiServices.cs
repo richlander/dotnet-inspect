@@ -1,6 +1,4 @@
 using DotnetInspector.Packages;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -331,6 +329,30 @@ internal static class ApiServices
         }
     }
 
+    // ===== PDB Acquisition Helper =====
+
+    /// <summary>
+    /// Orchestrates PDB download for a PdbContext. Shared by AssemblyCommand and API enrichment.
+    /// </summary>
+    internal static async Task AcquirePdbAsync(
+        PdbContext context, HttpClient httpClient,
+        string? packageName, string? packageVersion,
+        bool isPlatformAssembly, Action<string>? log)
+    {
+        if (!context.NeedsPdb) return;
+
+        var downloader = new SymbolPackageDownloader(httpClient);
+        var result = await downloader.DownloadPdbAsync(
+            context.PdbId!.Guid, context.PdbId.Age, context.PdbId.PdbFileName,
+            context.PdbId.IsPortable, context.AssemblyPath,
+            packageName, packageVersion, log, isPlatformAssembly);
+
+        if (result.PdbFilePath != null)
+            context.LoadPdbFromFile(result.PdbFilePath, "Symbol Package", result.SymbolServer);
+        else if (result.WindowsPdbDetected)
+            context.WindowsPdbDetected = true;
+    }
+
     // ===== Enrichment Pipeline =====
 
     internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
@@ -343,10 +365,9 @@ internal static class ApiServices
 
         try
         {
-            using FileStream stream = File.OpenRead(dllPath);
-            using PEReader peReader = new(stream);
+            using var context = PdbContext.Open(dllPath, logger.Log);
 
-            if (!peReader.HasMetadata)
+            if (!context.HasMetadata)
             {
                 logger.Log("No metadata in assembly, cannot resolve source.");
                 return;
@@ -364,12 +385,10 @@ internal static class ApiServices
                 }
             }
 
-            var symbolDownloader = new SymbolPackageDownloader(httpClient);
-            var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-                peReader, dllPath, packageName, packageVersion, logger.Log,
-                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
+            await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
+                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
 
-            if (pdbResult.Reader == null || pdbResult.Provider == null)
+            if (!context.HasPdb)
             {
                 if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
                 {
@@ -379,7 +398,7 @@ internal static class ApiServices
                 }
 
                 Console.Error.WriteLine();
-                if (pdbResult.WindowsPdbDetected)
+                if (context.WindowsPdbDetected)
                 {
                     Console.Error.WriteLine("Warning: PDB could not be read (Windows PDB format is not supported).");
                     Console.Error.WriteLine("         Only Portable PDBs are supported. Consider asking the maintainer");
@@ -394,23 +413,16 @@ internal static class ApiServices
                 return;
             }
 
-            var pdbReader = pdbResult.Reader;
-            var pdbProvider = pdbResult.Provider;
-
-            using var _ = pdbProvider;
-            var metadataReader = peReader.GetMetadataReader();
-
-            var resolver = SourceLinkResolver.Create(pdbReader);
-            if (resolver == null)
+            if (!context.HasSourceLink)
             {
                 logger.Log("No SourceLink information found in PDB.");
                 return;
             }
 
-            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeName);
+            var sourceInfo = context.ResolveTypeSource(typeName);
             if (sourceInfo == null)
             {
-                var forwardTarget = FindTypeForwarderTarget(metadataReader, typeName);
+                var forwardTarget = context.FindTypeForwarder(typeName);
                 if (forwardTarget != null)
                 {
                     logger.Log($"Type '{typeName}' is forwarded to '{forwardTarget}'.");
@@ -542,23 +554,20 @@ internal static class ApiServices
             }
         }
 
-        using FileStream stream = File.OpenRead(dllPath);
-        using PEReader peReader = new(stream);
+        using var context = PdbContext.Open(dllPath, logger.Log);
 
-        if (!peReader.HasMetadata)
+        if (!context.HasMetadata)
         {
             logger.Log("No metadata in assembly, cannot resolve source.");
             return;
         }
 
-        var symbolDownloader = new SymbolPackageDownloader(httpClient);
-        var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-            peReader, dllPath, packageName, packageVersion, logger.Log,
-            isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
+        await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
+            isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
 
-        if (pdbResult.Reader == null || pdbResult.Provider == null)
+        if (!context.HasPdb)
         {
-            if (pdbResult.WindowsPdbDetected)
+            if (context.WindowsPdbDetected)
             {
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("Warning: PDB could not be read (Windows PDB format is not supported).");
@@ -568,12 +577,11 @@ internal static class ApiServices
             return;
         }
 
-        using var _ = pdbResult.Provider;
-        var pdbReader = pdbResult.Reader;
-        var metadataReader = peReader.GetMetadataReader();
+        var resolver = context.GetResolver();
+        var pdbReader = context.GetPdbReader();
+        var metadataReader = context.GetMetadataReader();
 
-        var resolver = SourceLinkResolver.Create(pdbReader);
-        if (resolver == null)
+        if (resolver == null || pdbReader == null || metadataReader == null)
         {
             logger.Log("No SourceLink information found in PDB.");
             return;
@@ -854,10 +862,9 @@ internal static class ApiServices
     {
         try
         {
-            using FileStream stream = File.OpenRead(dllPath);
-            using PEReader peReader = new(stream);
+            using var context = PdbContext.Open(dllPath, logger.Log);
 
-            if (!peReader.HasMetadata)
+            if (!context.HasMetadata)
                 return null;
 
             string? packageName = null;
@@ -871,17 +878,10 @@ internal static class ApiServices
                 }
             }
 
-            var symbolDownloader = new SymbolPackageDownloader(httpClient);
-            var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-                peReader, dllPath, packageName, packageVersion, logger.Log,
-                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly));
+            await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
+                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
 
-            if (pdbResult.Reader == null || pdbResult.Provider == null)
-                return null;
-
-            using var _ = pdbResult.Provider;
-
-            return SourceLinkResolver.ExtractRepositoryUrl(pdbResult.Reader);
+            return context.ExtractRepositoryUrl();
         }
         catch (Exception ex)
         {
@@ -891,30 +891,6 @@ internal static class ApiServices
     }
 
     // ===== Private Enrichment Helpers =====
-
-    private static string? FindTypeForwarderTarget(MetadataReader reader, string typeName)
-    {
-        foreach (var exportedTypeHandle in reader.ExportedTypes)
-        {
-            var exportedType = reader.GetExportedType(exportedTypeHandle);
-            if (!exportedType.IsForwarder)
-                continue;
-
-            var name = reader.GetString(exportedType.Name);
-            var ns = reader.GetString(exportedType.Namespace);
-            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-
-            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase))
-            {
-                if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
-                {
-                    var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
-                    return reader.GetString(assemblyRef.Name);
-                }
-            }
-        }
-        return null;
-    }
 
     private static async Task<bool> TryEnrichFromForwardedAssemblyAsync(
         ApiType apiType,
