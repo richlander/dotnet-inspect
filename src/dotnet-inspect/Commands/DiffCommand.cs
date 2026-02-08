@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using Markout;
@@ -113,8 +114,8 @@ public class DiffCommand
             Verbose = options.Verbose
         };
 
-        var (fromSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(fromOptions, logger, httpClient);
-        var (toSurface, _) = await ApiCommand.ExtractApiSurfaceAsync(toOptions, logger, httpClient);
+        var (fromSurface, _) = await ApiServices.ExtractApiSurfaceAsync(fromOptions, logger, httpClient);
+        var (toSurface, _) = await ApiServices.ExtractApiSurfaceAsync(toOptions, logger, httpClient);
 
         if (fromSurface == null || toSurface == null)
         {
@@ -229,12 +230,12 @@ public class DiffCommand
             {
                 var simpleName = fullName.Contains('.') ? fullName.Split('.').Last() : fullName;
                 // Convert generic types for matching (e.g., Option`1 -> Option<T>)
-                var convertedSimple = ApiCommand.ConvertGenericTypeName(simpleName);
-                var convertedFull = ApiCommand.ConvertGenericTypeName(fullName);
+                var convertedSimple = ApiServices.ConvertGenericTypeName(simpleName);
+                var convertedFull = ApiServices.ConvertGenericTypeName(fullName);
 
                 return options.TypeFilter.Any(f =>
                 {
-                    var convertedFilter = ApiCommand.ConvertGenericTypeName(f);
+                    var convertedFilter = ApiServices.ConvertGenericTypeName(f);
                     bool isGlob = f.Contains('*') || f.Contains('?');
 
                     if (isGlob)

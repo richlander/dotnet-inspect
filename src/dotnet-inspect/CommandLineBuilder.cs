@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "audit", "api", "api2", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "audit", "api", "type", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -73,12 +73,8 @@ public static class CommandLineBuilder
         // Commands in alphabetical order (llmstxt last as meta command)
         
         // API command
-        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
-
-        // API2 command (hybrid serializer + imperative rendering)
-        var api2Command = CreateApi2Command(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
-        rootCommand.Subcommands.Add(api2Command);
 
         // Audit command (opinionated, always strict)
         var auditCommand = CreateAuditCommand(jsonOption, verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -1166,148 +1162,12 @@ public static class CommandLineBuilder
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
         Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
-    {
-        var apiCommand = new Command("api", "Extract public API surface");
-
-        var typeNameArg = new Argument<string?>("type")
-        {
-            Description = "Type name (full or simple). If omitted, lists all types.",
-            Arity = ArgumentArity.ZeroOrOne
-        };
-        typeNameArg.DefaultValueFactory = _ => null;
-
-        var apiPackageOption = new Option<string?>("--package") { Description = "Extract from package (file, name, or name@version)" };
-        var apiAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path (local file, or relative path within package)" };
-        var apiPlatformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
-        var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
-        var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
-        var interfacesOption = new Option<bool>("--interfaces") { Description = "Show implemented interfaces" };
-        var hierarchyOption = new Option<bool>("--hierarchy") { Description = "Show type hierarchy (base, interfaces, derived types)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
-        var filterOption = new Option<string?>("--filter") { Description = "Filter type names by glob pattern (e.g., *Json*, Progress*)" };
-        var memberOption = new Option<string[]>("-m")
-        {
-            Description = "Filter to specific member(s)",
-            AllowMultipleArgumentsPerToken = true
-        };
-        memberOption.Aliases.Add("--member");
-        var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
-        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Use XML doc files from packs directory (offline, implies --docs)" };
-        var samplesOption = new Option<bool>("--samples") { Description = "Fetch and display code samples from source" };
-        var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter to types with sourcelink resolution" };
-        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
-        var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
-        var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
-        var fieldsOnlyOption = new Option<bool>("--fields-only") { Description = "Show only type info (source URL, docs) without member tables" };
-
-        apiCommand.Arguments.Add(typeNameArg);
-        apiCommand.Options.Add(apiPackageOption);
-        apiCommand.Options.Add(apiAssemblyOption);
-        apiCommand.Options.Add(apiPlatformOption);
-        apiCommand.Options.Add(apiFrameworkOption);
-        apiCommand.Options.Add(apiTfmOption);
-        apiCommand.Options.Add(interfacesOption);
-        apiCommand.Options.Add(hierarchyOption);
-        apiCommand.Options.Add(allOption);
-        apiCommand.Options.Add(filterOption);
-        apiCommand.Options.Add(memberOption);
-        apiCommand.Options.Add(ctorOption);
-        apiCommand.Options.Add(limitOption);
-        apiCommand.Options.Add(docsOption);
-        apiCommand.Options.Add(useLocalDocsOption);
-        apiCommand.Options.Add(samplesOption);
-        apiCommand.Options.Add(sourcelinkOnlyOption);
-        apiCommand.Options.Add(browsableUrlsOption);
-        apiCommand.Options.Add(jsonOption);
-        apiCommand.Options.Add(compactOption);
-        apiCommand.Options.Add(signaturesOnlyOption);
-        apiCommand.Options.Add(unsafeOption);
-        apiCommand.Options.Add(fieldsOnlyOption);
-        apiCommand.Options.Add(markoutOption);
-        apiCommand.Options.Add(verboseOption);
-        apiCommand.Options.Add(verbosityOption);
-        apiCommand.Options.Add(sourceOption);
-        apiCommand.Options.Add(addSourceOption);
-        apiCommand.Options.Add(nugetConfigOption);
-
-        apiCommand.SetAction(async (parseResult, ct) =>
-        {
-            var typeName = parseResult.GetValue(typeNameArg);
-            var members = parseResult.GetValue(memberOption);
-            var ctorOnly = parseResult.GetValue(ctorOption);
-
-            // If --ctor is specified, add .ctor to member filter
-            HashSet<string>? memberFilter = null;
-            if (ctorOnly)
-            {
-                memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
-            }
-            else if (members?.Length > 0)
-            {
-                memberFilter = new HashSet<string>(members, StringComparer.OrdinalIgnoreCase);
-            }
-
-            var options = new ApiOptions
-            {
-                PackagePath = parseResult.GetValue(apiPackageOption),
-                AssemblyPath = parseResult.GetValue(apiAssemblyOption),
-                PlatformAssembly = parseResult.GetValue(apiPlatformOption),
-                PlatformFramework = parseResult.GetValue(apiFrameworkOption),
-                Tfm = parseResult.GetValue(apiTfmOption),
-                ShowInterfaces = parseResult.GetValue(interfacesOption),
-                ShowHierarchy = parseResult.GetValue(hierarchyOption),
-                IncludeAll = parseResult.GetValue(allOption),
-                TypeFilter = parseResult.GetValue(filterOption),
-                MemberFilter = memberFilter,
-                Limit = parseResult.GetValue(limitOption),
-                ShowDocs = parseResult.GetValue(docsOption) || parseResult.GetValue(useLocalDocsOption),
-                UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
-                ShowSamples = parseResult.GetValue(samplesOption),
-                SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
-                BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
-                CompactJson = parseResult.GetValue(compactOption),
-                SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
-                UnsafeOnly = parseResult.GetValue(unsafeOption),
-                CtorOnly = ctorOnly,
-                FieldsOnly = parseResult.GetValue(fieldsOnlyOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
-            };
-
-            var exitCode = await ApiCommand.ExecuteAsync(typeName, options);
-
-            if (exitCode == 0 && !options.JsonOutput && options.Verbosity != Verbosity.Quiet
-                && !options.SignaturesOnly && !options.ShowDocs
-                && !string.IsNullOrEmpty(options.PackagePath))
-            {
-                Hints.WriteHint($"dotnet-inspect api --package {options.PackagePath} --docs   # include XML doc comments");
-            }
-
-            return exitCode;
-        });
-
-        return apiCommand;
-    }
-
-    private static Command CreateApi2Command(
-        Option<bool> jsonOption,
-        Option<bool> markoutOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<int?> limitOption,
         Option<string?> includeSectionsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var apiCommand = new Command("api2", "Extract public API surface (hybrid rendering)");
+        var apiCommand = new Command("api", "Extract public API surface");
 
         var argsArg = new Argument<string[]>("args")
         {
@@ -1445,7 +1305,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await Api2Command.ExecuteAsync(typeName, options);
+            return await ApiCommand.ExecuteAsync(typeName, options);
         });
 
         return apiCommand;

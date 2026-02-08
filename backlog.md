@@ -16,7 +16,7 @@ dotnet-inspect sourcelink --assembly ./bin/MyLib.dll           # local assembly
 
 Default output: a table with Type, Source URL, and Resolution (SourceLink/Inferred/XmlDoc) columns for all public types. When a type name is given, output the full source URL for that type (useful for fetching source).
 
-This replaces the current behaviour where Source, Source Resolution, and Partial Type fields appear in the default `api`/`api2` view. Those fields now only appear with `--docs`. A dedicated command surfaces this information more intentionally and avoids the network cost of SourceLink resolution in the default API view.
+This replaces the current behaviour where Source, Source Resolution, and Partial Type fields appear in the default `api` view. Those fields now only appear with `--docs`. A dedicated command surfaces this information more intentionally and avoids the network cost of SourceLink resolution in the default API view.
 
 Could also integrate with the audit command to show SourceLink coverage as part of provenance checks.
 

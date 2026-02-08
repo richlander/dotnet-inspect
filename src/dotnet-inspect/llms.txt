@@ -34,37 +34,25 @@ dotnet-inspect System.Text.Json@8.0.4 -v:d         # Specific version, detailed
 dotnet-inspect System.Text.Json --versions -n 5    # List versions
 ```
 
-### api / api2
+### api
 
-The `api2` command supports positional arguments (no `--package` needed):
-
-```bash
-dotnet-inspect api2 System.Text.Json                              # List all types
-dotnet-inspect api2 System.Text.Json JsonSerializer               # Single type
-dotnet-inspect api2 System.Text.Json JsonSerializer Serialize     # Filter to member(s)
-dotnet-inspect api2 System.Text.Json JsonSerializer -m 'Deseri*'  # Glob member filter
-dotnet-inspect api2 System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
-dotnet-inspect api2 System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass  # Both
-dotnet-inspect api2 System.Text.Json JsonSerializer -s:Methods    # Methods section only
-dotnet-inspect api2 System.Text.Json JsonSerializer -s            # Header only (no sections)
-dotnet-inspect api2 --platform System.Text.Json JsonSerializer    # Platform assembly
-```
-
-Fuzzy matching: misspelled type or member names show "Did you mean?" suggestions.
-
-The `api` command uses explicit flags:
+Supports positional arguments (no `--package` needed) and fuzzy matching for misspelled type/member names.
 
 ```bash
-dotnet-inspect api --package System.Text.Json                     # List all types
-dotnet-inspect api --package System.Text.Json --filter "*Json*"   # Filter by glob
-dotnet-inspect api JsonSerializer --package System.Text.Json      # Single type
-dotnet-inspect api JsonSerializer --package System.Text.Json@9.0.0  # Specific version
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize  # Single member
-dotnet-inspect api JsonSerializer --package System.Text.Json --signatures-only  # Plain output
-dotnet-inspect api 'Option<T>' --package System.CommandLine       # Generic types
-dotnet-inspect api Command --package System.CommandLine --ctor    # Constructors
-dotnet-inspect api JsonSerializer --package Newtonsoft.Json --docs  # With documentation
-dotnet-inspect api --platform System.Text.Json                    # Platform assembly
+dotnet-inspect api System.Text.Json                              # List all types
+dotnet-inspect api System.Text.Json JsonSerializer               # Single type
+dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to member(s)
+dotnet-inspect api System.Text.Json JsonSerializer -m 'Deseri*'  # Glob member filter
+dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
+dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass  # Both
+dotnet-inspect api System.Text.Json JsonSerializer -s:Methods    # Methods section only
+dotnet-inspect api System.Text.Json JsonSerializer -s            # Header only (no sections)
+dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform assembly
+dotnet-inspect api System.Text.Json@9.0.0 JsonSerializer        # Specific version
+dotnet-inspect api System.Text.Json JsonSerializer --signatures-only  # Plain output
+dotnet-inspect api 'Option<T>' --package System.CommandLine      # Generic types
+dotnet-inspect api Command --package System.CommandLine --ctor   # Constructors
+dotnet-inspect api System.Text.Json JsonSerializer --docs        # With documentation
 dotnet-inspect api 'IEnumerable<T>' --platform System.Runtime -v n  # Type parameters with constraints
 ```
 
@@ -255,11 +243,11 @@ dotnet-inspect System.Text.Json -v:d -x:Statistics,Files     # Exclude sections 
 dotnet-inspect System.Text.Json -v:d -s:Metadata             # Include only named sections
 ```
 
-For `api2` command, `-s` and `-x` filter by section name (e.g., Methods, Properties, Constructors):
+For `api` command, `-s` and `-x` filter by section name (e.g., Methods, Properties, Constructors):
 ```bash
-dotnet-inspect api2 System.Text.Json JsonSerializer -s:Methods     # Methods only
-dotnet-inspect api2 System.Text.Json JsonSerializer -x:Properties  # Exclude Properties
-dotnet-inspect api2 System.Text.Json JsonSerializer -s              # Header only (no sections)
+dotnet-inspect api System.Text.Json JsonSerializer -s:Methods     # Methods only
+dotnet-inspect api System.Text.Json JsonSerializer -x:Properties  # Exclude Properties
+dotnet-inspect api System.Text.Json JsonSerializer -s              # Header only (no sections)
 ```
 
 ### JSON

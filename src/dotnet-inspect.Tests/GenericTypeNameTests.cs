@@ -15,7 +15,7 @@ public class GenericTypeNameTests
     [InlineData("Tuple<T1, T2, T3, T4>", "Tuple`4")]
     public void ConvertGenericTypeName_CSharpSyntax_ConvertsToBacktick(string input, string expected)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(expected, result);
     }
@@ -27,7 +27,7 @@ public class GenericTypeNameTests
     [InlineData("JsonSerializer")]
     public void ConvertGenericTypeName_AlreadyBacktickOrNonGeneric_ReturnsUnchanged(string input)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(input, result);
     }
@@ -38,7 +38,7 @@ public class GenericTypeNameTests
     [InlineData("Action<Tuple<int, int>, string>", "Action`2")]
     public void ConvertGenericTypeName_NestedGenerics_CountsTopLevelOnly(string input, string expected)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(expected, result);
     }
@@ -51,7 +51,7 @@ public class GenericTypeNameTests
     [InlineData("IReadOnlyDictionary<TKey, TValue>", "IReadOnlyDictionary`2")]
     public void ConvertGenericTypeName_CommonInterfaces_ConvertsCorrectly(string input, string expected)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(expected, result);
     }
@@ -65,7 +65,7 @@ public class GenericTypeNameTests
     [InlineData("Memory<T>", "Memory`1")]
     public void ConvertGenericTypeName_RealWorldTypes_ConvertsCorrectly(string input, string expected)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(expected, result);
     }
@@ -77,7 +77,7 @@ public class GenericTypeNameTests
     [InlineData(">Bad<", ">Bad<")]    // Malformed - wrong order
     public void ConvertGenericTypeName_EdgeCases_HandlesGracefully(string input, string expected)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(expected, result);
     }
@@ -85,7 +85,7 @@ public class GenericTypeNameTests
     [Fact]
     public void ConvertGenericTypeName_EmptyString_ReturnsEmpty()
     {
-        var result = ApiCommand.ConvertGenericTypeName("");
+        var result = ApiServices.ConvertGenericTypeName("");
 
         Assert.Equal("", result);
     }
@@ -95,7 +95,7 @@ public class GenericTypeNameTests
     [InlineData("System.Collections.Generic.Dictionary<TKey, TValue>", "System.Collections.Generic.Dictionary`2")]
     public void ConvertGenericTypeName_FullyQualifiedNames_ConvertsCorrectly(string input, string expected)
     {
-        var result = ApiCommand.ConvertGenericTypeName(input);
+        var result = ApiServices.ConvertGenericTypeName(input);
 
         Assert.Equal(expected, result);
     }

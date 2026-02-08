@@ -1,5 +1,6 @@
 using System.Text;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using Markout;
@@ -43,7 +44,7 @@ public class SamplesCommand
         HttpClient httpClient)
     {
         // Convert C# generic syntax (List<T>) to metadata format (List`1)
-        typeName = ApiCommand.ConvertGenericTypeName(typeName);
+        typeName = ApiServices.ConvertGenericTypeName(typeName);
 
         var apiOptions = new ApiOptions
         {
@@ -59,7 +60,7 @@ public class SamplesCommand
             FieldsOnly = true
         };
 
-        var (apiType, foundIn) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger, httpClient);
+        var (apiType, foundIn) = await ApiServices.ExtractTypeAsync(typeName, apiOptions, logger, httpClient);
         if (apiType == null)
         {
             Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
@@ -103,7 +104,7 @@ public class SamplesCommand
         };
 
         logger.Log("Extracting samples from all types in assembly...");
-        var (api, selectedTfm) = await ApiCommand.ExtractApiSurfaceAsync(apiOptions, logger, httpClient);
+        var (api, selectedTfm) = await ApiServices.ExtractApiSurfaceAsync(apiOptions, logger, httpClient);
         
         if (api == null)
         {

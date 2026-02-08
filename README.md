@@ -68,21 +68,21 @@ dotnet-inspect platform System.Text.Json           # Inspect assembly
 dotnet-inspect platform System.Text.Json --audit   # Audit platform assembly
 ```
 
-### api2
+### api
 
 Extract public API surface with positional syntax and fuzzy matching.
 
 ```bash
-dotnet-inspect api2 System.Text.Json                              # All types in package
-dotnet-inspect api2 System.Text.Json JsonSerializer               # Specific type
-dotnet-inspect api2 System.Text.Json JsonSerializer Serialize     # Filter to member(s)
-dotnet-inspect api2 System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
-dotnet-inspect api2 System.Text.Json JsonSerializer -s:Methods    # Methods section only
-dotnet-inspect api2 System.Text.Json JsonSerializer -s            # Header only (no sections)
-dotnet-inspect api2 --platform System.Text.Json JsonSerializer    # Platform assembly
+dotnet-inspect api System.Text.Json                              # All types in package
+dotnet-inspect api System.Text.Json JsonSerializer               # Specific type
+dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to member(s)
+dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
+dotnet-inspect api System.Text.Json JsonSerializer -s:Methods    # Methods section only
+dotnet-inspect api System.Text.Json JsonSerializer -s            # Header only (no sections)
+dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform assembly
 ```
 
-Example: `dotnet-inspect api2 System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass`
+Example: `dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass`
 
 ```text
 # System.Text.Json.Nodes.JsonArray (System.Text.Json 10.0.2)
@@ -103,17 +103,6 @@ Kind: class | Modifiers: sealed | Base: System.Text.Json.Nodes.JsonNode | Assemb
 | Type |
 | ---- |
 | System.Text.Json.Nodes.JsonNode |
-```
-
-### api
-
-Extract public API surface (explicit flags).
-
-```bash
-dotnet-inspect api --package System.Text.Json                     # All types
-dotnet-inspect api JsonSerializer --package System.Text.Json      # Specific type
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
-dotnet-inspect api --platform System.Text.Json                    # Platform assembly
 ```
 
 ### assembly
@@ -164,8 +153,8 @@ Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 
 ```bash
 dotnet-inspect System.Text.Json -v:d -x:Statistics,Files   # Exclude by name
-dotnet-inspect api2 System.Text.Json JsonSerializer -s:Methods  # Include only Methods
-dotnet-inspect api2 System.Text.Json JsonSerializer -s      # Header only
+dotnet-inspect api System.Text.Json JsonSerializer -s:Methods  # Include only Methods
+dotnet-inspect api System.Text.Json JsonSerializer -s      # Header only
 ```
 
 ## LLM Integration

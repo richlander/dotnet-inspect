@@ -264,7 +264,7 @@ public class AssemblyCommand
         // If --tfm is specified, find assembly by TFM
         if (!string.IsNullOrEmpty(tfm))
         {
-            var tfmAssembly = ApiCommand.FindAssemblyByTfm(extractPath, tfm);
+            var tfmAssembly = ApiServices.FindAssemblyByTfm(extractPath, tfm);
             if (tfmAssembly == null)
             {
                 Console.Error.WriteLine($"Error: No assembly found for TFM '{tfm}'.");

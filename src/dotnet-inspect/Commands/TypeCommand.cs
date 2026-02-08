@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using Markout;
@@ -13,7 +14,7 @@ public class TypeCommand
     public static async Task<int> ExecuteAsync(string typeName, TypeOptions options)
     {
         // Convert C# generic syntax (List<T>) to metadata format (List`1)
-        typeName = ApiCommand.ConvertGenericTypeName(typeName);
+        typeName = ApiServices.ConvertGenericTypeName(typeName);
 
         // Leverage ApiCommand's infrastructure for package extraction
         var apiOptions = new ApiOptions
@@ -33,7 +34,7 @@ public class TypeCommand
         var logger = context.Logger;
         
         // Use ApiCommand's extraction to get the type
-        (ApiType? type, string? _) = await ApiCommand.ExtractTypeAsync(typeName, apiOptions, logger, context.HttpClient);
+        (ApiType? type, string? _) = await ApiServices.ExtractTypeAsync(typeName, apiOptions, logger, context.HttpClient);
         
         if (type == null)
         {
