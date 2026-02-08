@@ -1,6 +1,4 @@
 using System.IO.Compression;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -19,8 +17,8 @@ public class AssemblyCommand
     public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
     {
         // Check for valid input source
-        if (string.IsNullOrEmpty(assemblyPath) && 
-            string.IsNullOrEmpty(options.PackagePath) && 
+        if (string.IsNullOrEmpty(assemblyPath) &&
+            string.IsNullOrEmpty(options.PackagePath) &&
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
             Console.Error.WriteLine("Error: Assembly path, --package, or --platform required.");
@@ -58,7 +56,7 @@ public class AssemblyCommand
                 }
 
                 logger.Log($"Using platform runtime assembly: {framework} {version}");
-                
+
                 var audit = await InspectAssemblyAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
                 if (audit == null)
                 {
@@ -410,16 +408,12 @@ public class AssemblyCommand
 
         try
         {
-            using FileStream stream = File.OpenRead(path);
-            using PEReader peReader = new(stream);
+            using var pdbContext = PdbContext.Open(path, logger.Log);
 
-            if (!peReader.HasMetadata)
+            if (!pdbContext.HasMetadata)
             {
                 // Native binary - still provide basic info
-                var nativeInfo = AssemblyInspector.CreateNativeInfo(peReader);
-                bool isNativeAot = AssemblyInspector.DetectNativeAot(peReader);
-                nativeInfo.IsNativeAot = isNativeAot;
-                nativeInfo.CompilationType = isNativeAot ? "NativeAOT" : "Native";
+                var nativeInfo = pdbContext.CreateNativeInfo();
 
                 return new AssemblyAudit
                 {
@@ -436,7 +430,7 @@ public class AssemblyCommand
             };
 
             // Always extract basic assembly info
-            audit.AssemblyInfo = AssemblyInspector.ExtractAssemblyInfo(peReader, options.IncludeReferences || options.TransitiveReferences);
+            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences);
 
             // Build transitive reference tree if requested
             if (options.TransitiveReferences && audit.AssemblyInfo?.References != null)
@@ -455,7 +449,7 @@ public class AssemblyCommand
             // Audit if requested
             if (options.IncludeAudit)
             {
-                await AuditAssemblyAsync(peReader, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.StrictAudit);
+                await AuditAssemblyAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.StrictAudit);
             }
 
             return audit;
@@ -467,7 +461,7 @@ public class AssemblyCommand
     }
 
     private static async Task AuditAssemblyAsync(
-        PEReader peReader,
+        PdbContext pdbContext,
         AssemblyAudit audit,
         string assemblyPath,
         string? packageName,
@@ -477,105 +471,47 @@ public class AssemblyCommand
         bool isPlatformAssembly = false,
         bool strictAudit = false)
     {
-        MetadataReaderProvider? embeddedPdbProvider = null;
-        IDisposable? externalPdbProvider = null;
-        MetadataReader? pdbReader = null;
-        foreach (var entry in peReader.ReadDebugDirectory())
+        // Populate audit from PdbContext properties (debug directory already read by Open)
+        audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
+        audit.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
+        audit.PdbPath = pdbContext.CodeViewPdbPath;
+        audit.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
+        audit.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
+
+        // If embedded PDB was found, it's already loaded
+        if (pdbContext.HasPdb)
         {
-            if (entry.Type == DebugDirectoryEntryType.Reproducible)
-            {
-                audit.HasReproducibleFlag = true;
-            }
-
-            if (entry.Type == DebugDirectoryEntryType.CodeView)
-            {
-                var cvData = peReader.ReadCodeViewDebugDirectoryData(entry);
-                audit.PdbPath = cvData.Path;
-
-                if (!cvData.Path.StartsWith("/_/", StringComparison.Ordinal) &&
-                    Path.GetDirectoryName(cvData.Path) is string dir && !string.IsNullOrEmpty(dir))
-                {
-                    audit.HasNormalizedPaths = false;
-                    audit.NonNormalizedPaths ??= [];
-                    audit.NonNormalizedPaths.Add($"PDB Path: {cvData.Path}");
-                }
-                else
-                {
-                    audit.HasNormalizedPaths = true;
-                }
-            }
-
-            if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
-            {
-                audit.HasEmbeddedPdb = true;
-                audit.PdbFormat = "Portable";
-                audit.PdbLocation = "Embedded";
-                embeddedPdbProvider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
-                pdbReader = embeddedPdbProvider.GetMetadataReader();
-
-                string? sourceLink = AssemblyInspector.ExtractSourceLinkFromReader(pdbReader);
-                if (sourceLink != null)
-                {
-                    audit.HasSourceLink = true;
-                    audit.SourceLinkJson = sourceLink;
-                }
-            }
+            audit.PdbFormat = pdbContext.PdbFormat;
+            audit.PdbLocation = pdbContext.PdbLocation;
+            audit.HasSourceLink = pdbContext.HasSourceLink;
+            audit.SourceLinkJson = pdbContext.SourceLinkJson;
         }
 
-        // Check for standalone PDB file (if no embedded PDB)
-        if (!audit.HasEmbeddedPdb)
+        // Check for standalone PDB file (already attempted by PdbContext.Open via TryLoadLocalPdb)
+        if (!pdbContext.HasPdb && pdbContext.WindowsPdbDetected)
         {
-            var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
-            if (File.Exists(pdbPath))
+            audit.WindowsPdbDetected = true;
+            audit.PdbFormat = pdbContext.PdbFormat;
+            audit.PdbLocation = pdbContext.PdbLocation;
+        }
+
+        // If no local PDB, try downloading
+        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected)
+        {
+            await ApiServices.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
+
+            if (pdbContext.HasPdb)
             {
-                if (AssemblyInspector.IsWindowsPdb(pdbPath))
-                {
-                    audit.WindowsPdbDetected = true;
-                    audit.PdbFormat = "Windows";
-                    audit.PdbLocation = "Standalone";
-                }
-                else if (AssemblyInspector.IsPortablePdb(pdbPath))
-                {
-                    audit.PdbFormat = "Portable";
-                    audit.PdbLocation = "Standalone";
-                    // Open the PDB reader for potential strict verification
-                    var stream = File.OpenRead(pdbPath);
-                    var standalonePdbProvider = MetadataReaderProvider.FromPortablePdbStream(stream);
-                    externalPdbProvider = standalonePdbProvider;
-                    pdbReader = standalonePdbProvider.GetMetadataReader();
-                    audit.SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(pdbReader);
-                    audit.HasSourceLink = audit.SourceLinkJson != null;
-                }
+                audit.PdbFormat = pdbContext.PdbFormat;
+                audit.PdbLocation = pdbContext.PdbLocation;
+                audit.SymbolServer = pdbContext.SymbolServer;
+                audit.HasSourceLink = pdbContext.HasSourceLink;
+                audit.SourceLinkJson = pdbContext.SourceLinkJson;
             }
-            else
+            else if (pdbContext.WindowsPdbDetected)
             {
-                // No local PDB - try to fetch from symbol package or symbol server
-                var symbolDownloader = new SymbolPackageDownloader(httpClient);
-                var pdbResult = await symbolDownloader.GetPdbReaderAsync(
-                    peReader, assemblyPath, packageName, packageVersion, logger.Log, isPlatformAssembly);
-
-                if (pdbResult.Reader != null && pdbResult.Provider != null)
-                {
-                    externalPdbProvider = pdbResult.Provider;
-                    pdbReader = pdbResult.Reader;
-                    audit.PdbFormat = "Portable";
-                    audit.PdbLocation = "Symbol Package";
-                    audit.SymbolServer = pdbResult.SymbolServer;
-
-                    string? sourceLink = AssemblyInspector.ExtractSourceLinkFromReader(pdbReader);
-                    if (sourceLink != null)
-                    {
-                        audit.HasSourceLink = true;
-                        audit.SourceLinkJson = sourceLink;
-                    }
-                }
-                else if (pdbResult.WindowsPdbDetected)
-                {
-                    audit.WindowsPdbDetected = true;
-                    audit.PdbFormat = "Windows";
-                    // Location unknown - we found it but can't read it
-                }
-                // else: no PDB found, leave Format and Location as null (Unknown)
+                audit.WindowsPdbDetected = true;
+                audit.PdbFormat = "Windows";
             }
         }
 
@@ -605,86 +541,47 @@ public class AssemblyCommand
         audit.Builder = InferBuilder(audit);
 
         // Strict verification: check that all source files are accessible
-        if (strictAudit && pdbReader != null && audit.HasSourceLink && audit.SourceLinkJson != null)
+        if (strictAudit && pdbContext.HasPdb && audit.HasSourceLink && audit.SourceLinkJson != null)
         {
             logger.Log("Running strict source verification...");
-            await VerifySourceAccessibilityAsync(pdbReader, audit, httpClient, logger);
+            await VerifySourceAccessibilityAsync(pdbContext, audit, httpClient, logger);
         }
-
-        // Cleanup PDB providers
-        embeddedPdbProvider?.Dispose();
-        externalPdbProvider?.Dispose();
     }
 
     /// <summary>
     /// Verifies that all source files in the PDB are accessible via SourceLink or embedded.
     /// </summary>
     private static async Task VerifySourceAccessibilityAsync(
-        MetadataReader pdbReader,
+        PdbContext pdbContext,
         AssemblyAudit audit,
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        var sourceLinkMappings = ParseSourceLinkMappings(audit.SourceLinkJson!);
-        if (sourceLinkMappings.Count == 0)
-        {
-            audit.AllSourcesAccessible = false;
-            return;
-        }
-
-        // GUID for embedded source: 0E8A571B-6926-466E-B4AD-8AB04611F5FE
-        var embeddedSourceGuid = new Guid("0E8A571B-6926-466E-B4AD-8AB04611F5FE");
-
         int totalFiles = 0;
         int accessibleFiles = 0;
         int embeddedFiles = 0;
         var missingFiles = new List<string>();
 
-        foreach (var docHandle in pdbReader.Documents)
+        foreach (var doc in pdbContext.EnumerateSourceDocuments())
         {
-            var document = pdbReader.GetDocument(docHandle);
-            string filePath = pdbReader.GetString(document.Name);
+            totalFiles++;
 
-            // Skip non-source files (e.g., compiled resources)
-            if (!filePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) &&
-                !filePath.EndsWith(".vb", StringComparison.OrdinalIgnoreCase) &&
-                !filePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase))
+            if (doc.IsEmbedded)
             {
+                embeddedFiles++;
                 continue;
             }
 
-            totalFiles++;
-
-            // Check if source is embedded
-            bool isEmbedded = false;
-            foreach (var cdiHandle in pdbReader.GetCustomDebugInformation(docHandle))
+            if (doc.ResolvedUrl == null)
             {
-                var cdi = pdbReader.GetCustomDebugInformation(cdiHandle);
-                if (pdbReader.GetGuid(cdi.Kind) == embeddedSourceGuid)
-                {
-                    isEmbedded = true;
-                    embeddedFiles++;
-                    break;
-                }
-            }
-
-            if (isEmbedded)
-            {
-                continue; // Source is embedded, no need to verify URL
-            }
-
-            // Try to resolve SourceLink URL and verify accessibility
-            string? sourceUrl = ApplySourceLinkMapping(filePath, sourceLinkMappings);
-            if (sourceUrl == null)
-            {
-                missingFiles.Add(filePath);
+                missingFiles.Add(doc.FilePath);
                 continue;
             }
 
             // Check if URL is accessible (HTTP HEAD request)
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Head, sourceUrl);
+                using var request = new HttpRequestMessage(HttpMethod.Head, doc.ResolvedUrl);
                 using var response = await httpClient.SendAsync(request);
                 if (response.IsSuccessStatusCode)
                 {
@@ -692,14 +589,14 @@ public class AssemblyCommand
                 }
                 else
                 {
-                    missingFiles.Add(filePath);
-                    logger.Log($"  Source not accessible: {filePath} ({response.StatusCode})");
+                    missingFiles.Add(doc.FilePath);
+                    logger.Log($"  Source not accessible: {doc.FilePath} ({response.StatusCode})");
                 }
             }
             catch
             {
-                missingFiles.Add(filePath);
-                logger.Log($"  Source not accessible: {filePath} (request failed)");
+                missingFiles.Add(doc.FilePath);
+                logger.Log($"  Source not accessible: {doc.FilePath} (request failed)");
             }
         }
 
@@ -710,48 +607,6 @@ public class AssemblyCommand
         audit.MissingSourceFiles = missingFiles.Count > 0 ? missingFiles : null;
 
         logger.Log($"Source coverage: {accessibleFiles + embeddedFiles}/{totalFiles} files accessible");
-    }
-
-    private static Dictionary<string, string> ParseSourceLinkMappings(string sourceLinkJson)
-    {
-        var mappings = new Dictionary<string, string>();
-        try
-        {
-            using var doc = JsonDocument.Parse(sourceLinkJson);
-            if (doc.RootElement.TryGetProperty("documents", out var documents))
-            {
-                foreach (var prop in documents.EnumerateObject())
-                {
-                    mappings[prop.Name] = prop.Value.GetString() ?? "";
-                }
-            }
-        }
-        catch
-        {
-            // Invalid JSON
-        }
-        return mappings;
-    }
-
-    private static string? ApplySourceLinkMapping(string filePath, Dictionary<string, string> mappings)
-    {
-        foreach (var (pattern, urlTemplate) in mappings)
-        {
-            if (pattern.EndsWith("*"))
-            {
-                string prefix = pattern[..^1];
-                if (filePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    string relativePath = filePath[prefix.Length..];
-                    return urlTemplate.Replace("*", relativePath);
-                }
-            }
-            else if (filePath.Equals(pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                return urlTemplate;
-            }
-        }
-        return null;
     }
 
     /// <summary>

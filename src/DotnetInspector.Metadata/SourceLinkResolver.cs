@@ -328,7 +328,7 @@ public class SourceLinkResolver
     /// <summary>
     /// Applies SourceLink URL pattern to convert a file path to a source URL.
     /// </summary>
-    private string? ApplySourceLinkMapping(string filePath)
+    public string? ApplySourceLinkMapping(string filePath)
     {
         filePath = filePath.Replace('\\', '/');
 
