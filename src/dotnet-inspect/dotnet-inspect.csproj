@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>14.0</LangVersion>
-    <IsAotCompatible>true</IsAotCompatible>
     <RollForward>LatestMajor</RollForward>
     <!-- Size optimizations for Native AOT (11M → 9.8M) -->
     <StackTraceSupport>false</StackTraceSupport>

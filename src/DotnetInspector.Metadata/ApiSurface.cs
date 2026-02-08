@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Markout;
 
 namespace DotnetInspector.Metadata;
 
@@ -16,6 +17,7 @@ public class DocComment
     /// <summary>
     /// Sample code references extracted from doc comments.
     /// </summary>
+    [MarkoutIgnoreInTable]
     public List<SampleReference>? Samples { get; set; }
 }
 
@@ -77,6 +79,7 @@ public class ApiSurface
     /// </summary>
     public string? Name { get; set; }
 
+    [MarkoutIgnoreInTable]
     public List<ApiType> Types { get; set; } = [];
 
     public int PublicTypeCount { get; set; }
@@ -98,6 +101,7 @@ public class ApiSurface
     /// <summary>
     /// Type forwarders in this assembly (types re-exported from other assemblies).
     /// </summary>
+    [MarkoutIgnoreInTable]
     public List<TypeForwarder> TypeForwarders { get; set; } = [];
 
     /// <summary>
@@ -142,6 +146,7 @@ public class TypeParameter
     /// Includes special constraints (class, struct, notnull, unmanaged, new())
     /// and type constraints (interfaces, base class).
     /// </summary>
+    [MarkoutIgnoreInTable]
     public List<string> Constraints { get; set; } = [];
 
     /// <summary>
@@ -170,18 +175,22 @@ public class ApiType
     public bool IsStatic { get; set; }
 
     public string? BaseType { get; set; }
+    [MarkoutIgnoreInTable]
     public List<string>? Interfaces { get; set; }
 
     /// <summary>
     /// Known derived types within the same assembly.
     /// </summary>
+    [MarkoutIgnoreInTable]
     public List<string>? DerivedTypes { get; set; }
 
     /// <summary>
     /// Generic type parameters with their constraints.
     /// </summary>
+    [MarkoutIgnoreInTable]
     public List<TypeParameter>? TypeParameters { get; set; }
 
+    [MarkoutIgnoreInTable]
     public List<ApiMember>? Members { get; set; }
 
     // Source information (populated with --source-url)
@@ -207,6 +216,7 @@ public class ApiType
     /// Additional source files for partial types. Only populated when type spans multiple files.
     /// </summary>
     [JsonPropertyName("additional_source_files")]
+    [MarkoutIgnoreInTable]
     public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
 
     /// <summary>
@@ -216,6 +226,7 @@ public class ApiType
     public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
 
     // Documentation (populated with --docs)
+    [MarkoutIgnoreInTable]
     public DocComment? Documentation { get; set; }
 }
 
@@ -253,5 +264,6 @@ public class ApiMember
     public int? SourceLineNumber { get; set; }
 
     // Documentation (populated with --docs)
+    [MarkoutIgnoreInTable]
     public DocComment? Documentation { get; set; }
 }

@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>14.0</LangVersion>
-    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -17,6 +16,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect" />
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
+  </ItemGroup>
+
+  <!-- Markout attribute-only: ExcludeAssets="analyzers" skips source gen, keeps [MarkoutIgnoreInTable] -->
+  <ItemGroup>
+    <PackageReference Include="Markout" Version="0.3.1" ExcludeAssets="analyzers" />
   </ItemGroup>
 
   <!-- System.Reflection.Metadata is part of net10.0 BCL -->
