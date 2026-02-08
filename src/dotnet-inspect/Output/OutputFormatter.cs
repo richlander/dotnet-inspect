@@ -1,6 +1,4 @@
-using System.Text;
 using System.Text.Json;
-using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using Markout;
 
@@ -70,106 +68,42 @@ public static class OutputFormatter
         }
         else
         {
-            Console.WriteLine(RenderAssemblyMarkdown(audit, options));
+            var context = new MarkoutContext(new MarkoutWriterOptions
+            {
+                ExcludeSections = GetAuditExcludeSections(options)
+            });
+            Console.WriteLine(context.Serialize(audit).TrimEnd());
         }
     }
 
-    private static string RenderAssemblyMarkdown(AssemblyAudit audit, AssemblyOptions options)
+    public static void WriteAssemblyResults(List<AssemblyAudit> audits, AssemblyOptions options)
     {
-        // Determine which sections to exclude
-        HashSet<string>? excludeSections = null;
-        if (!options.IncludeAudit)
+        if (options.JsonOutput)
         {
-            excludeSections = ["Build Audit", "PDB", "Source Coverage"];
+            Console.WriteLine(JsonSerializer.Serialize(audits.ToArray(), JsonContext.Default.AssemblyAuditArray));
         }
-
-        var context = new MarkoutContext(new MarkoutWriterOptions
+        else
         {
-            ExcludeSections = excludeSections
-        });
-
-        var output = context.Serialize(audit);
-
-        // Append sections that need imperative rendering
-        var writer = new MarkoutWriter();
-
-        // Assembly References (tree vs table format requires imperative control)
-        if (audit.AssemblyInfo != null)
-        {
-            var info = audit.AssemblyInfo;
-            if (info.TransitiveReferences is { Count: > 0 })
+            var report = new AssemblyAuditReport
             {
-                writer.WriteHeading(2, "Assembly References (Transitive)");
-                var refTree = BuildReferenceTree(info.TransitiveReferences);
-                writer.WriteTree(refTree);
-            }
-            else if (info.References is { Count: > 0 })
-            {
-                writer.WriteHeading(2, "Assembly References");
-                var refRows = info.References.OrderBy(r => r.Name)
-                    .Select(r => new[] { r.Name, r.Version, r.PublicKeyToken ?? "-" });
-                writer.WriteTable(new[] { "Name", "Version", "Public Key Token" }, refRows);
-            }
-        }
-
-        if (options.IncludeAudit)
-        {
-            // RepositoryUrl and NonNormalizedPaths appear before the audit table
-            // but after the Assembly Info section — append them here
-            if (!string.IsNullOrEmpty(audit.RepositoryUrl))
-            {
-                writer.WriteField("Repository", audit.RepositoryUrl);
-            }
-
-            if (audit.NonNormalizedPaths is { Count: > 0 })
-            {
-                writer.WriteArray("Non-normalized paths", audit.NonNormalizedPaths);
-            }
-
-            // Windows PDB warning
-            if (audit.PdbLocation == null && !string.IsNullOrEmpty(audit.PdbPath))
-            {
-                writer.WriteParagraph("*Path is from the CodeView record in the assembly; actual PDB location is unknown.*");
-            }
-
-            if (audit.WindowsPdbDetected)
-            {
-                writer.WriteParagraph("**Note:** Windows PDB format is not supported by this tool.");
-                writer.WriteParagraph("Only Portable PDBs (embedded or in .snupkg) can be read.");
-                writer.WriteParagraph("Consider asking the package maintainer to publish Portable PDBs.");
-            }
-
-            // Missing source files (truncated to 10)
-            if (audit.MissingSourceFiles is { Count: > 0 })
-            {
-                var displayFiles = audit.MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
-                if (audit.MissingSourceFiles.Count > 10)
-                {
-                    displayFiles.Add($"... and {audit.MissingSourceFiles.Count - 10} more");
-                }
-                writer.WriteArray("Missing sources", displayFiles);
-            }
-        }
-
-        var additional = writer.ToString();
-        return (output + additional).TrimEnd();
-    }
-
-    private static List<TreeNode> BuildReferenceTree(List<AssemblyReferenceNode> nodes)
-    {
-        var result = new List<TreeNode>();
-        foreach (var node in nodes)
-        {
-            var icon = node.ResolvedFrom switch
-            {
-                "local" => "📁",
-                "platform" => "🚢",
-                _ => "❓"
+                Title = Path.GetFileNameWithoutExtension(audits[0].FileName),
+                Assemblies = audits
             };
-            var suffix = node.IsCyclic ? " (circular)" : "";
-            result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", icon));
+            var context = new MarkoutContext(new MarkoutWriterOptions
+            {
+                ExcludeSections = GetAuditExcludeSections(options)
+            });
+            Console.WriteLine(context.Serialize(report).TrimEnd());
         }
-        return result;
+    }
+
+    private static HashSet<string>? GetAuditExcludeSections(AssemblyOptions options)
+    {
+        if (!options.HasAuditTier)
+            return ["Symbols", "Source Coverage", "Non-normalized Paths", "Missing Sources"];
+        if (!options.IncludeSourcelinkAudit)
+            return ["Source Coverage", "Missing Sources"];
+        return null;
     }
 
     /// <summary>

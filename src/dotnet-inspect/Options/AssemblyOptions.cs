@@ -8,9 +8,25 @@ namespace DotnetInspector.Options;
 public record AssemblyOptions
 {
     /// <summary>
-    /// Include SourceLink and determinism audit.
+    /// Show PE metadata (Assembly Info section: name, version, TFM, arch, signed, etc.).
     /// </summary>
-    public bool IncludeAudit { get; init; }
+    public bool IncludeMetadata { get; init; }
+
+    /// <summary>
+    /// Show symbol information (Build Audit + PDB sections). Implies IncludeMetadata.
+    /// </summary>
+    public bool IncludeSymbols { get; init; }
+
+    /// <summary>
+    /// Verify SourceLink URLs are fetchable and all source files are accessible.
+    /// Implies IncludeSymbols.
+    /// </summary>
+    public bool IncludeSourcelinkAudit { get; init; }
+
+    /// <summary>
+    /// Whether any audit tier is enabled (symbols or sourcelink-audit).
+    /// </summary>
+    public bool HasAuditTier => IncludeSymbols || IncludeSourcelinkAudit;
 
     /// <summary>
     /// Include assembly references in output.
@@ -21,12 +37,6 @@ public record AssemblyOptions
     /// Include transitive assembly references (full dependency tree).
     /// </summary>
     public bool TransitiveReferences { get; init; }
-
-    /// <summary>
-    /// Enable strict audit mode: verify SourceLink URLs are fetchable
-    /// and all source files are accessible or embedded.
-    /// </summary>
-    public bool StrictAudit { get; init; }
 
     /// <summary>
     /// Path to a NuGet package to extract the assembly from.
@@ -92,6 +102,6 @@ public record AssemblyOptions
     /// </summary>
     public static AssemblyOptions All => new()
     {
-        IncludeAudit = true
+        IncludeSourcelinkAudit = true
     };
 }
