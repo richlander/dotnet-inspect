@@ -9,6 +9,7 @@ namespace DotnetInspector;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(InspectionResult))]
 [JsonSerializable(typeof(AssemblyAudit))]
+[JsonSerializable(typeof(AssemblyAudit[]))]
 [JsonSerializable(typeof(RidPackageReference))]
 public partial class JsonContext : JsonSerializerContext
 {

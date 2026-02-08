@@ -18,6 +18,11 @@ public record InspectionOptions
     public bool ListFiles { get; init; }
 
     /// <summary>
+    /// List target frameworks in the package, one per line.
+    /// </summary>
+    public bool ListTfms { get; init; }
+
+    /// <summary>
     /// When listing files, include all files (not just .dll files).
     /// </summary>
     public bool ListAllFiles { get; init; }

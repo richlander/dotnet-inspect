@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Inspectors;
@@ -79,45 +80,29 @@ public class AssemblyCommand
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
                 tempDir = extractTempDir;
 
-                // Verify package signature if --audit is specified and nupkg is available
+                // Verify package signature if symbols or sourcelink-audit is specified and nupkg is available
                 SignatureVerificationResult? signatureResult = null;
-                if (options.IncludeAudit && nupkgPath != null)
+                if (options.HasAuditTier && nupkgPath != null)
                 {
                     logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
                 }
 
                 // Inspect all assemblies
-                bool first = true;
-                foreach (var targetPath in assemblyPaths)
+                var audits = await CollectPackageAuditsAsync(
+                    assemblyPaths, options, logger, packageName, packageVersion,
+                    extractPath, context.HttpClient, signatureResult);
+
+                if (audits.Count == 0)
                 {
-                    // Extract version from path if not already known
-                    var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
-
-                    var audit = await InspectAssemblyAsync(targetPath, options, logger, packageName, version, context.HttpClient);
-                    if (audit == null)
-                    {
-                        logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
-                        continue;
-                    }
-
-                    // Add signature verification results
-                    if (signatureResult != null)
-                    {
-                        audit.Publisher = signatureResult.Publisher;
-                        audit.PublisherVerified = signatureResult.AuthorVerified;
-                        audit.RepositoryVerified = signatureResult.RepositoryVerified;
-                        audit.SignatureStatus = signatureResult.StatusMessage;
-                    }
-
-                    if (!first)
-                    {
-                        Console.WriteLine();
-                    }
-                    first = false;
-
-                    OutputFormatter.WriteAssemblyResult(audit, options);
+                    Console.Error.WriteLine("Error: No assemblies could be read from the package.");
+                    return 1;
                 }
+
+                if (audits.Count == 1)
+                    OutputFormatter.WriteAssemblyResult(audits[0], options);
+                else
+                    OutputFormatter.WriteAssemblyResults(audits, options);
 
                 return 0;
             }
@@ -161,6 +146,42 @@ public class AssemblyCommand
                 }
             }
         }
+    }
+
+    private static async Task<List<AssemblyAudit>> CollectPackageAuditsAsync(
+        List<string> assemblyPaths, AssemblyOptions options, VerboseLogger logger,
+        string? packageName, string? packageVersion, string extractPath,
+        HttpClient httpClient, SignatureVerificationResult? signatureResult)
+    {
+        var audits = new List<AssemblyAudit>();
+
+        foreach (var targetPath in assemblyPaths)
+        {
+            var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
+
+            var audit = await InspectAssemblyAsync(targetPath, options, logger, packageName, version, httpClient);
+            if (audit == null)
+            {
+                logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
+                continue;
+            }
+
+            // Populate TFM from path for multi-TFM display
+            var relativePath = Path.GetRelativePath(extractPath, targetPath).Replace('\\', '/');
+            audit.Tfm = ExtractTfmFromPath(relativePath);
+
+            if (signatureResult != null)
+            {
+                audit.Publisher = signatureResult.Publisher;
+                audit.PublisherVerified = signatureResult.AuthorVerified;
+                audit.RepositoryVerified = signatureResult.RepositoryVerified;
+                audit.SignatureStatus = signatureResult.StatusMessage;
+            }
+
+            audits.Add(audit);
+        }
+
+        return audits;
     }
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
@@ -261,7 +282,20 @@ public class AssemblyCommand
         // Find DLLs in the extracted package
         string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
 
-        // If --tfm is specified, find assembly by TFM
+        // --tfm all: return all assemblies from every TFM
+        if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var candidates = TfmSelector.GetPackageDlls(extractPath);
+            if (candidates.Count == 0)
+            {
+                Console.Error.WriteLine("Error: No DLLs found in package.");
+                if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
+                return null;
+            }
+            return (candidates, extractPath, tempDir, nupkgPath);
+        }
+
+        // --tfm <specific>: find assembly by TFM
         if (!string.IsNullOrEmpty(tfm))
         {
             var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm);
@@ -285,36 +319,26 @@ public class AssemblyCommand
             return ([tfmAssembly], extractPath, tempDir, nupkgPath);
         }
 
-        // If no assembly name specified, return all assemblies from tools or lib directory
+        // No --tfm and no assembly name: select the highest-priority TFM (default)
         if (string.IsNullOrEmpty(assemblyName))
         {
-            var toolsDir = Path.Combine(extractPath, "tools");
-            var libDir = Path.Combine(extractPath, "lib");
-
-            string[] candidates;
-            if (Directory.Exists(toolsDir))
-            {
-                candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
-            }
-            else if (Directory.Exists(libDir))
-            {
-                candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
-            }
-            else
-            {
-                candidates = allDlls;
-            }
-
-            if (candidates.Length == 0)
+            var candidates = TfmSelector.GetPackageDlls(extractPath);
+            if (candidates.Count == 0)
             {
                 Console.Error.WriteLine("Error: No DLLs found in package.");
                 if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
                 return null;
             }
 
-            // Return all assemblies, sorted by path
-            var assemblyPaths = candidates.OrderBy(f => f).ToList();
-            return (assemblyPaths, extractPath, tempDir, nupkgPath);
+            var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(candidates, extractPath);
+            if (selectedPath == null)
+            {
+                // No TFM structure found, fall back to first DLL
+                return ([candidates[0]], extractPath, tempDir, nupkgPath);
+            }
+
+            logger.Log($"Using TFM: {selectedTfm}");
+            return ([selectedPath], extractPath, tempDir, nupkgPath);
         }
 
         // Normalize the assembly path for comparison
@@ -432,6 +456,14 @@ public class AssemblyCommand
             // Always extract basic assembly info
             audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences);
 
+            // PE debug directory fields (free, no PDB needed)
+            audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
+            audit.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
+            audit.PdbPath = pdbContext.CodeViewPdbPath;
+            audit.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
+            audit.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
+            audit.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
+
             // Build transitive reference tree if requested
             if (options.TransitiveReferences && audit.AssemblyInfo?.References != null)
             {
@@ -446,10 +478,10 @@ public class AssemblyCommand
                     logger);
             }
 
-            // Audit if requested
-            if (options.IncludeAudit)
+            // Audit if requested (symbols or sourcelink-audit tier)
+            if (options.HasAuditTier)
             {
-                await AuditAssemblyAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.StrictAudit);
+                await AuditAssemblyAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
             }
 
             return audit;
@@ -469,15 +501,8 @@ public class AssemblyCommand
         VerboseLogger logger,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        bool strictAudit = false)
+        bool includeSourcelinkAudit = false)
     {
-        // Populate audit from PdbContext properties (debug directory already read by Open)
-        audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
-        audit.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
-        audit.PdbPath = pdbContext.CodeViewPdbPath;
-        audit.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
-        audit.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
-
         // If embedded PDB was found, it's already loaded
         if (pdbContext.HasPdb)
         {
@@ -515,8 +540,6 @@ public class AssemblyCommand
             }
         }
 
-        audit.IsDeterministic = audit.HasReproducibleFlag && audit.HasNormalizedPaths != false;
-
         // Determine reason for missing SourceLink
         if (!audit.HasSourceLink)
         {
@@ -540,8 +563,8 @@ public class AssemblyCommand
         // Infer builder based on symbol availability and SourceLink
         audit.Builder = InferBuilder(audit);
 
-        // Strict verification: check that all source files are accessible
-        if (strictAudit && pdbContext.HasPdb && audit.HasSourceLink && audit.SourceLinkJson != null)
+        // SourceLink audit: verify that all source files are accessible
+        if (includeSourcelinkAudit && pdbContext.HasPdb && audit.HasSourceLink && audit.SourceLinkJson != null)
         {
             logger.Log("Running strict source verification...");
             await VerifySourceAccessibilityAsync(pdbContext, audit, httpClient, logger);
@@ -550,6 +573,7 @@ public class AssemblyCommand
 
     /// <summary>
     /// Verifies that all source files in the PDB are accessible via SourceLink or embedded.
+    /// Uses parallel HTTP HEAD requests with retry for performance.
     /// </summary>
     private static async Task VerifySourceAccessibilityAsync(
         PdbContext pdbContext,
@@ -557,56 +581,38 @@ public class AssemblyCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        int totalFiles = 0;
-        int accessibleFiles = 0;
+        var documents = pdbContext.EnumerateSourceDocuments().ToList();
         int embeddedFiles = 0;
-        var missingFiles = new List<string>();
+        int accessibleCount = 0;
+        var missingFiles = new ConcurrentBag<string>();
+        var urlDocs = new List<SourceDocument>();
 
-        foreach (var doc in pdbContext.EnumerateSourceDocuments())
+        foreach (var doc in documents)
         {
-            totalFiles++;
-
-            if (doc.IsEmbedded)
-            {
-                embeddedFiles++;
-                continue;
-            }
-
-            if (doc.ResolvedUrl == null)
-            {
-                missingFiles.Add(doc.FilePath);
-                continue;
-            }
-
-            // Check if URL is accessible (HTTP HEAD request)
-            try
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Head, doc.ResolvedUrl);
-                using var response = await httpClient.SendAsync(request);
-                if (response.IsSuccessStatusCode)
-                {
-                    accessibleFiles++;
-                }
-                else
-                {
-                    missingFiles.Add(doc.FilePath);
-                    logger.Log($"  Source not accessible: {doc.FilePath} ({response.StatusCode})");
-                }
-            }
-            catch
-            {
-                missingFiles.Add(doc.FilePath);
-                logger.Log($"  Source not accessible: {doc.FilePath} (request failed)");
-            }
+            if (doc.IsEmbedded) { embeddedFiles++; continue; }
+            if (doc.ResolvedUrl == null) { missingFiles.Add(doc.FilePath); continue; }
+            urlDocs.Add(doc);
         }
 
-        audit.TotalSourceFiles = totalFiles;
-        audit.AccessibleSourceFiles = accessibleFiles;
-        audit.EmbeddedSourceFiles = embeddedFiles;
-        audit.AllSourcesAccessible = missingFiles.Count == 0;
-        audit.MissingSourceFiles = missingFiles.Count > 0 ? missingFiles : null;
+        await Parallel.ForEachAsync(urlDocs,
+            new ParallelOptions { MaxDegreeOfParallelism = 16 },
+            async (doc, ct) =>
+            {
+                using var response = await HttpRetryHelper.HeadWithRetryAsync(
+                    httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
+                if (response != null)
+                    Interlocked.Increment(ref accessibleCount);
+                else
+                    missingFiles.Add(doc.FilePath);
+            });
 
-        logger.Log($"Source coverage: {accessibleFiles + embeddedFiles}/{totalFiles} files accessible");
+        audit.TotalSourceFiles = documents.Count;
+        audit.AccessibleSourceFiles = accessibleCount;
+        audit.EmbeddedSourceFiles = embeddedFiles;
+        audit.AllSourcesAccessible = missingFiles.IsEmpty;
+        audit.MissingSourceFiles = missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)];
+
+        logger.Log($"Source coverage: {accessibleCount + embeddedFiles}/{documents.Count} files accessible");
     }
 
     /// <summary>

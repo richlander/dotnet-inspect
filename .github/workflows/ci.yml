@@ -125,7 +125,7 @@ jobs:
   # Smoke test installed tool on each platform
   smoke-test:
     needs: [changes, build-pointer, build-rid]
-    if: needs.changes.outputs.code == 'true'
+    if: always() && needs.changes.outputs.code == 'true' && needs.build-pointer.result == 'success' && needs.build-rid.result == 'success'
     strategy:
       fail-fast: false
       matrix:

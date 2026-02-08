@@ -176,6 +176,13 @@ public class PackageCommand
                 return 0;
             }
 
+            // Handle --tfms mode: list target frameworks and exit early
+            if (options.ListTfms)
+            {
+                ListPackageTfms(extractPath);
+                return 0;
+            }
+
             // Create result and run inspections
             var result = new InspectionResult
             {
@@ -382,6 +389,23 @@ public class PackageCommand
             : relativePaths.ToList();
 
         WriteFileTree(results);
+    }
+
+    private static void ListPackageTfms(string extractPath)
+    {
+        var dlls = TfmSelector.GetPackageDlls(extractPath);
+        var tfms = dlls
+            .Select(d => TfmSelector.ExtractTfmFromPath(
+                Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
+            .Where(t => t != null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(t => TfmSelector.GetTfmPriority(t!))
+            .ToList();
+
+        foreach (var tfm in tfms)
+        {
+            Console.WriteLine(tfm);
+        }
     }
 
     private static void WriteFileTree(List<string> paths)

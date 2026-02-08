@@ -6,9 +6,13 @@ namespace DotnetInspector;
 
 // Summary helper for AssemblyInfo in table display
 
-[MarkoutSerializable(TitleProperty = nameof(FileName), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFields = false)]
 public class AssemblyAudit
 {
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public string? Tfm { get; set; }
+
     [MarkoutPropertyName("File")]
     public string FileName { get; set; } = "";
 
@@ -222,17 +226,36 @@ public class AssemblyAudit
     [JsonIgnore]
     public List<MarkoutField> AssemblyInfoSection => GetAssemblyInfoFields();
 
-    [MarkoutSection(Name = "Build Audit")]
+    [MarkoutSection(Name = "Symbols")]
     [JsonIgnore]
-    public List<MarkoutField> BuildAuditSection => GetBuildAuditFields();
-
-    [MarkoutSection(Name = "PDB")]
-    [JsonIgnore]
-    public List<MarkoutField> PdbSection => GetPdbFields();
+    public List<MarkoutField> SymbolsSection => GetSymbolsFields();
 
     [MarkoutSection(Name = "Source Coverage")]
     [JsonIgnore]
     public List<MarkoutField> SourceCoverageSection => GetSourceCoverageFields();
+
+    [MarkoutSection(Name = "Assembly References")]
+    [JsonIgnore]
+    public List<ReferenceRow>? AssemblyReferencesSection =>
+        AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
+        AssemblyInfo?.References?.OrderBy(r => r.Name)
+            .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
+            .ToList() is { Count: > 0 } list ? list : null;
+
+    [MarkoutSection(Name = "Assembly References (Transitive)")]
+    [JsonIgnore]
+    public List<TreeNode>? TransitiveReferencesSection =>
+        AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildTransitiveTree(AssemblyInfo.TransitiveReferences);
+
+    [MarkoutSection(Name = "Non-normalized Paths")]
+    [JsonIgnore]
+    public List<string>? NonNormalizedPathsSection =>
+        NonNormalizedPaths is { Count: > 0 } ? NonNormalizedPaths : null;
+
+    [MarkoutSection(Name = "Missing Sources")]
+    [JsonIgnore]
+    public List<string>? MissingSourcesSection => GetMissingSourcesDisplay();
 
     private List<MarkoutField> GetAssemblyInfoFields()
     {
@@ -261,18 +284,28 @@ public class AssemblyAudit
             fields.Add(new("Signed", "Yes"));
         if (!string.IsNullOrEmpty(info.PublicKeyToken))
             fields.Add(new("Public Key Token", info.PublicKeyToken));
+        fields.Add(new("Deterministic", IsDeterministic ? "✓" : "✗"));
+        fields.Add(new("Reproducible", HasReproducibleFlag ? "✓" : "✗"));
 
         return fields;
     }
 
-    private List<MarkoutField> GetBuildAuditFields()
+    private List<MarkoutField> GetSymbolsFields()
     {
         var fields = new List<MarkoutField>
         {
-            new("Deterministic", IsDeterministic ? "✓" : "✗"),
-            new("Reproducible Flag", HasReproducibleFlag ? "✓" : "✗"),
-            new("SourceLink", SourceLinkStatus)
+            new("PDB Format", PdbFormat ?? "Unknown"),
+            new("PDB Location", PdbLocation ?? "Unknown")
         };
+
+        if (!string.IsNullOrEmpty(SymbolServer))
+            fields.Add(new("Symbol Server", SymbolServer));
+        if (!string.IsNullOrEmpty(PdbPath))
+            fields.Add(new("PDB Path", PdbPath));
+        if (PdbLocation == null && !string.IsNullOrEmpty(PdbPath))
+            fields.Add(new("Note", "Path is from the CodeView record; actual PDB location is unknown"));
+
+        fields.Add(new("SourceLink", SourceLinkStatus));
 
         if (!string.IsNullOrEmpty(Builder))
             fields.Add(new("Builder", Builder));
@@ -287,22 +320,14 @@ public class AssemblyAudit
         }
         if (RepositoryVerified)
             fields.Add(new("Repository", "nuget.org (Verified)"));
+        if (!string.IsNullOrEmpty(RepositoryUrl))
+            fields.Add(new("Repository URL", RepositoryUrl));
 
-        return fields;
-    }
-
-    private List<MarkoutField> GetPdbFields()
-    {
-        var fields = new List<MarkoutField>
+        if (WindowsPdbDetected)
         {
-            new("Format", PdbFormat ?? "Unknown"),
-            new("Location", PdbLocation ?? "Unknown")
-        };
-
-        if (!string.IsNullOrEmpty(SymbolServer))
-            fields.Add(new("Server", SymbolServer));
-        if (!string.IsNullOrEmpty(PdbPath))
-            fields.Add(new("Path", PdbPath));
+            fields.Add(new("Warning", "Windows PDB format is not supported by this tool"));
+            fields.Add(new("Recommendation", "Consider asking the package maintainer to publish Portable PDBs"));
+        }
 
         return fields;
     }
@@ -321,4 +346,36 @@ public class AssemblyAudit
 
         return fields;
     }
+
+    private List<string>? GetMissingSourcesDisplay()
+    {
+        if (MissingSourceFiles is not { Count: > 0 }) return null;
+        var display = MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
+        if (MissingSourceFiles.Count > 10)
+            display.Add($"... and {MissingSourceFiles.Count - 10} more");
+        return display;
+    }
+
+    private static List<TreeNode> BuildTransitiveTree(List<AssemblyReferenceNode> nodes)
+    {
+        var result = new List<TreeNode>();
+        foreach (var node in nodes)
+        {
+            var icon = node.ResolvedFrom switch
+            {
+                "local" => "📁",
+                "platform" => "🚢",
+                _ => "❓"
+            };
+            var suffix = node.IsCyclic ? " (circular)" : "";
+            result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", icon));
+        }
+        return result;
+    }
 }
+
+[MarkoutSerializable]
+public record ReferenceRow(
+    string Name,
+    string Version,
+    [property: MarkoutPropertyName("Public Key Token")] string PublicKeyToken);
