@@ -49,8 +49,8 @@ public static class CommandLineBuilder
         var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections by name (comma-separated, e.g., -s:Methods,Properties).\nUse -s alone for header only.", Arity = ArgumentArity.ZeroOrOne };
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
-        var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)" };
-        tipsOption.Aliases.Add("-t");
+        var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
+        tipsOption.Aliases.Add("-T");
 
         // NuGet source options (shared across package-consuming commands)
         var sourceOption = new Option<string[]>("--source")
@@ -72,8 +72,8 @@ public static class CommandLineBuilder
 
         // Root-level display option (distinct instance so it appears in root help)
         rootCommand.Options.Add(new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" });
-        var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)" };
-        rootTipsOption.Aliases.Add("-t");
+        var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
+        rootTipsOption.Aliases.Add("-T");
         rootCommand.Options.Add(rootTipsOption);
 
         // API command
@@ -81,11 +81,11 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(apiCommand);
 
         // Assembly command
-        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(assemblyCommand);
 
         // Cache command
-        var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption);
+        var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption, tipsOption);
         rootCommand.Subcommands.Add(cacheCommand);
 
         // Diff command
@@ -93,7 +93,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(diffCommand);
 
         // Extensions command
-        var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(extensionsCommand);
 
         // Find command
@@ -101,7 +101,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(findCommand);
 
         // Implements command
-        var implementsCommand = CreateImplementsCommand(jsonOption, verboseOption, verbosityOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var implementsCommand = CreateImplementsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(implementsCommand);
 
         // Package command
@@ -109,11 +109,11 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(packageCommand);
 
         // Platform command
-        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption);
+        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption);
         rootCommand.Subcommands.Add(platformCommand);
 
         // Samples command
-        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, sourceOption, addSourceOption, nugetConfigOption);
+        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(samplesCommand);
 
         // CLI command (meta command)
@@ -148,11 +148,11 @@ public static class CommandLineBuilder
             Console.SetOut(original);
             Console.WriteLine(sw.ToString().TrimEnd());
 
-            var tipLevel = ParseTipLevel(parseResult.GetValue(rootTipsOption));
+            var tipLevel = ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
                 new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
-                new Tip("-t:d", "", "show more tips per command"),
+                new Tip("-T:d", "", "show more tips per command"),
                 new Tip(ApiCommand.Name, "--package <package>", "view public API surface"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
                 new Tip(FindCommand.Name, "<pattern> --platform <assembly>", "search platform types"));
@@ -161,7 +161,7 @@ public static class CommandLineBuilder
         return rootCommand;
     }
 
-    private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption)
+    private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption, Option<string?> tipsOption)
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
 
@@ -170,6 +170,7 @@ public static class CommandLineBuilder
         cacheCommand.Options.Add(cleanOption);
         cacheCommand.Options.Add(verboseOption);
         cacheCommand.Options.Add(verbosityOption);
+        cacheCommand.Options.Add(tipsOption);
 
         cacheCommand.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -302,7 +303,7 @@ public static class CommandLineBuilder
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
             var tipLevel = verbosity == Verbosity.Quiet
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             if (exitCode == 0)
             {
@@ -342,6 +343,7 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
@@ -404,6 +406,7 @@ public static class CommandLineBuilder
         extCommand.Options.Add(sourceOption);
         extCommand.Options.Add(addSourceOption);
         extCommand.Options.Add(nugetConfigOption);
+        extCommand.Options.Add(tipsOption);
 
         extCommand.SetAction(async (parseResult, ct) =>
         {
@@ -539,7 +542,7 @@ public static class CommandLineBuilder
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
             var tipLevel = options.JsonOutput || verbosity == Verbosity.Quiet
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             if (exitCode == 0 && !options.OneLine && !options.NameOnly)
             {
@@ -562,6 +565,7 @@ public static class CommandLineBuilder
     private static Command CreateSamplesCommand(
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -597,6 +601,7 @@ public static class CommandLineBuilder
         samplesCommand.Options.Add(sourceOption);
         samplesCommand.Options.Add(addSourceOption);
         samplesCommand.Options.Add(nugetConfigOption);
+        samplesCommand.Options.Add(tipsOption);
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
@@ -626,6 +631,7 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<int?> limitOption,
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption)
@@ -665,6 +671,7 @@ public static class CommandLineBuilder
         platformCommand.Options.Add(verbosityOption);
         platformCommand.Options.Add(includeSectionsOption);
         platformCommand.Options.Add(excludeSectionsOption);
+        platformCommand.Options.Add(tipsOption);
 
         // list subcommand (alias: ls) - list installed frameworks and assemblies
         var listCommand = new Command("list", "List installed frameworks and assemblies");
@@ -770,6 +777,7 @@ public static class CommandLineBuilder
         Option<bool> jsonOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
@@ -821,6 +829,7 @@ public static class CommandLineBuilder
         implCommand.Options.Add(sourceOption);
         implCommand.Options.Add(addSourceOption);
         implCommand.Options.Add(nugetConfigOption);
+        implCommand.Options.Add(tipsOption);
 
         implCommand.SetAction(async (parseResult, ct) =>
         {
@@ -960,7 +969,7 @@ public static class CommandLineBuilder
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
             var jsonOutput = parseResult.GetValue(jsonOption);
             var tipLevel = jsonOutput || verbosity == Verbosity.Quiet
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             var options = new InspectionOptions
             {
@@ -1022,6 +1031,7 @@ public static class CommandLineBuilder
         Option<bool> markoutOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption,
         Option<string[]> sourceOption,
@@ -1069,6 +1079,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(sourceOption);
         assemblyCommand.Options.Add(addSourceOption);
         assemblyCommand.Options.Add(nugetConfigOption);
+        assemblyCommand.Options.Add(tipsOption);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1149,7 +1160,8 @@ public static class CommandLineBuilder
         var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
         var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
-        var filterOption = new Option<string?>("--filter") { Description = "Filter type names by glob pattern (e.g., *Json*, Progress*)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Filter to types by glob pattern (e.g., *Json*, Progress*)" };
+        typeFilterOption.Aliases.Add("--type");
         var memberOption = new Option<string[]>("-m")
         {
             Description = "Filter to specific member(s)",
@@ -1174,7 +1186,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(apiFrameworkOption);
         apiCommand.Options.Add(apiTfmOption);
         apiCommand.Options.Add(allOption);
-        apiCommand.Options.Add(filterOption);
+        apiCommand.Options.Add(typeFilterOption);
         apiCommand.Options.Add(memberOption);
         apiCommand.Options.Add(ctorOption);
         apiCommand.Options.Add(limitOption);
@@ -1265,7 +1277,7 @@ public static class CommandLineBuilder
                 PlatformFramework = parseResult.GetValue(apiFrameworkOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                TypeFilter = parseResult.GetValue(filterOption),
+                TypeFilter = parseResult.GetValue(typeFilterOption),
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
                 ShowDocs = parseResult.GetValue(docsOption) || parseResult.GetValue(useLocalDocsOption),
@@ -1284,7 +1296,7 @@ public static class CommandLineBuilder
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 TipLevel = parseResult.GetValue(verbosityOption)?.TrimStart(':').StartsWith("q", StringComparison.OrdinalIgnoreCase) == true
-                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption)),
+                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
@@ -1309,8 +1321,12 @@ public static class CommandLineBuilder
         };
     }
 
-    public static TipLevel ParseTipLevel(string? value)
+    public static TipLevel ParseTipLevel(string? value, bool optionPresent)
     {
+        // Bare -T (no value) means quiet
+        if (optionPresent && string.IsNullOrEmpty(value))
+            return TipLevel.Quiet;
+
         // --tips flag takes precedence, then DOTNET_INSPECT_TIPS env var, then default
         if (string.IsNullOrEmpty(value))
             value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");

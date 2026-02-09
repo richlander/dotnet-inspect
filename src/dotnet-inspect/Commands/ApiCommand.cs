@@ -242,14 +242,32 @@ public class ApiCommand
                 else if (lookupResult.Suggestions.Count > 0)
                 {
                     bool isGlob = typeName.Contains('*') || typeName.Contains('?');
-                    Console.Error.WriteLine(isGlob
-                        ? $"Error: Multiple types match '{typeName}'."
-                        : $"Error: Type '{typeName}' not found.");
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Did you mean:");
-                    foreach (var s in lookupResult.Suggestions)
-                        Console.Error.WriteLine($"  {s}");
-                    return 1;
+                    if (isGlob)
+                    {
+                        // Glob matched multiple types — show types view with filter
+                        if (!string.IsNullOrEmpty(options.PackagePath))
+                        {
+                            var (pkgName, _) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+                            api.Name = pkgName;
+                        }
+                        else if (apiDllPath != null)
+                        {
+                            api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
+                        }
+                        api.Tfm = selectedTfm;
+
+                        options = options with { TypeFilter = typeName };
+                        WriteFullApiOutput(api, options, selectedTfm);
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
+                        Console.Error.WriteLine();
+                        Console.Error.WriteLine("Did you mean:");
+                        foreach (var s in lookupResult.Suggestions)
+                            Console.Error.WriteLine($"  {s}");
+                        return 1;
+                    }
                 }
                 else
                 {
