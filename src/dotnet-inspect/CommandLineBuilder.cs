@@ -130,7 +130,7 @@ public static class CommandLineBuilder
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
 
-        var skillCommand = new Command("skill", "Show Claude Code skill definition");
+        var skillCommand = new Command("skill", "Show skill definition");
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
 
