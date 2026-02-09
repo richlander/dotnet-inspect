@@ -115,12 +115,21 @@ jobs:
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "dotnet-inspect"
 
-      - name: Smoke test - package info
+      - name: Smoke test - package quiet
         run: |
           dotnet-inspect System.Text.Json 10.0.0 -v:q > smoke-package.md
           cat smoke-package.md
           grep -q "System.Text.Json" smoke-package.md
           grep -q "Library" smoke-package.md
+
+      - name: Smoke test - package normal
+        run: |
+          dotnet-inspect System.Text.Json 10.0.0 -v:n > smoke-package-normal.md
+          cat smoke-package-normal.md
+          grep -q "## Package" smoke-package-normal.md
+          grep -q "## Statistics" smoke-package-normal.md
+          grep -q "## Package Dependencies" smoke-package-normal.md
+          grep -q "Library" smoke-package-normal.md
 
       - name: Smoke test - api command
         run: |
