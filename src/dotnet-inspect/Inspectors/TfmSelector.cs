@@ -10,16 +10,18 @@ internal static class TfmSelector
         var toolsDir = Path.Combine(extractPath, "tools");
         var libDir = Path.Combine(extractPath, "lib");
 
-        string[] candidates;
+        string[] candidates = [];
         if (Directory.Exists(toolsDir))
         {
             candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
         }
-        else if (Directory.Exists(libDir))
+
+        if (candidates.Length == 0 && Directory.Exists(libDir))
         {
             candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
         }
-        else
+
+        if (candidates.Length == 0)
         {
             candidates = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
         }
