@@ -41,6 +41,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="llms.txt" />
+    <EmbeddedResource Include="SKILL.md" />
   </ItemGroup>
 
   <ItemGroup>

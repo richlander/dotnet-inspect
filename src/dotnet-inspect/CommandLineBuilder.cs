@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "diff", "find", "search", "samples", "platform", "llmstxt", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "diff", "find", "search", "samples", "platform", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -129,6 +129,10 @@ public static class CommandLineBuilder
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
+
+        var skillCommand = new Command("skill", "Show Claude Code skill definition");
+        skillCommand.SetAction((parseResult) => SkillCommand.Execute());
+        rootCommand.Subcommands.Add(skillCommand);
 
         // No-args: show help + tips
         rootCommand.SetAction((parseResult) =>
