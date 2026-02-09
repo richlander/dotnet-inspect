@@ -54,7 +54,6 @@ public class AssemblyAudit
     /// Only set when HasSourceLink is false and we can determine the reason.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("source_link_unavailable_reason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SourceLinkUnavailableReason { get; set; }
 
@@ -92,7 +91,6 @@ public class AssemblyAudit
     /// Inferred builder of the assembly based on symbol availability and SourceLink.
     /// </summary>
     [MarkoutPropertyName("Builder")]
-    [JsonPropertyName("builder")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Builder { get; set; }
 
@@ -100,7 +98,6 @@ public class AssemblyAudit
     /// Publisher identity from NuGet package author signature (CN).
     /// </summary>
     [MarkoutPropertyName("Publisher")]
-    [JsonPropertyName("publisher")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Publisher { get; set; }
 
@@ -108,7 +105,6 @@ public class AssemblyAudit
     /// Whether the package publisher signature was cryptographically verified.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("publisher_verified")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool PublisherVerified { get; set; }
 
@@ -116,7 +112,6 @@ public class AssemblyAudit
     /// Whether the package repository signature was cryptographically verified.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("repository_verified")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool RepositoryVerified { get; set; }
 
@@ -124,7 +119,6 @@ public class AssemblyAudit
     /// Status message when signature verification was skipped or failed.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("signature_status")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SignatureStatus { get; set; }
 
@@ -140,7 +134,6 @@ public class AssemblyAudit
     /// Total number of source documents in the PDB.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("total_source_files")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int TotalSourceFiles { get; set; }
 
@@ -148,7 +141,6 @@ public class AssemblyAudit
     /// Number of source files accessible via SourceLink (HTTP 200).
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("accessible_source_files")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int AccessibleSourceFiles { get; set; }
 
@@ -156,7 +148,6 @@ public class AssemblyAudit
     /// Number of source files embedded in the PDB.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("embedded_source_files")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int EmbeddedSourceFiles { get; set; }
 
@@ -165,7 +156,6 @@ public class AssemblyAudit
     /// Only populated in strict audit mode.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("missing_source_files")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? MissingSourceFiles { get; set; }
 
@@ -174,18 +164,8 @@ public class AssemblyAudit
     /// Only set in strict audit mode.
     /// </summary>
     [MarkoutIgnore]
-    [JsonPropertyName("all_sources_accessible")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? AllSourcesAccessible { get; set; }
-
-    /// <summary>
-    /// Human-readable source coverage summary for display.
-    /// </summary>
-    [MarkoutPropertyName("Source Coverage")]
-    [JsonIgnore]
-    public string? SourceCoverageSummary => TotalSourceFiles > 0
-        ? $"{AccessibleSourceFiles + EmbeddedSourceFiles}/{TotalSourceFiles} files"
-        : null;
 
     // Assembly metadata
     [MarkoutIgnore]

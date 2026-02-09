@@ -52,7 +52,6 @@ public class InspectionResult
     /// </summary>
     [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutPropertyName("Updated")]
-    [JsonPropertyName("published")]
     public DateTimeOffset? Published { get; set; }
 
     /// <summary>

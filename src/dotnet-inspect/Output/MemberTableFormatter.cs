@@ -1,7 +1,8 @@
+using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Output;
 
 /// <summary>
 /// Strategy for formatting per-kind member tables at different verbosity levels.
