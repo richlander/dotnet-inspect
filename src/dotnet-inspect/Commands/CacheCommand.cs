@@ -1,6 +1,5 @@
-using DotnetInspector.Packages;
 using DotnetInspector.Options;
-using DotnetInspector.Output;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
 
@@ -11,79 +10,53 @@ public class CacheCommand
 {
     public static Task<int> ExecuteAsync(CacheOptions options)
     {
-        var context = new CommandContext(options.Verbose);
-        var logger = context.Logger;
-
-        var basePath = NuGetCache.GetAppCacheBasePath();
-        
         if (options.Clean)
         {
-            return CleanCacheAsync(basePath, logger);
+            return CleanCacheAsync();
         }
 
-        return ShowCacheInfoAsync(basePath, logger);
+        return ShowCacheInfoAsync();
     }
 
-    private static Task<int> ShowCacheInfoAsync(string basePath, VerboseLogger logger)
+    private static Task<int> ShowCacheInfoAsync()
     {
-        Console.WriteLine($"Cache location: {basePath}");
+        var info = PackageCacheService.GetCacheInfo();
+
+        Console.WriteLine($"Cache location: {info.Location}");
         Console.WriteLine();
 
-        if (!Directory.Exists(basePath))
+        if (info.Categories.Count == 0)
         {
             Console.WriteLine("Cache is empty.");
             return Task.FromResult(0);
         }
 
-        var packagePath = Path.Combine(basePath, "packages");
-        var sourcePath = Path.Combine(basePath, "sources");
-        var symbolPath = Path.Combine(basePath, "symbols");
-
-        long totalSize = 0;
-
-        if (Directory.Exists(packagePath))
+        foreach (var category in info.Categories)
         {
-            var (size, count) = GetDirectoryStats(packagePath);
-            totalSize += size;
-            Console.WriteLine($"Packages: {FormatSize(size)} ({count} packages)");
-        }
-
-        if (Directory.Exists(sourcePath))
-        {
-            var (size, count) = GetDirectoryStats(sourcePath);
-            totalSize += size;
-            Console.WriteLine($"Sources:  {FormatSize(size)} ({count} files)");
-        }
-
-        if (Directory.Exists(symbolPath))
-        {
-            var (size, count) = GetDirectoryStats(symbolPath);
-            totalSize += size;
-            Console.WriteLine($"Symbols:  {FormatSize(size)} ({count} files)");
+            Console.WriteLine($"{category.Name + ":",-10}{FormatSize(category.Size)} ({category.Count} {(category.Name == "Packages" ? "packages" : "files")})");
         }
 
         Console.WriteLine();
-        Console.WriteLine($"Total:    {FormatSize(totalSize)}");
+        Console.WriteLine($"{"Total:",-10}{FormatSize(info.TotalSize)}");
         Console.WriteLine();
         Console.WriteLine("Run 'dotnet-inspect cache --clean' to clear the cache.");
 
         return Task.FromResult(0);
     }
 
-    private static Task<int> CleanCacheAsync(string basePath, VerboseLogger logger)
+    private static Task<int> CleanCacheAsync()
     {
-        if (!Directory.Exists(basePath))
-        {
-            Console.WriteLine("Cache is already empty.");
-            return Task.FromResult(0);
-        }
-
-        var (size, _) = GetDirectoryStats(basePath);
-
         try
         {
-            Directory.Delete(basePath, recursive: true);
-            Console.WriteLine($"Cleared {FormatSize(size)} from cache.");
+            long freed = PackageCacheService.ClearCache();
+            if (freed == 0)
+            {
+                Console.WriteLine("Cache is already empty.");
+            }
+            else
+            {
+                Console.WriteLine($"Cleared {FormatSize(freed)} from cache.");
+            }
             return Task.FromResult(0);
         }
         catch (Exception ex)
@@ -91,37 +64,6 @@ public class CacheCommand
             Console.Error.WriteLine($"Error clearing cache: {ex.Message}");
             return Task.FromResult(1);
         }
-    }
-
-    private static (long size, int count) GetDirectoryStats(string path)
-    {
-        if (!Directory.Exists(path))
-            return (0, 0);
-
-        long size = 0;
-        int count = 0;
-
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    size += new FileInfo(file).Length;
-                    count++;
-                }
-                catch
-                {
-                    // Skip files we can't access
-                }
-            }
-        }
-        catch
-        {
-            // Skip directories we can't access
-        }
-
-        return (size, count);
     }
 
     private static string FormatSize(long bytes)
