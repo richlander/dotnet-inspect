@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -405,7 +406,7 @@ public class PackageCommand
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
 
-        WriteFileTree(results);
+        PackageOutputFormatter.WriteFileTree(results);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
     }
 
@@ -518,62 +519,6 @@ public class PackageCommand
         }
     }
 
-    private static void WriteFileTree(List<string> paths)
-    {
-        // Build tree structure from file paths
-        var root = new Dictionary<string, object>();
-        
-        foreach (var path in paths)
-        {
-            var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var current = root;
-            
-            for (int i = 0; i < parts.Length; i++)
-            {
-                var part = parts[i];
-                if (i == parts.Length - 1)
-                {
-                    // Leaf node (file)
-                    current[part] = new Dictionary<string, object>();
-                }
-                else
-                {
-                    // Directory node
-                    if (!current.TryGetValue(part, out var next))
-                    {
-                        next = new Dictionary<string, object>();
-                        current[part] = next;
-                    }
-                    current = (Dictionary<string, object>)next;
-                }
-            }
-        }
-
-        // Convert to TreeNode structure and serialize
-        var view = new FileTreeView { Files = BuildTreeNodes(root) };
-        MarkoutSerializer.Serialize(view, Console.Out, FileTreeContext.Default);
-    }
-
-    private static List<TreeNode> BuildTreeNodes(Dictionary<string, object> dict)
-    {
-        var nodes = new List<TreeNode>();
-        
-        foreach (var kvp in dict.OrderBy(k => k.Key))
-        {
-            var children = (Dictionary<string, object>)kvp.Value;
-            if (children.Count == 0)
-            {
-                nodes.Add(new TreeNode(kvp.Key));
-            }
-            else
-            {
-                nodes.Add(new TreeNode(kvp.Key, BuildTreeNodes(children)));
-            }
-        }
-        
-        return nodes;
-    }
-
     private static async Task<int> ShowDependencyTreeAsync(
         HttpClient client, InspectionResult result, InspectionOptions options, VerboseLogger logger)
     {
@@ -661,61 +606,4 @@ public class PackageCommand
         
         return 0;
     }
-}
-
-/// <summary>
-/// View model for file tree output (minimal wrapper for tree serialization).
-/// </summary>
-public class FileTreeView
-{
-    [MarkoutIgnoreInTable]
-    public List<TreeNode> Files { get; set; } = [];
-}
-
-[MarkoutContext(typeof(FileTreeView))]
-public partial class FileTreeContext : MarkoutSerializerContext
-{
-}
-
-/// <summary>
-/// View model for package dependency tree output (--dependencies).
-/// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title))]
-public class PackageDependenciesView
-{
-    [MarkoutIgnore]
-    public string Title { get; set; } = "";
-
-    [MarkoutIgnore]
-    public string Package { get; set; } = "";
-
-    [MarkoutIgnore]
-    public string Version { get; set; } = "";
-
-    [MarkoutIgnore]
-    public string? Tfm { get; set; }
-
-    [JsonIgnore]
-    [MarkoutIgnoreInTable]
-    public List<MarkoutField> Identity => GetIdentityFields();
-
-    [MarkoutIgnoreInTable]
-    public List<TreeNode> Dependencies { get; set; } = [];
-
-    private List<MarkoutField> GetIdentityFields()
-    {
-        var fields = new List<MarkoutField>();
-        if (!string.IsNullOrEmpty(Package))
-            fields.Add(new("Package", Package));
-        if (!string.IsNullOrEmpty(Version))
-            fields.Add(new("Version", Version));
-        if (!string.IsNullOrEmpty(Tfm))
-            fields.Add(new("TFM", Tfm));
-        return fields;
-    }
-}
-
-[MarkoutContext(typeof(PackageDependenciesView))]
-public partial class PackageDependenciesContext : MarkoutSerializerContext
-{
 }
