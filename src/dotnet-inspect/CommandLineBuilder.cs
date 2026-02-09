@@ -181,12 +181,11 @@ public static class CommandLineBuilder
     {
         var diffCommand = new Command(DiffCommand.Name, "Compare API surfaces between package or platform versions");
 
-        var typeNameArg = new Argument<string?>("type")
+        var argsArg = new Argument<string[]>("args")
         {
-            Description = "Type name to compare",
-            Arity = ArgumentArity.ZeroOrOne
+            Description = "Version range and type filter. When no --package/--platform is given, first arg is the package version range.",
+            Arity = ArgumentArity.ZeroOrMore
         };
-        typeNameArg.DefaultValueFactory = _ => null;
 
         var packageOption = new Option<string?>("--package")
         {
@@ -210,8 +209,10 @@ public static class CommandLineBuilder
         typeFilterOption.Aliases.Add("--type");
         var statOption = new Option<bool>("--stat") { Description = "Show only statistics per type (no member details)" };
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
+        var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
+        var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
 
-        diffCommand.Arguments.Add(typeNameArg);
+        diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
         diffCommand.Options.Add(platformOption);
         diffCommand.Options.Add(frameworkOption);
@@ -220,6 +221,8 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(typeFilterOption);
         diffCommand.Options.Add(statOption);
         diffCommand.Options.Add(nameOnlyOption);
+        diffCommand.Options.Add(breakingOption);
+        diffCommand.Options.Add(additiveOption);
         diffCommand.Options.Add(verboseOption);
         diffCommand.Options.Add(verbosityOption);
         diffCommand.Options.Add(tipsOption);
@@ -229,10 +232,30 @@ public static class CommandLineBuilder
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
-            var typeName = parseResult.GetValue(typeNameArg);
+            var args = parseResult.GetValue(argsArg) ?? [];
+            var explicitPackage = parseResult.GetValue(packageOption);
+            var explicitPlatform = parseResult.GetValue(platformOption);
+            bool hasExplicitSource = explicitPackage != null || explicitPlatform != null;
+
+            string? packageVersionRange = explicitPackage;
+            string? platformVersionRange = explicitPlatform;
+            string? typeName = null;
+
+            if (hasExplicitSource)
+            {
+                // All positionals are type filters
+                if (args.Length >= 1) typeName = args[0];
+            }
+            else
+            {
+                // First positional is the package version range
+                if (args.Length >= 1) packageVersionRange = args[0];
+                if (args.Length >= 2) typeName = args[1];
+            }
+
             var typeFilterValues = parseResult.GetValue(typeFilterOption);
 
-            // Merge positional type name with -t filter for backward compatibility
+            // Merge positional type name with -t filter
             HashSet<string>? typeFilter = null;
             if (typeFilterValues?.Length > 0 || !string.IsNullOrEmpty(typeName))
             {
@@ -248,8 +271,8 @@ public static class CommandLineBuilder
 
             var options = new DiffOptions
             {
-                PackageVersionRange = parseResult.GetValue(packageOption),
-                PlatformVersionRange = parseResult.GetValue(platformOption),
+                PackageVersionRange = packageVersionRange,
+                PlatformVersionRange = platformVersionRange,
                 Framework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
@@ -257,6 +280,8 @@ public static class CommandLineBuilder
                 TypeFilter = typeFilter,
                 Stat = parseResult.GetValue(statOption),
                 NameOnly = parseResult.GetValue(nameOnlyOption),
+                Breaking = parseResult.GetValue(breakingOption),
+                Additive = parseResult.GetValue(additiveOption),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 

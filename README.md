@@ -18,7 +18,7 @@ dotnet tool install -g dotnet-inspect
 | `audit X` | Verify provenance (SourceLink, determinism) |
 | `api X` | Public API surface |
 | `type X` | Type hierarchy and members |
-| `diff X` | Compare versions |
+| `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
 | `find X` | Search for types |
 
@@ -137,11 +137,16 @@ dotnet-inspect assembly ./bin/MyLib.dll --audit    # With provenance check
 
 ### diff
 
-Compare API surfaces between versions.
+Compare API surfaces between versions. Changes are classified as breaking, additive, or potentially breaking.
 
 ```bash
-dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2
-dotnet-inspect diff JsonSerializer --platform System.Text.Json@8.0.23..10.0.2
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2                # positional package
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.2      # explicit flag
+dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2    # platform assembly
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --stat         # compact summary
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking     # breaking changes only
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --additive     # additive changes only
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 JsonSerializer  # filter to type
 ```
 
 ### type
