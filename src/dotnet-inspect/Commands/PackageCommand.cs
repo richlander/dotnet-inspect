@@ -529,12 +529,15 @@ public class PackageCommand
             if (!globalSeen.Add(dep.Id))
                 continue;
 
-            var label = $"{dep.Id} {dep.Version}";
             logger.Log($"Resolving: {dep.Id} {dep.Version}");
 
-            // Try to resolve this dependency's own dependencies
-            var children = await ResolveChildDependenciesAsync(
+            // Resolve this dependency's metadata and children
+            var (children, author) = await ResolveChildDependenciesAsync(
                 client, dep.Id, dep.Version, tfm, globalSeen, logger);
+
+            var label = !string.IsNullOrEmpty(author)
+                ? $"{dep.Id} {dep.Version} [{author}]"
+                : $"{dep.Id} {dep.Version}";
 
             nodes.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
         }
@@ -542,7 +545,7 @@ public class PackageCommand
         return nodes;
     }
 
-    private static async Task<List<TreeNode>> ResolveChildDependenciesAsync(
+    private static async Task<(List<TreeNode> Children, string? Author)> ResolveChildDependenciesAsync(
         HttpClient client, string packageId, string versionRange, string tfm,
         HashSet<string> globalSeen, VerboseLogger logger)
     {
@@ -550,12 +553,12 @@ public class PackageCommand
         {
             // Resolve version from range
             string? version = ResolveVersionFromRange(versionRange);
-            if (version == null) return [];
+            if (version == null) return ([], null);
 
             // Download and extract the package
             string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
             var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: logger.Log);
-            if (extractResult == null) return [];
+            if (extractResult == null) return ([], null);
 
             try
             {
@@ -567,13 +570,16 @@ public class PackageCommand
                     NuspecParser.Parse(nuspecFiles[0], childResult);
                 }
 
-                if (childResult.DependencyGroups is not { Count: > 0 }) return [];
+                var author = childResult.Authors;
+
+                if (childResult.DependencyGroups is not { Count: > 0 }) return ([], author);
 
                 // Find best matching TFM group
                 var group = FindBestMatchingTfmGroup(childResult.DependencyGroups, tfm);
-                if (group?.Dependencies is not { Count: > 0 }) return [];
+                if (group?.Dependencies is not { Count: > 0 }) return ([], author);
 
-                return await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, logger);
+                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, logger);
+                return (children, author);
             }
             finally
             {
@@ -585,7 +591,7 @@ public class PackageCommand
         }
         catch
         {
-            return [];
+            return ([], null);
         }
     }
 
