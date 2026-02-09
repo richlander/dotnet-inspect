@@ -3,6 +3,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
 
@@ -167,7 +168,7 @@ internal static class TypeSearchService
             }
 
             logger.Log($"Using assets: {assetsPath}");
-            var assemblies = ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger);
+            var assemblies = ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger.Log);
             logger.Log($"Searching {assemblies.Count} assemblies from {projectName}");
 
             foreach (var (asmPath, packageName, packageVersion) in assemblies)

@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
 
@@ -181,7 +182,7 @@ public class AssemblyCommand
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
     {
-        var resolution = await PackageResolverService.ResolvePackageAsync(packageSource, null, logger, httpClient);
+        var resolution = await PackageResolverService.ResolvePackageAsync(packageSource, null, logger.Log, httpClient);
         if (resolution == null)
         {
             bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
