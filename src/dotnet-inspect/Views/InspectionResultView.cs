@@ -35,9 +35,6 @@ public class InspectionResultView
     [MarkoutSection(Name = "Package")]
     public List<MarkoutField> Metadata => GetMetadataFields();
 
-    [MarkoutSection(Name = "Statistics")]
-    public List<MarkoutField> Statistics => GetStatisticsFields();
-
     public string? Authors => _data.Authors;
     public string? License => _data.License;
     public string? Repository => _data.Repository;
@@ -46,16 +43,25 @@ public class InspectionResultView
     [MarkoutPropertyName("Updated")]
     public DateTimeOffset? Published => _data.Published;
 
+    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSkipNull]
     [MarkoutValueFormatter(typeof(CompactNumberFormatter))]
     [MarkoutPropertyName("Downloads")]
     public long? TotalDownloads => _data.TotalDownloads;
 
+    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSkipNull]
     [MarkoutValueFormatter(typeof(CompactNumberFormatter))]
     [MarkoutPropertyName("Version Downloads")]
     public long? VersionDownloads => _data.VersionDownloads;
 
+    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Version Count")]
     public int? VersionCount => _data.VersionCount;
 
+    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSkipNull]
     [MarkoutValueFormatter(typeof(ByteSizeFormatter))]
     [MarkoutPropertyName("Package Size")]
     public long? PackageSize => _data.PackageSize;
@@ -259,21 +265,4 @@ public class InspectionResultView
         return fields;
     }
 
-    private List<MarkoutField> GetStatisticsFields()
-    {
-        var fields = new List<MarkoutField>();
-        var formatter = new CompactNumberFormatter();
-        var sizeFormatter = new ByteSizeFormatter();
-
-        if (_data.TotalDownloads.HasValue)
-            fields.Add(new("Total Downloads", formatter.Format(_data.TotalDownloads.Value)));
-        if (_data.VersionDownloads.HasValue)
-            fields.Add(new("Version Downloads", formatter.Format(_data.VersionDownloads.Value)));
-        if (_data.VersionCount.HasValue)
-            fields.Add(MarkoutField.Create("Version Count", _data.VersionCount.Value));
-        if (_data.PackageSize.HasValue)
-            fields.Add(new("Package Size", sizeFormatter.Format(_data.PackageSize.Value)));
-
-        return fields;
-    }
 }
