@@ -1,6 +1,6 @@
 using Markout;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Views;
 
 public class FlatDependency
 {

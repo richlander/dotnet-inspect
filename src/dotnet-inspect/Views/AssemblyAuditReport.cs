@@ -1,6 +1,7 @@
+using DotnetInspector.Models;
 using Markout;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Views;
 
 [MarkoutSerializable(TitleProperty = nameof(Title))]
 public class AssemblyAuditReport
@@ -8,5 +9,5 @@ public class AssemblyAuditReport
     public string Title { get; set; } = "";
 
     [MarkoutSection(Name = "Assemblies")]
-    public List<AssemblyAudit> Assemblies { get; set; } = [];
+    public List<AssemblyAuditView> Assemblies { get; set; } = [];
 }

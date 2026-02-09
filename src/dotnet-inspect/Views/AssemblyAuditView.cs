@@ -1,0 +1,321 @@
+using DotnetInspector.Models;
+using DotnetInspector.Metadata;
+using Markout;
+
+namespace DotnetInspector.Views;
+
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFields = false)]
+public class AssemblyAuditView
+{
+    private readonly AssemblyAudit _data;
+
+    public AssemblyAuditView(AssemblyAudit data)
+    {
+        _data = data;
+    }
+
+    [MarkoutIgnore]
+    public string? Tfm => _data.Tfm;
+
+    [MarkoutPropertyName("File")]
+    public string FileName => _data.FileName;
+
+    [MarkoutPropertyName("Type")]
+    public string FileType => _data.FileType;
+
+    [MarkoutPropertyName("PDB Format")]
+    public string? PdbFormat => _data.PdbFormat;
+
+    [MarkoutPropertyName("PDB Location")]
+    public string? PdbLocation => _data.PdbLocation;
+
+    [MarkoutPropertyName("PDB Path")]
+    public string? PdbPath => _data.PdbPath;
+
+    [MarkoutPropertyName("Embedded PDB")]
+    [MarkoutBoolFormat("✓", "✗")]
+    public bool HasEmbeddedPdb => _data.HasEmbeddedPdb;
+
+    [MarkoutPropertyName("Reproducible Flag")]
+    [MarkoutBoolFormat("✓", "✗")]
+    public bool HasReproducibleFlag => _data.HasReproducibleFlag;
+
+    [MarkoutIgnore]
+    public bool? HasNormalizedPaths => _data.HasNormalizedPaths;
+
+    [MarkoutPropertyName("SourceLink")]
+    [MarkoutBoolFormat("✓", "✗")]
+    public bool HasSourceLink => _data.HasSourceLink;
+
+    [MarkoutIgnore]
+    public string? SourceLinkUnavailableReason => _data.SourceLinkUnavailableReason;
+
+    [MarkoutPropertyName("SourceLink Status")]
+    public string SourceLinkStatus => _data.HasSourceLink
+        ? "✓"
+        : _data.SourceLinkUnavailableReason != null
+            ? $"✗ ({_data.SourceLinkUnavailableReason})"
+            : "✗";
+
+    [MarkoutBoolFormat("✓", "✗")]
+    public bool IsDeterministic => _data.IsDeterministic;
+
+    [MarkoutPropertyName("Repository URL")]
+    public string? RepositoryUrl => _data.RepositoryUrl;
+
+    [MarkoutIgnore]
+    public bool WindowsPdbDetected => _data.WindowsPdbDetected;
+
+    [MarkoutPropertyName("Symbol Server")]
+    public string? SymbolServer => _data.SymbolServer;
+
+    [MarkoutPropertyName("Builder")]
+    public string? Builder => _data.Builder;
+
+    [MarkoutPropertyName("Publisher")]
+    public string? Publisher => _data.Publisher;
+
+    [MarkoutIgnore]
+    public bool PublisherVerified => _data.PublisherVerified;
+
+    [MarkoutIgnore]
+    public bool RepositoryVerified => _data.RepositoryVerified;
+
+    [MarkoutIgnore]
+    public string? SignatureStatus => _data.SignatureStatus;
+
+    [MarkoutIgnore]
+    public string? SourceLinkJson => _data.SourceLinkJson;
+
+    [MarkoutIgnore]
+    public List<string>? NonNormalizedPaths => _data.NonNormalizedPaths;
+
+    [MarkoutIgnore]
+    public int TotalSourceFiles => _data.TotalSourceFiles;
+
+    [MarkoutIgnore]
+    public int AccessibleSourceFiles => _data.AccessibleSourceFiles;
+
+    [MarkoutIgnore]
+    public int EmbeddedSourceFiles => _data.EmbeddedSourceFiles;
+
+    [MarkoutIgnore]
+    public List<string>? MissingSourceFiles => _data.MissingSourceFiles;
+
+    [MarkoutIgnore]
+    public bool? AllSourcesAccessible => _data.AllSourcesAccessible;
+
+    [MarkoutIgnore]
+    public AssemblyInfo? AssemblyInfo => _data.AssemblyInfo;
+
+    [MarkoutIgnore]
+    public ApiSurface? ApiSurface => _data.ApiSurface;
+
+    [MarkoutPropertyName("Assembly")]
+    public string? AssemblySummary => _data.AssemblyInfo switch
+    {
+        null => null,
+        var info => string.Join(", ", new[]
+        {
+            info.Architecture,
+            info.TargetFramework,
+            info.CompilationType,
+            info.IsSigned ? "Signed" : null
+        }.Where(s => !string.IsNullOrEmpty(s)))
+    };
+
+    [MarkoutPropertyName("API")]
+    public string? ApiSummary => _data.ApiSurface switch
+    {
+        null => null,
+        var api => $"{api.PublicTypeCount} types, {api.PublicMethodCount} methods"
+    };
+
+    // ===== Field Collection Sections =====
+
+    [MarkoutSection(Name = "Assembly Info")]
+    public List<MarkoutField> AssemblyInfoSection => GetAssemblyInfoFields();
+
+    [MarkoutSection(Name = "Symbols")]
+    public List<MarkoutField> SymbolsSection => GetSymbolsFields();
+
+    [MarkoutSection(Name = "Source Coverage")]
+    public List<MarkoutField> SourceCoverageSection => GetSourceCoverageFields();
+
+    [MarkoutIgnore]
+    public bool UseDependenciesView => _data.UseDependenciesView;
+
+    [MarkoutSection(Name = "Assembly References")]
+    public List<ReferenceRow>? AssemblyReferencesSection =>
+        _data.AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
+        _data.AssemblyInfo?.References?.OrderBy(r => r.Name)
+            .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
+            .ToList() is { Count: > 0 } list ? list : null;
+
+    [MarkoutSection(Name = "Assembly References (Transitive)")]
+    public List<TreeNode>? TransitiveReferencesSection =>
+        _data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildFlatTransitiveTree(_data.AssemblyInfo.TransitiveReferences);
+
+    [MarkoutSection(Name = "Dependencies")]
+    public List<TreeNode>? DependenciesSection =>
+        !_data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
+
+    [MarkoutSection(Name = "Non-normalized Paths")]
+    public List<string>? NonNormalizedPathsSection =>
+        _data.NonNormalizedPaths is { Count: > 0 } ? _data.NonNormalizedPaths : null;
+
+    [MarkoutSection(Name = "Missing Sources")]
+    public List<string>? MissingSourcesSection => GetMissingSourcesDisplay();
+
+    private List<MarkoutField> GetAssemblyInfoFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (_data.AssemblyInfo is not { } info) return fields;
+
+        if (!string.IsNullOrEmpty(info.AssemblyName))
+            fields.Add(new("Name", info.AssemblyName));
+        if (!string.IsNullOrEmpty(info.AssemblyVersion))
+            fields.Add(new("Version", info.AssemblyVersion));
+        if (!string.IsNullOrEmpty(info.TargetFramework))
+            fields.Add(new("Target Framework", info.TargetFramework));
+        if (!string.IsNullOrEmpty(info.Architecture))
+            fields.Add(new("Architecture", info.Architecture));
+        if (!string.IsNullOrEmpty(info.CompilationType))
+            fields.Add(new("Compilation", info.CompilationType));
+        if (!string.IsNullOrEmpty(info.InformationalVersion))
+            fields.Add(new("Informational Version", info.InformationalVersion));
+        if (!string.IsNullOrEmpty(info.Product))
+            fields.Add(new("Product", info.Product));
+        if (!string.IsNullOrEmpty(info.Company))
+            fields.Add(new("Company", info.Company));
+        if (!string.IsNullOrEmpty(info.Copyright))
+            fields.Add(new("Copyright", info.Copyright));
+        if (info.IsSigned)
+            fields.Add(new("Signed", "Yes"));
+        if (!string.IsNullOrEmpty(info.PublicKeyToken))
+            fields.Add(new("Public Key Token", info.PublicKeyToken));
+        fields.Add(new("Deterministic", _data.IsDeterministic ? "✓" : "✗"));
+        fields.Add(new("Reproducible", _data.HasReproducibleFlag ? "✓" : "✗"));
+
+        return fields;
+    }
+
+    private List<MarkoutField> GetSymbolsFields()
+    {
+        var fields = new List<MarkoutField>
+        {
+            new("PDB Format", _data.PdbFormat ?? "Unknown"),
+            new("PDB Location", _data.PdbLocation ?? "Unknown")
+        };
+
+        if (!string.IsNullOrEmpty(_data.SymbolServer))
+            fields.Add(new("Symbol Server", _data.SymbolServer));
+        if (!string.IsNullOrEmpty(_data.PdbPath))
+            fields.Add(new("PDB Path", _data.PdbPath));
+        if (_data.PdbLocation == null && !string.IsNullOrEmpty(_data.PdbPath))
+            fields.Add(new("Note", "Path is from the CodeView record; actual PDB location is unknown"));
+
+        fields.Add(new("SourceLink", SourceLinkStatus));
+
+        if (!string.IsNullOrEmpty(_data.Builder))
+            fields.Add(new("Builder", _data.Builder));
+        if (!string.IsNullOrEmpty(_data.Publisher))
+        {
+            var publisherStatus = _data.PublisherVerified ? "(Verified)" : "";
+            fields.Add(new("Publisher", $"{_data.Publisher} {publisherStatus}".Trim()));
+        }
+        else if (!string.IsNullOrEmpty(_data.SignatureStatus))
+        {
+            fields.Add(new("Publisher", _data.SignatureStatus));
+        }
+        if (_data.RepositoryVerified)
+            fields.Add(new("Repository", "nuget.org (Verified)"));
+        if (!string.IsNullOrEmpty(_data.RepositoryUrl))
+            fields.Add(new("Repository URL", _data.RepositoryUrl));
+
+        if (_data.WindowsPdbDetected)
+        {
+            fields.Add(new("Warning", "Windows PDB format is not supported by this tool"));
+            fields.Add(new("Recommendation", "Consider asking the package maintainer to publish Portable PDBs"));
+        }
+
+        return fields;
+    }
+
+    private List<MarkoutField> GetSourceCoverageFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (_data.TotalSourceFiles <= 0) return fields;
+
+        int accessible = _data.AccessibleSourceFiles + _data.EmbeddedSourceFiles;
+        string status = _data.AllSourcesAccessible == true ? "✓" : "✗";
+        fields.Add(new("Status", $"{status} {accessible}/{_data.TotalSourceFiles} files accessible"));
+
+        if (_data.EmbeddedSourceFiles > 0)
+            fields.Add(new("Embedded", $"{_data.EmbeddedSourceFiles} files"));
+
+        return fields;
+    }
+
+    private List<string>? GetMissingSourcesDisplay()
+    {
+        if (_data.MissingSourceFiles is not { Count: > 0 }) return null;
+        var display = _data.MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
+        if (_data.MissingSourceFiles.Count > 10)
+            display.Add($"... and {_data.MissingSourceFiles.Count - 10} more");
+        return display;
+    }
+
+    private static List<TreeNode> BuildFlatTransitiveTree(List<AssemblyReferenceNode> nodes)
+    {
+        var result = new List<TreeNode>();
+        foreach (var node in nodes)
+        {
+            var icon = node.ResolvedFrom switch
+            {
+                "local" => "📁",
+                "platform" => "🚢",
+                _ => "❓"
+            };
+            var suffix = node.IsCyclic ? " (circular)" : "";
+            result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", icon));
+        }
+        return result;
+    }
+
+    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
+    {
+        var result = new List<TreeNode>();
+        int i = 0;
+        BuildNestedNodes(nodes, ref i, 0, result);
+        return result;
+    }
+
+    private static void BuildNestedNodes(List<AssemblyReferenceNode> nodes, ref int index, int currentDepth, List<TreeNode> target)
+    {
+        while (index < nodes.Count && nodes[index].Depth == currentDepth)
+        {
+            var node = nodes[index];
+            var label = !string.IsNullOrEmpty(node.Company)
+                ? $"{node.Name} {node.Version} [{node.Company}]"
+                : $"{node.Name} {node.Version}";
+            index++;
+
+            var children = new List<TreeNode>();
+            if (index < nodes.Count && nodes[index].Depth > currentDepth)
+            {
+                BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
+            }
+
+            target.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+        }
+    }
+}
+
+[MarkoutSerializable]
+public record ReferenceRow(
+    string Name,
+    string Version,
+    [property: MarkoutPropertyName("Public Key Token")] string PublicKeyToken);

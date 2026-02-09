@@ -1,3 +1,5 @@
+using DotnetInspector.Models;
+using DotnetInspector.Views;
 using System.Text.Json;
 using DotnetInspector.Options;
 using Markout;
@@ -26,6 +28,7 @@ public static class OutputFormatter
 
     private static string RenderMarkout(InspectionResult result, InspectionOptions options)
     {
+        var view = new InspectionResultView(result);
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
             IncludeSections = options.IncludeSections,
@@ -33,7 +36,7 @@ public static class OutputFormatter
             IncludeDescription = options.Verbosity != Verbosity.Quiet
         });
 
-        return context.Serialize(result).TrimEnd();
+        return context.Serialize(view).TrimEnd();
     }
 
     private static HashSet<string>? GetExcludeSections(InspectionOptions options)
@@ -75,11 +78,12 @@ public static class OutputFormatter
         }
         else
         {
+            var auditView = new AssemblyAuditView(audit);
             var context = new MarkoutContext(new MarkoutWriterOptions
             {
                 ExcludeSections = GetAuditExcludeSections(options)
             });
-            Console.WriteLine(context.Serialize(audit).TrimEnd());
+            Console.WriteLine(context.Serialize(auditView).TrimEnd());
         }
     }
 
@@ -94,7 +98,7 @@ public static class OutputFormatter
             var report = new AssemblyAuditReport
             {
                 Title = Path.GetFileNameWithoutExtension(audits[0].FileName),
-                Assemblies = audits
+                Assemblies = audits.Select(a => new AssemblyAuditView(a)).ToList()
             };
             var context = new MarkoutContext(new MarkoutWriterOptions
             {

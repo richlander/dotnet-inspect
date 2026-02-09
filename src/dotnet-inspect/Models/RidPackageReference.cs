@@ -1,23 +1,21 @@
-using Markout;
+using System.Text.Json.Serialization;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Models;
 
 public class RidPackageReference
 {
-    [MarkoutPropertyName("RID")]
     public string RuntimeIdentifier { get; set; } = "";
 
-    [MarkoutPropertyName("Package")]
     public string PackageId { get; set; } = "";
 
     /// <summary>
     /// Whether the RID-specific package exists (verified via local file or NuGet).
     /// Null means not checked.
     /// </summary>
-    [MarkoutIgnore]
+    [JsonIgnore]
     public bool? Exists { get; set; }
 
-    [MarkoutPropertyName("Available")]
+    [JsonIgnore]
     public string AvailableDisplay => Exists switch
     {
         true => "yes",
