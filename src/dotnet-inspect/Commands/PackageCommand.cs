@@ -385,17 +385,44 @@ public class PackageCommand
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
-        var (searchPath, error) = ResolveScopedPath(extractPath, options);
-        if (error != null)
+        string searchPath;
+        string relativeBase;
+
+        // Scope to a specific TFM if requested
+        if (!string.IsNullOrEmpty(options.Tfm))
         {
-            Console.Error.WriteLine(error);
-            return;
+            string libDir = Path.Combine(extractPath, "lib", options.Tfm);
+            string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
+
+            if (Directory.Exists(libDir))
+                searchPath = libDir;
+            else if (Directory.Exists(toolsDir))
+                searchPath = toolsDir;
+            else
+            {
+                Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
+                return;
+            }
+
+            // Show paths relative to parent of TFM dir so TFM appears as root node
+            relativeBase = Path.GetDirectoryName(searchPath)!;
+        }
+        else
+        {
+            var (resolved, error) = ResolveScopedPath(extractPath, options);
+            if (error != null)
+            {
+                Console.Error.WriteLine(error);
+                return;
+            }
+            searchPath = resolved;
+            relativeBase = extractPath;
         }
 
         string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
 
         var relativePaths = files
-            .Select(f => Path.GetRelativePath(extractPath, f))
+            .Select(f => Path.GetRelativePath(relativeBase, f))
             .Where(p => !p.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
             .Where(p => !p.StartsWith("_rels", StringComparison.OrdinalIgnoreCase))
             .Where(p => !p.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase))
