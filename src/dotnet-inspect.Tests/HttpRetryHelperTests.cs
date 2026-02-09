@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Sockets;
-using DotnetInspector.Inspectors;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;

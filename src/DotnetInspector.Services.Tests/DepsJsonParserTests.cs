@@ -1,7 +1,4 @@
-using DotnetInspector;
-using DotnetInspector.Inspectors;
-
-namespace DotnetInspector.Tests;
+namespace DotnetInspector.Services.Tests;
 
 /// <summary>
 /// Tests for DepsJsonParser JSON parsing functionality.
@@ -26,7 +23,7 @@ public class DepsJsonParserTests : IDisposable
 
     private string WriteDepsJson(string content)
     {
-        var path = Path.Combine(_tempDir, "test.deps.json");
+        var path = Path.Combine(_tempDir, $"test-{Guid.NewGuid():N}.deps.json");
         File.WriteAllText(path, content);
         return path;
     }
@@ -42,8 +39,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.Equal("linux-x64", result.RuntimeTargetRid);
     }
@@ -59,8 +55,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.Null(result.RuntimeTargetRid);
     }
@@ -81,8 +76,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.NotNull(result.RuntimeDependencies);
         Assert.Equal(2, result.RuntimeDependencies.Count);
@@ -109,8 +103,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.NotNull(result.RuntimeDependencies);
         Assert.Single(result.RuntimeDependencies);
@@ -126,8 +119,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.Null(result.RuntimeDependencies);
     }
@@ -143,8 +135,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.Null(result.RuntimeDependencies);
     }
@@ -165,8 +156,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         // Only the valid entry should be parsed
         Assert.NotNull(result.RuntimeDependencies);
@@ -179,10 +169,8 @@ public class DepsJsonParserTests : IDisposable
     {
         var deps = WriteDepsJson("{ invalid json }");
 
-        var result = new InspectionResult();
-
         // Should not throw
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.Null(result.RuntimeDependencies);
         Assert.Null(result.RuntimeTargetRid);
@@ -204,8 +192,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         Assert.Equal("win-x64", result.RuntimeTargetRid);
         Assert.NotNull(result.RuntimeDependencies);
@@ -228,8 +215,7 @@ public class DepsJsonParserTests : IDisposable
             }
             """);
 
-        var result = new InspectionResult();
-        DepsJsonParser.Parse(deps, result);
+        var result = DepsJsonParser.Parse(deps);
 
         // Only the entry with type should be processed
         Assert.NotNull(result.RuntimeDependencies);

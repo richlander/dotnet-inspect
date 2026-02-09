@@ -1,13 +1,13 @@
 using DotnetInspector.Packages;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// TFM selection and assembly discovery within package layouts.
 /// </summary>
-internal static class TfmSelector
+public static class TfmSelector
 {
-    internal static List<string> GetPackageDlls(string extractPath)
+    public static List<string> GetPackageDlls(string extractPath)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
         var libDir = Path.Combine(extractPath, "lib");
@@ -31,7 +31,7 @@ internal static class TfmSelector
         return candidates.OrderBy(f => f).ToList();
     }
 
-    internal static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath, string? packageName = null)
+    public static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath, string? packageName = null)
     {
         dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -82,7 +82,7 @@ internal static class TfmSelector
         return (directDll ?? assemblies[0], highestTfm);
     }
 
-    internal static string? FindAssemblyByTfm(string extractPath, string tfm)
+    public static string? FindAssemblyByTfm(string extractPath, string tfm)
     {
         var libDir = Path.Combine(extractPath, "lib");
         var toolsDir = Path.Combine(extractPath, "tools");

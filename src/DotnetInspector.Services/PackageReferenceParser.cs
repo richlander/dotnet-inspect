@@ -1,11 +1,11 @@
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Parses package references from various formats (name@version, .nupkg files, paths).
 /// </summary>
-internal static class PackageReferenceParser
+public static class PackageReferenceParser
 {
-    internal static (string? name, string? version) ParsePackageReference(string packageSource)
+    public static (string? name, string? version) ParsePackageReference(string packageSource)
     {
         if (packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
         {
@@ -37,7 +37,7 @@ internal static class PackageReferenceParser
         return (fileName, null);
     }
 
-    internal static string? ExtractVersionFromPath(string dllPath, string packageName)
+    public static string? ExtractVersionFromPath(string dllPath, string packageName)
     {
         var normalizedPath = dllPath.Replace('\\', '/');
         var normalizedPackageName = packageName.ToLowerInvariant();
