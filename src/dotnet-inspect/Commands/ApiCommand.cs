@@ -1051,7 +1051,7 @@ public class ApiCommand
 /// <summary>
 /// View model for type shape output (--shape).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(FullName), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(FullName))]
 public class TypeShapeView
 {
     [MarkoutIgnore]
