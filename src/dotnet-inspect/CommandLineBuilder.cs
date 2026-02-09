@@ -49,7 +49,7 @@ public static class CommandLineBuilder
         var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections by name (comma-separated, e.g., -s:Methods,Properties).\nUse -s alone for header only.", Arity = ArgumentArity.ZeroOrOne };
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
-        var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Hidden = true };
+        var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)" };
 
         // NuGet source options (shared across package-consuming commands)
         var sourceOption = new Option<string[]>("--source")
@@ -71,6 +71,8 @@ public static class CommandLineBuilder
 
         // Root-level display option (distinct instance so it appears in root help)
         rootCommand.Options.Add(new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" });
+        var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)" };
+        rootCommand.Options.Add(rootTipsOption);
 
         // API command
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -137,9 +139,14 @@ public static class CommandLineBuilder
         // No-args: show help + tips
         rootCommand.SetAction((parseResult) =>
         {
+            var sw = new System.IO.StringWriter();
+            var original = Console.Out;
+            Console.SetOut(sw);
             new HelpAction().Invoke(parseResult);
+            Console.SetOut(original);
+            Console.WriteLine(sw.ToString().TrimEnd());
 
-            var tipLevel = ParseTipLevel(null);
+            var tipLevel = ParseTipLevel(parseResult.GetValue(rootTipsOption));
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
                 new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
