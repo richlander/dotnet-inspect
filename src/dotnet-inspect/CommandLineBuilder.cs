@@ -313,7 +313,7 @@ public static class CommandLineBuilder
                         var pkgName = versionRange[..atIdx];
                         var toVersion = versionRange[(dotDotIdx + 2)..];
                         if (!options.Stat && !options.NameOnly)
-                            tips.Add(new(ApiCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --tree", "view current type shape"));
+                            tips.Add(new(ApiCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
                         if (!options.Stat)
                             tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --stat", "summary statistics"));
                     }
@@ -538,7 +538,7 @@ public static class CommandLineBuilder
                 var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <assembly>";
 
                 Hints.WriteTips(tipLevel,
-                    new(ApiCommand.Name, $"<TypeName> {sourceFlag} --tree", "view type shape"),
+                    new(ApiCommand.Name, $"<TypeName> {sourceFlag} --shape", "view type shape"),
                     new(FindCommand.Name, $"{pattern} {sourceFlag} --terse", "compact output"),
                     new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results"),
                     new(LlmsTxtCommand.Name, "", "complete usage examples"));
@@ -1091,7 +1091,7 @@ public static class CommandLineBuilder
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
-        var treeOption = new Option<bool>("--tree") { Description = "Tree view of type shape" };
+        var shapeOption = new Option<bool>("--shape") { Description = "View type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
 
@@ -1114,7 +1114,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
         apiCommand.Options.Add(signaturesOnlyOption);
-        apiCommand.Options.Add(treeOption);
+        apiCommand.Options.Add(shapeOption);
         apiCommand.Options.Add(unsafeOption);
         apiCommand.Options.Add(includeSectionsOption);
         apiCommand.Options.Add(excludeSectionsOption);
@@ -1196,7 +1196,7 @@ public static class CommandLineBuilder
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
-                TreeOutput = parseResult.GetValue(treeOption),
+                ShapeOutput = parseResult.GetValue(shapeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
                 IncludeSections = includeSections,

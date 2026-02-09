@@ -15,7 +15,7 @@ dotnet tool install -g dotnet-inspect
 | `package X` | Package metadata, dependencies, files |
 | `platform X` | Inspect SDK/runtime assembly |
 | `assembly ./path` | Inspect local file |
-| `api X` | Public API surface (table format, or `--tree` for hierarchy) |
+| `api X` | Public API surface (table format, or `--shape` for hierarchy) |
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |

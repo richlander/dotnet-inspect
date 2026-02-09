@@ -30,7 +30,7 @@ Start with these common workflows:
 
 ```bash
 # Understand a type's API shape (start here - most useful for learning APIs)
-dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json --tree
+dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json --shape
 
 # Compare API changes between versions (essential for migrations)
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
@@ -87,7 +87,7 @@ dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
 
 | Command | Purpose |
 | ------- | ------- |
-| `api <type>` | **Start here.** Public API surface (table format, or `--tree` for hierarchy) |
+| `api <type>` | **Start here.** Public API surface (table format, or `--shape` for hierarchy) |
 | `diff` | Compare API surfaces between package versions (whole-package or filtered) |
 | `find <pattern>` | Search for types across packages, assemblies, or frameworks |
 | `extensions <type>` | Find extension methods for a type |

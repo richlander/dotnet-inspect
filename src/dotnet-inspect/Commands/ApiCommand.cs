@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -480,9 +481,9 @@ public class ApiCommand
 
     private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
     {
-        if (options.TreeOutput)
+        if (options.ShapeOutput)
         {
-            WriteTreeOutput(type, options.MemberFilter);
+            WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter);
         }
         else if (options.JsonOutput)
         {
@@ -940,15 +941,15 @@ public class ApiCommand
         return index >= 0 ? index : MemberKinds.Length;
     }
 
-    // ===== Tree Output (--tree) =====
+    // ===== Shape Output (--shape) =====
 
-    private static void WriteTreeOutput(ApiType type, HashSet<string>? memberFilter)
+    private static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string>? memberFilter)
     {
-        var view = BuildTypeView(type, memberFilter);
+        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter);
         MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
     }
 
-    private static TypeShapeView BuildTypeView(ApiType type, HashSet<string>? memberFilter)
+    private static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string>? memberFilter)
     {
         var nodes = new List<TreeNode>();
 
@@ -1001,10 +1002,23 @@ public class ApiCommand
             }
         }
 
+        var modifiers = new List<string>();
+        if (type.IsStatic) modifiers.Add("static");
+        if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
+        if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
+
+        var packageInfo = packageName != null && packageVersion != null
+            ? $" ({packageName} {packageVersion})"
+            : packageName != null ? $" ({packageName})" : "";
+
         return new TypeShapeView
         {
-            FullName = type.FullName,
+            FullName = $"{type.FullName}{packageInfo}",
             Kind = type.Kind,
+            Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+            Assembly = foundIn,
+            Package = packageName,
+            Version = packageVersion,
             Members = nodes
         };
     }
@@ -1035,9 +1049,9 @@ public class ApiCommand
 }
 
 /// <summary>
-/// View model for type shape output (--tree).
+/// View model for type shape output (--shape).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(FullName), DescriptionProperty = nameof(KindDisplay))]
+[MarkoutSerializable(TitleProperty = nameof(FullName), AutoFields = false)]
 public class TypeShapeView
 {
     [MarkoutIgnore]
@@ -1047,10 +1061,41 @@ public class TypeShapeView
     public string Kind { get; set; } = "";
 
     [MarkoutIgnore]
-    public string KindDisplay => $"*{Kind}*";
+    public string? Modifiers { get; set; }
+
+    [MarkoutIgnore]
+    public string? Assembly { get; set; }
+
+    [MarkoutIgnore]
+    public string? Package { get; set; }
+
+    [MarkoutIgnore]
+    public string? Version { get; set; }
+
+    /// <summary>
+    /// Identity fields (rendered as key-value fields under the title).
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Identity => GetIdentityFields();
 
     [MarkoutIgnoreInTable]
     public List<TreeNode> Members { get; set; } = [];
+
+    private List<MarkoutField> GetIdentityFields()
+    {
+        var fields = new List<MarkoutField>();
+        fields.Add(new("Kind", Kind));
+        if (!string.IsNullOrEmpty(Modifiers))
+            fields.Add(new("Modifiers", Modifiers));
+        if (!string.IsNullOrEmpty(Assembly))
+            fields.Add(new("Assembly", Assembly));
+        if (!string.IsNullOrEmpty(Package))
+            fields.Add(new("Package", Package));
+        if (!string.IsNullOrEmpty(Version))
+            fields.Add(new("Version", Version));
+        return fields;
+    }
 }
 
 [MarkoutContext(typeof(TypeShapeView))]

@@ -27,7 +27,7 @@ The tool is organized around seven commands plus a meta command, each targeting 
 │  Public API surface: types, methods, signatures              │
 ├─────────────────────────────────────────────────────────────┤
 │                         type                                 │
-│  Single type: hierarchy, interfaces, members (tree view)     │
+│  Single type: hierarchy, interfaces, members (shape view)    │
 ├─────────────────────────────────────────────────────────────┤
 │                         diff                                 │
 │  Compare API surfaces between two package versions           │
@@ -69,7 +69,7 @@ Extracts public API surface using reflection metadata:
 
 ### type
 
-Displays a single type's shape in tree format:
+Displays a single type's shape in shape format:
 
 - Inheritance chain (base classes)
 - Implemented interfaces
