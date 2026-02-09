@@ -1,39 +1,32 @@
-using DotnetInspector.Inspectors;
-using DotnetInspector.Output;
 using DotnetInspector.Packages;
-using Markout;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Resolves transitive NuGet dependency trees from nuspec dependency groups.
 /// </summary>
-internal static class DependencyResolutionService
+public static class DependencyResolutionService
 {
     /// <summary>
     /// Resolves the full transitive dependency tree for a set of direct dependencies.
     /// </summary>
-    public static async Task<List<TreeNode>> ResolveDependencyTreeAsync(
+    public static async Task<List<DependencyNode>> ResolveDependencyTreeAsync(
         HttpClient client, List<PackageDependency> dependencies, string tfm,
-        HashSet<string> globalSeen, VerboseLogger logger)
+        HashSet<string> globalSeen, Action<string>? log)
     {
-        var nodes = new List<TreeNode>();
+        var nodes = new List<DependencyNode>();
 
         foreach (var dep in dependencies.OrderBy(d => d.Id))
         {
             if (!globalSeen.Add(dep.Id))
                 continue;
 
-            logger.Log($"Resolving: {dep.Id} {dep.Version}");
+            log?.Invoke($"Resolving: {dep.Id} {dep.Version}");
 
             var (children, author) = await ResolveChildDependenciesAsync(
-                client, dep.Id, dep.Version, tfm, globalSeen, logger);
+                client, dep.Id, dep.Version, tfm, globalSeen, log);
 
-            var label = !string.IsNullOrEmpty(author)
-                ? $"{dep.Id} {dep.Version} [{author}]"
-                : $"{dep.Id} {dep.Version}";
-
-            nodes.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+            nodes.Add(new DependencyNode(dep.Id, dep.Version, author, children));
         }
 
         return nodes;
@@ -61,9 +54,9 @@ internal static class DependencyResolutionService
             .FirstOrDefault();
     }
 
-    private static async Task<(List<TreeNode> Children, string? Author)> ResolveChildDependenciesAsync(
+    private static async Task<(List<DependencyNode> Children, string? Author)> ResolveChildDependenciesAsync(
         HttpClient client, string packageId, string versionRange, string tfm,
-        HashSet<string> globalSeen, VerboseLogger logger)
+        HashSet<string> globalSeen, Action<string>? log)
     {
         try
         {
@@ -71,26 +64,22 @@ internal static class DependencyResolutionService
             if (version == null) return ([], null);
 
             string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
-            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: logger.Log);
+            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: log);
             if (extractResult == null) return ([], null);
 
             try
             {
-                var childResult = new InspectionResult();
                 string[] nuspecFiles = Directory.GetFiles(extractResult.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-                if (nuspecFiles.Length > 0)
-                {
-                    NuspecParser.Parse(nuspecFiles[0], childResult);
-                }
+                if (nuspecFiles.Length == 0) return ([], null);
 
-                var author = childResult.Authors;
+                var (dependencyGroups, author) = NuspecDependencyParser.Parse(nuspecFiles[0]);
 
-                if (childResult.DependencyGroups is not { Count: > 0 }) return ([], author);
+                if (dependencyGroups is not { Count: > 0 }) return ([], author);
 
-                var group = FindBestMatchingTfmGroup(childResult.DependencyGroups, tfm);
+                var group = FindBestMatchingTfmGroup(dependencyGroups, tfm);
                 if (group?.Dependencies is not { Count: > 0 }) return ([], author);
 
-                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, logger);
+                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log);
                 return (children, author);
             }
             finally
@@ -107,7 +96,7 @@ internal static class DependencyResolutionService
         }
     }
 
-    private static string? ResolveVersionFromRange(string versionRange)
+    public static string? ResolveVersionFromRange(string versionRange)
     {
         if (NuGet.Versioning.VersionRange.TryParse(versionRange, out var range))
         {
@@ -120,7 +109,7 @@ internal static class DependencyResolutionService
         return null;
     }
 
-    internal static int GetTfmPriority(string tfm)
+    public static int GetTfmPriority(string tfm)
     {
         var lower = tfm.ToLowerInvariant();
         if (lower.StartsWith("net") && !lower.StartsWith("netstandard") &&
@@ -133,7 +122,7 @@ internal static class DependencyResolutionService
         return 0;
     }
 
-    internal static double ExtractTfmVersion(string tfm)
+    public static double ExtractTfmVersion(string tfm)
     {
         var versionPart = tfm.ToLowerInvariant()
             .Replace("netcoreapp", "").Replace("netstandard", "")

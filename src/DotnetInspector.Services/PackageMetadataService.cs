@@ -1,24 +1,22 @@
 using System.Text.Json;
-using DotnetInspector.Inspectors;
-using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Fetches NuGet metadata: publish date, downloads, deprecation, vulnerabilities, and package size.
 /// </summary>
-internal static class PackageMetadataService
+public static class PackageMetadataService
 {
     /// <summary>
     /// Gets the published date for a specific package version.
     /// </summary>
-    public static async Task<DateTimeOffset?> GetPublishedDateAsync(HttpClient client, string packageName, string version, VerboseLogger logger)
+    public static async Task<DateTimeOffset?> GetPublishedDateAsync(HttpClient client, string packageName, string version, Action<string>? log)
     {
         try
         {
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{packageName.ToLowerInvariant()}/{version}.json";
-            logger.Log($"Fetching package metadata from: {registrationUrl}");
+            log?.Invoke($"Fetching package metadata from: {registrationUrl}");
 
             string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl);
             if (json == null)
@@ -29,14 +27,14 @@ internal static class PackageMetadataService
             {
                 if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
                 {
-                    logger.Log($"Package published: {published:yyyy-MM-dd}");
+                    log?.Invoke($"Package published: {published:yyyy-MM-dd}");
                     return published;
                 }
             }
         }
         catch (Exception ex)
         {
-            logger.Log($"Error fetching publish date: {ex.Message}");
+            log?.Invoke($"Error fetching publish date: {ex.Message}");
         }
 
         return null;
@@ -45,8 +43,9 @@ internal static class PackageMetadataService
     /// <summary>
     /// Fetches all NuGet metadata for a package: published date, downloads, verified status, deprecation, vulnerabilities.
     /// </summary>
-    public static async Task FetchAllMetadataAsync(HttpClient client, string packageName, string version, InspectionResult result, VerboseLogger logger)
+    public static async Task<PackageMetadata> FetchAllMetadataAsync(HttpClient client, string packageName, string version, Action<string>? log)
     {
+        var metadata = new PackageMetadata();
         var normalizedName = packageName.ToLowerInvariant();
 
         // Fetch from registration API (published date, catalog entry URL)
@@ -54,7 +53,7 @@ internal static class PackageMetadataService
         try
         {
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
-            logger.Log($"Fetching registration metadata: {registrationUrl}");
+            log?.Invoke($"Fetching registration metadata: {registrationUrl}");
 
             string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl);
             if (json != null)
@@ -66,8 +65,8 @@ internal static class PackageMetadataService
                 {
                     if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
                     {
-                        result.Published = published;
-                        logger.Log($"Published: {published:yyyy-MM-dd}");
+                        metadata.Published = published;
+                        log?.Invoke($"Published: {published:yyyy-MM-dd}");
                     }
                 }
 
@@ -79,7 +78,7 @@ internal static class PackageMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Error fetching registration metadata: {ex.Message}");
+            log?.Invoke($"Error fetching registration metadata: {ex.Message}");
         }
 
         // Fetch catalog entry for version-specific deprecation
@@ -87,7 +86,7 @@ internal static class PackageMetadataService
         {
             try
             {
-                logger.Log($"Fetching catalog entry: {catalogEntryUrl}");
+                log?.Invoke($"Fetching catalog entry: {catalogEntryUrl}");
                 string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(client, catalogEntryUrl);
                 if (catalogJson != null)
                 {
@@ -97,14 +96,14 @@ internal static class PackageMetadataService
                     if (root.TryGetProperty("deprecation", out var deprecationElement) &&
                         deprecationElement.ValueKind == JsonValueKind.Object)
                     {
-                        result.Deprecation = ParseDeprecation(deprecationElement);
-                        logger.Log($"Deprecation: {result.Deprecation.Summary}");
+                        metadata.Deprecation = ParseDeprecation(deprecationElement);
+                        log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                logger.Log($"Error fetching catalog entry: {ex.Message}");
+                log?.Invoke($"Error fetching catalog entry: {ex.Message}");
             }
         }
 
@@ -112,7 +111,7 @@ internal static class PackageMetadataService
         try
         {
             string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{normalizedName}&take=1";
-            logger.Log($"Fetching search metadata: {searchUrl}");
+            log?.Invoke($"Fetching search metadata: {searchUrl}");
 
             string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl);
             if (json != null)
@@ -125,14 +124,12 @@ internal static class PackageMetadataService
 
                     if (pkg.TryGetProperty("totalDownloads", out var downloads))
                     {
-                        result.TotalDownloads = downloads.GetInt64();
-                        logger.Log($"Downloads: {result.DownloadsDisplay}");
+                        metadata.TotalDownloads = downloads.GetInt64();
                     }
 
                     if (pkg.TryGetProperty("versions", out var versions))
                     {
-                        result.VersionCount = versions.GetArrayLength();
-                        logger.Log($"Version count: {result.VersionCount}");
+                        metadata.VersionCount = versions.GetArrayLength();
 
                         foreach (var v in versions.EnumerateArray())
                         {
@@ -140,8 +137,7 @@ internal static class PackageMetadataService
                                 string.Equals(versionProp.GetString(), version, StringComparison.OrdinalIgnoreCase) &&
                                 v.TryGetProperty("downloads", out var versionDownloads))
                             {
-                                result.VersionDownloads = versionDownloads.GetInt64();
-                                logger.Log($"Version downloads: {result.VersionDownloadsDisplay}");
+                                metadata.VersionDownloads = versionDownloads.GetInt64();
                                 break;
                             }
                         }
@@ -149,13 +145,12 @@ internal static class PackageMetadataService
 
                     if (pkg.TryGetProperty("verified", out var verified))
                     {
-                        result.IsVerified = verified.GetBoolean();
-                        logger.Log($"Verified: {result.IsVerified}");
+                        metadata.IsVerified = verified.GetBoolean();
                     }
 
                     if (pkg.TryGetProperty("owners", out var owners))
                     {
-                        result.Owners = owners.EnumerateArray()
+                        metadata.Owners = owners.EnumerateArray()
                             .Select(o => o.GetString())
                             .Where(o => o != null)
                             .Cast<string>()
@@ -163,56 +158,56 @@ internal static class PackageMetadataService
                     }
 
                     // Deprecation (from search API - more reliable than registration API)
-                    if (result.Deprecation == null &&
+                    if (metadata.Deprecation == null &&
                         pkg.TryGetProperty("deprecation", out var deprecationElement) &&
                         deprecationElement.ValueKind == JsonValueKind.Object)
                     {
-                        result.Deprecation = ParseDeprecation(deprecationElement);
-                        logger.Log($"Deprecation: {result.Deprecation.Summary}");
+                        metadata.Deprecation = ParseDeprecation(deprecationElement);
+                        log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
                     }
                 }
             }
         }
         catch (Exception ex)
         {
-            logger.Log($"Error fetching search metadata: {ex.Message}");
+            log?.Invoke($"Error fetching search metadata: {ex.Message}");
         }
 
         // Fetch from vulnerability API
         try
         {
-            var vulnerabilities = await GetPackageVulnerabilitiesAsync(client, normalizedName, version, logger);
+            var vulnerabilities = await GetPackageVulnerabilitiesAsync(client, normalizedName, version, log);
             if (vulnerabilities.Count > 0)
             {
-                result.Vulnerabilities = vulnerabilities;
-                logger.Log($"Vulnerabilities: {result.VulnerabilitiesDisplay}");
+                metadata.Vulnerabilities = vulnerabilities;
             }
         }
         catch (Exception ex)
         {
-            logger.Log($"Error fetching vulnerability data: {ex.Message}");
+            log?.Invoke($"Error fetching vulnerability data: {ex.Message}");
         }
 
         // Fetch package size via HEAD request
         try
         {
             string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{version}/{normalizedName}.{version}.nupkg";
-            logger.Log($"Fetching package size: {nupkgUrl}");
+            log?.Invoke($"Fetching package size: {nupkgUrl}");
 
             var response = await HttpRetryHelper.HeadWithRetryAsync(client, nupkgUrl);
             if (response?.Content.Headers.ContentLength is long contentLength)
             {
-                result.PackageSize = contentLength;
-                logger.Log($"Package size: {result.PackageSizeDisplay}");
+                metadata.PackageSize = contentLength;
             }
         }
         catch (Exception ex)
         {
-            logger.Log($"Error fetching package size: {ex.Message}");
+            log?.Invoke($"Error fetching package size: {ex.Message}");
         }
+
+        return metadata;
     }
 
-    private static PackageDeprecation ParseDeprecation(JsonElement deprecationElement)
+    internal static PackageDeprecation ParseDeprecation(JsonElement deprecationElement)
     {
         var deprecation = new PackageDeprecation();
 
@@ -238,13 +233,13 @@ internal static class PackageMetadataService
     }
 
     private static async Task<List<PackageVulnerability>> GetPackageVulnerabilitiesAsync(
-        HttpClient client, string packageName, string version, VerboseLogger logger)
+        HttpClient client, string packageName, string version, Action<string>? log)
     {
         var result = new List<PackageVulnerability>();
 
         if (!NuGet.Versioning.NuGetVersion.TryParse(version, out var packageVersion))
         {
-            logger.Log($"Could not parse version: {version}");
+            log?.Invoke($"Could not parse version: {version}");
             return result;
         }
 
@@ -263,7 +258,7 @@ internal static class PackageMetadataService
         {
             if (pageUrl == null) continue;
 
-            logger.Log($"Fetching vulnerability page: {pageUrl}");
+            log?.Invoke($"Fetching vulnerability page: {pageUrl}");
             string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(client, pageUrl);
             if (pageJson == null) continue;
 
@@ -291,7 +286,7 @@ internal static class PackageMetadataService
                             if (ghsaId != null)
                             {
                                 vulnerability.GhsaId = ghsaId;
-                                await EnrichFromGitHubAdvisoryAsync(client, vulnerability, ghsaId, logger);
+                                await EnrichFromGitHubAdvisoryAsync(client, vulnerability, ghsaId, log);
                             }
                         }
 
@@ -310,12 +305,12 @@ internal static class PackageMetadataService
         return match.Success ? match.Value : null;
     }
 
-    private static async Task EnrichFromGitHubAdvisoryAsync(HttpClient client, PackageVulnerability vuln, string ghsaId, VerboseLogger logger)
+    private static async Task EnrichFromGitHubAdvisoryAsync(HttpClient client, PackageVulnerability vuln, string ghsaId, Action<string>? log)
     {
         try
         {
             string apiUrl = $"https://api.github.com/advisories/{ghsaId}";
-            logger.Log($"Fetching GitHub advisory: {apiUrl}");
+            log?.Invoke($"Fetching GitHub advisory: {apiUrl}");
 
             var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
             request.Headers.Add("User-Agent", "dotnet-inspect");
@@ -324,7 +319,7 @@ internal static class PackageMetadataService
             var response = await client.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
-                logger.Log($"GitHub API returned {response.StatusCode}");
+                log?.Invoke($"GitHub API returned {response.StatusCode}");
                 return;
             }
 
@@ -347,11 +342,11 @@ internal static class PackageMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Error fetching GitHub advisory: {ex.Message}");
+            log?.Invoke($"Error fetching GitHub advisory: {ex.Message}");
         }
     }
 
-    private static bool IsVersionInRange(NuGet.Versioning.NuGetVersion version, string rangeString)
+    internal static bool IsVersionInRange(NuGet.Versioning.NuGetVersion version, string rangeString)
     {
         if (NuGet.Versioning.VersionRange.TryParse(rangeString, out var range))
         {
@@ -360,7 +355,7 @@ internal static class PackageMetadataService
         return false;
     }
 
-    private static string SeverityToString(int severity)
+    internal static string SeverityToString(int severity)
     {
         return severity switch
         {

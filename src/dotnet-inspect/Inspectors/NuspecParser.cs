@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Inspectors;
 

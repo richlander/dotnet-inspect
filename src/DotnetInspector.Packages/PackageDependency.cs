@@ -1,4 +1,4 @@
-namespace DotnetInspector;
+namespace DotnetInspector.Packages;
 
 public class PackageDependency
 {

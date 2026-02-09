@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using Markout;
 
 namespace DotnetInspector;
