@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Metadata;
 using Markout;
 
-namespace DotnetInspector;
+namespace DotnetInspector.Views;
 
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
@@ -150,4 +150,59 @@ public class CliApiSurface
             fields.Add(new("Repository", _inner.RepositoryUrl));
         return fields;
     }
+}
+
+/// <summary>
+/// View model for type shape output (--shape).
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(FullName))]
+public class TypeShapeView
+{
+    [MarkoutIgnore]
+    public string FullName { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string Kind { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string? Modifiers { get; set; }
+
+    [MarkoutIgnore]
+    public string? Assembly { get; set; }
+
+    [MarkoutIgnore]
+    public string? Package { get; set; }
+
+    [MarkoutIgnore]
+    public string? Version { get; set; }
+
+    /// <summary>
+    /// Identity fields (rendered as key-value fields under the title).
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Identity => GetIdentityFields();
+
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Members { get; set; } = [];
+
+    private List<MarkoutField> GetIdentityFields()
+    {
+        var fields = new List<MarkoutField>();
+        fields.Add(new("Kind", Kind));
+        if (!string.IsNullOrEmpty(Modifiers))
+            fields.Add(new("Modifiers", Modifiers));
+        if (!string.IsNullOrEmpty(Assembly))
+            fields.Add(new("Assembly", Assembly));
+        if (!string.IsNullOrEmpty(Package))
+            fields.Add(new("Package", Package));
+        if (!string.IsNullOrEmpty(Version))
+            fields.Add(new("Version", Version));
+        return fields;
+    }
+}
+
+[MarkoutContext(typeof(TypeShapeView))]
+public partial class TypeViewContext : MarkoutSerializerContext
+{
 }
