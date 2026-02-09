@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
@@ -8,6 +9,10 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class CacheCommandTests
 {
+    public CacheCommandTests()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+    }
     [Fact]
     public async Task ExecuteAsync_ShowsInfo_ReturnsZero()
     {

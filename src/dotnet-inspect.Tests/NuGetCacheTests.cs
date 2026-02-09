@@ -98,6 +98,7 @@ public class NuGetCacheTests
     [Fact]
     public void GetAppCacheBasePath_ReturnsNonEmptyPath()
     {
+        NuGetCache.Initialize("dotnet-inspect");
         var path = NuGetCache.GetAppCacheBasePath();
 
         Assert.False(string.IsNullOrEmpty(path));

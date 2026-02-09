@@ -1,6 +1,3 @@
-using System.Text.Json.Serialization;
-using Markout;
-
 namespace DotnetInspector.Metadata;
 
 /// <summary>
@@ -17,7 +14,6 @@ public class DocComment
     /// <summary>
     /// Sample code references extracted from doc comments.
     /// </summary>
-    [MarkoutIgnoreInTable]
     public List<SampleReference>? Samples { get; set; }
 }
 
@@ -29,7 +25,6 @@ public class SampleReference
     /// <summary>
     /// Relative path to the sample file from the source file.
     /// </summary>
-    [JsonPropertyName("relative_path")]
     public string RelativePath { get; set; } = "";
 
     /// <summary>
@@ -45,7 +40,6 @@ public class SampleReference
     /// <summary>
     /// Resolved URL to the sample file (computed from SourceLink).
     /// </summary>
-    [JsonPropertyName("resolved_url")]
     public string? ResolvedUrl { get; set; }
 
     /// <summary>
@@ -59,13 +53,10 @@ public class SampleReference
 /// </summary>
 public class PartialSourceFileInfo
 {
-    [JsonPropertyName("file_path")]
     public string? FilePath { get; set; }
 
-    [JsonPropertyName("source_url")]
     public string? SourceUrl { get; set; }
 
-    [JsonPropertyName("github_browse_url")]
     public string? GitHubBrowseUrl { get; set; }
 }
 
@@ -79,7 +70,6 @@ public class ApiSurface
     /// </summary>
     public string? Name { get; set; }
 
-    [MarkoutIgnoreInTable]
     public List<ApiType> Types { get; set; } = [];
 
     public int PublicTypeCount { get; set; }
@@ -101,7 +91,6 @@ public class ApiSurface
     /// <summary>
     /// Type forwarders in this assembly (types re-exported from other assemblies).
     /// </summary>
-    [MarkoutIgnoreInTable]
     public List<TypeForwarder> TypeForwarders { get; set; } = [];
 
     /// <summary>
@@ -146,19 +135,16 @@ public class TypeParameter
     /// Includes special constraints (class, struct, notnull, unmanaged, new())
     /// and type constraints (interfaces, base class).
     /// </summary>
-    [MarkoutIgnoreInTable]
     public List<string> Constraints { get; set; } = [];
 
     /// <summary>
     /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
     /// </summary>
-    [JsonIgnore]
     public string DisplayName => Variance != null ? $"{Variance} {Name}" : Name;
 
     /// <summary>
     /// Returns constraints as a comma-separated string, or null if none.
     /// </summary>
-    [JsonIgnore]
     public string? ConstraintsSummary => Constraints.Count > 0
         ? string.Join(", ", Constraints)
         : null;
@@ -175,64 +161,50 @@ public class ApiType
     public bool IsStatic { get; set; }
 
     public string? BaseType { get; set; }
-    [MarkoutIgnoreInTable]
     public List<string>? Interfaces { get; set; }
 
     /// <summary>
     /// Known derived types within the same assembly.
     /// </summary>
-    [MarkoutIgnoreInTable]
     public List<string>? DerivedTypes { get; set; }
 
     /// <summary>
     /// Generic type parameters with their constraints.
     /// </summary>
-    [MarkoutIgnoreInTable]
     public List<TypeParameter>? TypeParameters { get; set; }
 
-    [MarkoutIgnoreInTable]
     public List<ApiMember>? Members { get; set; }
 
     // Source information (populated with --source-url)
-    [JsonPropertyName("source_file_path")]
     public string? SourceFilePath { get; set; }
 
-    [JsonPropertyName("source_url")]
     public string? SourceUrl { get; set; }
 
-    [JsonPropertyName("github_browse_url")]
     public string? GitHubBrowseUrl { get; set; }
 
-    [JsonPropertyName("source_line_number")]
     public int? SourceLineNumber { get; set; }
 
     /// <summary>
     /// How the source URL was resolved: "SourceLink" (from method debug info) or "Inferred" (from document name).
     /// </summary>
-    [JsonPropertyName("source_resolution")]
     public string? SourceResolution { get; set; }
 
     /// <summary>
     /// Additional source files for partial types. Only populated when type spans multiple files.
     /// </summary>
-    [JsonPropertyName("additional_source_files")]
-    [MarkoutIgnoreInTable]
     public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
 
     /// <summary>
     /// Indicates whether this type is defined across multiple partial files.
     /// </summary>
-    [JsonPropertyName("is_partial_type")]
     public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
 
     /// <summary>
     /// Full name of the type (Namespace.Name, or just Name if no namespace).
     /// </summary>
-    [JsonIgnore]
     public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";
 
     // Documentation (populated with --docs)
-    [MarkoutIgnoreInTable]
     public DocComment? Documentation { get; set; }
 }
 
@@ -258,18 +230,14 @@ public class ApiMember
     /// The type that this extension method extends (first parameter type).
     /// Only populated when IsExtension is true.
     /// </summary>
-    [JsonPropertyName("extended_type")]
     public string? ExtendedType { get; set; }
 
     // Enum value (for enum fields only)
-    [JsonPropertyName("enum_value")]
     public long? EnumValue { get; set; }
 
     // Source information (populated with --source-url)
-    [JsonPropertyName("source_line_number")]
     public int? SourceLineNumber { get; set; }
 
     // Documentation (populated with --docs)
-    [MarkoutIgnoreInTable]
     public DocComment? Documentation { get; set; }
 }
