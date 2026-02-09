@@ -823,9 +823,10 @@ public static class CommandLineBuilder
 
         var depsOption = new Option<bool>("--deps") { Description = "Include dependency analysis" };
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree" };
-        var filesOption = new Option<bool>("--files") { Description = "List DLLs in the package" };
+        var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree (lib/tools structure)" };
+        var filesOption = new Option<bool>("--files") { Description = "List files in the package (flat list, filterable with --tfm)" };
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
-        var allFilesOption = new Option<bool>("--all") { Description = "With --files: list all files in entire package" };
+        var allFilesOption = new Option<bool>("--all") { Description = "With --files/--layout: include all files in entire package" };
         var versionsOption = new Option<bool>("--versions") { Description = "List available versions from nuget.org" };
         var prereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
         prereleaseOption.Aliases.Add("--prerelease");
@@ -842,6 +843,7 @@ public static class CommandLineBuilder
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(depsOption);
         packageCommand.Options.Add(dependenciesOption);
+        packageCommand.Options.Add(layoutOption);
         packageCommand.Options.Add(filesOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(allFilesOption);
@@ -911,6 +913,7 @@ public static class CommandLineBuilder
                 IncludeDeps = parseResult.GetValue(depsOption),
                 ShowDependencies = parseResult.GetValue(dependenciesOption),
                 Tfm = parseResult.GetValue(tfmOption),
+                ListLayout = parseResult.GetValue(layoutOption),
                 ListFiles = parseResult.GetValue(filesOption),
                 ListTfms = parseResult.GetValue(tfmsOption),
                 ListAllFiles = parseResult.GetValue(allFilesOption),
@@ -934,7 +937,7 @@ public static class CommandLineBuilder
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
 
             if (exitCode == 0 && packageArgs.Length > 0
-                && !options.ListVersions && !options.ListFiles && !options.ListTfms && !options.Discover && !options.ShowReadme)
+                && !options.ListVersions && !options.ListFiles && !options.ListLayout && !options.ListTfms && !options.Discover && !options.ShowReadme)
             {
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
@@ -949,6 +952,7 @@ public static class CommandLineBuilder
                 tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
                 tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
                 tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
+                tips.Add(new(PackageCommand.Name, $"{pkg} --layout", "show file tree"));
                 tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
 
                 Hints.WriteTips(tipLevel, [.. tips]);

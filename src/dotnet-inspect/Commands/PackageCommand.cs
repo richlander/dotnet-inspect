@@ -149,6 +149,13 @@ public class PackageCommand
 
             extractPath = resolution.ExtractPath;
 
+            // Handle --layout mode: show file tree and exit early
+            if (options.ListLayout)
+            {
+                ListPackageLayout(extractPath, options);
+                return 0;
+            }
+
             // Handle --files mode: list files and exit early
             if (options.ListFiles)
             {
@@ -331,7 +338,7 @@ public class PackageCommand
         }
     }
 
-    private static void ListPackageFiles(string extractPath, InspectionOptions options)
+    private static void ListPackageLayout(string extractPath, InspectionOptions options)
     {
         string searchPath;
         string pattern;
@@ -379,6 +386,80 @@ public class PackageCommand
             : relativePaths.ToList();
 
         WriteFileTree(results);
+    }
+
+    private static void ListPackageFiles(string extractPath, InspectionOptions options)
+    {
+        string searchPath;
+        string pattern;
+
+        if (options.ListAllFiles)
+        {
+            searchPath = extractPath;
+            pattern = "*";
+        }
+        else
+        {
+            // Scope to a specific TFM if requested
+            if (!string.IsNullOrEmpty(options.Tfm))
+            {
+                string libDir = Path.Combine(extractPath, "lib", options.Tfm);
+                string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
+
+                if (Directory.Exists(libDir))
+                    searchPath = libDir;
+                else if (Directory.Exists(toolsDir))
+                    searchPath = toolsDir;
+                else
+                {
+                    Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
+                    return;
+                }
+
+                pattern = "*";
+            }
+            else
+            {
+                string toolsDir = Path.Combine(extractPath, "tools");
+                string libDir = Path.Combine(extractPath, "lib");
+
+                if (Directory.Exists(libDir))
+                    searchPath = libDir;
+                else if (Directory.Exists(toolsDir))
+                    searchPath = toolsDir;
+                else
+                {
+                    Console.Error.WriteLine("No lib or tools directory found. Use --all to list all files.");
+                    return;
+                }
+
+                pattern = "*";
+            }
+        }
+
+        string[] files = Directory.GetFiles(searchPath, pattern, SearchOption.AllDirectories);
+
+        // Use bare filenames when scoped to a specific TFM, relative paths otherwise
+        bool useFileNameOnly = !string.IsNullOrEmpty(options.Tfm) && !options.ListAllFiles;
+        var fileNames = files
+            .Select(f => useFileNameOnly
+                ? Path.GetFileName(f)
+                : Path.GetRelativePath(options.ListAllFiles ? extractPath : searchPath, f).Replace('\\', '/'))
+            .Where(p => !p.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+            .Where(p => !p.StartsWith("_rels", StringComparison.OrdinalIgnoreCase))
+            .Where(p => !p.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase))
+            .Where(p => !p.EndsWith(".psmdcp", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => p);
+
+        var results = options.Limit.HasValue
+            ? fileNames.Take(options.Limit.Value)
+            : fileNames;
+
+        foreach (var file in results)
+        {
+            Console.WriteLine(file);
+        }
     }
 
     private static void ListPackageTfms(string extractPath)

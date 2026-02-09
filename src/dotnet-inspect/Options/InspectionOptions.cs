@@ -23,7 +23,12 @@ public record InspectionOptions
     public string? Tfm { get; init; }
 
     /// <summary>
-    /// List files in the package instead of showing metadata.
+    /// Show the package file tree (lib/tools structure).
+    /// </summary>
+    public bool ListLayout { get; init; }
+
+    /// <summary>
+    /// List files in the package (flat list, filterable with --tfm).
     /// </summary>
     public bool ListFiles { get; init; }
 
