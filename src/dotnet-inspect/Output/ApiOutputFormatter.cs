@@ -381,7 +381,7 @@ public static class ApiOutputFormatter
                 if (showDocs)
                 {
                     var desc = t.Documentation?.Summary ?? "";
-                    desc = desc.Replace("\n", " ").Replace("\r", "");
+                    desc = desc.ReplaceLineEndings(" ");
                     if (desc.Length > 80)
                         desc = desc[..77] + "...";
                     return new[] { fullName, members, desc };
