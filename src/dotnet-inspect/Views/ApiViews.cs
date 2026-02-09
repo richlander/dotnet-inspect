@@ -128,11 +128,6 @@ public class CliApiSurface
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm => _inner.Tfm;
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("Repository")]
-    [MarkoutLink]
-    public string? RepositoryUrl => _inner.RepositoryUrl;
 }
 
 /// <summary>
