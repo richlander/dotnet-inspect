@@ -1,4 +1,4 @@
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Inspectors;
 
 /// <summary>
 /// Pure functions for parsing member signature strings.

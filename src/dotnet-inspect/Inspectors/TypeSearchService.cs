@@ -1,11 +1,11 @@
-using DotnetInspector.Inspectors;
+using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Inspectors;
 
 /// <summary>
 /// Collects types from multiple sources: packages, assemblies, platform frameworks,

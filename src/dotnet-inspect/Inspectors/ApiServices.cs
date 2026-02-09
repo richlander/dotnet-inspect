@@ -6,7 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Inspectors;
 
 /// <summary>
 /// Shared extraction, enrichment, and utility methods used by API-related commands.
