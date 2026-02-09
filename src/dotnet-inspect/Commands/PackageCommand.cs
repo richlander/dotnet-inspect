@@ -481,11 +481,11 @@ public class PackageCommand
     {
         var dlls = TfmSelector.GetPackageDlls(extractPath);
         var tfms = dlls
-            .Select(d => TfmSelector.ExtractTfmFromPath(
+            .Select(d => TfmResolver.ExtractTfmFromPath(
                 Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
             .Where(t => t != null)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(t => TfmSelector.GetTfmPriority(t!))
+            .OrderByDescending(t => TfmResolver.GetTfmPriority(t!))
             .ToList();
 
         foreach (var tfm in tfms)
@@ -576,8 +576,7 @@ public class PackageCommand
         else
         {
             group = result.DependencyGroups
-                .OrderByDescending(g => DependencyResolutionService.GetTfmPriority(g.TargetFramework))
-                .ThenByDescending(g => DependencyResolutionService.ExtractTfmVersion(g.TargetFramework))
+                .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
                 .First();
             tfm = group.TargetFramework;
         }

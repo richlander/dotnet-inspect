@@ -227,51 +227,9 @@ public class InspectionResult
 
     private static string GetNewestTfm(List<string> tfms)
     {
-        // Priority order: modern .NET (net5+) > netcoreapp > netstandard > netframework
         return tfms
-            .OrderByDescending(GetTfmPriority)
-            .ThenByDescending(ExtractTfmVersion)
+            .OrderByDescending(Packages.TfmResolver.GetTfmPriority)
             .First();
-    }
-
-    private static int GetTfmPriority(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-        // Modern .NET (net5.0+): starts with "net", has digit, and contains a dot (e.g., net8.0, net10.0)
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && 
-            !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework") &&
-            lower.Length > 3 && char.IsDigit(lower[3]) && lower.Contains('.'))
-            return 4; // Modern .NET (net5.0+)
-        if (lower.StartsWith("netcoreapp"))
-            return 3;
-        if (lower.StartsWith("netstandard"))
-            return 2;
-        // .NET Framework: net4xx without dot, or explicit netframework prefix
-        if (lower.StartsWith("net4") || lower.StartsWith("netframework"))
-            return 1;
-        return 0;
-    }
-
-    private static double ExtractTfmVersion(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-        // Extract version number from TFM strings like "net8.0", "netstandard2.1", "net462"
-        var versionPart = lower
-            .Replace("netcoreapp", "")
-            .Replace("netstandard", "")
-            .Replace("netframework", "")
-            .Replace("net", "")
-            .TrimStart('v');
-        
-        // Handle formats like "8.0", "462", "2.1"
-        if (double.TryParse(versionPart, out var version))
-            return version;
-        
-        // Handle "462" format -> 4.62
-        if (versionPart.Length == 3 && int.TryParse(versionPart, out var intVersion))
-            return intVersion / 100.0;
-        
-        return 0;
     }
 
     [MarkoutIgnoreInTable]
