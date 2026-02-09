@@ -7,7 +7,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Inspectors;
 
 /// <summary>
 /// Inspects assemblies/libraries: metadata extraction, PDB audit, SourceLink verification,
