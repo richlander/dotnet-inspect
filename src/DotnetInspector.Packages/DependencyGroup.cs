@@ -1,12 +1,7 @@
-using Markout;
-
-namespace DotnetInspector;
+namespace DotnetInspector.Packages;
 
 public class DependencyGroup
 {
-    [MarkoutPropertyName("Target Framework")]
     public string TargetFramework { get; set; } = "";
-
-    [MarkoutIgnore]
     public List<PackageDependency> Dependencies { get; set; } = [];
 }

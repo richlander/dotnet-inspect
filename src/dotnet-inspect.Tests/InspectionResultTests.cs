@@ -1,4 +1,6 @@
 using DotnetInspector;
+using DotnetInspector.Packages;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 

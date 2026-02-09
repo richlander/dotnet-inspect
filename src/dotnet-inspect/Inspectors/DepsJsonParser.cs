@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Inspectors;
 

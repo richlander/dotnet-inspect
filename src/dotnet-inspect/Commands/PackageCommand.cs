@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Markout;
 
@@ -248,7 +249,8 @@ public class PackageCommand
             // Fetch package metadata from NuGet (only for remote packages)
             if (!isLocalFile)
             {
-                await PackageMetadataService.FetchAllMetadataAsync(client, packageName, version, result, logger);
+                var metadata = await PackageMetadataService.FetchAllMetadataAsync(client, packageName, version, logger.Log);
+                ApplyMetadata(result, metadata);
             }
 
             // Filter output based on options
@@ -285,6 +287,19 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static void ApplyMetadata(InspectionResult result, PackageMetadata metadata)
+    {
+        result.Published = metadata.Published;
+        result.TotalDownloads = metadata.TotalDownloads;
+        result.VersionDownloads = metadata.VersionDownloads;
+        result.VersionCount = metadata.VersionCount;
+        result.PackageSize = metadata.PackageSize;
+        result.IsVerified = metadata.IsVerified;
+        result.Owners = metadata.Owners;
+        result.Deprecation = metadata.Deprecation;
+        result.Vulnerabilities = metadata.Vulnerabilities;
     }
 
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)
@@ -488,8 +503,8 @@ public class PackageCommand
 
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var treeNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client, group.Dependencies, tfm, globalSeen, logger);
+        var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
+            client, group.Dependencies, tfm, globalSeen, logger.Log);
 
         var view = new PackageDependenciesView
         {
@@ -497,11 +512,24 @@ public class PackageCommand
             Package = result.PackageName,
             Version = result.Version,
             Tfm = tfm,
-            Dependencies = treeNodes
+            Dependencies = ToTreeNodes(depNodes)
         };
 
         MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
         return 0;
+    }
+
+    private static List<TreeNode> ToTreeNodes(List<DependencyNode> nodes)
+    {
+        return nodes.Select(n =>
+        {
+            var label = !string.IsNullOrEmpty(n.Author)
+                ? $"{n.PackageId} {n.Version} [{n.Author}]"
+                : $"{n.PackageId} {n.Version}";
+            return n.Children.Count > 0
+                ? new TreeNode(label, ToTreeNodes(n.Children))
+                : new TreeNode(label);
+        }).ToList();
     }
 
     private static int PrintReadme(string extractPath, string? readmeFile, InspectionOptions options)
