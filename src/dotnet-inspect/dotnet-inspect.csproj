@@ -67,7 +67,7 @@
   -->
   <!-- PackageReference: Use for releases after new Markout version is published -->
   <ItemGroup>
-    <PackageReference Include="Markout" Version="0.5.0" />
+    <PackageReference Include="Markout" Version="0.5.1" />
   </ItemGroup>
 
   <ItemGroup>
