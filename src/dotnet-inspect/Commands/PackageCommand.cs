@@ -255,6 +255,19 @@ public class PackageCommand
         {
             result.RuntimeDependencies = null;
         }
+
+        // Filter dependency groups and set TFM when --tfm is requested
+        if (!string.IsNullOrEmpty(options.Tfm))
+        {
+            result.Tfm = options.Tfm;
+
+            if (result.DependencyGroups is { Count: > 0 })
+            {
+                result.DependencyGroups = result.DependencyGroups
+                    .Where(g => g.TargetFramework.Equals(options.Tfm, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+        }
     }
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
