@@ -396,7 +396,9 @@ public class AssemblyAudit
         while (index < nodes.Count && nodes[index].Depth == currentDepth)
         {
             var node = nodes[index];
-            var label = $"{node.Name} {node.Version}";
+            var label = !string.IsNullOrEmpty(node.Company)
+                ? $"{node.Name} {node.Version} [{node.Company}]"
+                : $"{node.Name} {node.Version}";
             index++;
 
             var children = new List<TreeNode>();

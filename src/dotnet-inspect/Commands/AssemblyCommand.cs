@@ -740,7 +740,8 @@ public class AssemblyCommand
             {
                 try
                 {
-                    var childRefs = AssemblyInspector.ExtractReferences(resolvedPath);
+                    var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
+                    node.Company = company;
                     if (childRefs.Count > 0)
                     {
                         // Clone visited set for this branch to allow diamond dependencies

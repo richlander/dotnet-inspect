@@ -45,6 +45,12 @@ public class AssemblyReferenceNode
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsCyclic { get; set; }
+
+    /// <summary>
+    /// Company name from the assembly's metadata.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Company { get; set; }
 }
 
 public class AssemblyInfo
