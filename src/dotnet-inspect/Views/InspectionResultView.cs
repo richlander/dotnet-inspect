@@ -229,7 +229,7 @@ public class InspectionResultView
 
         if (!string.IsNullOrWhiteSpace(_data.Authors))
             fields.Add(new("Authors", _data.Authors));
-        if (_data.Owners is { Count: > 0 } && string.Join(", ", _data.Owners) != _data.Authors)
+        if (_data.Owners is { Count: > 0 })
             fields.Add(new("Owners", string.Join(", ", _data.Owners)));
         if (!string.IsNullOrWhiteSpace(_data.License))
             fields.Add(new("License", _data.License));
