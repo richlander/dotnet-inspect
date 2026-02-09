@@ -6,8 +6,8 @@ public record Tip(string Subcommand, string Args, string Comment)
 {
     public string CommandText =>
         string.IsNullOrEmpty(Args)
-            ? $"{VersionInfo.ToolName} {Subcommand}"
-            : $"{VersionInfo.ToolName} {Subcommand} {Args}";
+            ? Subcommand
+            : $"{Subcommand} {Args}";
 }
 
 public static class Hints
