@@ -152,7 +152,7 @@ public static class CommandLineBuilder
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
                 new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
-                new Tip("--tips:d", "", "show more tips per command"),
+                new Tip("-t:d", "", "show more tips per command"),
                 new Tip(ApiCommand.Name, "--package <package>", "view public API surface"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
                 new Tip(FindCommand.Name, "<pattern> --platform <assembly>", "search platform types"));
