@@ -1,31 +1,18 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Services.Tests;
 
 public class DependencyResolutionServiceTests
 {
     [Theory]
-    [InlineData("net9.0", 4)]
-    [InlineData("net8.0", 4)]
-    [InlineData("net6.0", 4)]
-    [InlineData("netcoreapp3.1", 3)]
-    [InlineData("netstandard2.0", 2)]
-    [InlineData("netstandard2.1", 2)]
-    [InlineData("net472", 1)]
-    [InlineData("net461", 1)]
-    [InlineData("unknown", 0)]
-    public void GetTfmPriority_ReturnsExpectedPriority(string tfm, int expectedPriority)
+    [InlineData("net9.0", "net8.0")]
+    [InlineData("net8.0", "netcoreapp3.1")]
+    [InlineData("netcoreapp3.1", "netstandard2.1")]
+    [InlineData("netstandard2.1", "netstandard2.0")]
+    [InlineData("netstandard2.0", "net472")]
+    public void TfmResolver_GetTfmPriority_OrdersCorrectly(string higher, string lower)
     {
-        Assert.Equal(expectedPriority, DependencyResolutionService.GetTfmPriority(tfm));
-    }
-
-    [Theory]
-    [InlineData("net9.0", 9.0)]
-    [InlineData("net8.0", 8.0)]
-    [InlineData("netcoreapp3.1", 3.1)]
-    [InlineData("netstandard2.0", 2.0)]
-    [InlineData("netstandard2.1", 2.1)]
-    public void ExtractTfmVersion_ReturnsExpectedVersion(string tfm, double expectedVersion)
-    {
-        Assert.Equal(expectedVersion, DependencyResolutionService.ExtractTfmVersion(tfm));
+        Assert.True(TfmResolver.GetTfmPriority(higher) > TfmResolver.GetTfmPriority(lower));
     }
 
     [Theory]

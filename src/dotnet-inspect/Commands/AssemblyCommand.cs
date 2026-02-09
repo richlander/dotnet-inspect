@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
@@ -164,7 +165,7 @@ public class AssemblyCommand
 
             // Populate TFM from path for multi-TFM display
             var relativePath = Path.GetRelativePath(extractPath, targetPath).Replace('\\', '/');
-            audit.Tfm = ExtractTfmFromPath(relativePath);
+            audit.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
 
             if (signatureResult != null)
             {
@@ -222,10 +223,10 @@ public class AssemblyCommand
                 Console.Error.WriteLine($"Error: No assembly found for TFM '{tfm}'.");
                 Console.Error.WriteLine("Available TFMs:");
                 var tfms = allDlls
-                    .Select(d => ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
+                    .Select(d => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
                     .Where(t => t != null)
                     .Distinct()
-                    .OrderByDescending(t => GetTfmPriority(t!));
+                    .OrderByDescending(t => TfmResolver.GetTfmPriority(t!));
                 foreach (var t in tfms)
                 {
                     Console.Error.WriteLine($"  {t}");
@@ -302,69 +303,6 @@ public class AssemblyCommand
 
         logger.Log($"Found: {Path.GetRelativePath(extractPath, matchingFiles[0])}");
         return ([matchingFiles[0]], extractPath, tempDir, nupkgPath);
-    }
-
-    private static string? ExtractTfmFromPath(string relativePath)
-    {
-        // Patterns: lib/net8.0/Foo.dll, tools/net8.0/any/Foo.dll
-        var parts = relativePath.Split('/');
-        foreach (var part in parts)
-        {
-            if (IsTfmFolder(part))
-                return part;
-        }
-        return null;
-    }
-
-    private static bool IsTfmFolder(string folderName)
-    {
-        // Common TFM patterns: net8.0, net9.0, net10.0, netstandard2.0, netcoreapp3.1, net472, etc.
-        return folderName.StartsWith("net", StringComparison.OrdinalIgnoreCase) &&
-               (folderName.Contains('.') || (folderName.Length > 3 && char.IsDigit(folderName[3])));
-    }
-
-    private static int GetTfmPriority(string tfm)
-    {
-        // Higher number = higher priority (newer/preferred)
-        var lower = tfm.ToLowerInvariant();
-
-        // .NET (net5.0+) - highest priority
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework"))
-        {
-            // Extract version: net8.0 -> 8.0, net10.0 -> 10.0
-            var versionPart = lower[3..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 10000 + (version.Major * 100) + version.Minor;
-            }
-            // net472, net48, etc. (old .NET Framework)
-            if (int.TryParse(versionPart.Replace(".", ""), out var legacyVersion))
-            {
-                return 1000 + legacyVersion;
-            }
-        }
-
-        // .NET Core
-        if (lower.StartsWith("netcoreapp"))
-        {
-            var versionPart = lower[10..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 5000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        // .NET Standard
-        if (lower.StartsWith("netstandard"))
-        {
-            var versionPart = lower[11..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 3000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        return 0;
     }
 
 

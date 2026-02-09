@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Inspectors;
 
 /// <summary>
@@ -38,7 +40,7 @@ internal static class TfmSelector
         foreach (var dll in dlls)
         {
             var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
-            var tfm = ExtractTfmFromPath(relativePath);
+            var tfm = TfmResolver.ExtractTfmFromPath(relativePath);
             if (tfm != null)
             {
                 if (!byTfm.TryGetValue(tfm, out var list))
@@ -54,7 +56,7 @@ internal static class TfmSelector
             return (null, null);
 
         var sortedTfms = byTfm.Keys
-            .Select(tfm => (tfm, priority: GetTfmPriority(tfm)))
+            .Select(tfm => (tfm, priority: TfmResolver.GetTfmPriority(tfm)))
             .OrderByDescending(x => x.priority)
             .ToList();
 
@@ -106,60 +108,5 @@ internal static class TfmSelector
         }
 
         return null;
-    }
-
-    internal static string? ExtractTfmFromPath(string relativePath)
-    {
-        var parts = relativePath.Split('/');
-        foreach (var part in parts)
-        {
-            if (IsTfmFolder(part))
-                return part;
-        }
-        return null;
-    }
-
-    private static bool IsTfmFolder(string folderName)
-    {
-        return folderName.StartsWith("net", StringComparison.OrdinalIgnoreCase) &&
-               (folderName.Contains('.') || char.IsDigit(folderName[3]));
-    }
-
-    internal static int GetTfmPriority(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") && !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework"))
-        {
-            var versionPart = lower[3..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 10000 + (version.Major * 100) + version.Minor;
-            }
-            if (int.TryParse(versionPart.Replace(".", ""), out var legacyVersion))
-            {
-                return 1000 + legacyVersion;
-            }
-        }
-
-        if (lower.StartsWith("netcoreapp"))
-        {
-            var versionPart = lower[10..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 5000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        if (lower.StartsWith("netstandard"))
-        {
-            var versionPart = lower[11..];
-            if (Version.TryParse(versionPart, out var version))
-            {
-                return 3000 + (version.Major * 100) + version.Minor;
-            }
-        }
-
-        return 0;
     }
 }

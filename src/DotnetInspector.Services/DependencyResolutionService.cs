@@ -41,16 +41,13 @@ public static class DependencyResolutionService
             g.TargetFramework.Equals(targetTfm, StringComparison.OrdinalIgnoreCase));
         if (exact != null) return exact;
 
-        var targetPriority = GetTfmPriority(targetTfm);
-        var targetVersion = ExtractTfmVersion(targetTfm);
+        var targetPriority = TfmResolver.GetTfmPriority(targetTfm);
 
         return groups
             .Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
                         g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                        (GetTfmPriority(g.TargetFramework) <= targetPriority &&
-                         ExtractTfmVersion(g.TargetFramework) <= targetVersion))
-            .OrderByDescending(g => GetTfmPriority(g.TargetFramework))
-            .ThenByDescending(g => ExtractTfmVersion(g.TargetFramework))
+                        TfmResolver.GetTfmPriority(g.TargetFramework) <= targetPriority)
+            .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
             .FirstOrDefault();
     }
 
@@ -107,28 +104,5 @@ public static class DependencyResolutionService
             return ver.ToNormalizedString();
         }
         return null;
-    }
-
-    public static int GetTfmPriority(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") &&
-            !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework") &&
-            lower.Length > 3 && char.IsDigit(lower[3]) && lower.Contains('.'))
-            return 4;
-        if (lower.StartsWith("netcoreapp")) return 3;
-        if (lower.StartsWith("netstandard")) return 2;
-        if (lower.StartsWith("net4") || lower.StartsWith("netframework")) return 1;
-        return 0;
-    }
-
-    public static double ExtractTfmVersion(string tfm)
-    {
-        var versionPart = tfm.ToLowerInvariant()
-            .Replace("netcoreapp", "").Replace("netstandard", "")
-            .Replace("netframework", "").Replace("net", "").TrimStart('v');
-        if (double.TryParse(versionPart, out var version)) return version;
-        if (versionPart.Length == 3 && int.TryParse(versionPart, out var intVersion)) return intVersion / 100.0;
-        return 0;
     }
 }
