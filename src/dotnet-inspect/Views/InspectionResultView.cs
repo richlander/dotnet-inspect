@@ -104,8 +104,8 @@ public class InspectionResultView
     [MarkoutPropertyName("Target Frameworks")]
     public int TargetFrameworkCount => _data.TargetFrameworks?.Count ?? 0;
 
-    [MarkoutPropertyName("Newest TFM")]
-    public string? NewestTfm => _data.NewestTfm;
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm => _data.Tfm;
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Supported RIDs")]
@@ -195,8 +195,8 @@ public class InspectionResultView
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
 
-        if (!string.IsNullOrEmpty(NewestTfm))
-            fields.Add(new("TFM", NewestTfm));
+        if (!string.IsNullOrEmpty(Tfm))
+            fields.Add(new("TFM", Tfm));
         if (_data.Published.HasValue)
             fields.Add(new("Updated", _data.Published.Value.ToString("yyyy-MM-dd")));
         if (_data.Deprecation != null)
@@ -213,8 +213,8 @@ public class InspectionResultView
 
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
-        if (!string.IsNullOrEmpty(NewestTfm))
-            fields.Add(new("Newest TFM", NewestTfm));
+        if (!string.IsNullOrEmpty(Tfm))
+            fields.Add(new("TFM", Tfm));
         if (_data.Published.HasValue)
             fields.Add(new("Updated", _data.Published.Value.ToString("yyyy-MM-dd")));
 

@@ -48,27 +48,27 @@ public class InspectionResultTests
     [InlineData(new[] { "net462", "netstandard2.0" }, "netstandard2.0")]
     [InlineData(new[] { "netcoreapp3.1", "net5.0" }, "net5.0")]
     [InlineData(new[] { "net462", "net472", "netstandard2.0", "net8.0" }, "net8.0")]
-    public void NewestTfm_SelectsCorrectFramework(string[] frameworks, string expected)
+    public void Tfm_SelectsCorrectFramework(string[] frameworks, string expected)
     {
         var result = new InspectionResult { TargetFrameworks = frameworks.ToList() };
 
-        Assert.Equal(expected, result.NewestTfm);
+        Assert.Equal(expected, result.Tfm);
     }
 
     [Fact]
-    public void NewestTfm_EmptyList_ReturnsNull()
+    public void Tfm_EmptyList_ReturnsNull()
     {
         var result = new InspectionResult { TargetFrameworks = [] };
 
-        Assert.Null(result.NewestTfm);
+        Assert.Null(result.Tfm);
     }
 
     [Fact]
-    public void NewestTfm_NullList_ReturnsNull()
+    public void Tfm_NullList_ReturnsNull()
     {
         var result = new InspectionResult { TargetFrameworks = null };
 
-        Assert.Null(result.NewestTfm);
+        Assert.Null(result.Tfm);
     }
 
     [Fact]

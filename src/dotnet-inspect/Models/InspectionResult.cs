@@ -81,12 +81,20 @@ public class InspectionResult
     public List<string>? TargetFrameworks { get; set; }
 
     /// <summary>
-    /// The newest/highest target framework in the package (computed from TargetFrameworks).
+    /// The highest-priority target framework in the package (computed from TargetFrameworks),
+    /// or the explicit TFM override when --tfm is specified.
     /// </summary>
     [JsonIgnore]
-    public string? NewestTfm => TargetFrameworks is { Count: > 0 }
-        ? TargetFrameworks.OrderByDescending(TfmResolver.GetTfmPriority).First()
-        : null;
+    public string? Tfm
+    {
+        get => TfmOverride ?? (TargetFrameworks is { Count: > 0 }
+            ? TargetFrameworks.OrderByDescending(TfmResolver.GetTfmPriority).First()
+            : null);
+        set => TfmOverride = value;
+    }
+
+    [JsonIgnore]
+    private string? TfmOverride { get; set; }
 
     public List<string>? SupportedRids { get; set; }
 
