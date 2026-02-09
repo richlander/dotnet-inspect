@@ -1,11 +1,12 @@
 using DotnetInspector;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for InspectionResult formatting and computed properties.
+/// Tests for InspectionResult computed properties and value formatters.
 /// </summary>
 public class InspectionResultTests
 {
@@ -17,19 +18,11 @@ public class InspectionResultTests
     [InlineData(2_500_000, "2.5M")]
     [InlineData(1_000_000_000, "1B")]
     [InlineData(5_100_000_000, "5.1B")]
-    public void DownloadsDisplay_FormatsCorrectly(long downloads, string expected)
+    public void CompactNumberFormatter_FormatsCorrectly(long downloads, string expected)
     {
-        var result = new InspectionResult { TotalDownloads = downloads };
+        var formatter = new CompactNumberFormatter();
 
-        Assert.Equal(expected, result.DownloadsDisplay);
-    }
-
-    [Fact]
-    public void DownloadsDisplay_NullDownloads_ReturnsNull()
-    {
-        var result = new InspectionResult { TotalDownloads = null };
-
-        Assert.Null(result.DownloadsDisplay);
+        Assert.Equal(expected, formatter.Format(downloads));
     }
 
     [Theory]
@@ -39,19 +32,11 @@ public class InspectionResultTests
     [InlineData(1_048_576, "1 MB")]
     [InlineData(2_621_440, "2.5 MB")]
     [InlineData(1_073_741_824, "1 GB")]
-    public void PackageSizeDisplay_FormatsCorrectly(long bytes, string expected)
+    public void ByteSizeFormatter_FormatsCorrectly(long bytes, string expected)
     {
-        var result = new InspectionResult { PackageSize = bytes };
+        var formatter = new ByteSizeFormatter();
 
-        Assert.Equal(expected, result.PackageSizeDisplay);
-    }
-
-    [Fact]
-    public void PackageSizeDisplay_NullSize_ReturnsNull()
-    {
-        var result = new InspectionResult { PackageSize = null };
-
-        Assert.Null(result.PackageSizeDisplay);
+        Assert.Equal(expected, formatter.Format(bytes));
     }
 
     [Theory]
@@ -113,25 +98,6 @@ public class InspectionResultTests
     }
 
     [Fact]
-    public void OwnersDisplay_FormatsAsList()
-    {
-        var result = new InspectionResult 
-        { 
-            Owners = ["owner1", "owner2", "owner3"]
-        };
-
-        Assert.Equal("owner1, owner2, owner3", result.OwnersDisplay);
-    }
-
-    [Fact]
-    public void OwnersDisplay_EmptyList_ReturnsNull()
-    {
-        var result = new InspectionResult { Owners = [] };
-
-        Assert.Null(result.OwnersDisplay);
-    }
-
-    [Fact]
     public void VulnerabilitiesDisplay_ShowsCountAndSeverities()
     {
         var result = new InspectionResult 
@@ -157,39 +123,6 @@ public class InspectionResultTests
         var result = new InspectionResult { Vulnerabilities = null };
 
         Assert.Null(result.VulnerabilitiesDisplay);
-    }
-
-    [Fact]
-    public void TargetFrameworksSummary_JoinsWithComma()
-    {
-        var result = new InspectionResult 
-        { 
-            TargetFrameworks = ["net8.0", "netstandard2.0"]
-        };
-
-        Assert.Equal("net8.0, netstandard2.0", result.TargetFrameworksSummary);
-    }
-
-    [Fact]
-    public void SupportedRidsSummary_JoinsWithComma()
-    {
-        var result = new InspectionResult 
-        { 
-            SupportedRids = ["win-x64", "linux-x64", "osx-arm64"]
-        };
-
-        Assert.Equal("win-x64, linux-x64, osx-arm64", result.SupportedRidsSummary);
-    }
-
-    [Fact]
-    public void ToolCommandsSummary_JoinsWithComma()
-    {
-        var result = new InspectionResult 
-        { 
-            ToolCommands = ["dotnet-tool", "other-command"]
-        };
-
-        Assert.Equal("dotnet-tool, other-command", result.ToolCommandsSummary);
     }
 
     [Fact]
@@ -252,36 +185,6 @@ public class InspectionResultTests
         Assert.Equal("Alpha", flat[0].Id);
         Assert.Equal("Middle", flat[1].Id);
         Assert.Equal("Zebra", flat[2].Id);
-    }
-
-    [Fact]
-    public void PublishedDisplay_FormatsDateCorrectly()
-    {
-        var result = new InspectionResult 
-        { 
-            Published = new DateTimeOffset(2024, 6, 15, 10, 30, 0, TimeSpan.Zero)
-        };
-
-        Assert.Equal("2024-06-15", result.PublishedDisplay);
-    }
-
-    [Fact]
-    public void PublishedDisplay_NullDate_ReturnsNull()
-    {
-        var result = new InspectionResult { Published = null };
-
-        Assert.Null(result.PublishedDisplay);
-    }
-
-    [Fact]
-    public void ContentSummary_JoinsDirectories()
-    {
-        var result = new InspectionResult 
-        { 
-            ContentDirectories = ["lib", "tools", "runtimes"]
-        };
-
-        Assert.Equal("lib, tools, runtimes", result.ContentSummary);
     }
 
     [Fact]

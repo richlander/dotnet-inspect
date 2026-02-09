@@ -50,38 +50,24 @@ public class InspectionResult
     /// <summary>
     /// When this package version was published to NuGet.
     /// </summary>
-    [JsonIgnore]
-    public DateTimeOffset? Published { get; set; }
-
-    /// <summary>
-    /// Formatted publish date for display.
-    /// </summary>
+    [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutPropertyName("Updated")]
     [JsonPropertyName("published")]
-    public string? PublishedDisplay => Published?.ToString("yyyy-MM-dd");
+    public DateTimeOffset? Published { get; set; }
 
     /// <summary>
     /// Total downloads across all versions of the package.
     /// </summary>
-    public long? TotalDownloads { get; set; }
-
-    /// <summary>
-    /// Formatted download count for display (e.g., "5.1B", "1.2M").
-    /// </summary>
+    [MarkoutValueFormatter(typeof(Output.CompactNumberFormatter))]
     [MarkoutPropertyName("Downloads")]
-    [JsonIgnore]
-    public string? DownloadsDisplay => TotalDownloads.HasValue ? FormatDownloads(TotalDownloads.Value) : null;
+    public long? TotalDownloads { get; set; }
 
     /// <summary>
     /// Downloads for this specific version.
     /// </summary>
+    [MarkoutValueFormatter(typeof(Output.CompactNumberFormatter))]
+    [MarkoutPropertyName("Version Downloads")]
     public long? VersionDownloads { get; set; }
-
-    /// <summary>
-    /// Formatted version download count for display.
-    /// </summary>
-    [JsonIgnore]
-    public string? VersionDownloadsDisplay => VersionDownloads.HasValue ? FormatDownloads(VersionDownloads.Value) : null;
 
     /// <summary>
     /// Total number of versions published for this package.
@@ -91,35 +77,9 @@ public class InspectionResult
     /// <summary>
     /// Size of the .nupkg file in bytes.
     /// </summary>
+    [MarkoutValueFormatter(typeof(Output.ByteSizeFormatter))]
+    [MarkoutPropertyName("Package Size")]
     public long? PackageSize { get; set; }
-
-    /// <summary>
-    /// Formatted package size for display (e.g., "2.3 MB", "150 KB").
-    /// </summary>
-    [JsonIgnore]
-    public string? PackageSizeDisplay => PackageSize.HasValue ? FormatBytes(PackageSize.Value) : null;
-
-    private static string FormatBytes(long bytes)
-    {
-        return bytes switch
-        {
-            >= 1_073_741_824 => $"{bytes / 1_073_741_824.0:0.#} GB",
-            >= 1_048_576 => $"{bytes / 1_048_576.0:0.#} MB",
-            >= 1_024 => $"{bytes / 1_024.0:0.#} KB",
-            _ => $"{bytes} B"
-        };
-    }
-
-    private static string FormatDownloads(long downloads)
-    {
-        return downloads switch
-        {
-            >= 1_000_000_000 => $"{downloads / 1_000_000_000.0:0.#}B",
-            >= 1_000_000 => $"{downloads / 1_000_000.0:0.#}M",
-            >= 1_000 => $"{downloads / 1_000.0:0.#}K",
-            _ => downloads.ToString()
-        };
-    }
 
     /// <summary>
     /// Whether the package owner is verified by NuGet.org.
@@ -129,15 +89,9 @@ public class InspectionResult
     /// <summary>
     /// Package owners (from NuGet.org).
     /// </summary>
-    [MarkoutIgnoreInTable]
-    public List<string>? Owners { get; set; }
-
-    /// <summary>
-    /// Owners as comma-separated string for display.
-    /// </summary>
+    [MarkoutJoin(", ")]
     [MarkoutPropertyName("Owners")]
-    [JsonIgnore]
-    public string? OwnersDisplay => Owners is { Count: > 0 } ? string.Join(", ", Owners) : null;
+    public List<string>? Owners { get; set; }
 
     /// <summary>
     /// Deprecation information if the package is deprecated.
@@ -176,14 +130,9 @@ public class InspectionResult
     [MarkoutSkipDefault]
     public bool IsToolPackage { get; set; }
 
-    [MarkoutIgnoreInTable]
-    public List<string>? PackageTypes { get; set; }
-
+    [MarkoutJoin(", ")]
     [MarkoutPropertyName("Package Types")]
-    [JsonIgnore]
-    public string? PackageTypesSummary => PackageTypes is { Count: > 0 }
-        ? string.Join(", ", PackageTypes)
-        : null;
+    public List<string>? PackageTypes { get; set; }
 
     /// <summary>
     /// Computed package type: Library, Tool, or Tool v2.
@@ -194,23 +143,13 @@ public class InspectionResult
         ? "Tool v2"
         : IsToolPackage ? "Tool" : "Library";
 
-    [MarkoutIgnoreInTable]
+    [MarkoutJoin(", ")]
+    [MarkoutPropertyName("Content")]
     public List<string>? ContentDirectories { get; set; }
 
-    [MarkoutPropertyName("Content")]
-    [JsonIgnore]
-    public string? ContentSummary => ContentDirectories is { Count: > 0 }
-        ? string.Join(", ", ContentDirectories)
-        : null;
-
-    [MarkoutIgnoreInTable]
-    public List<string>? TargetFrameworks { get; set; }
-
+    [MarkoutJoin(", ")]
     [MarkoutPropertyName("Target Frameworks")]
-    [JsonIgnore]
-    public string? TargetFrameworksSummary => TargetFrameworks is { Count: > 0 }
-        ? string.Join(", ", TargetFrameworks)
-        : null;
+    public List<string>? TargetFrameworks { get; set; }
 
     [MarkoutPropertyName("Target Frameworks")]
     [JsonIgnore]
@@ -232,14 +171,9 @@ public class InspectionResult
             .First();
     }
 
-    [MarkoutIgnoreInTable]
-    public List<string>? SupportedRids { get; set; }
-
+    [MarkoutJoin(", ")]
     [MarkoutPropertyName("Supported RIDs")]
-    [JsonIgnore]
-    public string? SupportedRidsSummary => SupportedRids is { Count: > 0 }
-        ? string.Join(", ", SupportedRids)
-        : null;
+    public List<string>? SupportedRids { get; set; }
 
     [MarkoutPropertyName("Runtime Identifiers")]
     [JsonIgnore]
@@ -271,14 +205,9 @@ public class InspectionResult
     [MarkoutSkipDefault]
     public bool IsRidSpecificPointerPackage { get; set; }
 
-    [MarkoutIgnoreInTable]
-    public List<string>? ToolCommands { get; set; }
-
+    [MarkoutJoin(", ")]
     [MarkoutPropertyName("Tool Commands")]
-    [JsonIgnore]
-    public string? ToolCommandsSummary => ToolCommands is { Count: > 0 }
-        ? string.Join(", ", ToolCommands)
-        : null;
+    public List<string>? ToolCommands { get; set; }
 
     [MarkoutSection(Name = "RID Packages")]
     public List<RidPackageReference>? RuntimeIdentifierPackages { get; set; }
@@ -286,14 +215,9 @@ public class InspectionResult
     [MarkoutPropertyName("Runtime Target RID")]
     public string? RuntimeTargetRid { get; set; }
 
-    [MarkoutIgnoreInTable]
-    public List<string>? NativeFiles { get; set; }
-
+    [MarkoutJoin(", ")]
     [MarkoutPropertyName("Native Files")]
-    [JsonIgnore]
-    public string? NativeFilesSummary => NativeFiles is { Count: > 0 }
-        ? string.Join(", ", NativeFiles)
-        : null;
+    public List<string>? NativeFiles { get; set; }
 
     [MarkoutIgnoreInTable]
     public List<DependencyGroup>? DependencyGroups { get; set; }
@@ -346,8 +270,8 @@ public class InspectionResult
         
         if (!string.IsNullOrEmpty(NewestTfm))
             fields.Add(new("TFM", NewestTfm));
-        if (!string.IsNullOrEmpty(PublishedDisplay))
-            fields.Add(new("Updated", PublishedDisplay));
+        if (Published.HasValue)
+            fields.Add(new("Updated", Published.Value.ToString("yyyy-MM-dd")));
         if (Deprecation != null)
             fields.Add(new("Deprecated", "Yes"));
         if (Vulnerabilities is { Count: > 0 })
@@ -365,16 +289,16 @@ public class InspectionResult
         fields.Add(new("Type", PackageType));
         if (!string.IsNullOrEmpty(NewestTfm))
             fields.Add(new("Newest TFM", NewestTfm));
-        if (!string.IsNullOrEmpty(PublishedDisplay))
-            fields.Add(new("Updated", PublishedDisplay));
+        if (Published.HasValue)
+            fields.Add(new("Updated", Published.Value.ToString("yyyy-MM-dd")));
 
         if (Deprecation?.Summary != null)
             fields.Add(new("Deprecated Note", Deprecation.Summary));
 
         if (!string.IsNullOrWhiteSpace(Authors))
             fields.Add(new("Authors", Authors));
-        if (!string.IsNullOrWhiteSpace(OwnersDisplay) && OwnersDisplay != Authors)
-            fields.Add(new("Owners", OwnersDisplay));
+        if (Owners is { Count: > 0 } && string.Join(", ", Owners) != Authors)
+            fields.Add(new("Owners", string.Join(", ", Owners)));
         if (!string.IsNullOrWhiteSpace(License))
             fields.Add(new("License", License));
         if (!string.IsNullOrWhiteSpace(Repository))
@@ -384,8 +308,8 @@ public class InspectionResult
         if (IsVerified == true)
             fields.Add(MarkoutField.Create("Verified", true));
         
-        if (!string.IsNullOrWhiteSpace(ContentSummary))
-            fields.Add(new("Content", ContentSummary));
+        if (ContentDirectories is { Count: > 0 })
+            fields.Add(new("Content", string.Join(", ", ContentDirectories)));
         if (TargetFrameworkCount > 0)
             fields.Add(MarkoutField.Create("Target Frameworks", TargetFrameworkCount));
         if (SupportedRidCount > 0)
@@ -398,8 +322,8 @@ public class InspectionResult
             fields.Add(MarkoutField.Create("Vulnerabilities", Vulnerabilities.Count));
 
         // Tool-specific properties
-        if (!string.IsNullOrWhiteSpace(ToolCommandsSummary))
-            fields.Add(new("Tool Commands", ToolCommandsSummary));
+        if (ToolCommands is { Count: > 0 })
+            fields.Add(new("Tool Commands", string.Join(", ", ToolCommands)));
 
         // Additional properties
         if (IsFrameworkDependent)
@@ -415,15 +339,17 @@ public class InspectionResult
     private List<MarkoutField> GetStatisticsFields()
     {
         var fields = new List<MarkoutField>();
+        var formatter = new Output.CompactNumberFormatter();
+        var sizeFormatter = new Output.ByteSizeFormatter();
         
-        if (!string.IsNullOrEmpty(DownloadsDisplay))
-            fields.Add(new("Total Downloads", DownloadsDisplay));
-        if (!string.IsNullOrEmpty(VersionDownloadsDisplay))
-            fields.Add(new("Version Downloads", VersionDownloadsDisplay));
+        if (TotalDownloads.HasValue)
+            fields.Add(new("Total Downloads", formatter.Format(TotalDownloads.Value)));
+        if (VersionDownloads.HasValue)
+            fields.Add(new("Version Downloads", formatter.Format(VersionDownloads.Value)));
         if (VersionCount.HasValue)
             fields.Add(MarkoutField.Create("Version Count", VersionCount.Value));
-        if (!string.IsNullOrEmpty(PackageSizeDisplay))
-            fields.Add(new("Package Size", PackageSizeDisplay));
+        if (PackageSize.HasValue)
+            fields.Add(new("Package Size", sizeFormatter.Format(PackageSize.Value)));
         
         return fields;
     }
