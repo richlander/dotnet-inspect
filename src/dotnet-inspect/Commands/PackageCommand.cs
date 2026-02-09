@@ -242,7 +242,7 @@ public class PackageCommand
                 string[] depsFiles = Directory.GetFiles(extractPath, "*.deps.json", SearchOption.AllDirectories);
                 foreach (string depsFile in depsFiles)
                 {
-                    DepsJsonParser.Parse(depsFile, result);
+                    ApplyDepsJson(Services.DepsJsonParser.Parse(depsFile), result);
                 }
             }
 
@@ -308,6 +308,20 @@ public class PackageCommand
         result.IsToolPackage = nuspec.IsToolPackage;
         result.ReadmeFile = nuspec.ReadmeFile;
         result.DependencyGroups = nuspec.DependencyGroups;
+    }
+
+    private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
+    {
+        if (depsJson.RuntimeTargetRid != null)
+        {
+            result.RuntimeTargetRid = depsJson.RuntimeTargetRid;
+        }
+
+        if (depsJson.RuntimeDependencies != null)
+        {
+            result.RuntimeDependencies ??= [];
+            result.RuntimeDependencies.AddRange(depsJson.RuntimeDependencies);
+        }
     }
 
     private static void ApplyMetadata(InspectionResult result, PackageMetadata metadata)

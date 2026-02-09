@@ -1,12 +1,12 @@
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Converts C#-style generic type names to CLR backtick notation.
 /// e.g., "Dictionary&lt;TKey,TValue&gt;" → "Dictionary`2"
 /// </summary>
-internal static class GenericTypeNameConverter
+public static class GenericTypeNameConverter
 {
-    internal static string Convert(string typeName)
+    public static string Convert(string typeName)
     {
         int angleBracketStart = typeName.IndexOf('<');
         if (angleBracketStart < 0)

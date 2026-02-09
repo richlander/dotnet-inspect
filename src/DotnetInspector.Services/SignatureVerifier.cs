@@ -4,7 +4,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Result of NuGet package signature verification.

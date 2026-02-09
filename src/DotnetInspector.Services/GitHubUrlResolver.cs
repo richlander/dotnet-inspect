@@ -1,16 +1,16 @@
 using System.Text.RegularExpressions;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Utilities for resolving and converting GitHub URLs.
 /// </summary>
-internal static class GitHubUrlResolver
+public static class GitHubUrlResolver
 {
     /// <summary>
     /// Resolves a relative sample path to a full URL based on the source file URL.
     /// </summary>
-    internal static string? ResolveSampleUrl(string sourceUrl, string relativePath)
+    public static string? ResolveSampleUrl(string sourceUrl, string relativePath)
     {
         try
         {
@@ -76,7 +76,7 @@ internal static class GitHubUrlResolver
     /// <summary>
     /// Converts a GitHub /raw/ URL to a /blob/ URL for browser viewing.
     /// </summary>
-    internal static string ConvertRawToBlobUrl(string url)
+    public static string ConvertRawToBlobUrl(string url)
     {
         return url.Replace("/raw/", "/blob/");
     }
@@ -84,7 +84,7 @@ internal static class GitHubUrlResolver
     /// <summary>
     /// Converts a raw.githubusercontent.com URL to a github.com/raw/ URL for display.
     /// </summary>
-    internal static string? ConvertToGitHubRawUrl(string? rawUrl)
+    public static string? ConvertToGitHubRawUrl(string? rawUrl)
     {
         if (rawUrl == null) return null;
 
@@ -99,7 +99,7 @@ internal static class GitHubUrlResolver
     /// <summary>
     /// Converts a github.com raw/blob URL to a raw.githubusercontent.com URL for fetching content.
     /// </summary>
-    internal static string ConvertToRawGitHubContentUrl(string url)
+    public static string ConvertToRawGitHubContentUrl(string url)
     {
         if (url.Contains("github.com"))
         {

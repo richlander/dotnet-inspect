@@ -1,15 +1,17 @@
 using System.Text.Json;
 using DotnetInspector.Packages;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Parses .deps.json files for runtime dependencies.
 /// </summary>
 public static class DepsJsonParser
 {
-    public static void Parse(string depsPath, InspectionResult result)
+    public static DepsJsonData Parse(string depsPath)
     {
+        var result = new DepsJsonData();
+
         try
         {
             string json = File.ReadAllText(depsPath);
@@ -59,5 +61,7 @@ public static class DepsJsonParser
         {
             // Ignore parse errors
         }
+
+        return result;
     }
 }

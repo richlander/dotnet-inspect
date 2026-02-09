@@ -1,6 +1,6 @@
-using DotnetInspector.Inspectors;
 
-namespace DotnetInspector.Tests;
+
+namespace DotnetInspector.Services.Tests;
 
 /// <summary>
 /// Tests for generic type name conversion from C# syntax to metadata format.

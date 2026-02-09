@@ -1,7 +1,6 @@
 using DotnetInspector.Packages;
-using DotnetInspector.Services;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Fetches source files from URLs with persistent disk caching and in-memory caching.
