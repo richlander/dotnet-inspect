@@ -50,6 +50,7 @@ public static class CommandLineBuilder
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
         var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)" };
+        tipsOption.Aliases.Add("-t");
 
         // NuGet source options (shared across package-consuming commands)
         var sourceOption = new Option<string[]>("--source")
@@ -72,6 +73,7 @@ public static class CommandLineBuilder
         // Root-level display option (distinct instance so it appears in root help)
         rootCommand.Options.Add(new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" });
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)" };
+        rootTipsOption.Aliases.Add("-t");
         rootCommand.Options.Add(rootTipsOption);
 
         // API command
@@ -955,6 +957,11 @@ public static class CommandLineBuilder
                 return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
             }
 
+            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var jsonOutput = parseResult.GetValue(jsonOption);
+            var tipLevel = jsonOutput || verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
+
             var options = new InspectionOptions
             {
                 IncludeDeps = parseResult.GetValue(depsOption),
@@ -971,18 +978,16 @@ public static class CommandLineBuilder
                 OutputPath = parseResult.GetValue(outOption),
                 Discover = parseResult.GetValue(discoverOption),
                 Limit = parseResult.GetValue(limitOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = jsonOutput,
                 Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                Verbosity = verbosity,
+                TipLevel = tipLevel,
                 IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
             var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options, explicitVersion);
-
-            var tipLevel = options.JsonOutput || options.Verbosity == Verbosity.Quiet
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption));
 
             if (exitCode == 0 && packageArgs.Length > 0
                 && !options.ListVersions && !options.ListFiles && !options.ListLayout && !options.ListTfms && !options.Discover && !options.ShowReadme)

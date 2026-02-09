@@ -93,6 +93,11 @@ public record InspectionOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
+    /// Tip verbosity level.
+    /// </summary>
+    public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+
+    /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
     public HashSet<string>? IncludeSections { get; init; }
