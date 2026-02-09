@@ -281,23 +281,70 @@ isDeterministic = (debuggingModes & 0x100) != 0;
 
 ## Output Formatting
 
-### Markout Integration
+### Serialization Architecture
 
-The tool uses [Markout](https://github.com/richlander/markout) for Markdown serialization. Markout provides a structured format for human-readable, machine-parseable output. See the [Markout specification](https://github.com/richlander/markout/blob/main/docs/specification.md) for format details.
+The tool supports two output formats — Markdown (via [Markout](https://github.com/richlander/markout)) and JSON — with a clean separation between data and presentation.
 
-Types are annotated with `[MarkoutSerializable]` and registered in `MarkoutContext`:
+**Data models** (`Models/`) are pure data types with no serialization attributes. They represent the raw inspection results:
 
 ```csharp
-[MarkoutContext(typeof(InspectionResult))]
-[MarkoutContext(typeof(AssemblyInfo))]
-[MarkoutContext(typeof(ApiSurface))]
-// ...
-public partial class MarkoutContext : MarkoutSerializerContext
+// Models/InspectionResult.cs — pure data, no Markout
+public class InspectionResult
 {
+    public string PackageName { get; set; }
+    public long? TotalDownloads { get; set; }
+    public List<string>? TargetFrameworks { get; set; }
+    // ...
 }
 ```
 
-Properties use `[MarkoutPropertyName]` for display names and `[MarkoutIgnore]` to exclude from output.
+**View models** (`Views/`) wrap the data models and add all Markout presentation concerns — display attributes, sections, field builders, computed display properties, and formatting:
+
+```csharp
+// Views/InspectionResultView.cs — Markout presentation
+[MarkoutSerializable(TitleProperty = nameof(PackageName), AutoFields = false)]
+public class InspectionResultView
+{
+    private readonly InspectionResult _data;
+
+    [MarkoutValueFormatter(typeof(CompactNumberFormatter))]
+    [MarkoutPropertyName("Downloads")]
+    public long? TotalDownloads => _data.TotalDownloads;
+
+    [MarkoutSection(Name = "Package")]
+    public List<MarkoutField> Metadata => GetMetadataFields();
+    // ...
+}
+```
+
+**`OutputFormatter`** acts as the pivot point between the two paths:
+
+- **JSON** → serializes the data model directly via `JsonContext` (STJ source-gen with `SnakeCaseLower` naming policy)
+- **Markout** → wraps data in a view model, then serializes via `MarkoutContext`
+
+```csharp
+// JSON: data model goes straight to STJ
+JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
+
+// Markout: data model wrapped in view model first
+var view = new InspectionResultView(result);
+context.Serialize(view);
+```
+
+This ensures data models never reference Markout, and presentation logic is fully contained in `Views/` and `Output/`.
+
+### Value Formatting
+
+Numeric and date formatting is handled declaratively through Markout attributes on view model properties:
+
+| Attribute | Purpose | Example |
+| --------- | ------- | ------- |
+| `[MarkoutJoin(", ")]` | Joins list properties | `["net8.0", "net9.0"]` → `"net8.0, net9.0"` |
+| `[MarkoutFormat("yyyy-MM-dd")]` | Format string via `ISpanFormattable` | `DateTimeOffset` → `"2024-06-15"` |
+| `[MarkoutValueFormatter(typeof(...))]` | Custom `IMarkoutValueFormatter<T>` | `5100000000` → `"5.1B"` |
+| `[MarkoutBoolFormat("✓", "✗")]` | Boolean display strings | `true` → `"✓"` |
+
+Formatter implementations live in `Output/ValueFormatters.cs` (`ByteSizeFormatter`, `CompactNumberFormatter`).
 
 ### Output Modes
 
@@ -321,49 +368,100 @@ This allows precise control over output size for LLM context management.
 
 Packages are resolved in order:
 
-1. **NuGet global cache** (`~/.nuget/packages`) - read-only
-2. **App cache** (`~/.local/share/dotnet-inspect/packages`) - downloaded packages cached here
+1. **NuGet global cache** (`~/.nuget/packages`) — read-only (never written to)
+2. **App cache** (`~/.local/share/dotnet-inspect/packages`) — downloaded packages cached here
 
-The `NuGetCache` class handles resolution, download from nuget.org, and extraction.
+`PackageCacheService` enforces this invariant: the app reads from both caches but only writes to the app cache. This prevents corrupting the shared NuGet cache.
 
 ## Project Structure
 
+The codebase is organized into four layers, from bottom (domain-agnostic) to top (application-specific):
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  dotnet-inspect (App layer)                                 │
+│                                                             │
+│  Commands/        CLI commands, orchestration               │
+│  Models/          Pure data types (no serialization attrs)  │
+│  Views/           Markout view models (presentation only)   │
+│  Output/          Formatters, serialization pivot            │
+│  Inspectors/      App-specific inspection logic             │
+│  Options/         CLI option types                          │
+├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Services (Shared services)                 │
+│                                                             │
+│  PackageResolverService    version discovery, download      │
+│  PackageMetadataService    NuGet metadata (downloads, etc)  │
+│  PackageCacheService       cache management                 │
+│  NuspecParser              nuspec → NuspecData DTO           │
+│  DepsJsonParser            deps.json → DepsJsonData DTO     │
+│  TfmSelector               TFM selection, assembly paths    │
+│  + 7 more shared services                                   │
+├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Packages (Domain provider — NuGet)         │
+│                                                             │
+│  PackageExtractor, NuGetCache, TfmResolver                  │
+│  DependencyGroup, PackageDependency                         │
+├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Metadata (Domain provider — PE/Assembly)   │
+│                                                             │
+│  AssemblyReader, ApiSurface models, PdbReader                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Layer Rules
+
+- **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
+- **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
+- **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.
+- **Views** wrap models and own all Markout attributes, sections, field builders, and computed display properties. They are the only types registered in `MarkoutContext`.
+- **Commands** orchestrate: they call services, populate models, and hand off to `OutputFormatter`. Most commands should not import Markout directly.
+
+### Key Files
+
 ```text
 src/dotnet-inspect/
-├── Commands/           # Command implementations
-│   ├── ApiCommand.cs
-│   ├── AssemblyCommand.cs
-│   ├── DiffCommand.cs
-│   ├── LlmsTxtCommand.cs
-│   ├── PackageCommand.cs
-│   ├── PlatformCommand.cs
-│   ├── SamplesCommand.cs
-│   └── TypeCommand.cs
-├── Inspectors/         # Core inspection logic
-│   ├── ApiSurfaceExtractor.cs
-│   ├── AssemblyAuditor.cs
-│   ├── DocCommentParser.cs
-│   ├── SourceLinkResolver.cs
-│   └── ...
-├── Output/             # Formatting
-│   ├── OutputFormatter.cs
-│   └── VerboseLogger.cs
-├── Options/            # Command options records
-├── CommandLineBuilder.cs
-├── SignatureTypeProvider.cs
-├── MarkoutContext.cs
-├── JsonContext.cs
-└── llms.txt            # Embedded LLM usage guide
+├── Commands/                   # CLI commands (orchestration)
+├── Inspectors/                 # App-specific inspection logic
+├── Models/                     # Pure data types
+│   ├── InspectionResult.cs     #   Package inspection data
+│   ├── AssemblyAudit.cs        #   Assembly audit data
+│   └── RidPackageReference.cs  #   RID package data
+├── Views/                      # Markout presentation
+│   ├── InspectionResultView.cs #   Package view model
+│   ├── AssemblyAuditView.cs    #   Assembly audit view model
+│   ├── AssemblyAuditReport.cs  #   Multi-assembly report wrapper
+│   └── FlatDependency.cs       #   Dependency table row (view-only type)
+├── Output/                     # Formatters and utilities
+│   ├── OutputFormatter.cs      #   JSON/Markout pivot point
+│   ├── ValueFormatters.cs      #   ByteSizeFormatter, CompactNumberFormatter
+│   ├── FindOutputFormatter.cs  #   Find command rendering
+│   ├── DiffOutputFormatter.cs  #   Diff command rendering
+│   └── MemberTableFormatter.cs #   API member table rendering
+├── Options/                    # CLI option types
+├── JsonContext.cs              # STJ source-gen (data models)
+├── MarkoutContext.cs           # Markout source-gen (view models)
+└── llms.txt                    # Embedded LLM usage guide
+
+src/DotnetInspector.Services/   # Shared, app-agnostic services
+src/DotnetInspector.Packages/   # NuGet domain provider
+src/DotnetInspector.Metadata/   # PE/assembly domain provider
 ```
 
 ## Key Design Decisions
 
-1. **No assembly loading** - Uses `MetadataReader` to avoid loading assemblies into the runtime, enabling inspection of any .NET assembly regardless of target framework.
+1. **No assembly loading** — Uses `MetadataReader` to avoid loading assemblies into the runtime, enabling inspection of any .NET assembly regardless of target framework.
 
-2. **Embedded llms.txt** - The usage guide is compiled into the binary as a resource, ensuring it's always available and version-matched.
+2. **Data/View model split** — Data models (`Models/`) have zero Markout references. View models (`Views/`) own all presentation. This prevents serialization concerns from bleeding into domain types.
 
-3. **Default exclusions** - `[EditorBrowsable(Never)]` and `[Obsolete]` members are hidden by default to reduce noise. Use `--all` to include them.
+3. **Services return DTOs** — Services never mutate app types. They return focused DTOs that commands compose into models. This keeps services reusable across applications.
 
-4. **Automatic TFM selection** - When multiple target frameworks exist, the highest is auto-selected. Override with `--tfm`.
+4. **Read-only NuGet cache** — The app reads from the shared NuGet global cache but never writes to it. Downloads go to the app's own cache directory.
 
-5. **Signature-first output** - Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
+5. **Embedded llms.txt** — The usage guide is compiled into the binary as a resource, ensuring it's always available and version-matched.
+
+6. **Default exclusions** — `[EditorBrowsable(Never)]` and `[Obsolete]` members are hidden by default to reduce noise. Use `--all` to include them.
+
+7. **Automatic TFM selection** — When multiple target frameworks exist, the highest is auto-selected. Override with `--tfm`.
+
+8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
