@@ -430,7 +430,7 @@ public class InspectionResult
             fields.Add(MarkoutField.Create("Target Frameworks", TargetFrameworkCount));
         if (SupportedRidCount > 0)
             fields.Add(MarkoutField.Create("Runtime Identifiers", SupportedRidCount));
-        if (AssemblyCount > 0)
+        if (AssemblyCount > 1)
             fields.Add(MarkoutField.Create("Libraries", AssemblyCount));
         if (HasReadme)
             fields.Add(MarkoutField.Create("Readme", true));

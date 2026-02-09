@@ -43,6 +43,41 @@ dotnet-inspect System.Text.Json --sourcelink-audit  # Provenance verification
 dotnet-inspect System.Text.Json --files --all      # File structure
 ```
 
+#### Multi-assembly packages
+
+Some packages bundle multiple assemblies per TFM (e.g., `Microsoft.Azure.SignalR` ships both `Microsoft.Azure.SignalR.dll` and `Microsoft.Azure.SignalR.Common.dll`). The `Libraries` field shows when a package contains more than one assembly.
+
+```bash
+dotnet-inspect Microsoft.Azure.SignalR                # Shows Libraries: 2
+dotnet-inspect Microsoft.Azure.SignalR --files        # See all assemblies per TFM
+dotnet-inspect Microsoft.Azure.SignalR --tfms         # List target frameworks
+```
+
+```text
+| Target Frameworks | 2 |
+| Libraries | 2 |
+```
+
+Use `--files` to see the full layout:
+
+```text
+└─ lib
+   ├─ net8.0
+   │  ├─ Microsoft.Azure.SignalR.Common.dll
+   │  └─ Microsoft.Azure.SignalR.dll
+   └─ netstandard2.0
+      ├─ Microsoft.Azure.SignalR.Common.dll
+      └─ Microsoft.Azure.SignalR.dll
+```
+
+Inspect or compare individual assemblies using `package --metadata` with `--tfm`:
+
+```bash
+dotnet-inspect package Microsoft.Azure.SignalR --metadata                   # Primary assembly (highest TFM)
+dotnet-inspect package Microsoft.Azure.SignalR --metadata --tfm net8.0      # Specific TFM
+dotnet-inspect api Microsoft.Azure.SignalR                                  # API surface (all assemblies)
+```
+
 ### platform
 
 List frameworks or inspect platform assemblies.
