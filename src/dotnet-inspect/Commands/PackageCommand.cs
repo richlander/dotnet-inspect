@@ -153,14 +153,14 @@ public class PackageCommand
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
             {
-                ListPackageLayout(extractPath, options);
+                ListPackageLayout(extractPath, options, packageName, options.TipLevel);
                 return 0;
             }
 
             // Handle --files mode: list files and exit early
             if (options.ListFiles)
             {
-                ListPackageFiles(extractPath, options);
+                ListPackageFiles(extractPath, options, packageName, options.TipLevel);
                 return 0;
             }
 
@@ -381,7 +381,7 @@ public class PackageCommand
         }
     }
 
-    private static void ListPackageLayout(string extractPath, InspectionOptions options)
+    private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
         var (searchPath, error) = ResolveScopedPath(extractPath, options);
         if (error != null)
@@ -405,9 +405,10 @@ public class PackageCommand
             : relativePaths.ToList();
 
         WriteFileTree(results);
+        WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
     }
 
-    private static void ListPackageFiles(string extractPath, InspectionOptions options)
+    private static void ListPackageFiles(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
         string searchPath;
         bool useFileNameOnly = false;
@@ -462,6 +463,26 @@ public class PackageCommand
         {
             Console.WriteLine(file);
         }
+        WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
+    }
+
+    private static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
+    {
+        if (options.ScopeLib || options.ScopeTools || !string.IsNullOrEmpty(options.Tfm)) return;
+
+        var tips = new List<Tip>();
+        var flag = isLayout ? "--layout" : "--files";
+        var otherFlag = isLayout ? "--files" : "--layout";
+        var otherDesc = isLayout ? "flat file list" : "file tree";
+
+        tips.Add(new(PackageCommand.Name, $"{packageName} {otherFlag}", otherDesc));
+
+        if (Directory.Exists(Path.Combine(extractPath, "lib")))
+            tips.Add(new(PackageCommand.Name, $"{packageName} {flag} --lib", "lib/ folder only"));
+        if (Directory.Exists(Path.Combine(extractPath, "tools")))
+            tips.Add(new(PackageCommand.Name, $"{packageName} {flag} --tools", "tools/ folder only"));
+
+        Hints.WriteTips(tipLevel, [.. tips]);
     }
 
     private static (string path, string? error) ResolveScopedPath(string extractPath, InspectionOptions options)
