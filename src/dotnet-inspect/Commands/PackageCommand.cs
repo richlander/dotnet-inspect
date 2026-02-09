@@ -182,7 +182,7 @@ public class PackageCommand
             string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
             if (nuspecFiles.Length > 0)
             {
-                NuspecParser.Parse(nuspecFiles[0], result);
+                ApplyNuspec(Services.NuspecParser.Parse(nuspecFiles[0]), result);
             }
 
             // Handle --readme mode: print README and exit early
@@ -294,6 +294,20 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
+    {
+        result.PackageName = nuspec.PackageName ?? result.PackageName;
+        result.Version = nuspec.Version ?? result.Version;
+        result.Description = nuspec.Description;
+        result.Authors = nuspec.Authors;
+        result.Repository = nuspec.Repository;
+        result.License = nuspec.License;
+        result.PackageTypes = nuspec.PackageTypes;
+        result.IsToolPackage = nuspec.IsToolPackage;
+        result.ReadmeFile = nuspec.ReadmeFile;
+        result.DependencyGroups = nuspec.DependencyGroups;
     }
 
     private static void ApplyMetadata(InspectionResult result, PackageMetadata metadata)
