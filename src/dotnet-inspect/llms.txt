@@ -213,6 +213,25 @@ dotnet-inspect api --platform System.Text.Json     # API from platform assembly
 dotnet-inspect api JsonSerializer --platform System.Text.Json -v:d -s:Interfaces  # With interfaces
 ```
 
+### cache
+
+Manage the dotnet-inspect cache (downloaded packages, sources, symbols).
+
+```bash
+dotnet-inspect cache                               # Show cache size breakdown
+dotnet-inspect cache --clean                        # Clear the cache
+```
+
+### cli
+
+Show CLI command structure as an API listing. Useful for discovering options.
+
+```bash
+dotnet-inspect cli                                  # All commands
+dotnet-inspect cli api                              # Single command with full options
+dotnet-inspect cli -v:q                             # Command names only
+```
+
 ## Output
 
 ### Markdown (default)

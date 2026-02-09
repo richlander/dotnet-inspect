@@ -144,6 +144,25 @@ dotnet-inspect implements Stream --framework runtime
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
+### cache
+
+Manage the dotnet-inspect cache (downloaded packages, sources, symbols).
+
+```bash
+dotnet-inspect cache                               # Show cache size breakdown
+dotnet-inspect cache --clean                        # Clear the cache
+```
+
+### cli
+
+Show CLI command structure as an API listing.
+
+```bash
+dotnet-inspect cli                                  # All commands
+dotnet-inspect cli api                              # Single command with options
+dotnet-inspect cli -v:q                             # Command names only
+```
+
 ## Custom NuGet Sources
 
 ```bash
