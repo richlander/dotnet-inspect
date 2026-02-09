@@ -15,19 +15,17 @@ dotnet tool install -g dotnet-inspect
 | `package X` | Package metadata, dependencies, files |
 | `platform X` | Inspect SDK/runtime assembly |
 | `assembly ./path` | Inspect local file |
-| `audit X` | Verify provenance (SourceLink, determinism) |
-| `api X` | Public API surface |
-| `type X` | Type hierarchy and members |
+| `api X` | Public API surface (table format, or `--tree` for hierarchy) |
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
+| `implements X` | Find types implementing an interface or extending a class |
 | `find X` | Search for types |
 
 ### Common Flags
 
 | Flag | Description |
 |------|-------------|
-| `--audit` | Full provenance verification (always strict) |
-| `--sourcelink` | Show SourceLink presence/URL (fast, no HTTP) |
+| `--sourcelink-audit` | Full provenance verification (parallel HTTP HEAD) |
 | `--json` | JSON output |
 | `-v:q/m/n/d` | Verbosity: quiet, minimal, normal, detailed |
 
@@ -41,22 +39,9 @@ Inspect NuGet packages. This is the default command.
 dotnet-inspect System.Text.Json                    # Metadata (latest version)
 dotnet-inspect System.Text.Json@8.0.4 -v:d         # Detailed (shows vulnerability)
 dotnet-inspect System.Text.Json --versions         # List available versions
-dotnet-inspect System.Text.Json --audit            # Provenance verification; optional `--strict` mode
+dotnet-inspect System.Text.Json --sourcelink-audit  # Provenance verification
 dotnet-inspect System.Text.Json --files --all      # File structure
 ```
-
-### audit
-
-Verify package/assembly provenance. Always runs strict verification.
-
-```bash
-dotnet-inspect audit Markout@0.1.4                 # Package
-dotnet-inspect audit ./bin/MyLib.dll               # Local file
-dotnet-inspect audit ./artifacts/*.nupkg           # Multiple nupkgs
-dotnet-inspect audit Markout@0.1.4 -v:q            # Quiet (pass/fail)
-```
-
-Note: Strict audit hits the network and will take longer.
 
 ### platform
 
@@ -66,7 +51,7 @@ List frameworks or inspect platform assemblies.
 dotnet-inspect platform                            # List frameworks
 dotnet-inspect platform --framework runtime        # List runtime assemblies
 dotnet-inspect platform System.Text.Json           # Inspect assembly
-dotnet-inspect platform System.Text.Json --audit   # Audit platform assembly
+dotnet-inspect platform System.Text.Json --sourcelink-audit  # Audit platform assembly
 ```
 
 ### api
@@ -132,7 +117,7 @@ Inspect a specific assembly file.
 
 ```bash
 dotnet-inspect assembly ./bin/MyLib.dll            # Local file
-dotnet-inspect assembly ./bin/MyLib.dll --audit    # With provenance check
+dotnet-inspect assembly ./bin/MyLib.dll --sourcelink-audit  # With provenance check
 ```
 
 ### diff
@@ -149,12 +134,14 @@ dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --additive     # additive cha
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 JsonSerializer  # filter to type
 ```
 
-### type
+### implements
 
-Show type hierarchy with members.
+Find types implementing an interface or extending a class.
 
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json
+dotnet-inspect implements IDisposable --framework runtime
+dotnet-inspect implements Stream --framework runtime
+dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
 ## Custom NuGet Sources

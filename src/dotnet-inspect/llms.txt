@@ -59,7 +59,7 @@ dotnet-inspect api 'IEnumerable<T>' --platform System.Runtime -v n  # Type param
 ### assembly
 
 ```bash
-dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --audit
+dotnet-inspect assembly --package System.Text.Json --tfm net8.0 --sourcelink-audit
 ```
 
 ### diff
@@ -86,6 +86,10 @@ dotnet-inspect diff HttpClient --platform System.Net.Http@9.0.0..10.0.0 --framew
 | `--package` | Package with version range (Package@v1..v2) |
 | `--platform` | Platform assembly with version range (Assembly@v1..v2) |
 | `--framework` | Framework for platform diff (runtime, aspnetcore). Default: runtime |
+| `--stat` | Show only statistics per type (no member details) |
+| `--breaking` | Show only breaking changes |
+| `--additive` | Show only additive changes |
+| `--name-only` | Show only type names that changed |
 
 ### find
 
@@ -206,7 +210,7 @@ dotnet-inspect platform --list-versions            # Installed SDK versions
 dotnet-inspect platform --framework runtime        # List runtime assemblies
 dotnet-inspect platform --framework aspnetcore     # List ASP.NET Core assemblies
 dotnet-inspect api --platform System.Text.Json     # API from platform assembly
-dotnet-inspect api JsonSerializer --platform System.Text.Json --interfaces  # With interfaces
+dotnet-inspect api JsonSerializer --platform System.Text.Json -v:d -s:Interfaces  # With interfaces
 ```
 
 ## Output
@@ -269,7 +273,7 @@ dotnet-inspect api System.Text.Json JsonSerializer -s              # Header only
 | `--docs` | Fetch XML documentation |
 | `--all` | Include hidden/obsolete |
 | `--unsafe` | Filter to pointer methods |
-| `--audit` | SourceLink/determinism check |
+| `--sourcelink-audit` | SourceLink/determinism check |
 | `--deps` | Show runtime dependencies |
 
 ## Package vs Platform
@@ -325,7 +329,7 @@ void .ctor(string name, params string[] aliases)
 ParseResult Parse(Command command, IReadOnlyList<string> args, ParserConfiguration? configuration = null)
 ```
 
-This means you can determine calling conventions directly from `type` or `api` output without additional lookups.
+This means you can determine calling conventions directly from `api` output without additional lookups.
 
 ### Generic Type Syntax
 
@@ -368,12 +372,12 @@ dotnet-inspect implements Stream --framework runtime  # Find subclasses
 
 ### Flag Compatibility Matrix
 
-| Flag | api | type | find | extensions | implements | diff |
-|------|-----|------|------|------------|------------|------|
-| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `--platform` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `--assembly` | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| `--framework` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Flag | api | find | extensions | implements | diff |
+|------|-----|------|------------|------------|------|
+| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--platform` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--assembly` | ✓ | ✓ | ✓ | ✓ | |
+| `--framework` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### Common Assembly Names
 
@@ -394,7 +398,7 @@ dotnet-inspect implements Stream --framework runtime  # Find subclasses
 dotnet-inspect find "*List*" --framework runtime
 
 # Get interfaces implemented by a type
-dotnet-inspect api "List<T>" --platform System.Collections --interfaces
+dotnet-inspect api "List<T>" --platform System.Collections -v:d -s:Interfaces
 
 # Get full type shape with members
 dotnet-inspect api "Dictionary<TKey, TValue>" --platform System.Collections --tree
