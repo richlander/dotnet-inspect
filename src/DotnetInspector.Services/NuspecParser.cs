@@ -1,23 +1,28 @@
 using System.Xml.Linq;
 using DotnetInspector.Packages;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Parses .nuspec files to extract package metadata.
 /// </summary>
 public static class NuspecParser
 {
-    public static void Parse(string nuspecPath, InspectionResult result)
+    /// <summary>
+    /// Parses all metadata from a nuspec file.
+    /// </summary>
+    public static NuspecData Parse(string nuspecPath)
     {
+        var result = new NuspecData();
+
         XDocument doc = XDocument.Load(nuspecPath);
         XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
 
         var metadata = doc.Root?.Element(ns + "metadata");
-        if (metadata == null) return;
+        if (metadata == null) return result;
 
-        result.PackageName = metadata.Element(ns + "id")?.Value ?? result.PackageName;
-        result.Version = metadata.Element(ns + "version")?.Value ?? result.Version;
+        result.PackageName = metadata.Element(ns + "id")?.Value;
+        result.Version = metadata.Element(ns + "version")?.Value;
         result.Description = metadata.Element(ns + "description")?.Value;
         result.Authors = metadata.Element(ns + "authors")?.Value;
         result.Repository = metadata.Element(ns + "repository")?.Attribute("url")?.Value;
@@ -42,7 +47,6 @@ public static class NuspecParser
             var licenseUrl = metadata.Element(ns + "licenseUrl")?.Value;
             if (!string.IsNullOrEmpty(licenseUrl) && !licenseUrl.Contains("LICENSE"))
             {
-                // Extract expression from nuget.org license URLs like https://licenses.nuget.org/MIT
                 if (licenseUrl.StartsWith("https://licenses.nuget.org/"))
                 {
                     result.License = licenseUrl.Replace("https://licenses.nuget.org/", "");
@@ -50,7 +54,7 @@ public static class NuspecParser
             }
         }
 
-        // Check if it's marked as a tool
+        // Parse package types
         var packageTypes = metadata.Element(ns + "packageTypes");
         if (packageTypes != null)
         {
@@ -114,5 +118,7 @@ public static class NuspecParser
                 result.DependencyGroups.Add(depGroup);
             }
         }
+
+        return result;
     }
 }

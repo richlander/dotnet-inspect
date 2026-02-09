@@ -69,15 +69,15 @@ public static class DependencyResolutionService
                 string[] nuspecFiles = Directory.GetFiles(extractResult.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
                 if (nuspecFiles.Length == 0) return ([], null);
 
-                var (dependencyGroups, author) = NuspecDependencyParser.Parse(nuspecFiles[0]);
+                var nuspec = NuspecParser.Parse(nuspecFiles[0]);
 
-                if (dependencyGroups is not { Count: > 0 }) return ([], author);
+                if (nuspec.DependencyGroups is not { Count: > 0 }) return ([], nuspec.Authors);
 
-                var group = FindBestMatchingTfmGroup(dependencyGroups, tfm);
-                if (group?.Dependencies is not { Count: > 0 }) return ([], author);
+                var group = FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
+                if (group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
 
                 var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log);
-                return (children, author);
+                return (children, nuspec.Authors);
             }
             finally
             {

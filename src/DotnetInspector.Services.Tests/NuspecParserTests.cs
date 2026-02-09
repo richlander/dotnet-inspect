@@ -1,8 +1,4 @@
-using DotnetInspector;
-using DotnetInspector.Inspectors;
-using DotnetInspector.Packages;
-
-namespace DotnetInspector.Tests;
+namespace DotnetInspector.Services.Tests;
 
 /// <summary>
 /// Tests for NuspecParser XML parsing functionality.
@@ -27,7 +23,7 @@ public class NuspecParserTests : IDisposable
 
     private string WriteNuspec(string content)
     {
-        var path = Path.Combine(_tempDir, "test.nuspec");
+        var path = Path.Combine(_tempDir, $"test-{Guid.NewGuid():N}.nuspec");
         File.WriteAllText(path, content);
         return path;
     }
@@ -47,8 +43,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult { PackageName = "Original", Version = "0.0.0" };
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("MyPackage", result.PackageName);
         Assert.Equal("1.2.3", result.Version);
@@ -70,8 +65,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("https://github.com/test/repo", result.Repository);
     }
@@ -90,8 +84,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("MIT", result.License);
     }
@@ -110,8 +103,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("(file: LICENSE.txt)", result.License);
     }
@@ -130,8 +122,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("Apache-2.0", result.License);
     }
@@ -152,8 +143,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.True(result.IsToolPackage);
         Assert.NotNull(result.PackageTypes);
@@ -177,8 +167,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.NotNull(result.PackageTypes);
         Assert.Equal(2, result.PackageTypes.Count);
@@ -201,8 +190,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("docs/README.md", result.ReadmeFile);
     }
@@ -216,6 +204,7 @@ public class NuspecParserTests : IDisposable
               <metadata>
                 <id>MyPackage</id>
                 <version>1.0.0</version>
+                <authors>Test Author</authors>
                 <dependencies>
                   <group targetFramework="net8.0">
                     <dependency id="System.Text.Json" version="8.0.0" />
@@ -229,8 +218,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.NotNull(result.DependencyGroups);
         Assert.Equal(2, result.DependencyGroups.Count);
@@ -259,8 +247,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.NotNull(result.DependencyGroups);
         Assert.Single(result.DependencyGroups);
@@ -285,14 +272,13 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Null(result.DependencyGroups);
     }
 
     [Fact]
-    public void Parse_NoMetadata_DoesNotThrow()
+    public void Parse_NoMetadata_ReturnsEmptyResult()
     {
         var nuspec = WriteNuspec("""
             <?xml version="1.0" encoding="utf-8"?>
@@ -300,12 +286,10 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult { PackageName = "Original", Version = "1.0.0" };
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
-        // Original values preserved
-        Assert.Equal("Original", result.PackageName);
-        Assert.Equal("1.0.0", result.Version);
+        Assert.Null(result.PackageName);
+        Assert.Null(result.Version);
     }
 
     [Fact]
@@ -321,8 +305,7 @@ public class NuspecParserTests : IDisposable
             </package>
             """);
 
-        var result = new InspectionResult();
-        NuspecParser.Parse(nuspec, result);
+        var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("NoNamespacePackage", result.PackageName);
         Assert.Equal("2.0.0", result.Version);
