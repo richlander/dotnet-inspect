@@ -1,4 +1,5 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -22,7 +23,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatOneLineOutput(results, grouped: false);
+        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
 
         Assert.Equal("Command CommandResult Option OptionResult", output);
     }
@@ -41,7 +42,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatOneLineOutput(results, grouped: true);
+        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: true);
         var lines = output.Split(Environment.NewLine);
 
         Assert.Equal(2, lines.Length);
@@ -64,7 +65,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatOneLineOutput(results, grouped: false);
+        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
 
         // Should be deduplicated and sorted
         Assert.Equal("Option Version VersionOption", output);
@@ -82,7 +83,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatOneLineOutput(results, grouped: false);
+        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
 
         Assert.Equal("Alpha Middle Zebra", output);
     }
@@ -95,7 +96,7 @@ public class FindCommandTests
             ["NoMatch*"] = []
         };
 
-        var output = FindCommand.FormatOneLineOutput(results, grouped: false);
+        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
 
         Assert.Equal("", output);
     }
@@ -112,7 +113,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatNameOnlyOutput(results);
+        var output = FindOutputFormatter.FormatNameOnlyOutput(results);
         var lines = output.Split(Environment.NewLine);
 
         Assert.Equal(3, lines.Length);
@@ -136,7 +137,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatNameOnlyOutput(results);
+        var output = FindOutputFormatter.FormatNameOnlyOutput(results);
         var lines = output.Split(Environment.NewLine);
 
         Assert.Equal(3, lines.Length);
@@ -153,7 +154,7 @@ public class FindCommandTests
             ["NoMatch*"] = []
         };
 
-        var output = FindCommand.FormatNameOnlyOutput(results);
+        var output = FindOutputFormatter.FormatNameOnlyOutput(results);
 
         Assert.Equal("", output);
     }
@@ -170,7 +171,7 @@ public class FindCommandTests
             ]
         };
 
-        var output = FindCommand.FormatOneLineOutput(results, grouped: true);
+        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: true);
 
         Assert.Equal("Test*: TestA, TestM, TestZ", output);
     }

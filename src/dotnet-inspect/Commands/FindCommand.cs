@@ -4,7 +4,6 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -87,23 +86,18 @@ public class FindCommand
         }
         else if (options.NameOnly)
         {
-            WriteNameOnlyOutput(resultsByPattern);
+            Console.WriteLine(FindOutputFormatter.FormatNameOnlyOutput(resultsByPattern));
         }
         else if (options.OneLine)
         {
-            WriteOneLineOutput(resultsByPattern, options.Grouped);
+            Console.WriteLine(FindOutputFormatter.FormatOneLineOutput(resultsByPattern, options.Grouped));
         }
         else
         {
-            WriteMultiPatternOutput(resultsByPattern, options.Limit);
+            Console.WriteLine(FindOutputFormatter.FormatMultiPatternOutput(resultsByPattern));
         }
 
         return 0;
-    }
-
-    private static void WriteNameOnlyOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
-    {
-        Console.WriteLine(FormatNameOnlyOutput(resultsByPattern));
     }
 
     private static async Task<int> ExecuteSinglePatternAsync(string pattern, FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
@@ -131,7 +125,7 @@ public class FindCommand
             }
             else
             {
-                WriteMarkoutOutput(results, pattern, totalCount, options.Limit);
+                Console.WriteLine(FindOutputFormatter.FormatMarkoutOutput(results, pattern, totalCount, options.Limit));
             }
 
             return 0;
@@ -142,116 +136,12 @@ public class FindCommand
         return await TypeSearchService.CollectTypesAsync(options, null, logger, tempDirs, httpClient);
     }
 
-    private static void WriteOneLineOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, bool grouped)
-    {
-        Console.WriteLine(FormatOneLineOutput(resultsByPattern, grouped));
-    }
-
-    internal static string FormatOneLineOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, bool grouped)
-    {
-        if (grouped)
-        {
-            // Grouped: one line per pattern with matching type names
-            var lines = new List<string>();
-            foreach (var (pattern, results) in resultsByPattern)
-            {
-                var typeNames = results.Select(r => r.TypeName).Distinct().OrderBy(n => n);
-                lines.Add($"{pattern}: {string.Join(", ", typeNames)}");
-            }
-            return string.Join(Environment.NewLine, lines);
-        }
-        else
-        {
-            // Flat: all type names space-separated on one line
-            var allTypeNames = resultsByPattern.Values
-                .SelectMany(r => r)
-                .Select(r => r.TypeName)
-                .Distinct()
-                .OrderBy(n => n);
-            return string.Join(" ", allTypeNames);
-        }
-    }
-
-    internal static string FormatNameOnlyOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
-    {
-        var allTypeNames = resultsByPattern.Values
-            .SelectMany(r => r)
-            .Select(r => r.TypeName)
-            .Distinct()
-            .OrderBy(n => n);
-        return string.Join(Environment.NewLine, allTypeNames);
-    }
-
-    private static void WriteMultiPatternOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, int? limit)
-    {
-        var writer = new MarkoutWriter();
-        writer.WriteHeading(1, "Find Results");
-
-        foreach (var (pattern, results) in resultsByPattern)
-        {
-            writer.WriteHeading(2, pattern);
-            writer.WriteField("Matches", results.Count);
-
-            if (results.Count == 0)
-            {
-                writer.WriteParagraph("*No types found.*");
-            }
-            else
-            {
-                var headers = new[] { "Type", "Namespace", "Kind", "Assembly", "Source" };
-                var rows = results.Select(result =>
-                {
-                    var ns = result.Namespace ?? "";
-                    var source = result.SourceVersion != null
-                        ? $"{result.Source}@{result.SourceVersion}"
-                        : result.Source ?? "";
-                    return new[] { result.TypeName, ns, result.Kind ?? "", result.Assembly ?? "", source };
-                });
-                writer.WriteTable(headers, rows);
-            }
-        }
-
-        Console.WriteLine(writer.ToString());
-    }
-
     private static void WriteJsonOutput(List<TypeSearchResult> results, bool compact)
     {
         var typeInfo = compact
             ? FindCompactJsonContext.Default.ListTypeSearchResult
             : FindJsonContext.Default.ListTypeSearchResult;
         Console.WriteLine(JsonSerializer.Serialize(results, typeInfo));
-    }
-
-    private static void WriteMarkoutOutput(List<TypeSearchResult> results, string pattern, int totalCount, int? limit)
-    {
-        var writer = new MarkoutWriter();
-        writer.WriteHeading(1, $"Find: {pattern}");
-        writer.WriteField("Matches", totalCount);
-
-        if (results.Count == 0)
-        {
-            writer.WriteParagraph("*No types found matching the pattern.*");
-        }
-        else
-        {
-            var headers = new[] { "Type", "Namespace", "Kind", "Assembly", "Source" };
-            var rows = results.Select(result =>
-            {
-                var ns = result.Namespace ?? "";
-                var source = result.SourceVersion != null 
-                    ? $"{result.Source}@{result.SourceVersion}" 
-                    : result.Source ?? "";
-                return new[] { result.TypeName, ns, result.Kind ?? "", result.Assembly ?? "", source };
-            });
-            writer.WriteTable(headers, rows);
-
-            if (limit.HasValue && totalCount > limit.Value)
-            {
-                writer.WriteParagraph($"... *and {totalCount - limit.Value} more types*");
-            }
-        }
-
-        Console.WriteLine(writer.ToString());
     }
 }
 
