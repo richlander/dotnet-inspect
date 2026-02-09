@@ -1,12 +1,7 @@
-using System.Collections.Concurrent;
-using System.IO.Compression;
-using System.Text.Json;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using DotnetInspector.Packages;
-using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
 
 namespace DotnetInspector.Commands;
 
@@ -58,7 +53,7 @@ public class AssemblyCommand
 
                 logger.Log($"Using platform runtime assembly: {framework} {version}");
 
-                var audit = await InspectAssemblyAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
+                var audit = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
                 if (audit == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read assembly: {resolvedPath}");
@@ -115,7 +110,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                var audit = await InspectAssemblyAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
+                var audit = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
                 if (audit == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read assembly: {assemblyPath}");
@@ -159,7 +154,7 @@ public class AssemblyCommand
         {
             var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var audit = await InspectAssemblyAsync(targetPath, options, logger, packageName, version, httpClient);
+            var audit = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient);
             if (audit == null)
             {
                 logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
@@ -186,98 +181,20 @@ public class AssemblyCommand
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
     {
-        // Check if it's a local file or a NuGet package name
-        bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-
-        string tempDir;
-        string extractPath;
-        string? nupkgPath = null;
-
-        if (isLocalFile)
+        var resolution = await PackageResolverService.ResolvePackageAsync(packageSource, null, logger, httpClient);
+        if (resolution == null)
         {
-            if (!File.Exists(packageSource))
-            {
+            bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+            if (isLocalFile)
                 Console.Error.WriteLine($"Error: Package not found: {packageSource}");
-                return null;
-            }
-
-            tempDir = Path.Combine(Path.GetTempPath(), $"inspect-assembly-{Guid.NewGuid():N}");
-            extractPath = Path.Combine(tempDir, "extracted");
-            Directory.CreateDirectory(tempDir);
-
-            logger.Log($"Extracting package: {Path.GetFileName(packageSource)}");
-            ZipFile.ExtractToDirectory(packageSource, extractPath);
-            nupkgPath = packageSource;
-        }
-        else
-        {
-            // Treat as NuGet package name - download from nuget.org
-            // Support format: PackageName or PackageName@version
-            var client = httpClient;
-
-            string packageName;
-            string? version;
-
-            int atIndex = packageSource.IndexOf('@');
-            if (atIndex > 0)
-            {
-                packageName = packageSource[..atIndex].ToLowerInvariant();
-                version = packageSource[(atIndex + 1)..].ToLowerInvariant();
-                logger.Log($"Using specified version: {version}");
-            }
             else
-            {
-                packageName = packageSource.ToLowerInvariant();
-                version = await GetLatestVersionAsync(client, packageName, logger);
-                if (version == null)
-                {
-                    Console.Error.WriteLine($"Error: Package '{packageSource}' not found on nuget.org");
-                    return null;
-                }
-            }
-
-            // Check NuGet cache first
-            var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
-            if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
-            {
-                logger.Log($"Using cached package: {cachedPath}");
-                extractPath = cachedPath;
-                tempDir = null!; // Will be handled by caller
-                // Try to find .nupkg in cache
-                var expectedNupkg = Path.Combine(cachedPath, $"{packageName}.{version}.nupkg");
-                nupkgPath = File.Exists(expectedNupkg) ? expectedNupkg : null;
-            }
-            else
-            {
-                tempDir = Path.Combine(Path.GetTempPath(), $"inspect-assembly-{Guid.NewGuid():N}");
-                extractPath = Path.Combine(tempDir, "extracted");
-                Directory.CreateDirectory(tempDir);
-
-                string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-                logger.Log($"Downloading: {packageName} {version}");
-
-                byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
-                if (packageBytes == null)
-                {
-                    Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
-                    Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
-                    return null;
-                }
-
-                nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-                logger.Log("Package downloaded successfully.");
-
-                // Cache the package for future use
-                var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
-                if (newCachePath != null)
-                {
-                    logger.Log($"Cached to: {newCachePath}");
-                }
-            }
+                Console.Error.WriteLine($"Error: Package '{packageSource}' not found on nuget.org");
+            return null;
         }
+
+        string extractPath = resolution.ExtractPath;
+        string? tempDir = resolution.TempDir;
+        string? nupkgPath = resolution.NupkgPath;
 
         // Find DLLs in the extracted package
         string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
@@ -384,380 +301,6 @@ public class AssemblyCommand
 
         logger.Log($"Found: {Path.GetRelativePath(extractPath, matchingFiles[0])}");
         return ([matchingFiles[0]], extractPath, tempDir, nupkgPath);
-    }
-
-    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
-    {
-        try
-        {
-            string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
-            logger.Log($"Fetching versions from: {indexUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
-            if (json == null)
-                return null;
-            using var doc = JsonDocument.Parse(json);
-
-            if (doc.RootElement.TryGetProperty("versions", out var versions))
-            {
-                var versionList = versions.EnumerateArray().Select(v => v.GetString()).ToList();
-                if (versionList.Count > 0)
-                {
-                    // Prefer stable versions (those without a hyphen)
-                    var stableVersions = versionList.Where(v => v != null && !v.Contains('-')).ToList();
-                    string? latest = stableVersions.Count > 0 ? stableVersions[^1] : versionList[^1];
-                    logger.Log($"Latest version: {latest}");
-                    return latest;
-                }
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.Log($"Error fetching versions: {ex.Message}");
-        }
-
-        return null;
-    }
-
-    private static async Task<AssemblyAudit?> InspectAssemblyAsync(
-        string path,
-        AssemblyOptions options,
-        VerboseLogger logger,
-        string? packageName,
-        string? packageVersion,
-        HttpClient httpClient,
-        bool isPlatformAssembly = false)
-    {
-        logger.Log($"Inspecting: {Path.GetFileName(path)}");
-
-        try
-        {
-            using var pdbContext = PdbContext.Open(path, logger.Log);
-
-            if (!pdbContext.HasMetadata)
-            {
-                // Native binary - still provide basic info
-                var nativeInfo = pdbContext.CreateNativeInfo();
-
-                return new AssemblyAudit
-                {
-                    FileName = Path.GetFileName(path),
-                    FileType = "native",
-                    AssemblyInfo = nativeInfo
-                };
-            }
-
-            var audit = new AssemblyAudit
-            {
-                FileName = Path.GetFileName(path),
-                FileType = "dll",
-                UseDependenciesView = options.IncludeDependencies
-            };
-
-            // Always extract basic assembly info
-            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences || options.IncludeDependencies);
-
-            // PE debug directory fields (free, no PDB needed)
-            audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
-            audit.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
-            audit.PdbPath = pdbContext.CodeViewPdbPath;
-            audit.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
-            audit.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
-            audit.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
-
-            // Build transitive reference tree if requested
-            if ((options.TransitiveReferences || options.IncludeDependencies) && audit.AssemblyInfo?.References != null)
-            {
-                var sourceDir = Path.GetDirectoryName(path);
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                visited.Add(audit.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
-
-                audit.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    audit.AssemblyInfo.References,
-                    sourceDir,
-                    visited,
-                    logger,
-                    deduplicate: options.IncludeDependencies);
-            }
-
-            // Audit if requested (symbols or sourcelink-audit tier)
-            if (options.HasAuditTier)
-            {
-                await AuditAssemblyAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
-            }
-
-            return audit;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static async Task AuditAssemblyAsync(
-        PdbContext pdbContext,
-        AssemblyAudit audit,
-        string assemblyPath,
-        string? packageName,
-        string? packageVersion,
-        VerboseLogger logger,
-        HttpClient httpClient,
-        bool isPlatformAssembly = false,
-        bool includeSourcelinkAudit = false)
-    {
-        // If embedded PDB was found, it's already loaded
-        if (pdbContext.HasPdb)
-        {
-            audit.PdbFormat = pdbContext.PdbFormat;
-            audit.PdbLocation = pdbContext.PdbLocation;
-            audit.HasSourceLink = pdbContext.HasSourceLink;
-            audit.SourceLinkJson = pdbContext.SourceLinkJson;
-        }
-
-        // Check for standalone PDB file (already attempted by PdbContext.Open via TryLoadLocalPdb)
-        if (!pdbContext.HasPdb && pdbContext.WindowsPdbDetected)
-        {
-            audit.WindowsPdbDetected = true;
-            audit.PdbFormat = pdbContext.PdbFormat;
-            audit.PdbLocation = pdbContext.PdbLocation;
-        }
-
-        // If no local PDB, try downloading
-        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected)
-        {
-            await ApiServices.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
-
-            if (pdbContext.HasPdb)
-            {
-                audit.PdbFormat = pdbContext.PdbFormat;
-                audit.PdbLocation = pdbContext.PdbLocation;
-                audit.SymbolServer = pdbContext.SymbolServer;
-                audit.HasSourceLink = pdbContext.HasSourceLink;
-                audit.SourceLinkJson = pdbContext.SourceLinkJson;
-            }
-            else if (pdbContext.WindowsPdbDetected)
-            {
-                audit.WindowsPdbDetected = true;
-                audit.PdbFormat = "Windows";
-            }
-        }
-
-        // Determine reason for missing SourceLink
-        if (!audit.HasSourceLink)
-        {
-            if (audit.WindowsPdbDetected)
-            {
-                // Windows PDB format found but not supported
-                audit.SourceLinkUnavailableReason = "Windows PDB";
-            }
-            else if (audit.PdbLocation == null && audit.PdbPath != null)
-            {
-                // PDB path exists in assembly but we couldn't locate/download the actual PDB
-                audit.SourceLinkUnavailableReason = "no symbols";
-            }
-            else if (!audit.HasEmbeddedPdb && audit.PdbPath != null)
-            {
-                // External PDB referenced but not found
-                audit.SourceLinkUnavailableReason = "external PDB not found";
-            }
-        }
-
-        // Infer builder based on symbol availability and SourceLink
-        audit.Builder = InferBuilder(audit);
-
-        // SourceLink audit: verify that all source files are accessible
-        if (includeSourcelinkAudit && pdbContext.HasPdb && audit.HasSourceLink && audit.SourceLinkJson != null)
-        {
-            logger.Log("Running strict source verification...");
-            await VerifySourceAccessibilityAsync(pdbContext, audit, httpClient, logger);
-        }
-    }
-
-    /// <summary>
-    /// Verifies that all source files in the PDB are accessible via SourceLink or embedded.
-    /// Uses parallel HTTP HEAD requests with retry for performance.
-    /// </summary>
-    private static async Task VerifySourceAccessibilityAsync(
-        PdbContext pdbContext,
-        AssemblyAudit audit,
-        HttpClient httpClient,
-        VerboseLogger logger)
-    {
-        var documents = pdbContext.EnumerateSourceDocuments().ToList();
-        int embeddedFiles = 0;
-        int accessibleCount = 0;
-        var missingFiles = new ConcurrentBag<string>();
-        var urlDocs = new List<SourceDocument>();
-
-        foreach (var doc in documents)
-        {
-            if (doc.IsEmbedded) { embeddedFiles++; continue; }
-            if (doc.ResolvedUrl == null) { missingFiles.Add(doc.FilePath); continue; }
-            urlDocs.Add(doc);
-        }
-
-        await Parallel.ForEachAsync(urlDocs,
-            new ParallelOptions { MaxDegreeOfParallelism = 16 },
-            async (doc, ct) =>
-            {
-                using var response = await HttpRetryHelper.HeadWithRetryAsync(
-                    httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
-                if (response != null)
-                    Interlocked.Increment(ref accessibleCount);
-                else
-                    missingFiles.Add(doc.FilePath);
-            });
-
-        audit.TotalSourceFiles = documents.Count;
-        audit.AccessibleSourceFiles = accessibleCount;
-        audit.EmbeddedSourceFiles = embeddedFiles;
-        audit.AllSourcesAccessible = missingFiles.IsEmpty;
-        audit.MissingSourceFiles = missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)];
-
-        logger.Log($"Source coverage: {accessibleCount + embeddedFiles}/{documents.Count} files accessible");
-    }
-
-    /// <summary>
-    /// Infers who built the assembly based on symbol availability and SourceLink.
-    /// Only meaningful for Microsoft-branded assemblies where we distinguish
-    /// between genuine Microsoft builds and distro rebuilds.
-    /// </summary>
-    private static string? InferBuilder(AssemblyAudit audit)
-    {
-        var company = audit.AssemblyInfo?.Company;
-        bool isMicrosoftAssembly = company?.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) == true;
-
-        // Only relevant for Microsoft-branded assemblies
-        if (!isMicrosoftAssembly)
-        {
-            return null;
-        }
-
-        // If we got symbols from MSDL with SourceLink, it's a verified Microsoft build
-        if (audit.SymbolServer == "msdl.microsoft.com" && audit.HasSourceLink)
-        {
-            return "Microsoft";
-        }
-
-        // If SourceLink points to a dotnet repo, it's Microsoft
-        if (audit.HasSourceLink && audit.SourceLinkJson != null)
-        {
-            if (audit.SourceLinkJson.Contains("github.com/dotnet/", StringComparison.OrdinalIgnoreCase) ||
-                audit.SourceLinkJson.Contains("raw.githubusercontent.com/dotnet/", StringComparison.OrdinalIgnoreCase))
-            {
-                return "Microsoft";
-            }
-        }
-
-        // Microsoft metadata but no symbols - can't verify, likely distro build
-        if (audit.SourceLinkUnavailableReason == "no symbols")
-        {
-            return "Unknown";
-        }
-
-        // Can't determine (e.g., Windows PDB case)
-        return null;
-    }
-
-    private static List<AssemblyReferenceNode> BuildTransitiveReferences(
-        List<AssemblyReference> references,
-        string? sourceDir,
-        HashSet<string> visited,
-        VerboseLogger logger,
-        int depth = 0,
-        bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null)
-    {
-        globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var nodes = new List<AssemblyReferenceNode>();
-
-        foreach (var reference in references.OrderBy(r => r.Name))
-        {
-            // When deduplicating, skip if already seen at same or shallower depth
-            if (deduplicate && globalSeen.TryGetValue(reference.Name, out int seenDepth) && seenDepth <= depth)
-            {
-                continue;
-            }
-
-            var node = new AssemblyReferenceNode
-            {
-                Name = reference.Name,
-                Version = reference.Version,
-                PublicKeyToken = reference.PublicKeyToken,
-                Depth = depth
-            };
-
-            // Check for cycles
-            if (visited.Contains(reference.Name))
-            {
-                if (!deduplicate)
-                {
-                    node.IsCyclic = true;
-                    nodes.Add(node);
-                }
-                continue;
-            }
-
-            if (deduplicate)
-            {
-                globalSeen[reference.Name] = depth;
-            }
-
-            visited.Add(reference.Name);
-
-            // Try to resolve the assembly
-            string? resolvedPath = null;
-            string? resolvedFrom = null;
-
-            // 1. Try same directory as source assembly
-            if (!string.IsNullOrEmpty(sourceDir))
-            {
-                var localPath = Path.Combine(sourceDir, reference.Name + ".dll");
-                if (File.Exists(localPath))
-                {
-                    resolvedPath = localPath;
-                    resolvedFrom = "local";
-                }
-            }
-
-            // 2. Try platform resolver for System.*/Microsoft.* assemblies
-            if (resolvedPath == null)
-            {
-                var (platformPath, _, _, error) = Inspectors.PlatformResolver.ResolveAssembly(reference.Name);
-                if (error == null && platformPath != null)
-                {
-                    resolvedPath = platformPath;
-                    resolvedFrom = "platform";
-                }
-            }
-
-            node.Path = resolvedPath;
-            node.ResolvedFrom = resolvedFrom;
-            nodes.Add(node);
-
-            // Recursively resolve children if we found the assembly
-            if (resolvedPath != null)
-            {
-                try
-                {
-                    var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
-                    node.Company = company;
-                    if (childRefs.Count > 0)
-                    {
-                        // Clone visited set for this branch to allow diamond dependencies
-                        var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
-                        nodes.AddRange(childNodes);
-                    }
-                }
-                catch
-                {
-                    // Couldn't read the assembly - just skip children
-                }
-            }
-        }
-
-        return nodes;
     }
 
     private static string? ExtractTfmFromPath(string relativePath)

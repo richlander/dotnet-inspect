@@ -1,7 +1,5 @@
-using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Packages;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -41,7 +39,20 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
-            return await ListVersionsAsync(packageArgs[0], options.IncludePrerelease, options.Limit, logger, context.HttpClient);
+            string normalizedName = packageArgs[0].ToLowerInvariant();
+            var versions = await PackageResolverService.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger);
+            if (versions == null)
+            {
+                Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                return 1;
+            }
+
+            foreach (var v in versions)
+            {
+                Console.WriteLine(v);
+            }
+
+            return 0;
         }
 
         // Check if first argument is a local file path
@@ -52,7 +63,6 @@ public class PackageCommand
 
         string packageName;
         string version;
-        string tempDir;
 
         if (isLocalFile)
         {
@@ -66,7 +76,6 @@ public class PackageCommand
             string fileName = Path.GetFileNameWithoutExtension(localPath);
             packageName = fileName;
             version = "local";
-            tempDir = Path.Combine(Path.GetTempPath(), $"inspect-local-{Path.GetFileName(localPath)}-{Guid.NewGuid():N}");
         }
         else
         {
@@ -97,7 +106,7 @@ public class PackageCommand
             {
                 packageName = packageArg.ToLowerInvariant();
                 // Auto-discover latest version
-                string? latestVersion = await GetLatestVersionAsync(client, packageName, logger);
+                string? latestVersion = await PackageResolverService.GetLatestVersionAsync(client, packageName, logger);
                 if (latestVersion == null)
                 {
                     Console.Error.WriteLine($"Error: Package '{packageArg}' not found on nuget.org");
@@ -115,61 +124,29 @@ public class PackageCommand
                 Console.Error.WriteLine($"To list available versions: dotnet-inspect package {packageName} --versions");
                 return 1;
             }
-
-            tempDir = Path.Combine(Path.GetTempPath(), $"inspect-{packageName}-{version}-{Guid.NewGuid():N}");
         }
 
-        bool usingCache = false;
         string? extractPath = null;
+        PackageResolverService.PackageResolution? resolution = null;
 
         try
         {
-            if (isLocalFile)
+            resolution = await PackageResolverService.ResolvePackageAsync(
+                isLocalFile ? packageArgs[0] : packageName,
+                isLocalFile ? null : version,
+                logger,
+                client);
+
+            if (resolution == null)
             {
-                Directory.CreateDirectory(tempDir);
-                extractPath = Path.Combine(tempDir, "extracted");
-                string localPath = packageArgs[0];
-                logger.Log($"Processing local package: {Path.GetFileName(localPath)}");
-                ZipFile.ExtractToDirectory(localPath, extractPath);
-            }
-            else
-            {
-                // Check NuGet cache first
-                var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
-                if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
-                {
-                    logger.Log($"Using cached package: {cachedPath}");
-                    extractPath = cachedPath;
-                    usingCache = true;
-                }
+                if (isLocalFile)
+                    Console.Error.WriteLine($"Error: File not found: {packageArgs[0]}");
                 else
-                {
-                    Directory.CreateDirectory(tempDir);
-                    extractPath = Path.Combine(tempDir, "extracted");
-
-                    string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-                    logger.Log($"Downloading: {nupkgUrl}");
-
-                    byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl);
-                    if (packageBytes == null)
-                    {
-                        Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found or download failed.");
-                        return 1;
-                    }
-                    string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-                    await File.WriteAllBytesAsync(nupkgPath, packageBytes);
-                    ZipFile.ExtractToDirectory(nupkgPath, extractPath);
-
-                    logger.Log("Package downloaded successfully.");
-
-                    // Cache the package for future use
-                    var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
-                    if (newCachePath != null)
-                    {
-                        logger.Log($"Cached to: {newCachePath}");
-                    }
-                }
+                    Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found or download failed.");
+                return 1;
             }
+
+            extractPath = resolution.ExtractPath;
 
             // Handle --files mode: list files and exit early
             if (options.ListFiles)
@@ -262,7 +239,7 @@ public class PackageCommand
             // Fetch package metadata from NuGet (only for remote packages)
             if (!isLocalFile)
             {
-                await FetchNuGetMetadataAsync(client, packageName, version, result, logger);
+                await PackageMetadataService.FetchAllMetadataAsync(client, packageName, version, result, logger);
             }
 
             // Filter output based on options
@@ -287,11 +264,11 @@ public class PackageCommand
         finally
         {
             // Only clean up temp directory if we created one (not using cache)
-            if (!usingCache && Directory.Exists(tempDir))
+            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
             {
                 try
                 {
-                    Directory.Delete(tempDir, recursive: true);
+                    Directory.Delete(resolution.TempDir, recursive: true);
                 }
                 catch
                 {
@@ -494,15 +471,15 @@ public class PackageCommand
         else
         {
             group = result.DependencyGroups
-                .OrderByDescending(g => GetTfmPriority(g.TargetFramework))
-                .ThenByDescending(g => ExtractTfmVersion(g.TargetFramework))
+                .OrderByDescending(g => DependencyResolutionService.GetTfmPriority(g.TargetFramework))
+                .ThenByDescending(g => DependencyResolutionService.ExtractTfmVersion(g.TargetFramework))
                 .First();
             tfm = group.TargetFramework;
         }
 
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var treeNodes = await ResolveDependencyTreeAsync(
+        var treeNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
             client, group.Dependencies, tfm, globalSeen, logger);
 
         var view = new PackageDependenciesView
@@ -515,141 +492,6 @@ public class PackageCommand
         };
 
         MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
-        return 0;
-    }
-
-    private static async Task<List<TreeNode>> ResolveDependencyTreeAsync(
-        HttpClient client, List<PackageDependency> dependencies, string tfm,
-        HashSet<string> globalSeen, VerboseLogger logger)
-    {
-        var nodes = new List<TreeNode>();
-
-        foreach (var dep in dependencies.OrderBy(d => d.Id))
-        {
-            if (!globalSeen.Add(dep.Id))
-                continue;
-
-            logger.Log($"Resolving: {dep.Id} {dep.Version}");
-
-            // Resolve this dependency's metadata and children
-            var (children, author) = await ResolveChildDependenciesAsync(
-                client, dep.Id, dep.Version, tfm, globalSeen, logger);
-
-            var label = !string.IsNullOrEmpty(author)
-                ? $"{dep.Id} {dep.Version} [{author}]"
-                : $"{dep.Id} {dep.Version}";
-
-            nodes.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
-        }
-
-        return nodes;
-    }
-
-    private static async Task<(List<TreeNode> Children, string? Author)> ResolveChildDependenciesAsync(
-        HttpClient client, string packageId, string versionRange, string tfm,
-        HashSet<string> globalSeen, VerboseLogger logger)
-    {
-        try
-        {
-            // Resolve version from range
-            string? version = ResolveVersionFromRange(versionRange);
-            if (version == null) return ([], null);
-
-            // Download and extract the package
-            string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
-            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: logger.Log);
-            if (extractResult == null) return ([], null);
-
-            try
-            {
-                // Parse nuspec
-                var childResult = new InspectionResult();
-                string[] nuspecFiles = Directory.GetFiles(extractResult.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-                if (nuspecFiles.Length > 0)
-                {
-                    NuspecParser.Parse(nuspecFiles[0], childResult);
-                }
-
-                var author = childResult.Authors;
-
-                if (childResult.DependencyGroups is not { Count: > 0 }) return ([], author);
-
-                // Find best matching TFM group
-                var group = FindBestMatchingTfmGroup(childResult.DependencyGroups, tfm);
-                if (group?.Dependencies is not { Count: > 0 }) return ([], author);
-
-                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, logger);
-                return (children, author);
-            }
-            finally
-            {
-                if (extractResult.TempDir != null)
-                {
-                    try { Directory.Delete(extractResult.TempDir, recursive: true); } catch { }
-                }
-            }
-        }
-        catch
-        {
-            return ([], null);
-        }
-    }
-
-    private static DependencyGroup? FindBestMatchingTfmGroup(List<DependencyGroup> groups, string targetTfm)
-    {
-        // Exact match first
-        var exact = groups.FirstOrDefault(g =>
-            g.TargetFramework.Equals(targetTfm, StringComparison.OrdinalIgnoreCase));
-        if (exact != null) return exact;
-
-        // Fall back to best compatible TFM (highest priority that's <= target)
-        var targetPriority = GetTfmPriority(targetTfm);
-        var targetVersion = ExtractTfmVersion(targetTfm);
-
-        return groups
-            .Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
-                        g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
-                        (GetTfmPriority(g.TargetFramework) <= targetPriority &&
-                         ExtractTfmVersion(g.TargetFramework) <= targetVersion))
-            .OrderByDescending(g => GetTfmPriority(g.TargetFramework))
-            .ThenByDescending(g => ExtractTfmVersion(g.TargetFramework))
-            .FirstOrDefault();
-    }
-
-    private static string? ResolveVersionFromRange(string versionRange)
-    {
-        if (NuGet.Versioning.VersionRange.TryParse(versionRange, out var range))
-        {
-            return range.MinVersion?.ToNormalizedString();
-        }
-        // Try as plain version
-        if (NuGet.Versioning.NuGetVersion.TryParse(versionRange, out var ver))
-        {
-            return ver.ToNormalizedString();
-        }
-        return null;
-    }
-
-    private static int GetTfmPriority(string tfm)
-    {
-        var lower = tfm.ToLowerInvariant();
-        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") &&
-            !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework") &&
-            lower.Length > 3 && char.IsDigit(lower[3]) && lower.Contains('.'))
-            return 4;
-        if (lower.StartsWith("netcoreapp")) return 3;
-        if (lower.StartsWith("netstandard")) return 2;
-        if (lower.StartsWith("net4") || lower.StartsWith("netframework")) return 1;
-        return 0;
-    }
-
-    private static double ExtractTfmVersion(string tfm)
-    {
-        var versionPart = tfm.ToLowerInvariant()
-            .Replace("netcoreapp", "").Replace("netstandard", "")
-            .Replace("netframework", "").Replace("net", "").TrimStart('v');
-        if (double.TryParse(versionPart, out var version)) return version;
-        if (versionPart.Length == 3 && int.TryParse(versionPart, out var intVersion)) return intVersion / 100.0;
         return 0;
     }
 
@@ -677,494 +519,6 @@ public class PackageCommand
         }
         
         return 0;
-    }
-
-    private static async Task<int> ListVersionsAsync(string packageName, bool includePrerelease, int? limit, VerboseLogger logger, HttpClient client)
-    {
-        string normalizedName = packageName.ToLowerInvariant();
-
-        try
-        {
-            string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/index.json";
-            logger.Log($"Fetching versions from: {indexUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
-            if (json == null)
-            {
-                Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
-                return 1;
-            }
-            using var doc = JsonDocument.Parse(json);
-
-            if (doc.RootElement.TryGetProperty("versions", out var versions))
-            {
-                var versionList = versions.EnumerateArray()
-                    .Select(v => v.GetString())
-                    .Where(v => v != null)
-                    .Where(v => includePrerelease || !IsPrerelease(v!))
-                    .ToList();
-
-                // Print in reverse order (newest first), with optional limit
-                int count = 0;
-                for (int i = versionList.Count - 1; i >= 0; i--)
-                {
-                    Console.WriteLine(versionList[i]);
-                    count++;
-                    if (limit.HasValue && count >= limit.Value)
-                        break;
-                }
-
-                return 0;
-            }
-
-            Console.Error.WriteLine($"Error: No versions found for package '{packageName}'");
-            return 1;
-        }
-        catch (HttpRequestException)
-        {
-            Console.Error.WriteLine($"Error: Package '{packageName}' not found on nuget.org");
-            return 1;
-        }
-    }
-
-    private static bool IsPrerelease(string version)
-    {
-        // Prerelease versions contain a hyphen (e.g., 10.0.0-preview.1, 9.0.0-rc.2)
-        return version.Contains('-');
-    }
-
-    private static async Task<string?> GetLatestVersionAsync(HttpClient client, string packageName, VerboseLogger logger)
-    {
-        try
-        {
-            string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
-            logger.Log($"Fetching versions from: {indexUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
-            if (json == null)
-                return null;
-            using var doc = JsonDocument.Parse(json);
-
-            if (doc.RootElement.TryGetProperty("versions", out var versions))
-            {
-                var versionList = versions.EnumerateArray().Select(v => v.GetString()).ToList();
-                if (versionList.Count > 0)
-                {
-                    // Prefer stable versions (those without a hyphen)
-                    var stableVersions = versionList.Where(v => v != null && !v.Contains('-')).ToList();
-                    string? latest = stableVersions.Count > 0 ? stableVersions[^1] : versionList[^1];
-                    logger.Log($"Latest version: {latest}");
-                    return latest;
-                }
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.Log($"Error fetching versions: {ex.Message}");
-        }
-
-        return null;
-    }
-
-    private static async Task<DateTimeOffset?> GetPackagePublishedDateAsync(HttpClient client, string packageName, string version, VerboseLogger logger)
-    {
-        try
-        {
-            // Use NuGet registration API to get package metadata including publish date
-            string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{packageName.ToLowerInvariant()}/{version}.json";
-            logger.Log($"Fetching package metadata from: {registrationUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl);
-            if (json == null)
-                return null;
-
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("published", out var publishedElement))
-            {
-                if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
-                {
-                    logger.Log($"Package published: {published:yyyy-MM-dd}");
-                    return published;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Error fetching publish date: {ex.Message}");
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Fetches all NuGet metadata for a package: published date, downloads, verified status, deprecation, vulnerabilities.
-    /// </summary>
-    private static async Task FetchNuGetMetadataAsync(HttpClient client, string packageName, string version, InspectionResult result, VerboseLogger logger)
-    {
-        var normalizedName = packageName.ToLowerInvariant();
-
-        // Fetch from registration API (published date, catalog entry URL)
-        string? catalogEntryUrl = null;
-        try
-        {
-            string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
-            logger.Log($"Fetching registration metadata: {registrationUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl);
-            if (json != null)
-            {
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                // Published date
-                if (root.TryGetProperty("published", out var publishedElement))
-                {
-                    if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
-                    {
-                        result.Published = published;
-                        logger.Log($"Published: {published:yyyy-MM-dd}");
-                    }
-                }
-
-                // Get catalog entry URL for version-specific deprecation
-                if (root.TryGetProperty("catalogEntry", out var catalogElement))
-                {
-                    catalogEntryUrl = catalogElement.GetString();
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Error fetching registration metadata: {ex.Message}");
-        }
-
-        // Fetch catalog entry for version-specific deprecation
-        if (!string.IsNullOrEmpty(catalogEntryUrl))
-        {
-            try
-            {
-                logger.Log($"Fetching catalog entry: {catalogEntryUrl}");
-                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(client, catalogEntryUrl);
-                if (catalogJson != null)
-                {
-                    using var doc = JsonDocument.Parse(catalogJson);
-                    var root = doc.RootElement;
-
-                    // Version-specific deprecation
-                    if (root.TryGetProperty("deprecation", out var deprecationElement) && 
-                        deprecationElement.ValueKind == JsonValueKind.Object)
-                    {
-                        result.Deprecation = new PackageDeprecation();
-                        
-                        if (deprecationElement.TryGetProperty("reasons", out var reasons))
-                        {
-                            result.Deprecation.Reasons = reasons.EnumerateArray()
-                                .Select(r => r.GetString())
-                                .Where(r => r != null)
-                                .Cast<string>()
-                                .ToList();
-                        }
-                        if (deprecationElement.TryGetProperty("message", out var message))
-                        {
-                            result.Deprecation.Message = message.GetString();
-                        }
-                        if (deprecationElement.TryGetProperty("alternatePackage", out var altPkg) &&
-                            altPkg.TryGetProperty("id", out var altId))
-                        {
-                            result.Deprecation.AlternatePackageId = altId.GetString();
-                        }
-                        logger.Log($"Deprecation: {result.Deprecation.Summary}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Log($"Error fetching catalog entry: {ex.Message}");
-            }
-        }
-
-        // Fetch from search API (downloads, verified, owners)
-        try
-        {
-            string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{normalizedName}&take=1";
-            logger.Log($"Fetching search metadata: {searchUrl}");
-
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl);
-            if (json != null)
-            {
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("data", out var data) && 
-                    data.GetArrayLength() > 0)
-                {
-                    var pkg = data[0];
-
-                    // Total downloads
-                    if (pkg.TryGetProperty("totalDownloads", out var downloads))
-                    {
-                        result.TotalDownloads = downloads.GetInt64();
-                        logger.Log($"Downloads: {result.DownloadsDisplay}");
-                    }
-
-                    // Version count and per-version downloads
-                    if (pkg.TryGetProperty("versions", out var versions))
-                    {
-                        result.VersionCount = versions.GetArrayLength();
-                        logger.Log($"Version count: {result.VersionCount}");
-
-                        // Find downloads for this specific version
-                        foreach (var v in versions.EnumerateArray())
-                        {
-                            if (v.TryGetProperty("version", out var versionProp) &&
-                                string.Equals(versionProp.GetString(), version, StringComparison.OrdinalIgnoreCase) &&
-                                v.TryGetProperty("downloads", out var versionDownloads))
-                            {
-                                result.VersionDownloads = versionDownloads.GetInt64();
-                                logger.Log($"Version downloads: {result.VersionDownloadsDisplay}");
-                                break;
-                            }
-                        }
-                    }
-
-                    // Verified
-                    if (pkg.TryGetProperty("verified", out var verified))
-                    {
-                        result.IsVerified = verified.GetBoolean();
-                        logger.Log($"Verified: {result.IsVerified}");
-                    }
-
-                    // Owners
-                    if (pkg.TryGetProperty("owners", out var owners))
-                    {
-                        result.Owners = owners.EnumerateArray()
-                            .Select(o => o.GetString())
-                            .Where(o => o != null)
-                            .Cast<string>()
-                            .ToList();
-                    }
-
-                    // Deprecation (from search API - more reliable than registration API)
-                    if (result.Deprecation == null && 
-                        pkg.TryGetProperty("deprecation", out var deprecationElement) && 
-                        deprecationElement.ValueKind == JsonValueKind.Object)
-                    {
-                        result.Deprecation = new PackageDeprecation();
-                        
-                        if (deprecationElement.TryGetProperty("reasons", out var reasons))
-                        {
-                            result.Deprecation.Reasons = reasons.EnumerateArray()
-                                .Select(r => r.GetString())
-                                .Where(r => r != null)
-                                .Cast<string>()
-                                .ToList();
-                        }
-                        if (deprecationElement.TryGetProperty("message", out var message))
-                        {
-                            result.Deprecation.Message = message.GetString();
-                        }
-                        if (deprecationElement.TryGetProperty("alternatePackage", out var altPkg) &&
-                            altPkg.TryGetProperty("id", out var altId))
-                        {
-                            result.Deprecation.AlternatePackageId = altId.GetString();
-                        }
-                        logger.Log($"Deprecation: {result.Deprecation.Summary}");
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Error fetching search metadata: {ex.Message}");
-        }
-
-        // Fetch from vulnerability API
-        try
-        {
-            var vulnerabilities = await GetPackageVulnerabilitiesAsync(client, normalizedName, version, logger);
-            if (vulnerabilities.Count > 0)
-            {
-                result.Vulnerabilities = vulnerabilities;
-                logger.Log($"Vulnerabilities: {result.VulnerabilitiesDisplay}");
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Error fetching vulnerability data: {ex.Message}");
-        }
-
-        // Fetch package size via HEAD request
-        try
-        {
-            string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{version}/{normalizedName}.{version}.nupkg";
-            logger.Log($"Fetching package size: {nupkgUrl}");
-
-            var response = await HttpRetryHelper.HeadWithRetryAsync(client, nupkgUrl);
-            if (response?.Content.Headers.ContentLength is long contentLength)
-            {
-                result.PackageSize = contentLength;
-                logger.Log($"Package size: {result.PackageSizeDisplay}");
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Error fetching package size: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Fetches vulnerability data from NuGet's VulnerabilityInfo API and checks if the package version is affected.
-    /// </summary>
-    private static async Task<List<PackageVulnerability>> GetPackageVulnerabilitiesAsync(
-        HttpClient client, string packageName, string version, VerboseLogger logger)
-    {
-        var result = new List<PackageVulnerability>();
-
-        // Parse package version for comparison
-        if (!NuGet.Versioning.NuGetVersion.TryParse(version, out var packageVersion))
-        {
-            logger.Log($"Could not parse version: {version}");
-            return result;
-        }
-
-        // Fetch vulnerability index
-        string indexUrl = "https://api.nuget.org/v3/vulnerabilities/index.json";
-        string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
-        if (indexJson == null)
-            return result;
-
-        using var indexDoc = JsonDocument.Parse(indexJson);
-        var pages = indexDoc.RootElement.EnumerateArray()
-            .Select(e => e.GetProperty("@id").GetString())
-            .Where(url => url != null)
-            .ToList();
-
-        // Fetch each vulnerability page and check for matches
-        foreach (var pageUrl in pages)
-        {
-            if (pageUrl == null) continue;
-
-            logger.Log($"Fetching vulnerability page: {pageUrl}");
-            string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(client, pageUrl);
-            if (pageJson == null) continue;
-
-            using var pageDoc = JsonDocument.Parse(pageJson);
-            
-            // The page is a dictionary keyed by lowercase package name
-            if (pageDoc.RootElement.TryGetProperty(packageName, out var vulnArray))
-            {
-                foreach (var vuln in vulnArray.EnumerateArray())
-                {
-                    string? versionsRange = vuln.TryGetProperty("versions", out var v) ? v.GetString() : null;
-                    int severityNum = vuln.TryGetProperty("severity", out var s) ? s.GetInt32() : 0;
-                    string? advisoryUrl = vuln.TryGetProperty("url", out var u) ? u.GetString() : null;
-
-                    if (versionsRange != null && IsVersionInRange(packageVersion, versionsRange))
-                    {
-                        var vulnerability = new PackageVulnerability
-                        {
-                            Severity = SeverityToString(severityNum),
-                            AdvisoryUrl = advisoryUrl
-                        };
-
-                        // Extract GHSA ID from URL and fetch details from GitHub
-                        if (advisoryUrl != null && advisoryUrl.Contains("github.com/advisories/GHSA-"))
-                        {
-                            var ghsaId = ExtractGhsaId(advisoryUrl);
-                            if (ghsaId != null)
-                            {
-                                vulnerability.GhsaId = ghsaId;
-                                await EnrichFromGitHubAdvisoryAsync(client, vulnerability, ghsaId, logger);
-                            }
-                        }
-
-                        result.Add(vulnerability);
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Extracts GHSA ID from a GitHub advisory URL.
-    /// </summary>
-    private static string? ExtractGhsaId(string url)
-    {
-        // URL format: https://github.com/advisories/GHSA-xxxx-xxxx-xxxx
-        var match = System.Text.RegularExpressions.Regex.Match(url, @"GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}");
-        return match.Success ? match.Value : null;
-    }
-
-    /// <summary>
-    /// Fetches additional vulnerability details from GitHub Advisory API.
-    /// </summary>
-    private static async Task EnrichFromGitHubAdvisoryAsync(HttpClient client, PackageVulnerability vuln, string ghsaId, VerboseLogger logger)
-    {
-        try
-        {
-            string apiUrl = $"https://api.github.com/advisories/{ghsaId}";
-            logger.Log($"Fetching GitHub advisory: {apiUrl}");
-
-            var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
-            request.Headers.Add("User-Agent", "dotnet-inspect");
-            request.Headers.Add("Accept", "application/vnd.github+json");
-
-            var response = await client.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.Log($"GitHub API returned {response.StatusCode}");
-                return;
-            }
-
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("cve_id", out var cveId) && cveId.ValueKind == JsonValueKind.String)
-                vuln.CveId = cveId.GetString();
-
-            if (root.TryGetProperty("summary", out var summary) && summary.ValueKind == JsonValueKind.String)
-                vuln.Summary = summary.GetString();
-
-            // Use GitHub's severity if available (it's more authoritative)
-            if (root.TryGetProperty("severity", out var severity) && severity.ValueKind == JsonValueKind.String)
-            {
-                var sev = severity.GetString();
-                if (!string.IsNullOrEmpty(sev))
-                    vuln.Severity = char.ToUpper(sev[0]) + sev[1..].ToLower();
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Error fetching GitHub advisory: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Checks if a version falls within a NuGet version range.
-    /// </summary>
-    private static bool IsVersionInRange(NuGet.Versioning.NuGetVersion version, string rangeString)
-    {
-        if (NuGet.Versioning.VersionRange.TryParse(rangeString, out var range))
-        {
-            return range.Satisfies(version);
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Converts numeric severity to string.
-    /// </summary>
-    private static string SeverityToString(int severity)
-    {
-        return severity switch
-        {
-            0 => "Low",
-            1 => "Moderate",
-            2 => "High",
-            3 => "Critical",
-            _ => "Unknown"
-        };
     }
 }
 
