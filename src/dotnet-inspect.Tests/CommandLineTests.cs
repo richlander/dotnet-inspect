@@ -273,10 +273,10 @@ public class CommandLineTests
     [Fact]
     public void ParseSectionList_WithValidSections_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.ParseSectionList("Metadata,Statistics,Files");
+        var result = CommandLineBuilder.ParseSectionList("Package,Statistics,Files");
 
         Assert.NotNull(result);
-        Assert.Contains("Metadata", result);
+        Assert.Contains("Package", result);
         Assert.Contains("Statistics", result);
         Assert.Contains("Files", result);
         Assert.Equal(3, result.Count);
@@ -285,10 +285,10 @@ public class CommandLineTests
     [Fact]
     public void ParseSectionList_WithColonPrefix_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.ParseSectionList(":Metadata,Statistics");
+        var result = CommandLineBuilder.ParseSectionList(":Package,Statistics");
 
         Assert.NotNull(result);
-        Assert.Contains("Metadata", result);
+        Assert.Contains("Package", result);
         Assert.Contains("Statistics", result);
     }
 

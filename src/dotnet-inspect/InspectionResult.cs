@@ -30,7 +30,7 @@ public class InspectionResult
     /// <summary>
     /// Metadata section (rendered as Property/Value table).
     /// </summary>
-    [MarkoutSection(Name = "Metadata")]
+    [MarkoutSection(Name = "Package")]
     [JsonIgnore]
     public List<MarkoutField> Metadata => GetMetadataFields();
 

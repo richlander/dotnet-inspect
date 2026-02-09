@@ -50,7 +50,7 @@ public static class OutputFormatter
         return options.Verbosity switch
         {
             // Quiet: exclude all sections (just title + compact line)
-            Verbosity.Quiet => ["Metadata", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
+            Verbosity.Quiet => ["Package", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
             // Minimal: show Metadata, exclude Statistics, Package Dependencies, Files
             Verbosity.Minimal => ["Statistics", "Package Dependencies", "Files"],
             // Normal and Detailed: show everything
