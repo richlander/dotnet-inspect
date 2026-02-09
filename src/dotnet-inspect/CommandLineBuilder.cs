@@ -77,7 +77,7 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(rootTipsOption);
 
         // API command
-        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(apiCommand);
 
         // Assembly command
@@ -1127,6 +1127,7 @@ public static class CommandLineBuilder
         Option<bool> markoutOption,
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
+        Option<string?> tipsOption,
         Option<int?> limitOption,
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption,
@@ -1195,6 +1196,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(sourceOption);
         apiCommand.Options.Add(addSourceOption);
         apiCommand.Options.Add(nugetConfigOption);
+        apiCommand.Options.Add(tipsOption);
 
         apiCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1281,6 +1283,8 @@ public static class CommandLineBuilder
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                TipLevel = parseResult.GetValue(verbosityOption)?.TrimStart(':').StartsWith("q", StringComparison.OrdinalIgnoreCase) == true
+                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
