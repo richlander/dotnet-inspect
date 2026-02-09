@@ -29,7 +29,7 @@ internal static class TfmSelector
         return candidates.OrderBy(f => f).ToList();
     }
 
-    internal static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath)
+    internal static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath, string? packageName = null)
     {
         dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -60,6 +60,15 @@ internal static class TfmSelector
 
         var highestTfm = sortedTfms[0].tfm;
         var assemblies = byTfm[highestTfm];
+
+        // Prefer assembly matching the package name
+        if (packageName != null)
+        {
+            var match = assemblies.FirstOrDefault(d =>
+                Path.GetFileNameWithoutExtension(d).Equals(packageName, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                return (match, highestTfm);
+        }
 
         var directDll = assemblies.FirstOrDefault(d =>
         {

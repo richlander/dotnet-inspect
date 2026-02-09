@@ -159,25 +159,14 @@ public static class ToolsAnalyzer
     /// </summary>
     public static int CountAssemblies(string extractPath)
     {
-        var toolsDir = Path.Combine(extractPath, "tools");
-        var libDir = Path.Combine(extractPath, "lib");
+        var dlls = TfmSelector.GetPackageDlls(extractPath)
+            .Where(f => !f.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase));
 
-        string searchDir;
-        if (Directory.Exists(toolsDir))
-        {
-            searchDir = toolsDir;
-        }
-        else if (Directory.Exists(libDir))
-        {
-            searchDir = libDir;
-        }
-        else
-        {
-            return 0;
-        }
-
-        return Directory.GetFiles(searchDir, "*.dll", SearchOption.AllDirectories)
-            .Count(f => !f.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase));
+        // Count unique assembly names (deduplicated across TFMs)
+        return dlls
+            .Select(f => Path.GetFileName(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
     }
 
     public static void AnalyzeRuntimesDirectory(string runtimesDir, InspectionResult result)

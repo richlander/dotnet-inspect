@@ -248,7 +248,7 @@ public class AssemblyCommand
                 return null;
             }
 
-            var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(candidates, extractPath);
+            var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(candidates, extractPath, resolution.PackageName);
             if (selectedPath == null)
             {
                 // No TFM structure found, fall back to first DLL
