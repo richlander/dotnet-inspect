@@ -419,7 +419,7 @@ public record ReferenceRow(
 /// <summary>
 /// Standalone view model for assembly dependencies (--dependencies).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(Title))]
 public class AssemblyDependenciesView
 {
     [MarkoutIgnore]

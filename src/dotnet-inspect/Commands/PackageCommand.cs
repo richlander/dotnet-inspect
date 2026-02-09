@@ -1179,7 +1179,7 @@ public partial class FileTreeContext : MarkoutSerializerContext
 /// <summary>
 /// View model for package dependency tree output (--dependencies).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(Title))]
 public class PackageDependenciesView
 {
     [MarkoutIgnore]
