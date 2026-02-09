@@ -1,3 +1,4 @@
+using DotnetInspector.Models;
 using System.Collections.Concurrent;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;

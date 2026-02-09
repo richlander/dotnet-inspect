@@ -1,11 +1,13 @@
+using DotnetInspector.Models;
+using DotnetInspector.Views;
 using DotnetInspector.Packages;
 using Markout;
 
 namespace DotnetInspector;
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
-[MarkoutContext(typeof(InspectionResult))]
-[MarkoutContext(typeof(AssemblyAudit))]
+[MarkoutContext(typeof(InspectionResultView))]
+[MarkoutContext(typeof(AssemblyAuditView))]
 [MarkoutContext(typeof(AssemblyAuditReport))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(CliApiSurface))]
@@ -17,7 +19,7 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]
-[MarkoutContext(typeof(RidPackageReference))]
+[MarkoutContext(typeof(RidPackageReferenceView))]
 public partial class MarkoutContext : MarkoutSerializerContext
 {
 }

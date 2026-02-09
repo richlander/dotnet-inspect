@@ -1,3 +1,5 @@
+using DotnetInspector.Models;
+using DotnetInspector.Views;
 using System.Text.Json.Serialization;
 using DotnetInspector.Metadata;
 

@@ -1,3 +1,4 @@
+using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 

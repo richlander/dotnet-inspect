@@ -1,3 +1,5 @@
+using DotnetInspector.Models;
+using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
@@ -127,7 +129,7 @@ public class OutputFormatterTests
         return new AssemblyAuditReport
         {
             Title = Path.GetFileNameWithoutExtension(fileName),
-            Assemblies = audits
+            Assemblies = audits.Select(a => new AssemblyAuditView(a)).ToList()
         };
     }
 
@@ -142,11 +144,12 @@ public class OutputFormatterTests
 
     private static string Serialize(AssemblyAudit audit, HashSet<string>? excludeSections = null)
     {
+        var view = new AssemblyAuditView(audit);
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
             ExcludeSections = excludeSections
         });
-        return context.Serialize(audit).TrimEnd();
+        return context.Serialize(view).TrimEnd();
     }
 
     // Mirror the logic from OutputFormatter.GetAuditExcludeSections

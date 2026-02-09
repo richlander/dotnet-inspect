@@ -1,3 +1,5 @@
+using DotnetInspector.Models;
+using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -74,7 +76,7 @@ public class InspectionResultTests
     {
         var result = new InspectionResult { IsToolPackage = false };
 
-        Assert.Equal("Library", result.PackageType);
+        Assert.Equal("Library", new InspectionResultView(result).PackageType);
     }
 
     [Fact]
@@ -82,7 +84,7 @@ public class InspectionResultTests
     {
         var result = new InspectionResult { IsToolPackage = true };
 
-        Assert.Equal("Tool", result.PackageType);
+        Assert.Equal("Tool", new InspectionResultView(result).PackageType);
     }
 
     [Fact]
@@ -94,7 +96,7 @@ public class InspectionResultTests
             ToolFormat = "DotNetCliTool Version=\"2\" (RID-specific)"
         };
 
-        Assert.Equal("Tool v2", result.PackageType);
+        Assert.Equal("Tool v2", new InspectionResultView(result).PackageType);
     }
 
     [Fact]
@@ -110,7 +112,7 @@ public class InspectionResultTests
             ]
         };
 
-        var display = result.VulnerabilitiesDisplay;
+        var display = new InspectionResultView(result).VulnerabilitiesDisplay;
         Assert.NotNull(display);
         Assert.Contains("3 known", display);
         Assert.Contains("High", display);
@@ -122,7 +124,7 @@ public class InspectionResultTests
     {
         var result = new InspectionResult { Vulnerabilities = null };
 
-        Assert.Null(result.VulnerabilitiesDisplay);
+        Assert.Null(new InspectionResultView(result).VulnerabilitiesDisplay);
     }
 
     [Fact]
@@ -151,7 +153,7 @@ public class InspectionResultTests
             ]
         };
 
-        var flat = result.FlatDependencies;
+        var flat = new InspectionResultView(result).FlatDependencies;
         Assert.NotNull(flat);
         Assert.Equal(2, flat.Count);
         // netstandard should come first (lower TFM priority)
@@ -179,7 +181,7 @@ public class InspectionResultTests
             ]
         };
 
-        var flat = result.FlatDependencies;
+        var flat = new InspectionResultView(result).FlatDependencies;
         Assert.NotNull(flat);
         Assert.Equal(3, flat.Count);
         Assert.Equal("Alpha", flat[0].Id);

@@ -1,3 +1,4 @@
+using DotnetInspector.Models;
 using System.Xml.Linq;
 using DotnetInspector.Services;
 
