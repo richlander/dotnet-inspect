@@ -173,94 +173,30 @@ public class PackageCommand
                 return 0;
             }
 
-            // Create result and run inspections
-            var result = new InspectionResult
-            {
-                PackageName = packageName,
-                Version = version
-            };
-
-            // Always parse nuspec for basic metadata (needed for --readme to find correct file)
+            // Parse nuspec (needed for --readme and --dependencies early exits, and full inspection)
+            NuspecData? nuspec = null;
             string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
             if (nuspecFiles.Length > 0)
-            {
-                ApplyNuspec(Services.NuspecParser.Parse(nuspecFiles[0]), result);
-            }
+                nuspec = Services.NuspecParser.Parse(nuspecFiles[0]);
 
             // Handle --readme mode: print README and exit early
             if (options.ShowReadme)
             {
-                return PrintReadme(extractPath, result.ReadmeFile, options);
+                return PrintReadme(extractPath, nuspec?.ReadmeFile, options);
             }
 
             // Handle --dependencies mode: resolve transitive deps and show tree
             if (options.ShowDependencies)
             {
-                return await ShowDependencyTreeAsync(client, result, options, logger);
+                var depResult = new InspectionResult { PackageName = packageName, Version = version };
+                if (nuspec != null) ApplyNuspec(nuspec, depResult);
+                return await ShowDependencyTreeAsync(client, depResult, options, logger);
             }
 
-            // Check for README (use nuspec-specified file or fall back to README.md)
-            string readmeFileName = result.ReadmeFile ?? "README.md";
-            result.HasReadme = File.Exists(Path.Combine(extractPath, readmeFileName));
-
-            // Always analyze directory structure
-            string toolsDir = Path.Combine(extractPath, "tools");
-            string libDir = Path.Combine(extractPath, "lib");
-            bool hasToolsDir = Directory.Exists(toolsDir);
-            bool hasLibDir = Directory.Exists(libDir);
-
-            if (hasToolsDir)
-            {
-                ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, result);
-            }
-
-            if (hasLibDir)
-            {
-                ToolsAnalyzer.AnalyzeLibDirectory(libDir, result);
-
-                string runtimesDir = Path.Combine(extractPath, "runtimes");
-                if (Directory.Exists(runtimesDir))
-                {
-                    ToolsAnalyzer.AnalyzeRuntimesDirectory(runtimesDir, result);
-                }
-            }
-
-            // Determine package type if not already set by nuspec PackageTypes
-            if (result.PackageTypes is not { Count: > 0 })
-            {
-                // Only classify as tool if tools/ has actual DLLs and there's no lib/ dir.
-                // Packages like AWSSDK.* have tools/ with only .ps1 scripts alongside lib/.
-                result.IsToolPackage = hasToolsDir && !hasLibDir
-                    && Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories).Length > 0;
-            }
-
-            // Analyze content directories and count assemblies
-            ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
-            result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
-
-            // Parse deps.json files if deps flag is set
-            if (options.IncludeDeps)
-            {
-                string[] depsFiles = Directory.GetFiles(extractPath, "*.deps.json", SearchOption.AllDirectories);
-                foreach (string depsFile in depsFiles)
-                {
-                    ApplyDepsJson(Services.DepsJsonParser.Parse(depsFile), result);
-                }
-            }
-
-            // Verify RID-specific packages exist (always do this for RID pointer packages)
-            if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
-            {
-                string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(packageArgs[0])) : null;
-                await RidPackageVerifier.VerifyAsync(client, result, result.Version, localDir, logger);
-            }
-
-            // Fetch package metadata from NuGet (only for remote packages)
-            if (!isLocalFile)
-            {
-                var metadata = await PackageMetadataService.FetchAllMetadataAsync(client, packageName, version, logger.Log);
-                ApplyMetadata(result, metadata);
-            }
+            var result = await PackageInspector.InspectAsync(
+                extractPath, packageName, version, isLocalFile,
+                isLocalFile ? packageArgs[0] : null,
+                options.IncludeDeps, nuspec, client, logger);
 
             // Filter output based on options
             FilterResultForOutput(result, options);
@@ -312,74 +248,12 @@ public class PackageCommand
         result.DependencyGroups = nuspec.DependencyGroups;
     }
 
-    private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
-    {
-        if (depsJson.RuntimeTargetRid != null)
-        {
-            result.RuntimeTargetRid = depsJson.RuntimeTargetRid;
-        }
-
-        if (depsJson.RuntimeDependencies != null)
-        {
-            result.RuntimeDependencies ??= [];
-            result.RuntimeDependencies.AddRange(depsJson.RuntimeDependencies);
-        }
-    }
-
-    private static void ApplyMetadata(InspectionResult result, PackageMetadata metadata)
-    {
-        result.Published = metadata.Published;
-        result.TotalDownloads = metadata.TotalDownloads;
-        result.VersionDownloads = metadata.VersionDownloads;
-        result.VersionCount = metadata.VersionCount;
-        result.PackageSize = metadata.PackageSize;
-        result.IsVerified = metadata.IsVerified;
-        result.Owners = metadata.Owners;
-        result.Deprecation = metadata.Deprecation;
-        result.Vulnerabilities = metadata.Vulnerabilities;
-    }
-
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)
     {
         // If deps is not requested, clear runtime dependencies
         if (!options.IncludeDeps)
         {
             result.RuntimeDependencies = null;
-        }
-    }
-
-    /// <summary>
-    /// Populates the Files list for detailed verbosity output.
-    /// </summary>
-    private static void PopulateFilesForDetailedView(string extractPath, InspectionResult result)
-    {
-        // Get DLLs from tools or lib directory
-        string toolsDir = Path.Combine(extractPath, "tools");
-        string libDir = Path.Combine(extractPath, "lib");
-
-        string searchPath;
-        if (Directory.Exists(toolsDir))
-        {
-            searchPath = toolsDir;
-        }
-        else if (Directory.Exists(libDir))
-        {
-            searchPath = libDir;
-        }
-        else
-        {
-            return;
-        }
-
-        var files = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(extractPath, f))
-            .Where(p => !p.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p)
-            .ToList();
-
-        if (files.Count > 0)
-        {
-            result.Files = files;
         }
     }
 
