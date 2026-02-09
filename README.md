@@ -40,7 +40,7 @@ dotnet-inspect System.Text.Json                    # Metadata (latest version)
 dotnet-inspect System.Text.Json@8.0.4 -v:d         # Detailed (shows vulnerability)
 dotnet-inspect System.Text.Json --versions         # List available versions
 dotnet-inspect System.Text.Json --sourcelink-audit  # Provenance verification
-dotnet-inspect System.Text.Json --files --all      # File structure
+dotnet-inspect System.Text.Json --layout --all      # File structure
 ```
 
 #### Multi-assembly packages
@@ -49,7 +49,9 @@ Some packages bundle multiple assemblies per TFM (e.g., `Microsoft.Azure.SignalR
 
 ```bash
 dotnet-inspect Microsoft.Azure.SignalR                # Shows Libraries: 2
-dotnet-inspect Microsoft.Azure.SignalR --files        # See all assemblies per TFM
+dotnet-inspect Microsoft.Azure.SignalR --files        # List assemblies per TFM
+dotnet-inspect Microsoft.Azure.SignalR --files --tfm net8.0  # Files for specific TFM
+dotnet-inspect Microsoft.Azure.SignalR --layout       # Show file tree
 dotnet-inspect Microsoft.Azure.SignalR --tfms         # List target frameworks
 ```
 
@@ -58,7 +60,7 @@ dotnet-inspect Microsoft.Azure.SignalR --tfms         # List target frameworks
 | Libraries | 2 |
 ```
 
-Use `--files` to see the full layout:
+Use `--layout` to see the full tree:
 
 ```text
 └─ lib
