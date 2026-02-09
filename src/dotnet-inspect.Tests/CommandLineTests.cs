@@ -8,13 +8,12 @@ namespace DotnetInspector.Tests;
 public class CommandLineTests
 {
     [Fact]
-    public void RootCommand_WithNoArgs_RequiresCommand()
+    public void RootCommand_WithNoArgs_ShowsHelpWithoutError()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse([]);
 
-        // Root command requires a subcommand
-        Assert.Single(result.Errors);
-        Assert.Contains("Required command was not provided", result.Errors[0].Message);
+        // Root command has a default action (help + tips), so no parse errors
+        Assert.Empty(result.Errors);
     }
 
     [Fact]
@@ -273,10 +272,10 @@ public class CommandLineTests
     [Fact]
     public void ParseSectionList_WithValidSections_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.ParseSectionList("Metadata,Statistics,Files");
+        var result = CommandLineBuilder.ParseSectionList("Package,Statistics,Files");
 
         Assert.NotNull(result);
-        Assert.Contains("Metadata", result);
+        Assert.Contains("Package", result);
         Assert.Contains("Statistics", result);
         Assert.Contains("Files", result);
         Assert.Equal(3, result.Count);
@@ -285,10 +284,10 @@ public class CommandLineTests
     [Fact]
     public void ParseSectionList_WithColonPrefix_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.ParseSectionList(":Metadata,Statistics");
+        var result = CommandLineBuilder.ParseSectionList(":Package,Statistics");
 
         Assert.NotNull(result);
-        Assert.Contains("Metadata", result);
+        Assert.Contains("Package", result);
         Assert.Contains("Statistics", result);
     }
 
