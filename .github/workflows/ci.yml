@@ -26,11 +26,14 @@ jobs:
           filters: |
             code:
               - 'src/**'
+              - '!src/**/*.md'
+              - '!src/**/*.txt'
               - '*.props'
               - '*.sln'
               - '.github/workflows/**'
             docs:
               - '**/*.md'
+              - '**/*.txt'
               - 'docs/**'
 
   # Lint markdown files
