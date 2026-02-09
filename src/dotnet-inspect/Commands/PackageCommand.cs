@@ -369,36 +369,8 @@ public class PackageCommand
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options)
     {
-        string searchPath;
-        string pattern;
-
-        if (options.ListAllFiles)
-        {
-            // --all: search entire package for all files
-            searchPath = extractPath;
-            pattern = "*";
-        }
-        else
-        {
-            // Tools packages use 'tools' directory, regular packages use 'lib'
-            string toolsDir = Path.Combine(extractPath, "tools");
-            string libDir = Path.Combine(extractPath, "lib");
-
-            if (Directory.Exists(toolsDir))
-            {
-                searchPath = toolsDir;
-            }
-            else if (Directory.Exists(libDir))
-            {
-                searchPath = libDir;
-            }
-            else
-            {
-                Console.Error.WriteLine("No lib or tools directory found. Use --all to list all files.");
-                return;
-            }
-            pattern = "*.dll";
-        }
+        string searchPath = extractPath;
+        string pattern = "*";
 
         string[] files = Directory.GetFiles(searchPath, pattern, SearchOption.AllDirectories);
 
@@ -420,60 +392,36 @@ public class PackageCommand
     private static void ListPackageFiles(string extractPath, InspectionOptions options)
     {
         string searchPath;
-        string pattern;
 
-        if (options.ListAllFiles)
+        // Scope to a specific TFM if requested
+        if (!string.IsNullOrEmpty(options.Tfm))
         {
-            searchPath = extractPath;
-            pattern = "*";
+            string libDir = Path.Combine(extractPath, "lib", options.Tfm);
+            string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
+
+            if (Directory.Exists(libDir))
+                searchPath = libDir;
+            else if (Directory.Exists(toolsDir))
+                searchPath = toolsDir;
+            else
+            {
+                Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
+                return;
+            }
         }
         else
         {
-            // Scope to a specific TFM if requested
-            if (!string.IsNullOrEmpty(options.Tfm))
-            {
-                string libDir = Path.Combine(extractPath, "lib", options.Tfm);
-                string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
-
-                if (Directory.Exists(libDir))
-                    searchPath = libDir;
-                else if (Directory.Exists(toolsDir))
-                    searchPath = toolsDir;
-                else
-                {
-                    Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
-                    return;
-                }
-
-                pattern = "*";
-            }
-            else
-            {
-                string toolsDir = Path.Combine(extractPath, "tools");
-                string libDir = Path.Combine(extractPath, "lib");
-
-                if (Directory.Exists(libDir))
-                    searchPath = libDir;
-                else if (Directory.Exists(toolsDir))
-                    searchPath = toolsDir;
-                else
-                {
-                    Console.Error.WriteLine("No lib or tools directory found. Use --all to list all files.");
-                    return;
-                }
-
-                pattern = "*";
-            }
+            searchPath = extractPath;
         }
 
-        string[] files = Directory.GetFiles(searchPath, pattern, SearchOption.AllDirectories);
+        string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
 
         // Use bare filenames when scoped to a specific TFM, relative paths otherwise
-        bool useFileNameOnly = !string.IsNullOrEmpty(options.Tfm) && !options.ListAllFiles;
+        bool useFileNameOnly = !string.IsNullOrEmpty(options.Tfm);
         var fileNames = files
             .Select(f => useFileNameOnly
                 ? Path.GetFileName(f)
-                : Path.GetRelativePath(options.ListAllFiles ? extractPath : searchPath, f).Replace('\\', '/'))
+                : Path.GetRelativePath(extractPath, f).Replace('\\', '/'))
             .Where(p => !p.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
             .Where(p => !p.StartsWith("_rels", StringComparison.OrdinalIgnoreCase))
             .Where(p => !p.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase))

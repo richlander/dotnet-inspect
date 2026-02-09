@@ -17,7 +17,22 @@ There are mulptiple ways to run the tool, via `dnx`, as an installed tool (`dotn
 No args launch:
 
 ```bash
-dotnet inspect                          # tool help
+dotnet-inspect                          # tool help
+dotnet-inspect --tips:d                 # more tips
+dotnet-inspect --tips:q                 # quiet tips
+dotnet-inspect 2>/dev/null              # another way to quiet tips
+DOTNET_INSPECT_TIPS=quiet dotnet-inspect # another way to quiet tips
+```
+
+Tips are contextual suggestions written to `stderr` to guide the next step.
+
+For example:
+
+```bash
+$ dotnet-inspect | grep Tips
+Tip: package <package>   # inspect a NuGet package
+Tip: llmstxt             # complete usage examples
+Tip: --tips:d            # show more tips per command
 ```
 
 ## Packages
@@ -25,10 +40,15 @@ dotnet inspect                          # tool help
 Metadata-oriented markdown documents:
 
 ```bash
-dotnet inspect System.Text.Json         # Metadata view for package (same as -v:m)
-dotnet inspect System.Text.Json -v:d    # Metadata, statistics, and direct package dependencies
-dotnet inspect System.Text.Json -v:q    # Terse 3-line details about latest package version
+dotnet-inspect System.Text.Json         # Metadata view for package (same as -v:m)
+dotnet-inspect System.Text.Json@10.0.2  # Specify a version; positional and --version also works
+dotnet-inspect System.Text.Json -v:d    # Metadata, statistics, and direct package dependencies
+dotnet-inspect System.Text.Json -v:q    # Terse 3-line details about latest package version
 ```
 
 Pure data:
 
+```bash
+dotnet-inspect System.Text.Json --files # List all file in the package, package-root qualified, one per line
+dotnet-inspect System.Text.Json --tfms  # Lists TFM folders in the package, one per line
+```

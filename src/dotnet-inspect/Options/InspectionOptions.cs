@@ -38,11 +38,6 @@ public record InspectionOptions
     public bool ListTfms { get; init; }
 
     /// <summary>
-    /// When listing files, include all files (not just .dll files).
-    /// </summary>
-    public bool ListAllFiles { get; init; }
-
-    /// <summary>
     /// List available versions of the package from nuget.org.
     /// </summary>
     public bool ListVersions { get; init; }
