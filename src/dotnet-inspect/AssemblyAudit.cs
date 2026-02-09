@@ -415,3 +415,61 @@ public record ReferenceRow(
     string Name,
     string Version,
     [property: MarkoutPropertyName("Public Key Token")] string PublicKeyToken);
+
+/// <summary>
+/// Standalone view model for assembly dependencies (--dependencies).
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+public class AssemblyDependenciesView
+{
+    [MarkoutIgnore]
+    public string Title { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string? AssemblyName { get; set; }
+
+    [MarkoutIgnore]
+    public string? Version { get; set; }
+
+    [MarkoutIgnore]
+    public string? Tfm { get; set; }
+
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Identity => GetIdentityFields();
+
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Dependencies { get; set; } = [];
+
+    private List<MarkoutField> GetIdentityFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (!string.IsNullOrEmpty(AssemblyName))
+            fields.Add(new("Assembly", AssemblyName));
+        if (!string.IsNullOrEmpty(Version))
+            fields.Add(new("Version", Version));
+        if (!string.IsNullOrEmpty(Tfm))
+            fields.Add(new("TFM", Tfm));
+        return fields;
+    }
+
+    public static AssemblyDependenciesView FromAudit(AssemblyAudit audit)
+    {
+        var info = audit.AssemblyInfo;
+        var treeNodes = audit.DependenciesSection ?? [];
+
+        return new AssemblyDependenciesView
+        {
+            Title = audit.FileName,
+            AssemblyName = info?.AssemblyName,
+            Version = info?.AssemblyVersion,
+            Tfm = audit.Tfm ?? info?.TargetFramework,
+            Dependencies = treeNodes
+        };
+    }
+}
+
+[MarkoutContext(typeof(AssemblyDependenciesView))]
+public partial class AssemblyDependenciesContext : MarkoutSerializerContext
+{
+}

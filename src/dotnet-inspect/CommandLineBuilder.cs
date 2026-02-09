@@ -822,6 +822,7 @@ public static class CommandLineBuilder
         };
 
         var depsOption = new Option<bool>("--deps") { Description = "Include dependency analysis" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree" };
         var filesOption = new Option<bool>("--files") { Description = "List DLLs in the package" };
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
         var allFilesOption = new Option<bool>("--all") { Description = "With --files: list all files in entire package" };
@@ -840,6 +841,7 @@ public static class CommandLineBuilder
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(depsOption);
+        packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(filesOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(allFilesOption);
@@ -907,6 +909,8 @@ public static class CommandLineBuilder
             var options = new InspectionOptions
             {
                 IncludeDeps = parseResult.GetValue(depsOption),
+                ShowDependencies = parseResult.GetValue(dependenciesOption),
+                Tfm = parseResult.GetValue(tfmOption),
                 ListFiles = parseResult.GetValue(filesOption),
                 ListTfms = parseResult.GetValue(tfmsOption),
                 ListAllFiles = parseResult.GetValue(allFilesOption),

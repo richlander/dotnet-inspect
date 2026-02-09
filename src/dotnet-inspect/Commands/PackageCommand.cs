@@ -1,6 +1,7 @@
 using System.IO.Compression;
-using DotnetInspector.Packages;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -202,6 +203,12 @@ public class PackageCommand
             if (options.ShowReadme)
             {
                 return PrintReadme(extractPath, result.ReadmeFile, options);
+            }
+
+            // Handle --dependencies mode: resolve transitive deps and show tree
+            if (options.ShowDependencies)
+            {
+                return await ShowDependencyTreeAsync(client, result, options, logger);
             }
 
             // Check for README (use nuspec-specified file or fall back to README.md)
@@ -459,6 +466,185 @@ public class PackageCommand
         }
         
         return nodes;
+    }
+
+    private static async Task<int> ShowDependencyTreeAsync(
+        HttpClient client, InspectionResult result, InspectionOptions options, VerboseLogger logger)
+    {
+        if (result.DependencyGroups is not { Count: > 0 })
+        {
+            Console.Error.WriteLine("No dependencies declared in package.");
+            return 0;
+        }
+
+        // Pick TFM: explicit --tfm, or highest available
+        var tfm = options.Tfm;
+        DependencyGroup? group;
+        if (!string.IsNullOrEmpty(tfm))
+        {
+            group = result.DependencyGroups.FirstOrDefault(g =>
+                g.TargetFramework.Equals(tfm, StringComparison.OrdinalIgnoreCase));
+            if (group == null)
+            {
+                Console.Error.WriteLine($"Error: No dependencies found for TFM '{tfm}'.");
+                Console.Error.WriteLine("Available TFMs: " + string.Join(", ", result.DependencyGroups.Select(g => g.TargetFramework)));
+                return 1;
+            }
+        }
+        else
+        {
+            group = result.DependencyGroups
+                .OrderByDescending(g => GetTfmPriority(g.TargetFramework))
+                .ThenByDescending(g => ExtractTfmVersion(g.TargetFramework))
+                .First();
+            tfm = group.TargetFramework;
+        }
+
+        // Resolve transitive dependencies
+        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var treeNodes = await ResolveDependencyTreeAsync(
+            client, group.Dependencies, tfm, globalSeen, logger);
+
+        var view = new PackageDependenciesView
+        {
+            Title = $"{result.PackageName} ({result.Version})",
+            Package = result.PackageName,
+            Version = result.Version,
+            Tfm = tfm,
+            Dependencies = treeNodes
+        };
+
+        MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+        return 0;
+    }
+
+    private static async Task<List<TreeNode>> ResolveDependencyTreeAsync(
+        HttpClient client, List<PackageDependency> dependencies, string tfm,
+        HashSet<string> globalSeen, VerboseLogger logger)
+    {
+        var nodes = new List<TreeNode>();
+
+        foreach (var dep in dependencies.OrderBy(d => d.Id))
+        {
+            if (!globalSeen.Add(dep.Id))
+                continue;
+
+            var label = $"{dep.Id} {dep.Version}";
+            logger.Log($"Resolving: {dep.Id} {dep.Version}");
+
+            // Try to resolve this dependency's own dependencies
+            var children = await ResolveChildDependenciesAsync(
+                client, dep.Id, dep.Version, tfm, globalSeen, logger);
+
+            nodes.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+        }
+
+        return nodes;
+    }
+
+    private static async Task<List<TreeNode>> ResolveChildDependenciesAsync(
+        HttpClient client, string packageId, string versionRange, string tfm,
+        HashSet<string> globalSeen, VerboseLogger logger)
+    {
+        try
+        {
+            // Resolve version from range
+            string? version = ResolveVersionFromRange(versionRange);
+            if (version == null) return [];
+
+            // Download and extract the package
+            string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
+            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: logger.Log);
+            if (extractResult == null) return [];
+
+            try
+            {
+                // Parse nuspec
+                var childResult = new InspectionResult();
+                string[] nuspecFiles = Directory.GetFiles(extractResult.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
+                if (nuspecFiles.Length > 0)
+                {
+                    NuspecParser.Parse(nuspecFiles[0], childResult);
+                }
+
+                if (childResult.DependencyGroups is not { Count: > 0 }) return [];
+
+                // Find best matching TFM group
+                var group = FindBestMatchingTfmGroup(childResult.DependencyGroups, tfm);
+                if (group?.Dependencies is not { Count: > 0 }) return [];
+
+                return await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, logger);
+            }
+            finally
+            {
+                if (extractResult.TempDir != null)
+                {
+                    try { Directory.Delete(extractResult.TempDir, recursive: true); } catch { }
+                }
+            }
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static DependencyGroup? FindBestMatchingTfmGroup(List<DependencyGroup> groups, string targetTfm)
+    {
+        // Exact match first
+        var exact = groups.FirstOrDefault(g =>
+            g.TargetFramework.Equals(targetTfm, StringComparison.OrdinalIgnoreCase));
+        if (exact != null) return exact;
+
+        // Fall back to best compatible TFM (highest priority that's <= target)
+        var targetPriority = GetTfmPriority(targetTfm);
+        var targetVersion = ExtractTfmVersion(targetTfm);
+
+        return groups
+            .Where(g => string.IsNullOrEmpty(g.TargetFramework) ||
+                        g.TargetFramework.Equals("any", StringComparison.OrdinalIgnoreCase) ||
+                        (GetTfmPriority(g.TargetFramework) <= targetPriority &&
+                         ExtractTfmVersion(g.TargetFramework) <= targetVersion))
+            .OrderByDescending(g => GetTfmPriority(g.TargetFramework))
+            .ThenByDescending(g => ExtractTfmVersion(g.TargetFramework))
+            .FirstOrDefault();
+    }
+
+    private static string? ResolveVersionFromRange(string versionRange)
+    {
+        if (NuGet.Versioning.VersionRange.TryParse(versionRange, out var range))
+        {
+            return range.MinVersion?.ToNormalizedString();
+        }
+        // Try as plain version
+        if (NuGet.Versioning.NuGetVersion.TryParse(versionRange, out var ver))
+        {
+            return ver.ToNormalizedString();
+        }
+        return null;
+    }
+
+    private static int GetTfmPriority(string tfm)
+    {
+        var lower = tfm.ToLowerInvariant();
+        if (lower.StartsWith("net") && !lower.StartsWith("netstandard") &&
+            !lower.StartsWith("netcoreapp") && !lower.StartsWith("netframework") &&
+            lower.Length > 3 && char.IsDigit(lower[3]) && lower.Contains('.'))
+            return 4;
+        if (lower.StartsWith("netcoreapp")) return 3;
+        if (lower.StartsWith("netstandard")) return 2;
+        if (lower.StartsWith("net4") || lower.StartsWith("netframework")) return 1;
+        return 0;
+    }
+
+    private static double ExtractTfmVersion(string tfm)
+    {
+        var versionPart = tfm.ToLowerInvariant()
+            .Replace("netcoreapp", "").Replace("netstandard", "")
+            .Replace("netframework", "").Replace("net", "").TrimStart('v');
+        if (double.TryParse(versionPart, out var version)) return version;
+        if (versionPart.Length == 3 && int.TryParse(versionPart, out var intVersion)) return intVersion / 100.0;
+        return 0;
     }
 
     private static int PrintReadme(string extractPath, string? readmeFile, InspectionOptions options)
@@ -987,5 +1173,48 @@ public class FileTreeView
 
 [MarkoutContext(typeof(FileTreeView))]
 public partial class FileTreeContext : MarkoutSerializerContext
+{
+}
+
+/// <summary>
+/// View model for package dependency tree output (--dependencies).
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+public class PackageDependenciesView
+{
+    [MarkoutIgnore]
+    public string Title { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string Package { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string Version { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string? Tfm { get; set; }
+
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Identity => GetIdentityFields();
+
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Dependencies { get; set; } = [];
+
+    private List<MarkoutField> GetIdentityFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (!string.IsNullOrEmpty(Package))
+            fields.Add(new("Package", Package));
+        if (!string.IsNullOrEmpty(Version))
+            fields.Add(new("Version", Version));
+        if (!string.IsNullOrEmpty(Tfm))
+            fields.Add(new("TFM", Tfm));
+        return fields;
+    }
+}
+
+[MarkoutContext(typeof(PackageDependenciesView))]
+public partial class PackageDependenciesContext : MarkoutSerializerContext
 {
 }

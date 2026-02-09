@@ -53,6 +53,23 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PackageCommand_WithDependencies_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "--dependencies"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("package", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void PackageCommand_WithDependenciesAndTfm_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "--dependencies", "--tfm", "net8.0"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void ApiCommand_WithoutType_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json"]);
