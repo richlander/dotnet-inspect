@@ -195,25 +195,33 @@ public class PackageCommand
 
             // Always analyze directory structure
             string toolsDir = Path.Combine(extractPath, "tools");
-            if (Directory.Exists(toolsDir))
+            string libDir = Path.Combine(extractPath, "lib");
+            bool hasToolsDir = Directory.Exists(toolsDir);
+            bool hasLibDir = Directory.Exists(libDir);
+
+            if (hasToolsDir)
             {
-                result.IsToolPackage = true;
                 ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, result);
             }
-            else
+
+            if (hasLibDir)
             {
-                result.IsToolPackage = false;
-                string libDir = Path.Combine(extractPath, "lib");
-                if (Directory.Exists(libDir))
-                {
-                    ToolsAnalyzer.AnalyzeLibDirectory(libDir, result);
-                }
+                ToolsAnalyzer.AnalyzeLibDirectory(libDir, result);
 
                 string runtimesDir = Path.Combine(extractPath, "runtimes");
                 if (Directory.Exists(runtimesDir))
                 {
                     ToolsAnalyzer.AnalyzeRuntimesDirectory(runtimesDir, result);
                 }
+            }
+
+            // Determine package type if not already set by nuspec PackageTypes
+            if (result.PackageTypes is not { Count: > 0 })
+            {
+                // Only classify as tool if tools/ has actual DLLs and there's no lib/ dir.
+                // Packages like AWSSDK.* have tools/ with only .ps1 scripts alongside lib/.
+                result.IsToolPackage = hasToolsDir && !hasLibDir
+                    && Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories).Length > 0;
             }
 
             // Analyze content directories and count assemblies
