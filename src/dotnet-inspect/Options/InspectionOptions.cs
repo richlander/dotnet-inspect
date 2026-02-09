@@ -13,6 +13,16 @@ public record InspectionOptions
     public bool IncludeDeps { get; init; }
 
     /// <summary>
+    /// Show package dependencies as a tree view with transitive resolution.
+    /// </summary>
+    public bool ShowDependencies { get; init; }
+
+    /// <summary>
+    /// Target framework to use for dependency resolution (defaults to highest).
+    /// </summary>
+    public string? Tfm { get; init; }
+
+    /// <summary>
     /// List files in the package instead of showing metadata.
     /// </summary>
     public bool ListFiles { get; init; }

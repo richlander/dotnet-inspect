@@ -42,4 +42,4 @@ Should show: IList\<T\>, ICollection\<T\>, IEnumerable\<T\>, IReadOnlyList\<T\>,
 - List\<T\> is in `System.Collections` assembly (not System.Collections.Generic package)
 - Use `--platform` for SDK assemblies (no download needed)
 - Use `--interfaces` flag or `--json` to see interface information
-- The `type` command shows interfaces by default in tree view
+- The `type` command shows interfaces by default in shape view

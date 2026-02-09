@@ -38,6 +38,11 @@ public class AssemblyReferenceNode
     /// True if this node was already seen earlier in the tree (circular reference).
     /// </summary>
     public bool IsCyclic { get; set; }
+
+    /// <summary>
+    /// Company name from the assembly's metadata.
+    /// </summary>
+    public string? Company { get; set; }
 }
 
 public class AssemblyInfo

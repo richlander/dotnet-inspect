@@ -464,6 +464,37 @@ public static class AssemblyInspector
         return ExtractReferences(metadataReader) ?? [];
     }
 
+    /// <summary>
+    /// Extracts assembly references and company name in a single pass.
+    /// </summary>
+    public static (List<AssemblyReference> References, string? Company) ExtractReferencesAndCompany(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        if (!peReader.HasMetadata)
+            return ([], null);
+
+        var metadataReader = peReader.GetMetadataReader();
+        var refs = ExtractReferences(metadataReader) ?? [];
+        var company = ExtractCompanyAttribute(metadataReader);
+        return (refs, company);
+    }
+
+    private static string? ExtractCompanyAttribute(MetadataReader metadataReader)
+    {
+        foreach (var attrHandle in metadataReader.CustomAttributes)
+        {
+            var attr = metadataReader.GetCustomAttribute(attrHandle);
+            string? attrName = GetAttributeName(metadataReader, attr);
+            if (attrName == "System.Reflection.AssemblyCompanyAttribute")
+            {
+                return GetAttributeStringValue(metadataReader, attr);
+            }
+        }
+        return null;
+    }
+
     private static List<AssemblyReference>? ExtractReferences(MetadataReader metadataReader)
     {
         var references = new List<AssemblyReference>();

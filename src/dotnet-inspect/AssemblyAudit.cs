@@ -234,6 +234,10 @@ public class AssemblyAudit
     [JsonIgnore]
     public List<MarkoutField> SourceCoverageSection => GetSourceCoverageFields();
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public bool UseDependenciesView { get; set; }
+
     [MarkoutSection(Name = "Assembly References")]
     [JsonIgnore]
     public List<ReferenceRow>? AssemblyReferencesSection =>
@@ -245,8 +249,14 @@ public class AssemblyAudit
     [MarkoutSection(Name = "Assembly References (Transitive)")]
     [JsonIgnore]
     public List<TreeNode>? TransitiveReferencesSection =>
-        AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
-        BuildTransitiveTree(AssemblyInfo.TransitiveReferences);
+        UseDependenciesView || AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildFlatTransitiveTree(AssemblyInfo.TransitiveReferences);
+
+    [MarkoutSection(Name = "Dependencies")]
+    [JsonIgnore]
+    public List<TreeNode>? DependenciesSection =>
+        !UseDependenciesView || AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildNestedDependencyTree(AssemblyInfo.TransitiveReferences);
 
     [MarkoutSection(Name = "Non-normalized Paths")]
     [JsonIgnore]
@@ -356,7 +366,7 @@ public class AssemblyAudit
         return display;
     }
 
-    private static List<TreeNode> BuildTransitiveTree(List<AssemblyReferenceNode> nodes)
+    private static List<TreeNode> BuildFlatTransitiveTree(List<AssemblyReferenceNode> nodes)
     {
         var result = new List<TreeNode>();
         foreach (var node in nodes)
@@ -372,6 +382,34 @@ public class AssemblyAudit
         }
         return result;
     }
+
+    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
+    {
+        var result = new List<TreeNode>();
+        int i = 0;
+        BuildNestedNodes(nodes, ref i, 0, result);
+        return result;
+    }
+
+    private static void BuildNestedNodes(List<AssemblyReferenceNode> nodes, ref int index, int currentDepth, List<TreeNode> target)
+    {
+        while (index < nodes.Count && nodes[index].Depth == currentDepth)
+        {
+            var node = nodes[index];
+            var label = !string.IsNullOrEmpty(node.Company)
+                ? $"{node.Name} {node.Version} [{node.Company}]"
+                : $"{node.Name} {node.Version}";
+            index++;
+
+            var children = new List<TreeNode>();
+            if (index < nodes.Count && nodes[index].Depth > currentDepth)
+            {
+                BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
+            }
+
+            target.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+        }
+    }
 }
 
 [MarkoutSerializable]
@@ -379,3 +417,61 @@ public record ReferenceRow(
     string Name,
     string Version,
     [property: MarkoutPropertyName("Public Key Token")] string PublicKeyToken);
+
+/// <summary>
+/// Standalone view model for assembly dependencies (--dependencies).
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title))]
+public class AssemblyDependenciesView
+{
+    [MarkoutIgnore]
+    public string Title { get; set; } = "";
+
+    [MarkoutIgnore]
+    public string? AssemblyName { get; set; }
+
+    [MarkoutIgnore]
+    public string? Version { get; set; }
+
+    [MarkoutIgnore]
+    public string? Tfm { get; set; }
+
+    [JsonIgnore]
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Identity => GetIdentityFields();
+
+    [MarkoutIgnoreInTable]
+    public List<TreeNode> Dependencies { get; set; } = [];
+
+    private List<MarkoutField> GetIdentityFields()
+    {
+        var fields = new List<MarkoutField>();
+        if (!string.IsNullOrEmpty(AssemblyName))
+            fields.Add(new("Assembly", AssemblyName));
+        if (!string.IsNullOrEmpty(Version))
+            fields.Add(new("Version", Version));
+        if (!string.IsNullOrEmpty(Tfm))
+            fields.Add(new("TFM", Tfm));
+        return fields;
+    }
+
+    public static AssemblyDependenciesView FromAudit(AssemblyAudit audit)
+    {
+        var info = audit.AssemblyInfo;
+        var treeNodes = audit.DependenciesSection ?? [];
+
+        return new AssemblyDependenciesView
+        {
+            Title = audit.FileName,
+            AssemblyName = info?.AssemblyName,
+            Version = info?.AssemblyVersion,
+            Tfm = audit.Tfm ?? info?.TargetFramework,
+            Dependencies = treeNodes
+        };
+    }
+}
+
+[MarkoutContext(typeof(AssemblyDependenciesView))]
+public partial class AssemblyDependenciesContext : MarkoutSerializerContext
+{
+}

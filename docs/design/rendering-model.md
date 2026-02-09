@@ -108,5 +108,5 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--signatures-only` |
 | `assembly` | Assembly info, PE headers | `--audit`, `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `assembly` when given a name) |
-| `type` | Type shape tree | (single view, verbosity controls depth) |
+| `type` | Type shape | (single view, verbosity controls depth) |
 | `diff` | Change summary | `--stat`, `--name-only` |

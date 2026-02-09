@@ -62,6 +62,13 @@ public static class OutputFormatter
 
     public static void WriteAssemblyResult(AssemblyAudit audit, AssemblyOptions options)
     {
+        if (audit.UseDependenciesView)
+        {
+            var view = AssemblyDependenciesView.FromAudit(audit);
+            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            return;
+        }
+
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(audit, JsonContext.Default.AssemblyAudit));
