@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "diff", "find", "search", "samples", "platform", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "assembly", "api", "diff", "find", "search", "samples", "platform", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -621,7 +621,7 @@ public static class CommandLineBuilder
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption)
     {
-        var platformCommand = new Command(PlatformCommand.Name, "List installed frameworks and assemblies, or inspect a platform assembly");
+        var platformCommand = new Command(PlatformCommand.Name, "Inspect platform assemblies and frameworks");
 
         var assemblyNameArg = new Argument<string?>("assembly")
         {
@@ -633,18 +633,6 @@ public static class CommandLineBuilder
         var frameworkOption = new Option<string?>("--framework")
         {
             Description = "Framework to use (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
-        };
-        var listVersionsOption = new Option<bool>("--list-versions")
-        {
-            Description = "List all installed versions for each framework"
-        };
-        var includeTypesOption = new Option<bool>("--types")
-        {
-            Description = "Include public type count for each assembly (use with --framework)"
-        };
-        var compactOption = new Option<bool>("--compact")
-        {
-            Description = "Minified JSON (use with --json)"
         };
         var metadataOption = new Option<bool>("--metadata")
         {
@@ -660,29 +648,90 @@ public static class CommandLineBuilder
         };
         platformCommand.Arguments.Add(assemblyNameArg);
         platformCommand.Options.Add(frameworkOption);
-        platformCommand.Options.Add(listVersionsOption);
-        platformCommand.Options.Add(includeTypesOption);
         platformCommand.Options.Add(metadataOption);
         platformCommand.Options.Add(symbolsOption);
         platformCommand.Options.Add(sourcelinkAuditOption);
-        platformCommand.Options.Add(limitOption);
         platformCommand.Options.Add(jsonOption);
-        platformCommand.Options.Add(compactOption);
         platformCommand.Options.Add(verboseOption);
         platformCommand.Options.Add(verbosityOption);
         platformCommand.Options.Add(includeSectionsOption);
         platformCommand.Options.Add(excludeSectionsOption);
 
+        // list subcommand (alias: ls) - list installed frameworks and assemblies
+        var listCommand = new Command("list", "List installed frameworks and assemblies");
+        listCommand.Aliases.Add("ls");
+
+        var listFrameworkOption = new Option<string?>("--framework")
+        {
+            Description = "Framework to use (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
+        };
+        var listVersionsOption = new Option<bool>("--list-versions")
+        {
+            Description = "List all installed versions for each framework"
+        };
+        var includeTypesOption = new Option<bool>("--types")
+        {
+            Description = "Include public type count for each assembly (use with --framework)"
+        };
+        var listJsonOption = new Option<bool>("--json")
+        {
+            Description = "Output as JSON"
+        };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description = "Minified JSON (use with --json)"
+        };
+        var listLimitOption = new Option<int?>("--limit")
+        {
+            Description = "Limit number of results"
+        };
+        var listVerboseOption = new Option<bool>("--verbose")
+        {
+            Description = "Show verbose output"
+        };
+        var listVerbosityOption = new Option<string?>("-v")
+        {
+            Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)"
+        };
+        listCommand.Options.Add(listFrameworkOption);
+        listCommand.Options.Add(listVersionsOption);
+        listCommand.Options.Add(includeTypesOption);
+        listCommand.Options.Add(listJsonOption);
+        listCommand.Options.Add(compactOption);
+        listCommand.Options.Add(listLimitOption);
+        listCommand.Options.Add(listVerboseOption);
+        listCommand.Options.Add(listVerbosityOption);
+
+        listCommand.SetAction(async (parseResult, ct) =>
+        {
+            var options = new PlatformOptions
+            {
+                Framework = parseResult.GetValue(listFrameworkOption),
+                ListVersions = parseResult.GetValue(listVersionsOption),
+                IncludeTypes = parseResult.GetValue(includeTypesOption),
+                Limit = parseResult.GetValue(listLimitOption),
+                JsonOutput = parseResult.GetValue(listJsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(listVerboseOption),
+                Verbosity = ParseVerbosity(parseResult.GetValue(listVerbosityOption))
+            };
+
+            return await PlatformCommand.ExecuteAsync(options);
+        });
+
+        platformCommand.Subcommands.Add(listCommand);
+
         platformCommand.SetAction(async (parseResult, ct) =>
         {
             var assemblyName = parseResult.GetValue(assemblyNameArg);
-            bool showMetadata = parseResult.GetValue(metadataOption);
-            bool showSymbols = parseResult.GetValue(symbolsOption);
-            bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
 
             // If an assembly name is specified, delegate to AssemblyCommand
             if (!string.IsNullOrEmpty(assemblyName))
             {
+                bool showMetadata = parseResult.GetValue(metadataOption);
+                bool showSymbols = parseResult.GetValue(symbolsOption);
+                bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
+
                 var assemblyOptions = new AssemblyOptions
                 {
                     PlatformAssembly = assemblyName,
@@ -700,20 +749,9 @@ public static class CommandLineBuilder
                 return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
             }
 
-            // Otherwise, list frameworks/assemblies
-            var options = new PlatformOptions
-            {
-                Framework = parseResult.GetValue(frameworkOption),
-                ListVersions = parseResult.GetValue(listVersionsOption),
-                IncludeTypes = parseResult.GetValue(includeTypesOption),
-                Limit = parseResult.GetValue(limitOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
-                CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption))
-            };
-
-            return await PlatformCommand.ExecuteAsync(options);
+            // No assembly specified: show help
+            new HelpAction().Invoke(parseResult);
+            return 0;
         });
 
         return platformCommand;
@@ -1150,6 +1188,13 @@ public static class CommandLineBuilder
             var explicitAssembly = parseResult.GetValue(apiAssemblyOption);
             var explicitPlatform = parseResult.GetValue(apiPlatformOption);
             bool hasExplicitSource = explicitPackage != null || explicitAssembly != null || explicitPlatform != null;
+
+            // No args and no explicit source: show help
+            if (args.Length == 0 && !hasExplicitSource)
+            {
+                new HelpAction().Invoke(parseResult);
+                return 0;
+            }
 
             string? packagePath = explicitPackage;
             string? typeName = null;
