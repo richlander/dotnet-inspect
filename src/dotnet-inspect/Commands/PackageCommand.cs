@@ -383,10 +383,14 @@ public class PackageCommand
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options)
     {
-        string searchPath = extractPath;
-        string pattern = "*";
+        var (searchPath, error) = ResolveScopedPath(extractPath, options);
+        if (error != null)
+        {
+            Console.Error.WriteLine(error);
+            return;
+        }
 
-        string[] files = Directory.GetFiles(searchPath, pattern, SearchOption.AllDirectories);
+        string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
 
         var relativePaths = files
             .Select(f => Path.GetRelativePath(extractPath, f))
@@ -406,6 +410,7 @@ public class PackageCommand
     private static void ListPackageFiles(string extractPath, InspectionOptions options)
     {
         string searchPath;
+        bool useFileNameOnly = false;
 
         // Scope to a specific TFM if requested
         if (!string.IsNullOrEmpty(options.Tfm))
@@ -422,16 +427,22 @@ public class PackageCommand
                 Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
                 return;
             }
+            useFileNameOnly = true;
         }
         else
         {
-            searchPath = extractPath;
+            var (resolved, error) = ResolveScopedPath(extractPath, options);
+            if (error != null)
+            {
+                Console.Error.WriteLine(error);
+                return;
+            }
+            searchPath = resolved;
         }
 
         string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
 
         // Use bare filenames when scoped to a specific TFM, relative paths otherwise
-        bool useFileNameOnly = !string.IsNullOrEmpty(options.Tfm);
         var fileNames = files
             .Select(f => useFileNameOnly
                 ? Path.GetFileName(f)
@@ -451,6 +462,21 @@ public class PackageCommand
         {
             Console.WriteLine(file);
         }
+    }
+
+    private static (string path, string? error) ResolveScopedPath(string extractPath, InspectionOptions options)
+    {
+        if (options.ScopeLib)
+        {
+            var dir = Path.Combine(extractPath, "lib");
+            return Directory.Exists(dir) ? (dir, null) : (dir, "No lib/ directory found in package.");
+        }
+        if (options.ScopeTools)
+        {
+            var dir = Path.Combine(extractPath, "tools");
+            return Directory.Exists(dir) ? (dir, null) : (dir, "No tools/ directory found in package.");
+        }
+        return (extractPath, null);
     }
 
     private static void ListPackageTfms(string extractPath)

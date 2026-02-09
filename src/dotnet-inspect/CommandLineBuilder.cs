@@ -871,6 +871,8 @@ public static class CommandLineBuilder
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         var filesOption = new Option<bool>("--files") { Description = "List files in the package (flat list, filterable with --tfm)" };
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
+        var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --files or --layout)" };
+        var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --files or --layout)" };
         var versionsOption = new Option<bool>("--versions") { Description = "List available versions from nuget.org" };
         var prereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
         prereleaseOption.Aliases.Add("--prerelease");
@@ -890,6 +892,8 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(layoutOption);
         packageCommand.Options.Add(filesOption);
         packageCommand.Options.Add(tfmsOption);
+        packageCommand.Options.Add(libOption);
+        packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(readmeOption);
@@ -959,6 +963,8 @@ public static class CommandLineBuilder
                 ListLayout = parseResult.GetValue(layoutOption),
                 ListFiles = parseResult.GetValue(filesOption),
                 ListTfms = parseResult.GetValue(tfmsOption),
+                ScopeLib = parseResult.GetValue(libOption),
+                ScopeTools = parseResult.GetValue(toolsOption),
                 ListVersions = parseResult.GetValue(versionsOption),
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 ShowReadme = parseResult.GetValue(readmeOption),

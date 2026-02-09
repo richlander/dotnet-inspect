@@ -33,6 +33,16 @@ public record InspectionOptions
     public bool ListFiles { get; init; }
 
     /// <summary>
+    /// Scope to lib/ folder (use with --files or --layout).
+    /// </summary>
+    public bool ScopeLib { get; init; }
+
+    /// <summary>
+    /// Scope to tools/ folder (use with --files or --layout).
+    /// </summary>
+    public bool ScopeTools { get; init; }
+
+    /// <summary>
     /// List target frameworks in the package, one per line.
     /// </summary>
     public bool ListTfms { get; init; }
