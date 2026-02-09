@@ -8,13 +8,12 @@ namespace DotnetInspector.Tests;
 public class CommandLineTests
 {
     [Fact]
-    public void RootCommand_WithNoArgs_RequiresCommand()
+    public void RootCommand_WithNoArgs_ShowsHelpWithoutError()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse([]);
 
-        // Root command requires a subcommand
-        Assert.Single(result.Errors);
-        Assert.Contains("Required command was not provided", result.Errors[0].Message);
+        // Root command has a default action (help + tips), so no parse errors
+        Assert.Empty(result.Errors);
     }
 
     [Fact]
