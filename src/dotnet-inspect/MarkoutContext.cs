@@ -2,6 +2,7 @@ using Markout;
 
 namespace DotnetInspector;
 
+[MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResult))]
 [MarkoutContext(typeof(AssemblyAudit))]
 [MarkoutContext(typeof(AssemblyAuditReport))]

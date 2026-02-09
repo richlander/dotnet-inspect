@@ -1,6 +1,3 @@
-using System.Text.Json.Serialization;
-using Markout;
-
 namespace DotnetInspector.Metadata;
 
 /// <summary>
@@ -25,25 +22,21 @@ public class AssemblyReferenceNode
     /// <summary>
     /// Tree depth (0 = direct reference, 1 = reference of reference, etc.)
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int Depth { get; set; }
 
     /// <summary>
     /// How the assembly was resolved: "local", "platform", or null if unresolved.
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ResolvedFrom { get; set; }
 
     /// <summary>
     /// Resolved file path, or null if not found.
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; set; }
 
     /// <summary>
     /// True if this node was already seen earlier in the tree (circular reference).
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsCyclic { get; set; }
 }
 
@@ -87,14 +80,10 @@ public class AssemblyInfo
     /// <summary>
     /// List of assemblies referenced by this assembly.
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [MarkoutIgnoreInTable]
     public List<AssemblyReference>? References { get; set; }
 
     /// <summary>
     /// Transitive reference tree (when --transitive is used).
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [MarkoutIgnoreInTable]
     public List<AssemblyReferenceNode>? TransitiveReferences { get; set; }
 }
