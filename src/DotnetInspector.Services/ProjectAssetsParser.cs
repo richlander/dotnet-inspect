@@ -1,19 +1,17 @@
 using System.Text.Json;
-using DotnetInspector.Inspectors;
-using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Parses project.assets.json to discover NuGet package assemblies in a project.
 /// </summary>
-internal static class ProjectAssetsParser
+public static class ProjectAssetsParser
 {
     /// <summary>
     /// Parses a project.assets.json file and returns the assembly paths with package metadata.
     /// </summary>
-    public static List<(string Path, string PackageName, string Version)> Parse(string assetsPath, string? tfmFilter, VerboseLogger logger)
+    public static List<(string Path, string PackageName, string Version)> Parse(string assetsPath, string? tfmFilter, Action<string>? log)
     {
         var results = new List<(string Path, string PackageName, string Version)>();
         var nugetCache = NuGetCache.GetNuGetCachePath();
@@ -53,7 +51,7 @@ internal static class ProjectAssetsParser
             if (selectedTfm == null)
                 return results;
 
-            logger.Log($"Using target framework: {selectedTfm}");
+            log?.Invoke($"Using target framework: {selectedTfm}");
 
             if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
                 return results;
@@ -91,7 +89,7 @@ internal static class ProjectAssetsParser
                         if (asm.Name.Contains("_._"))
                             continue;
 
-                        var fullPath = System.IO.Path.Combine(nugetCache, packagePath, asm.Name.Replace('/', System.IO.Path.DirectorySeparatorChar));
+                        var fullPath = Path.Combine(nugetCache, packagePath, asm.Name.Replace('/', Path.DirectorySeparatorChar));
                         if (File.Exists(fullPath))
                         {
                             results.Add((fullPath, packageName, version));
@@ -102,7 +100,7 @@ internal static class ProjectAssetsParser
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to parse project.assets.json: {ex.Message}");
+            log?.Invoke($"Warning: Failed to parse project.assets.json: {ex.Message}");
         }
 
         return results;

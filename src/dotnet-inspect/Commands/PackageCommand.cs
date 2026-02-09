@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -40,7 +41,7 @@ public class PackageCommand
         if (options.ListVersions)
         {
             string normalizedName = packageArgs[0].ToLowerInvariant();
-            var versions = await PackageResolverService.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger);
+            var versions = await PackageResolverService.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log);
             if (versions == null)
             {
                 Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
@@ -106,7 +107,7 @@ public class PackageCommand
             {
                 packageName = packageArg.ToLowerInvariant();
                 // Auto-discover latest version
-                string? latestVersion = await PackageResolverService.GetLatestVersionAsync(client, packageName, logger);
+                string? latestVersion = await PackageResolverService.GetLatestVersionAsync(client, packageName, logger.Log);
                 if (latestVersion == null)
                 {
                     Console.Error.WriteLine($"Error: Package '{packageArg}' not found on nuget.org");
@@ -134,7 +135,7 @@ public class PackageCommand
             resolution = await PackageResolverService.ResolvePackageAsync(
                 isLocalFile ? packageArgs[0] : packageName,
                 isLocalFile ? null : version,
-                logger,
+                logger.Log,
                 client);
 
             if (resolution == null)

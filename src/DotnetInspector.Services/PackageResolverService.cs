@@ -1,15 +1,13 @@
 using System.IO.Compression;
 using System.Text.Json;
-using DotnetInspector.Inspectors;
-using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
-namespace DotnetInspector.Commands;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Resolves NuGet packages: version discovery, cache lookup, download, and extraction.
 /// </summary>
-internal static class PackageResolverService
+public static class PackageResolverService
 {
     /// <summary>
     /// Result of resolving and extracting a NuGet package.
@@ -29,14 +27,14 @@ internal static class PackageResolverService
     public static async Task<PackageResolution?> ResolvePackageAsync(
         string packageSource,
         string? version,
-        VerboseLogger logger,
+        Action<string>? log,
         HttpClient httpClient)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
         if (isLocalFile)
         {
-            return ExtractLocalPackage(packageSource, logger);
+            return ExtractLocalPackage(packageSource, log);
         }
 
         // Parse package@version format
@@ -46,7 +44,7 @@ internal static class PackageResolverService
         {
             packageName = packageSource[..atIndex].ToLowerInvariant();
             version = packageSource[(atIndex + 1)..].ToLowerInvariant();
-            logger.Log($"Using specified version: {version}");
+            log?.Invoke($"Using specified version: {version}");
         }
         else
         {
@@ -56,7 +54,7 @@ internal static class PackageResolverService
         // Discover latest version if not specified
         if (string.IsNullOrEmpty(version))
         {
-            version = await GetLatestVersionAsync(httpClient, packageName, logger);
+            version = await GetLatestVersionAsync(httpClient, packageName, log);
             if (version == null)
             {
                 return null;
@@ -67,7 +65,7 @@ internal static class PackageResolverService
         var cachedPath = NuGetCache.TryGetCachedPackage(packageName, version);
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
-            logger.Log($"Using cached package: {cachedPath}");
+            log?.Invoke($"Using cached package: {cachedPath}");
             var expectedNupkg = Path.Combine(cachedPath, $"{packageName}.{version}.nupkg");
             string? nupkgPath = File.Exists(expectedNupkg) ? expectedNupkg : null;
             return new PackageResolution(cachedPath, null, packageName, version, nupkgPath, FromCache: true);
@@ -79,7 +77,7 @@ internal static class PackageResolverService
         Directory.CreateDirectory(tempDir);
 
         string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-        logger.Log($"Downloading: {nupkgUrl}");
+        log?.Invoke($"Downloading: {nupkgUrl}");
 
         byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(httpClient, nupkgUrl);
         if (packageBytes == null)
@@ -91,13 +89,13 @@ internal static class PackageResolverService
         string nupkgFilePath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
         await File.WriteAllBytesAsync(nupkgFilePath, packageBytes);
         ZipFile.ExtractToDirectory(nupkgFilePath, extractPath);
-        logger.Log("Package downloaded successfully.");
+        log?.Invoke("Package downloaded successfully.");
 
         // Cache for future use
         var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
         if (newCachePath != null)
         {
-            logger.Log($"Cached to: {newCachePath}");
+            log?.Invoke($"Cached to: {newCachePath}");
         }
 
         return new PackageResolution(extractPath, tempDir, packageName, version, nupkgFilePath, FromCache: false);
@@ -107,16 +105,16 @@ internal static class PackageResolverService
     /// Gets the latest version of a package from NuGet. Prefers stable versions.
     /// </summary>
     public static async Task<string?> GetLatestVersionAsync(
-        HttpClient client, string packageName, VerboseLogger logger)
+        HttpClient client, string packageName, Action<string>? log)
     {
-        var versions = await FetchVersionIndexAsync(client, packageName, logger);
+        var versions = await FetchVersionIndexAsync(client, packageName, log);
         if (versions == null || versions.Count == 0)
             return null;
 
         // Prefer stable versions (those without a hyphen)
         var stableVersions = versions.Where(v => !v.Contains('-')).ToList();
         string latest = stableVersions.Count > 0 ? stableVersions[^1] : versions[^1];
-        logger.Log($"Latest version: {latest}");
+        log?.Invoke($"Latest version: {latest}");
         return latest;
     }
 
@@ -125,9 +123,9 @@ internal static class PackageResolverService
     /// </summary>
     public static async Task<List<string>?> GetVersionsAsync(
         HttpClient client, string packageName, bool includePrerelease,
-        int? limit, VerboseLogger logger)
+        int? limit, Action<string>? log)
     {
-        var versions = await FetchVersionIndexAsync(client, packageName, logger);
+        var versions = await FetchVersionIndexAsync(client, packageName, log);
         if (versions == null)
             return null;
 
@@ -147,7 +145,7 @@ internal static class PackageResolverService
         return result;
     }
 
-    private static PackageResolution? ExtractLocalPackage(string path, VerboseLogger logger)
+    private static PackageResolution? ExtractLocalPackage(string path, Action<string>? log)
     {
         if (!File.Exists(path))
         {
@@ -158,23 +156,38 @@ internal static class PackageResolverService
         string extractPath = Path.Combine(tempDir, "extracted");
         Directory.CreateDirectory(tempDir);
 
-        logger.Log($"Extracting package: {Path.GetFileName(path)}");
+        log?.Invoke($"Extracting package: {Path.GetFileName(path)}");
         ZipFile.ExtractToDirectory(path, extractPath);
 
-        // Derive package name from filename
+        // Derive package name from filename (e.g., Foo.Bar.1.0.0.nupkg)
         string fileName = Path.GetFileNameWithoutExtension(path);
-        var (packageName, version) = PackageReferenceParser.ParsePackageReference(fileName);
+        var (packageName, version) = ParsePackageFileName(fileName);
 
         return new PackageResolution(extractPath, tempDir, packageName ?? fileName, version ?? "", path, FromCache: false);
     }
 
+    internal static (string? name, string? version) ParsePackageFileName(string fileName)
+    {
+        var parts = fileName.Split('.');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
+            {
+                var name = string.Join(".", parts.Take(i));
+                var version = string.Join(".", parts.Skip(i));
+                return (name, version);
+            }
+        }
+        return (fileName, null);
+    }
+
     private static async Task<List<string>?> FetchVersionIndexAsync(
-        HttpClient client, string packageName, VerboseLogger logger)
+        HttpClient client, string packageName, Action<string>? log)
     {
         try
         {
             string indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/index.json";
-            logger.Log($"Fetching versions from: {indexUrl}");
+            log?.Invoke($"Fetching versions from: {indexUrl}");
 
             string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
             if (json == null)
@@ -192,7 +205,7 @@ internal static class PackageResolverService
         }
         catch (HttpRequestException ex)
         {
-            logger.Log($"Error fetching versions: {ex.Message}");
+            log?.Invoke($"Error fetching versions: {ex.Message}");
         }
 
         return null;
