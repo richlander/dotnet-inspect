@@ -987,7 +987,7 @@ public static class CommandLineBuilder
         var referencesOption = new Option<bool>("--references") { Description = "Show assembly references" };
         var transitiveOption = new Option<bool>("--transitive") { Description = "[Deprecated: use --dependencies] Show transitive assembly references" };
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show assembly dependencies as a tree" };
-        var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --metadata'] Extract from package" };
+        var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --metadata/--symbols/--sourcelink-audit'] Extract from package" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0, or 'all' for every TFM)" };

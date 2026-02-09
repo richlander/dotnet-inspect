@@ -7,9 +7,26 @@ namespace DotnetInspector.Packages;
 /// Utilities for working with package and content caches.
 /// Uses cross-platform paths via Environment.SpecialFolder.
 /// Never writes to ~/.nuget/packages (read-only).
+/// Call <see cref="Initialize"/> before using app cache methods.
 /// </summary>
 public static class NuGetCache
 {
+    private static string? _appName;
+
+    /// <summary>
+    /// Initializes the cache with the application name used for the cache directory.
+    /// Must be called before any app cache operations.
+    /// </summary>
+    /// <param name="appName">Application name used as the cache subdirectory (e.g., "dotnet-inspect")</param>
+    public static void Initialize(string appName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(appName);
+        _appName = appName;
+    }
+
+    private static string AppName => _appName
+        ?? throw new InvalidOperationException("NuGetCache.Initialize(appName) must be called before using app cache methods.");
+
     /// <summary>
     /// Gets the path to the NuGet package cache (read-only).
     /// </summary>
@@ -30,18 +47,18 @@ public static class NuGetCache
     }
 
     /// <summary>
-    /// Gets the base path for dotnet-inspect caches (read-write).
-    /// Windows: %LOCALAPPDATA%\dotnet-inspect
-    /// macOS/Linux: ~/.local/share/dotnet-inspect
+    /// Gets the base path for application caches (read-write).
+    /// Windows: %LOCALAPPDATA%\{appName}
+    /// macOS/Linux: ~/.local/share/{appName}
     /// </summary>
     public static string GetAppCacheBasePath()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, "dotnet-inspect");
+        return Path.Combine(localAppData, AppName);
     }
 
     /// <summary>
-    /// Gets the path to the dotnet-inspect package cache (read-write).
+    /// Gets the path to the application package cache (read-write).
     /// </summary>
     public static string GetAppCachePath()
     {

@@ -4,10 +4,10 @@ namespace DotnetInspector.Output;
 
 public record Tip(string Subcommand, string Args, string Comment)
 {
-    public override string ToString() =>
+    public string CommandText =>
         string.IsNullOrEmpty(Args)
-            ? $"{VersionInfo.ToolName} {Subcommand}   # {Comment}"
-            : $"{VersionInfo.ToolName} {Subcommand} {Args}   # {Comment}";
+            ? $"{VersionInfo.ToolName} {Subcommand}"
+            : $"{VersionInfo.ToolName} {Subcommand} {Args}";
 }
 
 public static class Hints
@@ -16,9 +16,11 @@ public static class Hints
     {
         if (level == TipLevel.Quiet || tips.Length == 0) return;
         int max = level == TipLevel.Minimal ? 3 : 6;
+        var visible = tips.Take(max).ToList();
+        int commentColumn = visible.Max(t => t.CommandText.Length) + 3;
         Console.Out.Flush();
         Console.Error.WriteLine();
-        foreach (var tip in tips.Take(max))
-            Console.Error.WriteLine($"Tip: {tip}");
+        foreach (var tip in visible)
+            Console.Error.WriteLine($"Tip: {tip.CommandText.PadRight(commentColumn)}# {tip.Comment}");
     }
 }

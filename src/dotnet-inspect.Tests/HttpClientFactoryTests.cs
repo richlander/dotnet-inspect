@@ -1,5 +1,3 @@
-using DotnetInspector.Packages;
-
 namespace DotnetInspector.Tests;
 
 /// <summary>
