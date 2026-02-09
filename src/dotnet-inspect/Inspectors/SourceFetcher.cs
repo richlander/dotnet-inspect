@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Inspectors;
 
@@ -24,7 +25,7 @@ public class SourceFetcher(HttpClient httpClient)
         }
 
         // Check persistent disk cache
-        var diskCached = NuGetCache.TryGetCachedSource(url);
+        var diskCached = PackageCacheService.TryGetCachedSource(url);
         if (diskCached != null)
         {
             _memoryCache[url] = diskCached;
@@ -38,7 +39,7 @@ public class SourceFetcher(HttpClient httpClient)
             if (content == null)
                 return null;
             _memoryCache[url] = content;
-            NuGetCache.CacheSource(url, content);
+            PackageCacheService.CacheSource(url, content);
             return content;
         }
         catch
