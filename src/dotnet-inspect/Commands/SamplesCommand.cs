@@ -206,11 +206,7 @@ public class SamplesCommand
         var writer = new MarkoutWriter(Console.Out);
 
         // H1 title - output immediately
-        var title = assemblyName ?? packageName ?? "Samples";
-        var packageInfo = packageName != null && packageVersion != null
-            ? $" ({packageName} {packageVersion})"
-            : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
-        writer.WriteHeading(1, $"Samples: {title}{packageInfo}");
+        SamplesOutputFormatter.WriteSamplesTitle(writer, assemblyName, packageName, packageVersion);
 
         // Process samples in batches for parallel fetching with progressive output
         for (int batchStart = 0; batchStart < samples.Count; batchStart += BatchSize)
@@ -232,22 +228,7 @@ public class SamplesCommand
             // Output results in order (already sorted by index)
             foreach (var result in results.OrderBy(r => r.Index))
             {
-                var sample = result.TypedSample.Sample;
-                var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
-
-                writer.WriteHeading(2, $"{result.Index + 1}. {result.TypedSample.FullTypeName} - {description}");
-
-                if (result.Content != null)
-                {
-                    var lang = GetLanguageFromPath(sample.RelativePath);
-                    writer.WriteCodeBlockStart(lang);
-                    Console.Out.WriteLine(result.Content);
-                    writer.WriteCodeBlockEnd();
-                }
-                else
-                {
-                    writer.WriteParagraph("*Failed to fetch sample content*");
-                }
+                SamplesOutputFormatter.WriteSamplesWithContent(writer, result.Index, result.TypedSample, result.Content);
             }
 
             // Small delay between batches to reduce contention
@@ -267,34 +248,7 @@ public class SamplesCommand
         string? assemblyName,
         SamplesOptions options)
     {
-        var writer = new MarkoutWriter();
-
-        // H1 title
-        var title = assemblyName ?? packageName ?? "Samples";
-        var packageInfo = packageName != null && packageVersion != null
-            ? $" ({packageName} {packageVersion})"
-            : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
-        writer.WriteHeading(1, $"Samples: {title}{packageInfo}");
-
-        var items = samples.Select((typedSample, i) =>
-        {
-            var sample = typedSample.Sample;
-            var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
-            var url = sample.ResolvedUrl != null
-                ? GitHubUrlResolver.ConvertToGitHubRawUrl(sample.ResolvedUrl) ?? sample.ResolvedUrl
-                : sample.RelativePath;
-
-            if (options.BrowsableUrls && url != sample.RelativePath)
-            {
-                url = GitHubUrlResolver.ConvertRawToBlobUrl(url);
-            }
-
-            return $"{typedSample.FullTypeName} - {description}: {url}";
-        });
-
-        writer.WriteArray(items);
-
-        return writer.ToString().TrimEnd();
+        return SamplesOutputFormatter.FormatSamplesList(samples, packageName, packageVersion, assemblyName, options.BrowsableUrls);
     }
 
     private static async Task<string?> FetchSampleContentAsync(SourceFetcher fetcher, SampleReference sample, VerboseLogger logger)
@@ -325,28 +279,12 @@ public class SamplesCommand
         return content;
     }
 
-    private static string GetLanguageFromPath(string path)
-    {
-        var ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext switch
-        {
-            ".cs" => "csharp",
-            ".fs" => "fsharp",
-            ".vb" => "vb",
-            ".json" => "json",
-            ".xml" => "xml",
-            ".yaml" or ".yml" => "yaml",
-            ".md" => "markdown",
-            _ => ""
-        };
-    }
-
 }
 
 /// <summary>
 /// A sample reference with its owning type information.
 /// </summary>
-internal record TypedSample(string TypeName, string? TypeNamespace, SampleReference Sample)
+public record TypedSample(string TypeName, string? TypeNamespace, SampleReference Sample)
 {
     public string FullTypeName => string.IsNullOrEmpty(TypeNamespace) ? TypeName : $"{TypeNamespace}.{TypeName}";
 }

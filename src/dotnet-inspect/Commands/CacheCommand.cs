@@ -1,4 +1,5 @@
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
@@ -22,25 +23,11 @@ public class CacheCommand
     {
         var info = PackageCacheService.GetCacheInfo();
 
-        Console.WriteLine($"Cache location: {info.Location}");
-        Console.WriteLine();
+        var categories = info.Categories
+            .Select(c => (c.Name, c.Size, c.Count))
+            .ToList();
 
-        if (info.Categories.Count == 0)
-        {
-            Console.WriteLine("Cache is empty.");
-            return Task.FromResult(0);
-        }
-
-        foreach (var category in info.Categories)
-        {
-            Console.WriteLine($"{category.Name + ":",-10}{FormatSize(category.Size)} ({category.Count} {(category.Name == "Packages" ? "packages" : "files")})");
-        }
-
-        Console.WriteLine();
-        Console.WriteLine($"{"Total:",-10}{FormatSize(info.TotalSize)}");
-        Console.WriteLine();
-        Console.WriteLine("Run 'dotnet-inspect cache --clean' to clear the cache.");
-
+        Console.WriteLine(CacheOutputFormatter.FormatCacheInfo(info.Location, categories, info.TotalSize));
         return Task.FromResult(0);
     }
 
@@ -55,7 +42,7 @@ public class CacheCommand
             }
             else
             {
-                Console.WriteLine($"Cleared {FormatSize(freed)} from cache.");
+                Console.WriteLine($"Cleared {CacheOutputFormatter.FormatSize(freed)} from cache.");
             }
             return Task.FromResult(0);
         }
@@ -66,14 +53,4 @@ public class CacheCommand
         }
     }
 
-    private static string FormatSize(long bytes)
-    {
-        return bytes switch
-        {
-            < 1024 => $"{bytes} B",
-            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
-            < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
-            _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
-        };
-    }
 }
