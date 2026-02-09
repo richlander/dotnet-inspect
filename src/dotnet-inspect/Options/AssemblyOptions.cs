@@ -39,6 +39,11 @@ public record AssemblyOptions
     public bool TransitiveReferences { get; init; }
 
     /// <summary>
+    /// Show assembly dependencies as a clean deduplicated tree.
+    /// </summary>
+    public bool IncludeDependencies { get; init; }
+
+    /// <summary>
     /// Path to a NuGet package to extract the assembly from.
     /// If null, the assembly is loaded from the local filesystem.
     /// </summary>

@@ -169,6 +169,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void AssemblyCommand_WithDependencies_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "MyLib.dll", "--dependencies"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("assembly", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
     public void LlmsTxtCommand_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["llmstxt"]);

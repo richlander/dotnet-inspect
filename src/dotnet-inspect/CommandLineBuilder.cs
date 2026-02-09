@@ -981,7 +981,8 @@ public static class CommandLineBuilder
         var symbolsOption = new Option<bool>("--symbols") { Description = "Show Build Audit + PDB info (downloads PDB if needed)" };
         var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
         var referencesOption = new Option<bool>("--references") { Description = "Show assembly references" };
-        var transitiveOption = new Option<bool>("--transitive") { Description = "Show transitive assembly references (full dependency tree)" };
+        var transitiveOption = new Option<bool>("--transitive") { Description = "[Deprecated: use --dependencies] Show transitive assembly references" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show assembly dependencies as a tree" };
         var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --metadata'] Extract from package" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
@@ -992,6 +993,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(symbolsOption);
         assemblyCommand.Options.Add(sourcelinkAuditOption);
         assemblyCommand.Options.Add(referencesOption);
+        assemblyCommand.Options.Add(dependenciesOption);
         assemblyCommand.Options.Add(transitiveOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmPlatformOption);
@@ -1025,6 +1027,13 @@ public static class CommandLineBuilder
 
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showTransitive = parseResult.GetValue(transitiveOption);
+            bool showDependencies = parseResult.GetValue(dependenciesOption);
+
+            if (showTransitive)
+            {
+                Console.Error.WriteLine("Warning: '--transitive' is deprecated. Use '--dependencies' instead.");
+                showDependencies = true;
+            }
 
             var options = new AssemblyOptions
             {
@@ -1033,6 +1042,7 @@ public static class CommandLineBuilder
                 IncludeSourcelinkAudit = runSourcelinkAudit,
                 IncludeReferences = showReferences,
                 TransitiveReferences = showTransitive,
+                IncludeDependencies = showDependencies,
                 PackagePath = packagePath,
                 PlatformAssembly = parseResult.GetValue(asmPlatformOption),
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),

@@ -234,6 +234,10 @@ public class AssemblyAudit
     [JsonIgnore]
     public List<MarkoutField> SourceCoverageSection => GetSourceCoverageFields();
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public bool UseDependenciesView { get; set; }
+
     [MarkoutSection(Name = "Assembly References")]
     [JsonIgnore]
     public List<ReferenceRow>? AssemblyReferencesSection =>
@@ -245,8 +249,14 @@ public class AssemblyAudit
     [MarkoutSection(Name = "Assembly References (Transitive)")]
     [JsonIgnore]
     public List<TreeNode>? TransitiveReferencesSection =>
-        AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
-        BuildTransitiveTree(AssemblyInfo.TransitiveReferences);
+        UseDependenciesView || AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildFlatTransitiveTree(AssemblyInfo.TransitiveReferences);
+
+    [MarkoutSection(Name = "Dependencies")]
+    [JsonIgnore]
+    public List<TreeNode>? DependenciesSection =>
+        !UseDependenciesView || AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        BuildNestedDependencyTree(AssemblyInfo.TransitiveReferences);
 
     [MarkoutSection(Name = "Non-normalized Paths")]
     [JsonIgnore]
@@ -356,7 +366,7 @@ public class AssemblyAudit
         return display;
     }
 
-    private static List<TreeNode> BuildTransitiveTree(List<AssemblyReferenceNode> nodes)
+    private static List<TreeNode> BuildFlatTransitiveTree(List<AssemblyReferenceNode> nodes)
     {
         var result = new List<TreeNode>();
         foreach (var node in nodes)
@@ -371,6 +381,32 @@ public class AssemblyAudit
             result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", icon));
         }
         return result;
+    }
+
+    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
+    {
+        var result = new List<TreeNode>();
+        int i = 0;
+        BuildNestedNodes(nodes, ref i, 0, result);
+        return result;
+    }
+
+    private static void BuildNestedNodes(List<AssemblyReferenceNode> nodes, ref int index, int currentDepth, List<TreeNode> target)
+    {
+        while (index < nodes.Count && nodes[index].Depth == currentDepth)
+        {
+            var node = nodes[index];
+            var label = $"{node.Name} {node.Version}";
+            index++;
+
+            var children = new List<TreeNode>();
+            if (index < nodes.Count && nodes[index].Depth > currentDepth)
+            {
+                BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
+            }
+
+            target.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+        }
     }
 }
 

@@ -450,11 +450,12 @@ public class AssemblyCommand
             var audit = new AssemblyAudit
             {
                 FileName = Path.GetFileName(path),
-                FileType = "dll"
+                FileType = "dll",
+                UseDependenciesView = options.IncludeDependencies
             };
 
             // Always extract basic assembly info
-            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences);
+            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences || options.IncludeDependencies);
 
             // PE debug directory fields (free, no PDB needed)
             audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
@@ -465,7 +466,7 @@ public class AssemblyCommand
             audit.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if (options.TransitiveReferences && audit.AssemblyInfo?.References != null)
+            if ((options.TransitiveReferences || options.IncludeDependencies) && audit.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -475,7 +476,8 @@ public class AssemblyCommand
                     audit.AssemblyInfo.References,
                     sourceDir,
                     visited,
-                    logger);
+                    logger,
+                    deduplicate: options.IncludeDependencies);
             }
 
             // Audit if requested (symbols or sourcelink-audit tier)
@@ -662,12 +664,21 @@ public class AssemblyCommand
         string? sourceDir,
         HashSet<string> visited,
         VerboseLogger logger,
-        int depth = 0)
+        int depth = 0,
+        bool deduplicate = false,
+        Dictionary<string, int>? globalSeen = null)
     {
+        globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var nodes = new List<AssemblyReferenceNode>();
 
         foreach (var reference in references.OrderBy(r => r.Name))
         {
+            // When deduplicating, skip if already seen at same or shallower depth
+            if (deduplicate && globalSeen.TryGetValue(reference.Name, out int seenDepth) && seenDepth <= depth)
+            {
+                continue;
+            }
+
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
@@ -679,9 +690,17 @@ public class AssemblyCommand
             // Check for cycles
             if (visited.Contains(reference.Name))
             {
-                node.IsCyclic = true;
-                nodes.Add(node);
+                if (!deduplicate)
+                {
+                    node.IsCyclic = true;
+                    nodes.Add(node);
+                }
                 continue;
+            }
+
+            if (deduplicate)
+            {
+                globalSeen[reference.Name] = depth;
             }
 
             visited.Add(reference.Name);
@@ -725,8 +744,8 @@ public class AssemblyCommand
                     if (childRefs.Count > 0)
                     {
                         // Clone visited set for this branch to allow diamond dependencies
-                        var branchVisited = new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1);
+                        var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
                         nodes.AddRange(childNodes);
                     }
                 }
