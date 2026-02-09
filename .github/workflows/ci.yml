@@ -132,7 +132,7 @@ jobs:
 
       - name: Smoke test - platform command
         run: |
-          dotnet-inspect platform > smoke-platform.md
+          dotnet-inspect platform list > smoke-platform.md
           cat smoke-platform.md
           grep -q "runtime" smoke-platform.md
 
