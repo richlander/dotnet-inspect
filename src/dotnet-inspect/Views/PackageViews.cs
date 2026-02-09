@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -26,33 +25,16 @@ public class PackageDependenciesView
     [MarkoutIgnore]
     public string Title { get; set; } = "";
 
-    [MarkoutIgnore]
     public string Package { get; set; } = "";
 
-    [MarkoutIgnore]
     public string Version { get; set; } = "";
 
-    [MarkoutIgnore]
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
-
-    [JsonIgnore]
-    [MarkoutIgnoreInTable]
-    public List<MarkoutField> Identity => GetIdentityFields();
 
     [MarkoutIgnoreInTable]
     public List<TreeNode> Dependencies { get; set; } = [];
-
-    private List<MarkoutField> GetIdentityFields()
-    {
-        var fields = new List<MarkoutField>();
-        if (!string.IsNullOrEmpty(Package))
-            fields.Add(new("Package", Package));
-        if (!string.IsNullOrEmpty(Version))
-            fields.Add(new("Version", Version));
-        if (!string.IsNullOrEmpty(Tfm))
-            fields.Add(new("TFM", Tfm));
-        return fields;
-    }
 }
 
 [MarkoutContext(typeof(PackageDependenciesView))]

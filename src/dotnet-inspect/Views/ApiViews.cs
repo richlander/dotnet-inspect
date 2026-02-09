@@ -7,29 +7,39 @@ namespace DotnetInspector.Views;
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description))]
 public class ApiTypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
 
-    // Backing data (all [MarkoutIgnore] for JSON/table serialization)
-    [MarkoutIgnore] public string Kind { get; set; } = "";
-    [MarkoutIgnore] public string? Modifiers { get; set; }
-    [MarkoutIgnore] public string? BaseType { get; set; }
-    [MarkoutIgnore] public string? TypeParametersInline { get; set; }
-    [MarkoutIgnore] public string? Implements { get; set; }
-    [MarkoutIgnore] public string? Assembly { get; set; }
-    [MarkoutIgnore] public string? Package { get; set; }
-    [MarkoutIgnore] public string? Version { get; set; }
-    [MarkoutIgnore] public string? SamplesInfo { get; set; }
+    public string Kind { get; set; } = "";
 
-    /// <summary>
-    /// Identity fields (rendered as key-value fields under the title).
-    /// </summary>
-    [JsonIgnore]
-    [MarkoutIgnoreInTable]
-    public List<MarkoutField> Identity => GetIdentityFields();
+    [MarkoutSkipNull]
+    public string? Modifiers { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Base")]
+    public string? BaseType { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Type Parameters")]
+    public string? TypeParametersInline { get; set; }
+
+    [MarkoutIgnore] public string? Implements { get; set; }
+
+    [MarkoutSkipNull]
+    public string? Assembly { get; set; }
+
+    [MarkoutSkipNull]
+    public string? Package { get; set; }
+
+    [MarkoutSkipNull]
+    public string? Version { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Samples")]
+    public string? SamplesInfo { get; set; }
 
     /// <summary>
     /// Enum values without Description column (default).
@@ -66,26 +76,6 @@ public class ApiTypeView
     [JsonIgnore]
     public List<BaseclassRow>? BaseclassRows { get; set; }
 
-    private List<MarkoutField> GetIdentityFields()
-    {
-        var fields = new List<MarkoutField>();
-        fields.Add(new("Kind", Kind));
-        if (!string.IsNullOrEmpty(Modifiers))
-            fields.Add(new("Modifiers", Modifiers));
-        if (!string.IsNullOrEmpty(BaseType))
-            fields.Add(new("Base", BaseType));
-        if (!string.IsNullOrEmpty(TypeParametersInline))
-            fields.Add(new("Type Parameters", TypeParametersInline));
-        if (!string.IsNullOrEmpty(Assembly))
-            fields.Add(new("Assembly", Assembly));
-        if (!string.IsNullOrEmpty(Package))
-            fields.Add(new("Package", Package));
-        if (!string.IsNullOrEmpty(Version))
-            fields.Add(new("Version", Version));
-        if (!string.IsNullOrEmpty(SamplesInfo))
-            fields.Add(new("Samples", SamplesInfo));
-        return fields;
-    }
 }
 
 [MarkoutSerializable]
@@ -118,7 +108,7 @@ public class BaseclassRow
 /// <summary>
 /// Markout-aware wrapper for ApiSurface used in --all-types serialization path.
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Name), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(Name))]
 public class CliApiSurface
 {
     private readonly ApiSurface _inner;
@@ -128,28 +118,21 @@ public class CliApiSurface
         _inner = inner;
     }
 
-    [MarkoutPropertyName("Name")]
+    [MarkoutIgnore]
     public string? Name => _inner.Name;
 
-    /// <summary>
-    /// Summary fields (rendered as key-value fields under the title).
-    /// </summary>
-    [JsonIgnore]
-    [MarkoutIgnoreInTable]
-    public List<MarkoutField> Summary => GetSummaryFields();
+    public int Types => _inner.PublicTypeCount;
+    public int Methods => _inner.PublicMethodCount;
+    public int Properties => _inner.PublicPropertyCount;
 
-    private List<MarkoutField> GetSummaryFields()
-    {
-        var fields = new List<MarkoutField>();
-        fields.Add(new("Types", _inner.PublicTypeCount.ToString()));
-        fields.Add(new("Methods", _inner.PublicMethodCount.ToString()));
-        fields.Add(new("Properties", _inner.PublicPropertyCount.ToString()));
-        if (_inner.Tfm != null)
-            fields.Add(new("TFM", _inner.Tfm));
-        if (!string.IsNullOrEmpty(_inner.RepositoryUrl))
-            fields.Add(new("Repository", _inner.RepositoryUrl));
-        return fields;
-    }
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm => _inner.Tfm;
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Repository")]
+    [MarkoutLink]
+    public string? RepositoryUrl => _inner.RepositoryUrl;
 }
 
 /// <summary>
@@ -161,45 +144,22 @@ public class TypeShapeView
     [MarkoutIgnore]
     public string FullName { get; set; } = "";
 
-    [MarkoutIgnore]
     public string Kind { get; set; } = "";
 
-    [MarkoutIgnore]
+    [MarkoutSkipNull]
     public string? Modifiers { get; set; }
 
-    [MarkoutIgnore]
+    [MarkoutSkipNull]
     public string? Assembly { get; set; }
 
-    [MarkoutIgnore]
+    [MarkoutSkipNull]
     public string? Package { get; set; }
 
-    [MarkoutIgnore]
+    [MarkoutSkipNull]
     public string? Version { get; set; }
-
-    /// <summary>
-    /// Identity fields (rendered as key-value fields under the title).
-    /// </summary>
-    [JsonIgnore]
-    [MarkoutIgnoreInTable]
-    public List<MarkoutField> Identity => GetIdentityFields();
 
     [MarkoutIgnoreInTable]
     public List<TreeNode> Members { get; set; } = [];
-
-    private List<MarkoutField> GetIdentityFields()
-    {
-        var fields = new List<MarkoutField>();
-        fields.Add(new("Kind", Kind));
-        if (!string.IsNullOrEmpty(Modifiers))
-            fields.Add(new("Modifiers", Modifiers));
-        if (!string.IsNullOrEmpty(Assembly))
-            fields.Add(new("Assembly", Assembly));
-        if (!string.IsNullOrEmpty(Package))
-            fields.Add(new("Package", Package));
-        if (!string.IsNullOrEmpty(Version))
-            fields.Add(new("Version", Version));
-        return fields;
-    }
 }
 
 [MarkoutContext(typeof(TypeShapeView))]

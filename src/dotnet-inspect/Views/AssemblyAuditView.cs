@@ -162,12 +162,19 @@ public class AssemblyAuditView
         !_data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
         BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
 
-    [MarkoutSection(Name = "Non-normalized Paths")]
-    public List<string>? NonNormalizedPathsSection =>
-        _data.NonNormalizedPaths is { Count: > 0 } ? _data.NonNormalizedPaths : null;
+    [MarkoutIgnore]
+    public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };
 
-    [MarkoutSection(Name = "Missing Sources")]
-    public List<string>? MissingSourcesSection => GetMissingSourcesDisplay();
+    [MarkoutSection(Name = "Non-normalized Paths", ShowWhenProperty = nameof(HasNonNormalizedPaths))]
+    public List<string>? NonNormalizedPathsSection => _data.NonNormalizedPaths;
+
+    [MarkoutIgnore]
+    public bool HasMissingSources => _data.MissingSourceFiles is { Count: > 0 };
+
+    [MarkoutSection(Name = "Missing Sources", ShowWhenProperty = nameof(HasMissingSources))]
+    [MarkoutMaxItems(10)]
+    public List<string>? MissingSourcesSection =>
+        _data.MissingSourceFiles?.Select(f => $"`{f}`").ToList();
 
     private List<MarkoutField> GetAssemblyInfoFields()
     {
@@ -257,15 +264,6 @@ public class AssemblyAuditView
             fields.Add(new("Embedded", $"{_data.EmbeddedSourceFiles} files"));
 
         return fields;
-    }
-
-    private List<string>? GetMissingSourcesDisplay()
-    {
-        if (_data.MissingSourceFiles is not { Count: > 0 }) return null;
-        var display = _data.MissingSourceFiles.Take(10).Select(f => $"`{f}`").ToList();
-        if (_data.MissingSourceFiles.Count > 10)
-            display.Add($"... and {_data.MissingSourceFiles.Count - 10} more");
-        return display;
     }
 
     private static List<TreeNode> BuildFlatTransitiveTree(List<AssemblyReferenceNode> nodes)
