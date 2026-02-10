@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -67,6 +68,9 @@ public static class ILDisassembler
     /// Returns null if the method is not found or has no IL body.
     /// </summary>
     public static List<ILInstruction>? DisassembleMethod(PEReader peReader, string typeName, string methodName)
+        => DisassembleMethod(peReader, typeName, methodName, overloadIndex: 0);
+
+    public static List<ILInstruction>? DisassembleMethod(PEReader peReader, string typeName, string methodName, int overloadIndex, bool publicOnly = false)
     {
         var reader = peReader.GetMetadataReader();
 
@@ -78,13 +82,20 @@ public static class ILDisassembler
             if (fullName != typeName)
                 continue;
 
+            int matchCount = 0;
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != methodName)
                     continue;
 
-                return Disassemble(peReader, reader, method);
+                if (publicOnly && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                    continue;
+
+                if (matchCount == overloadIndex)
+                    return Disassemble(peReader, reader, method);
+
+                matchCount++;
             }
         }
 

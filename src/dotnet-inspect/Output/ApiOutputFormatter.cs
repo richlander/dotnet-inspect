@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -487,7 +488,36 @@ public static class ApiOutputFormatter
                 formatter.FormatRows(kind, members, hasDocs));
         }
 
+        // IL method body (when --index selects a single member)
+        if (options.DllPath != null && options.OverloadIndex.HasValue)
+        {
+            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
+            if (methods.Count > 0)
+                RenderILBodies(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+        }
+
         return (truncated, "members");
+    }
+
+    private static void RenderILBodies(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+
+        foreach (var method in methods)
+        {
+            var instructions = ILDisassembler.DisassembleMethod(
+                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+
+            if (instructions is null || instructions.Count == 0)
+                continue;
+
+            writer.WriteHeading(2, "IL Body");
+            var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+            writer.WriteCodeBlockStart("il");
+            writer.WriteParagraph(ilText);
+            writer.WriteCodeBlockEnd();
+        }
     }
 
     private static void RenderConstructorEmphasis(MarkoutWriter writer, ApiType type, List<ApiMember> constructors)
