@@ -324,11 +324,12 @@ public class ApiCommand
                     // Resolve method source code for --index view (after PDB acquisition)
                     if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null)
                     {
+                        var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                         var methodSource = await ResolveMethodSourceAsync(
-                            apiDllPath, apiType.FullName,
+                            pdbLookupPath, apiType.FullName,
                             effectiveOptions.MemberFilter.First(),
                             effectiveOptions.OverloadIndex.Value - 1,
-                            context.HttpClient, logger);
+                            effectiveOptions, context.HttpClient, logger);
 
                         if (methodSource != null)
                             effectiveOptions = effectiveOptions with { MethodSource = methodSource };
@@ -449,11 +450,24 @@ public class ApiCommand
 
     private static async Task<MethodSourceContext?> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
-        HttpClient httpClient, VerboseLogger logger)
+        ApiOptions options, HttpClient httpClient, VerboseLogger logger)
     {
         try
         {
             using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var context = service.Context;
+
+            // Acquire PDB if needed (same flow as SourceEnricher)
+            if (context.NeedsPdb)
+            {
+                var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
+                    ? PackageReferenceParser.ParsePackageReference(options.PackagePath)
+                    : (null, null);
+
+                await SourceEnricher.AcquirePdbAsync(context, httpClient,
+                    pkgName, pkgVersion,
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+            }
 
             if (!service.HasPdb || !service.HasSourceLink)
                 return null;
@@ -472,23 +486,43 @@ public class ApiCommand
             int endLine = Math.Min(methodInfo.EndLine, lines.Length);
 
             // Scan backward from first sequence point to capture method signature
+            // Sequence points start at the first executable statement, so we need to
+            // go back past the opening brace, modifiers, attributes, etc.
             int sigStart = startLine;
-            for (int i = startLine - 2; i >= Math.Max(0, startLine - 10); i--)
+            for (int i = startLine - 2; i >= Math.Max(0, startLine - 15); i--)
             {
                 var trimmed = lines[i].TrimStart();
-                if (trimmed.Length == 0 || trimmed.StartsWith("//") || trimmed.StartsWith("///")
+                if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
                     || trimmed.StartsWith("[") || trimmed.StartsWith("#"))
                     continue;
-                // Found a non-comment, non-attribute, non-empty line — likely the signature or opening brace
                 if (trimmed == "{")
                     continue;
-                sigStart = i + 1; // 0-based
-                break;
+
+                sigStart = i + 1; // 0-based → 1-based
+                // Check if this line looks like a method signature (has access modifier or return type)
+                if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
+                    || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
+                    || trimmed.StartsWith("static") || trimmed.Contains(methodName))
+                    break;
             }
 
             // Extract lines (convert from 1-based sequence points to 0-based array)
             int from = sigStart - 1;
             int to = endLine; // endLine is 1-based, so endLine as exclusive index is correct
+
+            // Scan forward to include the closing brace (sequence points don't cover it)
+            for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("}"))
+                {
+                    to = i + 1;
+                    break;
+                }
+                if (trimmed.Length > 0)
+                    break;
+            }
+
             if (from < 0) from = 0;
             if (to > lines.Length) to = lines.Length;
 
