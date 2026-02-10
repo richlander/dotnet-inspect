@@ -38,10 +38,10 @@ public class AssemblyCommand
             return 0;
         }
 
-        // Bare -s with input: promote to Detailed to collect all data for discovery
+        // Bare -s with input: discover which sections have data.
+        // Presence flags are populated cheaply during initial metadata load,
+        // so we don't need to promote verbosity or run scanners.
         bool discoverSections = options.IncludeSections is { Count: 0 };
-        if (discoverSections)
-            options = options with { Verbosity = Verbosity.Detailed };
 
         // -s targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);

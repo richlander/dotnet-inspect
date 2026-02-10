@@ -124,7 +124,8 @@ public static class LibrarySections
         public static string Name => "Extension Methods";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerExtensionMethods;
-        public static bool CanRender(LibraryInspection model) => model.ExtensionMethods is { Count: > 0 };
+        public static bool CanRender(LibraryInspection model)
+            => model.ExtensionMethods is { Count: > 0 } || model.HasExtensionTypes;
     }
 
     public sealed class UnsafeMethods : ISectionDescriptor<LibraryInspection>
@@ -132,7 +133,8 @@ public static class LibrarySections
         public static string Name => "Unsafe Methods";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerClassifiedMethods;
-        public static bool CanRender(LibraryInspection model) => model.UnsafeMethods is { Count: > 0 };
+        public static bool CanRender(LibraryInspection model)
+            => model.UnsafeMethods is { Count: > 0 } || model.HasUnsafeCode;
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>
@@ -140,7 +142,8 @@ public static class LibrarySections
         public static string Name => "P/Invoke Methods";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerClassifiedMethods;
-        public static bool CanRender(LibraryInspection model) => model.PInvokeMethods is { Count: > 0 };
+        public static bool CanRender(LibraryInspection model)
+            => model.PInvokeMethods is { Count: > 0 } || model.HasPInvokeImports;
     }
 
     public sealed class Resources : ISectionDescriptor<LibraryInspection>
@@ -148,7 +151,8 @@ public static class LibrarySections
         public static string Name => "Resources";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerResources;
-        public static bool CanRender(LibraryInspection model) => model.Resources is { Count: > 0 };
+        public static bool CanRender(LibraryInspection model)
+            => model.Resources is { Count: > 0 } || model.HasManifestResources;
     }
 
     public sealed class CustomAttributes : ISectionDescriptor<LibraryInspection>
@@ -156,7 +160,8 @@ public static class LibrarySections
         public static string Name => "Custom Attributes";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerCustomAttributes;
-        public static bool CanRender(LibraryInspection model) => model.CustomAttributes is { Count: > 0 };
+        public static bool CanRender(LibraryInspection model)
+            => model.CustomAttributes is { Count: > 0 } || model.HasAssemblyAttributes;
     }
 
     public sealed class TypeForwarders : ISectionDescriptor<LibraryInspection>
@@ -164,7 +169,8 @@ public static class LibrarySections
         public static string Name => "Type Forwarders";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerTypeForwarders;
-        public static bool CanRender(LibraryInspection model) => model.TypeForwarders is { Count: > 0 };
+        public static bool CanRender(LibraryInspection model)
+            => model.TypeForwarders is { Count: > 0 } || model.HasExportedTypeForwarders;
     }
 
     // ===== Source-link audit detail sections =====
