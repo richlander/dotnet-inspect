@@ -66,7 +66,7 @@ internal static class ApiServices
                 }
 
                 searchPath = assemblyPath!;
-                logger.Log($"Using platform ref assembly: {framework} {version}");
+                logger.Log($"Using platform ref library: {framework} {version}");
 
                 var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
@@ -77,7 +77,7 @@ internal static class ApiServices
                 if (runtimeError == null && runtimePath != null)
                 {
                     runtimeAssemblyPath = runtimePath;
-                    logger.Log($"Using runtime assembly for PDB lookup: {runtimePath}");
+                    logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
                 }
             }
             else
@@ -287,14 +287,14 @@ internal static class ApiServices
             .GroupBy(f => f.TargetAssembly)
             .ToDictionary(g => g.Key, g => g.Select(f => f.TypeName).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
-        logger.Log($"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} assemblies...");
+        logger.Log($"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} libraries...");
 
         foreach (var (targetAssembly, forwardedTypeNames) in byAssembly)
         {
             var targetPath = Path.Combine(assemblyDir, targetAssembly + ".dll");
             if (!File.Exists(targetPath))
             {
-                logger.Log($"Target assembly '{targetAssembly}' not found, skipping.");
+                logger.Log($"Target library '{targetAssembly}' not found, skipping.");
                 continue;
             }
 
@@ -327,7 +327,7 @@ internal static class ApiServices
             api.IsTypeForwardingAssembly = true;
             api.PublicTypeCount = api.Types.Count;
             api.Types = api.Types.OrderBy(t => t.FullName).ToList();
-            logger.Log($"Resolved {api.Types.Count} types from forwarded assemblies.");
+            logger.Log($"Resolved {api.Types.Count} types from forwarded libraries.");
         }
     }
 }

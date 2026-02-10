@@ -33,7 +33,7 @@ public static class ImplementsOutputFormatter
 
             writer.WriteHeading(2, sourceDisplay ?? "Unknown");
 
-            var headers = new[] { "Type", "Kind", "Relationship", "Assembly" };
+            var headers = new[] { "Type", "Kind", "Relationship", "Library" };
             var rows = sourceGroup.OrderBy(r => r.TypeName)
                 .Select(impl => new[] { impl.TypeName, impl.Kind, impl.Relationship, impl.Assembly ?? "" });
             writer.WriteTable(headers, rows);

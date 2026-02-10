@@ -29,6 +29,7 @@ public class ApiTypeView
     [MarkoutIgnore] public string? Implements { get; set; }
 
     [MarkoutSkipNull]
+    [MarkoutPropertyName("Library")]
     public string? Assembly { get; set; }
 
     [MarkoutSkipNull]
@@ -151,6 +152,7 @@ public class TypeShapeView
     public string? Modifiers { get; set; }
 
     [MarkoutSkipNull]
+    [MarkoutPropertyName("Library")]
     public string? Assembly { get; set; }
 
     [MarkoutSkipNull]

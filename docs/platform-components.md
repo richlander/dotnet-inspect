@@ -1,13 +1,13 @@
 # Accessing Platform Components
 
-This document explains how to access .NET platform (SDK) assemblies and compare them with NuGet package versions using dotnet-inspect.
+This document explains how to access .NET platform (SDK) libraries and compare them with NuGet package versions using dotnet-inspect.
 
 ## Overview
 
 Some types exist in **two places**:
 
 1. **NuGet packages** - Published to nuget.org, downloaded on demand
-2. **Platform assemblies** - Installed with the .NET SDK in `packs/` directory
+2. **Platform libraries** - Installed with the .NET SDK in `packs/` directory
 
 For example, `JsonSerializer` ships in both:
 
@@ -16,7 +16,7 @@ For example, `JsonSerializer` ships in both:
 
 ## Using `find` to Discover Types
 
-The `find` command searches across both packages and platform assemblies simultaneously:
+The `find` command searches across both packages and platform libraries simultaneously:
 
 ```bash
 # Search for JsonSerializer in both platform and package
@@ -30,7 +30,7 @@ Output:
 
 **Matches:** 2
 
-| Type | Namespace | Kind | Assembly | Source |
+| Type | Namespace | Kind | Library | Source |
 |------|-----------|------|----------|--------|
 | JsonSerializer | System.Text.Json | class | System.Text.Json | System.Text.Json@10.0.2 |
 | JsonSerializer | System.Text.Json | class | System.Text.Json | runtime@10.0.1 |
@@ -84,7 +84,7 @@ This retrieves the `///` XML doc comments directly from the source repository.
 
 ### Platform Source (Automatic Fallback)
 
-Platform assemblies in the `packs/` directory include XML documentation files alongside the DLLs:
+Platform libraries in the `packs/` directory include XML documentation files alongside the DLLs:
 
 ```text
 /usr/lib/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.1/ref/net10.0/
@@ -138,7 +138,7 @@ The versions may differ - the SDK ships with a specific version, while nuget.org
 
 ## Framework Selection
 
-Platform assemblies are organized by framework:
+Platform libraries are organized by framework:
 
 | Short Name | Framework Pack | Contents |
 | ---------- | -------------- | -------- |
@@ -170,7 +170,7 @@ dnx dotnet-inspect -y -- find "*Controller*" --framework aspnetcore
 
 ## Platform Directory Structure
 
-The tool locates platform assemblies via the SDK installation:
+The tool locates platform libraries via the SDK installation:
 
 ```bash
 # Find dotnet installation

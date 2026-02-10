@@ -1,6 +1,6 @@
 # Command Progression
 
-`dotnet-inspect` uses a consistent command model where three sources (package, platform, assembly) can be inspected with common flags.
+`dotnet-inspect` uses a consistent command model where three sources (package, platform, library) can be inspected with common flags.
 
 ## Input Sources
 
@@ -8,15 +8,15 @@
 |---------|--------|---------|
 | `package X` | NuGet package | `package System.Text.Json@9.0.0` |
 | `platform X` | Local SDK/runtime | `platform System.Text.Json` |
-| `assembly ./path` | Local file | `assembly ./bin/MyLib.dll` |
+| `library ./path` | Local file | `library ./bin/MyLib.dll` |
 
 ## Common Inspection Flags
 
-These flags work with `package`, `platform`, and `assembly` commands:
+These flags work with `package`, `platform`, and `library` commands:
 
 | Flag | Description |
 |------|-------------|
-| `--assembly` | Show assembly metadata (version, TFM, architecture) |
+| `--library` | Show library metadata (version, TFM, architecture) |
 | `--sourcelink` | Show SourceLink presence and URL (fast, no HTTP) |
 | `--audit` | Full provenance verification (always strict) |
 
@@ -40,14 +40,14 @@ dotnet inspect audit ./artifacts/*.nupkg     # multiple nupkgs
 
 ## Progression Examples
 
-### Package inspection → assembly details
+### Package inspection → library details
 
 ```bash
 # Start with package metadata
 dotnet inspect package System.Text.Json
 
-# Add assembly info
-dotnet inspect package System.Text.Json --assembly
+# Add library info
+dotnet inspect package System.Text.Json --library
 
 # Full provenance audit
 dotnet inspect package System.Text.Json --audit
@@ -59,10 +59,10 @@ dotnet inspect package System.Text.Json --audit
 # List installed frameworks
 dotnet inspect platform
 
-# Inspect a platform assembly
+# Inspect a platform library
 dotnet inspect platform System.Text.Json
 
-# Audit a platform assembly
+# Audit a platform library
 dotnet inspect platform System.Text.Json --audit
 ```
 
@@ -87,11 +87,11 @@ dotnet inspect package Markout@0.1.4 --audit
 
 # Platform shorthand
 dotnet inspect platform System.Text.Json
-dotnet inspect assembly System.Text.Json --platform
+dotnet inspect library System.Text.Json --platform
 ```
 
 ## Deprecations
 
 | Deprecated | Use Instead |
 |------------|-------------|
-| `assembly --package X` | `package X --assembly` |
+| `library --package X` | `package X --library` |

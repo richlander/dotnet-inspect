@@ -27,7 +27,7 @@ Every output starts with a single H1 heading that clearly describes the content:
 
 - **Type view:** `# Namespace.TypeName (Package Version)`
 - **Package view:** `# Package Version`
-- **Assembly view:** `# AssemblyName.dll`
+- **Library view:** `# AssemblyName.dll`
 
 The title should provide enough context to understand what you're looking at.
 
@@ -49,7 +49,7 @@ Structured metadata as `**Label:** value` pairs, one per line. These fields form
 
 **When to use fields vs tables:**
 
-- Use **fields** for top-level metadata about the subject (type, assembly, package)
+- Use **fields** for top-level metadata about the subject (type, library, package)
 - Use **tables** within named H2 sections for collections of related items (members, files, audit results)
 
 Fields describe "what this thing is"; tables list "what this thing contains".
@@ -58,14 +58,14 @@ Fields describe "what this thing is"; tables list "what this thing contains".
 
 - `**Kind:** class` / `interface` / `struct` / `enum`
 - `**Modifiers:** static, sealed` (only if modifiers exist)
-- `**Assembly:** Markout.dll`
+- `**Library:** Markout.dll`
 - `**Source:** https://...`
 - `**Samples:** N available` (only with `--docs`, indicates samples exist)
 
 ```markdown
 **Kind:** class
 **Modifiers:** sealed
-**Assembly:** System.Text.Json.dll
+**Library:** System.Text.Json.dll
 **Source:** https://github.com/.../JsonSerializer.cs
 **Samples:** 2 available
 ```
@@ -109,7 +109,7 @@ The H1, description, and fields are always present regardless of verbosity.
 
 ### Verbosity-independent views
 
-Some views use the same layout at all verbosity levels because differentiation would not be meaningful. The **types listing** (full-assembly view) is verbosity-independent: it always shows per-kind sections (`## Classes`, `## Structs`, etc.) with `Type | Members` columns. The only variation is `--docs` adding a Description column. Verbosity differentiation is reserved for the **member view** (per-type), where quiet groups by name, minimal abbreviates signatures, and normal/detailed show full signatures.
+Some views use the same layout at all verbosity levels because differentiation would not be meaningful. The **types listing** (full-library view) is verbosity-independent: it always shows per-kind sections (`## Classes`, `## Structs`, etc.) with `Type | Members` columns. The only variation is `--docs` adding a Description column. Verbosity differentiation is reserved for the **member view** (per-type), where quiet groups by name, minimal abbreviates signatures, and normal/detailed show full signatures.
 
 ## Table Formatting
 

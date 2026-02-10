@@ -4,17 +4,17 @@ This document describes the conceptual model of dotnet-inspect commands. It serv
 
 ## Core Concepts
 
-### Assembly Sources
+### Library Sources
 
-dotnet-inspect works with .NET assemblies. There are three ways to specify where an assembly comes from:
+dotnet-inspect works with .NET libraries. There are three ways to specify where a library comes from:
 
 | Command | Source | Example |
 |---------|--------|---------|
 | `package X` | NuGet package | `package System.Text.Json` |
 | `platform X` | Local SDK/runtime | `platform System.Text.Json` |
-| `assembly ./path` | Local file | `assembly ./bin/MyLib.dll` |
+| `library ./path` | Local file | `library ./bin/MyLib.dll` |
 
-These commands accept the same inspection flags (`--audit`, `--sourcelink`, `--api`, etc.) because they all ultimately inspect assemblies.
+These commands accept the same inspection flags (`--audit`, `--sourcelink`, `--api`, etc.) because they all ultimately inspect libraries.
 
 ### Inspection Flags
 
@@ -22,7 +22,7 @@ Once you've specified a source, flags control what information to show:
 
 | Flag | Shows |
 |------|-------|
-| `--assembly` | Assembly metadata (version, TFM, architecture) |
+| `--library` | Library metadata (version, TFM, architecture) |
 | `--sourcelink` | SourceLink presence and URL (fast, no verification) |
 | `--audit` | Full provenance verification (SourceLink reachability, determinism) |
 | `--api` | Public API surface |
@@ -57,28 +57,28 @@ Start with a package, drill down into details:
 
 ```bash
 dotnet inspect package Newtonsoft.Json           # metadata
-dotnet inspect package Newtonsoft.Json --assembly # assembly info
+dotnet inspect package Newtonsoft.Json --library # library info
 dotnet inspect package Newtonsoft.Json --audit    # provenance check
 dotnet inspect package Newtonsoft.Json --api      # public API
 ```
 
 ### Platform-centric workflow
 
-Inspect assemblies from the local .NET SDK/runtime:
+Inspect libraries from the local .NET SDK/runtime:
 
 ```bash
 dotnet inspect platform                          # list frameworks
-dotnet inspect platform System.Text.Json         # inspect assembly
+dotnet inspect platform System.Text.Json         # inspect library
 dotnet inspect platform System.Text.Json --audit # provenance check
 ```
 
 ### File-centric workflow
 
-Inspect local assembly files:
+Inspect local library files:
 
 ```bash
-dotnet inspect assembly ./bin/MyLib.dll          # basic info
-dotnet inspect assembly ./bin/MyLib.dll --audit  # provenance check
+dotnet inspect library ./bin/MyLib.dll          # basic info
+dotnet inspect library ./bin/MyLib.dll --audit  # provenance check
 ```
 
 ### Quick audit workflow
@@ -98,7 +98,7 @@ Some commands are aliases or have equivalent forms:
 ```bash
 # These are equivalent
 dotnet inspect platform System.Text.Json
-dotnet inspect assembly System.Text.Json --platform
+dotnet inspect library System.Text.Json --platform
 
 # These are equivalent  
 dotnet inspect audit Markout@0.1.4
@@ -109,7 +109,7 @@ dotnet inspect package Markout@0.1.4 --audit
 
 The following are considered stable and will not change without a major version bump:
 
-1. **Command names**: `package`, `platform`, `assembly`, `audit`, `api`, `find`, `type`, `diff`
+1. **Command names**: `package`, `platform`, `library`, `audit`, `api`, `find`, `type`, `diff`
 2. **Input syntax**: Package references use `name@version` format
 3. **Exit codes**: Zero for success, non-zero for failure
 4. **JSON output**: Schema for `--json` output is stable per command
@@ -132,5 +132,5 @@ Current deprecations:
 
 | Deprecated | Use Instead | Removal Target |
 |------------|-------------|----------------|
-| `assembly --package X` | `package X --assembly` | 0.3.0 |
+| `library --package X` | `package X --library` | 0.3.0 |
 | `--strict` | `--audit` (now always strict) | 0.3.0 |

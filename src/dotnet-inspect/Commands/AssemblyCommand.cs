@@ -20,8 +20,8 @@ public class AssemblyCommand
             string.IsNullOrEmpty(options.PackagePath) &&
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
-            Console.Error.WriteLine("Error: Assembly path, --package, or --platform required.");
-            Console.Error.WriteLine("Run 'dotnet-inspect assembly --help' for usage.");
+            Console.Error.WriteLine("Error: Library path, --package, or --platform required.");
+            Console.Error.WriteLine("Run 'dotnet-inspect library --help' for usage.");
             return 1;
         }
 
@@ -54,12 +54,12 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                logger.Log($"Using platform runtime assembly: {framework} {version}");
+                logger.Log($"Using platform runtime library: {framework} {version}");
 
                 var audit = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
                 if (audit == null)
                 {
-                    Console.Error.WriteLine($"Error: Could not read assembly: {resolvedPath}");
+                    Console.Error.WriteLine($"Error: Could not read library: {resolvedPath}");
                     return 1;
                 }
 
@@ -93,7 +93,7 @@ public class AssemblyCommand
 
                 if (audits.Count == 0)
                 {
-                    Console.Error.WriteLine("Error: No assemblies could be read from the package.");
+                    Console.Error.WriteLine("Error: No libraries could be read from the package.");
                     return 1;
                 }
 
@@ -116,7 +116,7 @@ public class AssemblyCommand
                 var audit = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
                 if (audit == null)
                 {
-                    Console.Error.WriteLine($"Error: Could not read assembly: {assemblyPath}");
+                    Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
                     return 1;
                 }
 
@@ -160,7 +160,7 @@ public class AssemblyCommand
             var audit = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient);
             if (audit == null)
             {
-                logger.Log($"Warning: Could not read assembly: {Path.GetFileName(targetPath)}");
+                logger.Log($"Warning: Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
             }
 
@@ -221,7 +221,7 @@ public class AssemblyCommand
             var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm);
             if (tfmAssembly == null)
             {
-                Console.Error.WriteLine($"Error: No assembly found for TFM '{tfm}'.");
+                Console.Error.WriteLine($"Error: No library found for TFM '{tfm}'.");
                 Console.Error.WriteLine("Available TFMs:");
                 var tfms = allDlls
                     .Select(d => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
@@ -284,8 +284,8 @@ public class AssemblyCommand
 
         if (matchingFiles.Length == 0)
         {
-            Console.Error.WriteLine($"Error: Assembly '{assemblyName}' not found in package.");
-            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --files' to list available assemblies.");
+            Console.Error.WriteLine($"Error: Library '{assemblyName}' not found in package.");
+            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --files' to list available libraries.");
             if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
             return null;
         }

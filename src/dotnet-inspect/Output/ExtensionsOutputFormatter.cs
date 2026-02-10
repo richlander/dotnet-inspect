@@ -42,7 +42,7 @@ public static class ExtensionsOutputFormatter
     {
         var byClass = results.GroupBy(r => r.ExtensionClass).ToList();
 
-        var headers = new[] { "Name", "Kind", "Class", "Assembly", "Source" };
+        var headers = new[] { "Name", "Kind", "Class", "Library", "Source" };
         var rows = byClass.SelectMany(classGroup => classGroup.Select(ext =>
         {
             var sourceDisplay = ext.SourceVersion != null

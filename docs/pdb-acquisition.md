@@ -30,11 +30,11 @@ The tool searches for PDBs in this order:
 
 ### 1. Embedded PDB
 
-Check if the assembly has an embedded PDB (stored inside the PE file itself). This is the most reliable option as no external lookup is needed.
+Check if the library has an embedded PDB (stored inside the PE file itself). This is the most reliable option as no external lookup is needed.
 
 ### 2. Standalone PDB
 
-Look for a `.pdb` file next to the assembly with the same base name. Common when debugging locally.
+Look for a `.pdb` file next to the library with the same base name. Common when debugging locally.
 
 ### 3. Symbol Package (.snupkg)
 
@@ -66,7 +66,7 @@ The PE file's debug directory contains CodeView entries that provide:
 
 ### Multiple CodeView Entries
 
-**Important**: Some assemblies have multiple CodeView entries. Windows ReadyToRun (R2R) assemblies typically have two:
+**Important**: Some libraries have multiple CodeView entries. Windows ReadyToRun (R2R) assemblies typically have two:
 
 1. **Native Image PDB** (`.ni.pdb`) - Windows PDB format, different GUID
 2. **Original PDB** - Portable PDB format, original GUID
@@ -80,9 +80,9 @@ CodeView Entry 1: System.Text.Json.ni.pdb (MinorVersion: 0x0000, Windows PDB)
 CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) ← use this
 ```
 
-## Microsoft vs Third-Party Assemblies
+## Microsoft vs Third-Party Libraries
 
-### Microsoft Platform Assemblies
+### Microsoft Platform Libraries
 
 - Built by Microsoft from dotnet/runtime
 - Published to MSDL symbol server
@@ -114,7 +114,7 @@ When PDB acquisition fails, we report the reason:
 
 - **"Windows PDB"**: Found a PDB but it's Windows format (unreadable)
 - **"no symbols"**: No PDB found on any server (distro build, private package, etc.)
-- **"embedded"**: PDB is embedded in the assembly (success case)
+- **"embedded"**: PDB is embedded in the library (success case)
 - **"msdl.microsoft.com"**: Downloaded from Microsoft symbol server (success case)
 
 ## Related Resources

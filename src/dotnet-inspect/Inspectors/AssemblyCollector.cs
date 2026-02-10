@@ -64,7 +64,7 @@ public static class AssemblyCollector
         {
             if (!File.Exists(asmPath))
             {
-                Console.Error.WriteLine($"Warning: Assembly not found '{asmPath}', skipping.");
+                Console.Error.WriteLine($"Warning: Library not found '{asmPath}', skipping.");
                 continue;
             }
             assemblyPaths.Add(new AssemblyInfo(asmPath, Path.GetFileName(asmPath), null));
@@ -93,7 +93,7 @@ public static class AssemblyCollector
             }
 
             var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            logger.Log($"Scanning {frameworkAssemblies.Count} assemblies in {framework}@{resolvedVersion}");
+            logger.Log($"Scanning {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
 
             foreach (var asmInfo in frameworkAssemblies)
             {

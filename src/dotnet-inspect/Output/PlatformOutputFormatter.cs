@@ -43,7 +43,7 @@ public static class PlatformOutputFormatter
                 new MarkoutField("Location", dotnetRoot));
         }
 
-        var headers = new[] { "Framework", "Version", "Assemblies" };
+        var headers = new[] { "Framework", "Version", "Libraries" };
         var rows = frameworks.Select(f => new[] { f.ShortName, f.LatestVersion, f.AssemblyCount.ToString() });
         writer.WriteTable(headers, rows);
 
@@ -83,7 +83,7 @@ public static class PlatformOutputFormatter
 
         if (multipleFrameworks)
         {
-            writer.WriteHeading(1, "Platform Assemblies");
+            writer.WriteHeading(1, "Platform Libraries");
             writer.WriteField("Packs Directory", packsDir);
         }
 
@@ -99,20 +99,20 @@ public static class PlatformOutputFormatter
 
             if (includeTypes)
             {
-                var headers = new[] { "Assembly", "Types" };
+                var headers = new[] { "Library", "Types" };
                 var rows = displayAssemblies.Select(a => new[] { a.Name, (a.PublicTypeCount ?? 0).ToString() });
                 writer.WriteTable(headers, rows);
             }
             else
             {
-                var headers = new[] { "Assembly" };
+                var headers = new[] { "Library" };
                 var rows = displayAssemblies.Select(a => new[] { a.Name });
                 writer.WriteTable(headers, rows);
             }
 
             if (limit.HasValue && data.Assemblies.Count > limit.Value)
             {
-                writer.WriteParagraph($"... *and {data.Assemblies.Count - limit.Value} more assemblies*");
+                writer.WriteParagraph($"... *and {data.Assemblies.Count - limit.Value} more libraries*");
             }
         }
 

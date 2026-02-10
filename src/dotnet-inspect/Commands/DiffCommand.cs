@@ -130,7 +130,7 @@ public class DiffCommand
         var (assemblyName, fromVersion, toVersion) = ParseVersionRange(options.PlatformVersionRange!);
         if (assemblyName == null || fromVersion == null || toVersion == null)
         {
-            return (null, null, null, null, null, "Error: Invalid version range. Use format: Assembly@v1..v2");
+            return (null, null, null, null, null, "Error: Invalid version range. Use format: Library@v1..v2");
         }
 
         var framework = options.Framework ?? "runtime";

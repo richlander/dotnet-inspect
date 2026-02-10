@@ -175,7 +175,7 @@ LLMs need to know how to use tools. dotnet-inspect provides two layers of docume
 
 - All options for every command
 - Test packages for experimentation
-- Advanced patterns (generic types, platform assemblies, version ranges)
+- Advanced patterns (generic types, platform libraries, version ranges)
 - Verbosity examples showing output at each level
 - Edge cases and less common workflows
 

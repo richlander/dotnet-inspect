@@ -8,6 +8,6 @@ public class AssemblyAuditReport
 {
     public string Title { get; set; } = "";
 
-    [MarkoutSection(Name = "Assemblies")]
+    [MarkoutSection(Name = "Libraries")]
     public List<AssemblyAuditView> Assemblies { get; set; } = [];
 }

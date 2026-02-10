@@ -1,6 +1,6 @@
 # dotnet-inspect
 
-CLI tool for inspecting .NET assemblies and NuGet packages. View metadata, APIs, vulnerabilities, audit provenance, and compare versions.
+CLI tool for inspecting .NET libraries and NuGet packages. View metadata, APIs, vulnerabilities, audit provenance, and compare versions.
 
 ## Installation
 
@@ -13,8 +13,8 @@ dotnet tool install -g dotnet-inspect
 | Command | Purpose |
 |---------|---------|
 | `package X` | Package metadata, dependencies, files |
-| `platform X` | Inspect SDK/runtime assembly |
-| `assembly ./path` | Inspect local file |
+| `platform X` | Inspect SDK/runtime library |
+| `library ./path` | Inspect local file |
 | `api X` | Public API surface (table format, or `--shape` for hierarchy) |
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
@@ -43,13 +43,13 @@ dotnet-inspect System.Text.Json --sourcelink-audit  # Provenance verification
 dotnet-inspect System.Text.Json --layout --all      # File structure
 ```
 
-#### Multi-assembly packages
+#### Multi-library packages
 
-Some packages bundle multiple assemblies per TFM (e.g., `Microsoft.Azure.SignalR` ships both `Microsoft.Azure.SignalR.dll` and `Microsoft.Azure.SignalR.Common.dll`). The `Libraries` field shows when a package contains more than one assembly.
+Some packages bundle multiple libraries per TFM (e.g., `Microsoft.Azure.SignalR` ships both `Microsoft.Azure.SignalR.dll` and `Microsoft.Azure.SignalR.Common.dll`). The `Libraries` field shows when a package contains more than one library.
 
 ```bash
 dotnet-inspect Microsoft.Azure.SignalR                # Shows Libraries: 2
-dotnet-inspect Microsoft.Azure.SignalR --files        # List assemblies per TFM
+dotnet-inspect Microsoft.Azure.SignalR --files        # List libraries per TFM
 dotnet-inspect Microsoft.Azure.SignalR --files --tfm net8.0  # Files for specific TFM
 dotnet-inspect Microsoft.Azure.SignalR --layout       # Show file tree
 dotnet-inspect Microsoft.Azure.SignalR --tfms         # List target frameworks
@@ -72,23 +72,23 @@ Use `--layout` to see the full tree:
       └─ Microsoft.Azure.SignalR.dll
 ```
 
-Inspect or compare individual assemblies using `package --metadata` with `--tfm`:
+Inspect or compare individual libraries using `package --metadata` with `--tfm`:
 
 ```bash
-dotnet-inspect package Microsoft.Azure.SignalR --metadata                   # Primary assembly (highest TFM)
+dotnet-inspect package Microsoft.Azure.SignalR --metadata                   # Primary library (highest TFM)
 dotnet-inspect package Microsoft.Azure.SignalR --metadata --tfm net8.0      # Specific TFM
-dotnet-inspect api Microsoft.Azure.SignalR                                  # API surface (all assemblies)
+dotnet-inspect api Microsoft.Azure.SignalR                                  # API surface (all libraries)
 ```
 
 ### platform
 
-List frameworks or inspect platform assemblies.
+List frameworks or inspect platform libraries.
 
 ```bash
 dotnet-inspect platform                            # List frameworks
-dotnet-inspect platform --framework runtime        # List runtime assemblies
-dotnet-inspect platform System.Text.Json           # Inspect assembly
-dotnet-inspect platform System.Text.Json --sourcelink-audit  # Audit platform assembly
+dotnet-inspect platform --framework runtime        # List runtime libraries
+dotnet-inspect platform System.Text.Json           # Inspect library
+dotnet-inspect platform System.Text.Json --sourcelink-audit  # Audit platform library
 ```
 
 ### api
@@ -102,7 +102,7 @@ dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to mem
 dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
 dotnet-inspect api System.Text.Json JsonSerializer -s:Methods    # Methods section only
 dotnet-inspect api System.Text.Json JsonSerializer -s            # Header only (no sections)
-dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform assembly
+dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform library
 ```
 
 Example: `dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass`
@@ -110,7 +110,7 @@ Example: `dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Basec
 ```text
 # System.Text.Json.Nodes.JsonArray (System.Text.Json 10.0.2)
 
-Kind: class | Modifiers: sealed | Base: System.Text.Json.Nodes.JsonNode | Assembly: System.Text.Json | Package: System.Text.Json | Version: 10.0.2
+Kind: class | Modifiers: sealed | Base: System.Text.Json.Nodes.JsonNode | Library: System.Text.Json | Package: System.Text.Json | Version: 10.0.2
 
 ## Interfaces
 
@@ -135,26 +135,26 @@ Find extension methods and properties for a type. Scopes control where to search
 ```bash
 dotnet-inspect extensions string                                          # Runtime extensions (default scope)
 dotnet-inspect extensions 'IEnumerable<T>'                                # Generic types
-dotnet-inspect extensions string --assembly ./MyLib.dll                   # Search a local assembly
+dotnet-inspect extensions string --library ./MyLib.dll                   # Search a local library
 dotnet-inspect extensions ChatClient --package Microsoft.Extensions.AI.OpenAI  # Cross-package extensions
 dotnet-inspect extensions IServiceCollection \
   --package Microsoft.Extensions.DependencyInjection \
   --package Microsoft.Extensions.Azure \
   --package AWSSDK.Extensions.NETCore.Setup                                   # Multi-package scan
-dotnet-inspect extensions string --framework runtime --assembly ./MyLib.dll  # Multiple scopes
+dotnet-inspect extensions string --framework runtime --library ./MyLib.dll  # Multiple scopes
 dotnet-inspect extensions HttpClient --reachable                          # Include extensions on reachable types
 dotnet-inspect extensions HttpResponseMessage --reachable                  # Useful when the type itself has no extensions
 ```
 
 Detects both classic extension methods and C# 14 extension properties.
 
-### assembly
+### library
 
-Inspect a specific assembly file.
+Inspect a specific library file.
 
 ```bash
-dotnet-inspect assembly ./bin/MyLib.dll            # Local file
-dotnet-inspect assembly ./bin/MyLib.dll --sourcelink-audit  # With provenance check
+dotnet-inspect library ./bin/MyLib.dll            # Local file
+dotnet-inspect library ./bin/MyLib.dll --sourcelink-audit  # With provenance check
 ```
 
 ### diff
@@ -164,7 +164,7 @@ Compare API surfaces between versions. Changes are classified as breaking, addit
 ```bash
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2                # positional package
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.2      # explicit flag
-dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2    # platform assembly
+dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2    # platform library
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --stat         # compact summary
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking     # breaking changes only
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --additive     # additive changes only

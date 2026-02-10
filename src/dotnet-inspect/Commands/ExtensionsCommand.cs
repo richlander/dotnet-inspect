@@ -155,7 +155,7 @@ public class ExtensionMethodResult
     [JsonPropertyName("extended_type")]
     public string ExtendedType { get; set; } = "";
 
-    [JsonPropertyName("assembly")]
+    [JsonPropertyName("library")]
     public string Assembly { get; set; } = "";
 
     [JsonPropertyName("signature")]

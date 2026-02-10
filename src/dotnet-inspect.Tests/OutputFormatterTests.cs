@@ -33,7 +33,7 @@ public class OutputFormatterTests
         var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
         var output = Serialize(report);
 
-        Assert.Contains("## Assemblies", output);
+        Assert.Contains("## Libraries", output);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class OutputFormatterTests
         var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
         var output = Serialize(report);
 
-        Assert.Contains("#### Assembly Info", output);
+        Assert.Contains("#### Library Info", output);
     }
 
     [Fact]

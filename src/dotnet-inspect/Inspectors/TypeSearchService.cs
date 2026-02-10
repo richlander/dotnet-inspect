@@ -62,7 +62,7 @@ internal static class TypeSearchService
 
             if (!File.Exists(asmPath))
             {
-                Console.Error.WriteLine($"Warning: Assembly not found '{asmPath}', skipping.");
+                Console.Error.WriteLine($"Warning: Library not found '{asmPath}', skipping.");
                 continue;
             }
 
@@ -89,7 +89,7 @@ internal static class TypeSearchService
                 continue;
             }
 
-            logger.Log($"Searching platform assembly: {platformAsm} ({resolvedFramework} {version})");
+            logger.Log($"Searching platform library: {platformAsm} ({resolvedFramework} {version})");
             var types = CollectFromAssembly(assemblyPath!, pattern, options.IncludeAll, logger);
             foreach (var t in types)
             {
@@ -112,7 +112,7 @@ internal static class TypeSearchService
             }
 
             var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            logger.Log($"Searching {frameworkAssemblies.Count} assemblies in {framework}@{resolvedVersion}");
+            logger.Log($"Searching {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
 
             foreach (var asmInfo in frameworkAssemblies)
             {
@@ -169,7 +169,7 @@ internal static class TypeSearchService
 
             logger.Log($"Using assets: {assetsPath}");
             var assemblies = ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger.Log);
-            logger.Log($"Searching {assemblies.Count} assemblies from {projectName}");
+            logger.Log($"Searching {assemblies.Count} libraries from {projectName}");
 
             foreach (var (asmPath, packageName, packageVersion) in assemblies)
             {
@@ -197,7 +197,7 @@ internal static class TypeSearchService
             }
 
             var dlls = Directory.GetFiles(binPath, "*.dll", SearchOption.TopDirectoryOnly);
-            logger.Log($"Searching {dlls.Length} assemblies in {binPath}");
+            logger.Log($"Searching {dlls.Length} libraries in {binPath}");
 
             foreach (var dll in dlls)
             {

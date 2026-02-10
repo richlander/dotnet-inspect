@@ -41,11 +41,11 @@ public static class ApiOutputFormatter
 
         if (totalCount == 0)
         {
-            writer.WriteParagraph("This assembly contains no public types.");
+            writer.WriteParagraph("This library contains no public types.");
 
             if (api.TypeForwarders.Count > 0)
             {
-                writer.WriteParagraph("Type forwarders could not be resolved. Target assemblies:");
+                writer.WriteParagraph("Type forwarders could not be resolved. Target libraries:");
 
                 var byAssembly = api.TypeForwarders
                     .GroupBy(f => f.TargetAssembly)
@@ -53,7 +53,7 @@ public static class ApiOutputFormatter
                     .ToList();
 
                 writer.WriteTable(
-                    new[] { "Target Assembly", "Types" },
+                    new[] { "Target Library", "Types" },
                     byAssembly.Select(g => new[] { g.Key, g.Count().ToString() }));
             }
         }
@@ -61,7 +61,7 @@ public static class ApiOutputFormatter
         {
             if (api.IsTypeForwardingAssembly)
             {
-                writer.WriteParagraph("*This is a type-forwarding assembly. Types shown are resolved from target assemblies.*");
+                writer.WriteParagraph("*This is a type-forwarding library. Types shown are resolved from target libraries.*");
             }
 
             // Per-kind type sections (verbosity-independent)
