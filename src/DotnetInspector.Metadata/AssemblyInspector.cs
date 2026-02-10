@@ -55,7 +55,7 @@ public static class AssemblyInspector
             Machine.Amd64 => "x64",
             Machine.Arm => "ARM",
             Machine.Arm64 => "ARM64",
-            _ => coffHeader.Machine.ToString()
+            _ => null // Ref assemblies may have placeholder machine headers
         };
 
         info.IsAnyCpu = coffHeader.Machine == Machine.I386 &&

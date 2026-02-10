@@ -240,6 +240,8 @@ public class LibraryInspectionView
             fields.Add(new("Arch", info.Architecture));
         if (_data.FileSize > 0)
             fields.Add(new("Size", FormatFileSize(_data.FileSize)));
+        if (!string.IsNullOrEmpty(_data.Source))
+            fields.Add(new("Source", _data.Source));
 
         return fields;
     }
@@ -279,6 +281,8 @@ public class LibraryInspectionView
             fields.Add(new("Types", info.TypeDefinitionCount.ToString("N0")));
         if (info.MethodDefinitionCount > 0)
             fields.Add(new("Methods", info.MethodDefinitionCount.ToString("N0")));
+        if (!string.IsNullOrEmpty(_data.Source))
+            fields.Add(new("Source", _data.Source));
 
         return fields;
     }
