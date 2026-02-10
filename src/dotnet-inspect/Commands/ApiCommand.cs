@@ -45,7 +45,7 @@ public class ApiCommand
                 if (extracted == null)
                     return 1;
                 (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
-                apiSource = "nuget";
+                apiSource = "NuGet";
                 apiVersion = packageVersion;
 
                 if (!string.IsNullOrEmpty(options.Tfm))
@@ -78,7 +78,7 @@ public class ApiCommand
                     return 1;
                 }
                 searchPath = options.AssemblyPath;
-                apiSource = "local";
+                apiSource = "Library";
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
@@ -95,7 +95,7 @@ public class ApiCommand
                 }
 
                 searchPath = assemblyPath!;
-                apiSource = $"platform ({framework})";
+                apiSource = $"Platform ({framework})";
                 apiVersion = version;
                 logger.Log($"Using platform ref library: {framework} {version}");
 
@@ -122,7 +122,7 @@ public class ApiCommand
             string? selectedTfm = null;
 
             // Derive TFM for platform assemblies from the version
-            if (apiSource?.StartsWith("platform") == true && apiVersion != null)
+            if (apiSource?.StartsWith("Platform") == true && apiVersion != null)
             {
                 var dotIndex = apiVersion.IndexOf('.');
                 if (dotIndex > 0)
@@ -133,29 +133,30 @@ public class ApiCommand
                 }
             }
 
+            // Auto-select TFM when searchPath is a directory with multiple DLLs
+            if (Directory.Exists(searchPath))
+            {
+                var dlls = TfmSelector.GetPackageDlls(searchPath);
+                if (dlls.Count > 1)
+                {
+                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
+                    if (selectedPath != null)
+                    {
+                        searchPath = selectedPath;
+                        selectedTfm = tfm;
+                        logger.Log($"Auto-selected TFM: {tfm}");
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
+                        return 1;
+                    }
+                }
+            }
+
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                if (Directory.Exists(searchPath))
-                {
-                    var dlls = TfmSelector.GetPackageDlls(searchPath);
-                    if (dlls.Count > 1)
-                    {
-                        var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
-                        if (selectedPath != null)
-                        {
-                            searchPath = selectedPath;
-                            selectedTfm = tfm;
-                            logger.Log($"Auto-selected TFM: {tfm}");
-                        }
-                        else
-                        {
-                            Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
-                            return 1;
-                        }
-                    }
-                }
-
                 var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
                 if (api == null)
                 {
@@ -259,7 +260,7 @@ public class ApiCommand
                             await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
                     }
 
-                    WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
+                    WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
                 }
                 else if (lookupResult.Suggestions.Count > 0)
                 {
@@ -368,7 +369,7 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
+    private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         if (options.ShapeOutput)
         {
@@ -380,7 +381,7 @@ public class ApiCommand
         }
         else
         {
-            Console.WriteLine(ApiOutputFormatter.RenderTypeMarkdown(type, foundIn, packageName, packageVersion, options));
+            Console.WriteLine(ApiOutputFormatter.RenderTypeMarkdown(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options));
         }
     }
 
