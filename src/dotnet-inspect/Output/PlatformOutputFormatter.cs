@@ -1,5 +1,5 @@
-using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
+using DotnetInspector.Services;
 using Markout;
 
 namespace DotnetInspector.Output;

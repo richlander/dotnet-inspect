@@ -1,6 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using DotnetInspector.Inspectors;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 

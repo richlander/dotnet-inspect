@@ -5,6 +5,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
 
 namespace DotnetInspector.Inspectors;
@@ -306,7 +307,7 @@ internal static class LibraryMetadataService
 
             if (resolvedPath == null)
             {
-                var (platformPath, _, _, error) = Inspectors.PlatformResolver.ResolveAssembly(reference.Name);
+                var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly(reference.Name);
                 if (error == null && platformPath != null)
                 {
                     resolvedPath = platformPath;
