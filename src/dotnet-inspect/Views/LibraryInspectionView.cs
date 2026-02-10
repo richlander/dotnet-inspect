@@ -171,7 +171,7 @@ public class LibraryInspectionView
         {
             var name = e.Overloads > 1 ? $"{e.MethodName} ({e.Overloads} overloads)" : e.MethodName;
             return new ExtensionMethodRow(name, e.Kind, e.ExtendedType, e.ExtensionClass);
-        }).ToList();
+        }).OrderBy(e => e.ExtendedType).ThenBy(e => e.Name).ToList();
 
     [MarkoutIgnore]
     public bool HasUnsafeMethods => _data.UnsafeMethods is { Count: > 0 };

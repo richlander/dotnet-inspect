@@ -67,10 +67,10 @@ public static class ExtensionsOutputFormatter
 
     private static void WriteExtensionTable(MarkoutWriter writer, List<ExtensionMethodResult> results)
     {
-        var byClass = results.GroupBy(r => r.ExtensionClass).ToList();
+        var ordered = results.OrderBy(r => r.ExtensionClass).ThenBy(r => r.MethodName);
 
         var headers = new[] { "Name", "Kind", "Class", "Library", "Source" };
-        var rows = byClass.SelectMany(classGroup => classGroup.Select(ext =>
+        var rows = ordered.Select(ext =>
         {
             var sourceDisplay = ext.SourceVersion != null
                 ? $"{ext.Source}@{ext.SourceVersion}"
@@ -79,7 +79,7 @@ public static class ExtensionsOutputFormatter
                 ? $"{ext.MethodName} ({ext.Overloads} overloads)"
                 : ext.MethodName;
             return new[] { name, ext.Kind, ext.ExtensionClass ?? "", ext.Assembly ?? "", sourceDisplay ?? "" };
-        }));
+        });
         writer.WriteTable(headers, rows);
     }
 }

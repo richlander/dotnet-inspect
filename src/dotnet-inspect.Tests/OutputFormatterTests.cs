@@ -76,10 +76,20 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void SingleAudit_IncludesSymbols_Always()
+    public void SingleAudit_ExcludesSymbols_AtNormalVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
         var options = new AssemblyOptions();
+        var output = Serialize(inspection, GetLibraryExcludeSections(options));
+
+        Assert.DoesNotContain("## Symbols", output);
+    }
+
+    [Fact]
+    public void SingleAudit_IncludesSymbols_AtDetailedVerbosity()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        var options = new AssemblyOptions { Verbosity = Verbosity.Detailed };
         var output = Serialize(inspection, GetLibraryExcludeSections(options));
 
         Assert.Contains("## Symbols", output);
@@ -146,9 +156,18 @@ public class OutputFormatterTests
     // Mirror the logic from OutputFormatter.GetLibraryExcludeSections
     private static HashSet<string>? GetLibraryExcludeSections(AssemblyOptions options)
     {
-        if (!options.IncludeSourcelinkAudit)
-            return ["Source Coverage", "Missing Sources"];
-        return null;
+        HashSet<string> excluded = ["Source Coverage", "Missing Sources"];
+
+        if (options.Verbosity != Verbosity.Detailed)
+            excluded.Add("Symbols");
+
+        if (options.IncludeSourcelinkAudit)
+        {
+            excluded.Remove("Source Coverage");
+            excluded.Remove("Missing Sources");
+        }
+
+        return excluded.Count > 0 ? excluded : null;
     }
 
     // ===== API Output Formatter Tests =====
