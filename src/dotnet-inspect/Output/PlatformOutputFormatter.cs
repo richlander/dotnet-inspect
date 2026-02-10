@@ -5,6 +5,16 @@ using Markout;
 namespace DotnetInspector.Output;
 
 /// <summary>
+/// Data passed from PlatformCommand to the formatter for assembly listing.
+/// </summary>
+public record FrameworkAssemblyData(string FrameworkName, string Version, List<AssemblyEntry> Assemblies);
+
+/// <summary>
+/// A single assembly entry with an optional public type count.
+/// </summary>
+public record AssemblyEntry(string Name, int? PublicTypeCount = null);
+
+/// <summary>
 /// Formats platform command results for display.
 /// </summary>
 public static class PlatformOutputFormatter
@@ -66,9 +76,8 @@ public static class PlatformOutputFormatter
         return writer.ToString();
     }
 
-    public static string FormatAssemblies(List<FrameworkInfo> frameworks, string? requestedVersion,
-        bool includeTypes, int? limit, string packsDir, bool multipleFrameworks,
-        Func<string, int> countPublicTypes, VerboseLogger logger)
+    public static string FormatAssemblies(List<FrameworkAssemblyData> frameworkData, bool includeTypes,
+        int? limit, string packsDir, bool multipleFrameworks)
     {
         var writer = new MarkoutWriter();
 
@@ -78,22 +87,11 @@ public static class PlatformOutputFormatter
             writer.WriteField("Packs Directory", packsDir);
         }
 
-        foreach (var framework in frameworks)
+        foreach (var data in frameworkData)
         {
-            var version = requestedVersion ?? framework.LatestVersion;
-            var refPath = PlatformResolver.GetRefAssemblyPath(framework.Path, version);
+            writer.WriteHeading(2, $"{data.FrameworkName} ({data.Version})");
 
-            if (refPath == null)
-            {
-                logger.Log($"Could not find ref path for {framework.ShortName} {version}");
-                continue;
-            }
-
-            var assemblies = PlatformResolver.GetAssemblies(refPath);
-
-            writer.WriteHeading(2, $"{framework.ShortName} ({version})");
-
-            var displayAssemblies = assemblies.AsEnumerable();
+            var displayAssemblies = data.Assemblies.AsEnumerable();
             if (limit.HasValue)
             {
                 displayAssemblies = displayAssemblies.Take(limit.Value);
@@ -102,7 +100,7 @@ public static class PlatformOutputFormatter
             if (includeTypes)
             {
                 var headers = new[] { "Assembly", "Types" };
-                var rows = displayAssemblies.Select(a => new[] { a.Name, countPublicTypes(a.Path).ToString() });
+                var rows = displayAssemblies.Select(a => new[] { a.Name, (a.PublicTypeCount ?? 0).ToString() });
                 writer.WriteTable(headers, rows);
             }
             else
@@ -112,9 +110,9 @@ public static class PlatformOutputFormatter
                 writer.WriteTable(headers, rows);
             }
 
-            if (limit.HasValue && assemblies.Count > limit.Value)
+            if (limit.HasValue && data.Assemblies.Count > limit.Value)
             {
-                writer.WriteParagraph($"... *and {assemblies.Count - limit.Value} more assemblies*");
+                writer.WriteParagraph($"... *and {data.Assemblies.Count - limit.Value} more assemblies*");
             }
         }
 

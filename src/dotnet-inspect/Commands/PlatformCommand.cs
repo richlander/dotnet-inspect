@@ -138,45 +138,63 @@ public class PlatformCommand
             requestedVersion = version;
         }
 
+        var frameworkData = ResolveFrameworkAssemblies(frameworks, requestedVersion, options.IncludeTypes, logger);
+
         if (options.JsonOutput)
         {
-            return ListAssembliesJson(frameworks, requestedVersion, options);
+            return ListAssembliesJson(frameworkData, options);
         }
 
         var multipleFrameworks = frameworks.Count > 1 || string.IsNullOrEmpty(options.Framework);
         Console.WriteLine(PlatformOutputFormatter.FormatAssemblies(
-            frameworks, requestedVersion, options.IncludeTypes, options.Limit,
-            packsDir, multipleFrameworks, CountPublicTypes, logger));
+            frameworkData, options.IncludeTypes, options.Limit, packsDir, multipleFrameworks));
         return 0;
     }
 
-    private static int ListAssembliesJson(List<FrameworkInfo> frameworks, string? requestedVersion, PlatformOptions options)
+    private static List<FrameworkAssemblyData> ResolveFrameworkAssemblies(
+        List<FrameworkInfo> frameworks, string? requestedVersion, bool includeTypes, VerboseLogger logger)
     {
-        var result = new List<PlatformAssembliesJson>();
+        var result = new List<FrameworkAssemblyData>();
 
         foreach (var framework in frameworks)
         {
             var version = requestedVersion ?? framework.LatestVersion;
             var refPath = PlatformResolver.GetRefAssemblyPath(framework.Path, version);
-            
+
             if (refPath == null)
+            {
+                logger.Log($"Could not find ref path for {framework.ShortName} {version}");
                 continue;
+            }
 
             var assemblies = PlatformResolver.GetAssemblies(refPath);
-            
-            var displayAssemblies = assemblies.AsEnumerable();
+            var entries = assemblies.Select(a => new AssemblyEntry(
+                a.Name,
+                includeTypes ? CountPublicTypes(a.Path) : null
+            )).ToList();
+
+            result.Add(new FrameworkAssemblyData(framework.ShortName, version, entries));
+        }
+
+        return result;
+    }
+
+    private static int ListAssembliesJson(List<FrameworkAssemblyData> frameworkData, PlatformOptions options)
+    {
+        var result = frameworkData.Select(data =>
+        {
+            var displayAssemblies = data.Assemblies.AsEnumerable();
             if (options.Limit.HasValue)
             {
                 displayAssemblies = displayAssemblies.Take(options.Limit.Value);
             }
 
             var assemblyList = displayAssemblies.Select(a => new PlatformAssemblyJson(
-                a.Name,
-                options.IncludeTypes ? CountPublicTypes(a.Path) : null
+                a.Name, a.PublicTypeCount
             )).ToList();
 
-            result.Add(new PlatformAssembliesJson(framework.ShortName, version, assemblyList));
-        }
+            return new PlatformAssembliesJson(data.FrameworkName, data.Version, assemblyList);
+        }).ToList();
 
         var typeInfo = options.CompactJson 
             ? PlatformCompactJsonContext.Default.ListPlatformAssembliesJson 
