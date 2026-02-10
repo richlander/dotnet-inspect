@@ -163,6 +163,17 @@ public class AssemblyAuditView
         BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
 
     [MarkoutIgnore]
+    public bool HasExtensionMethods => _data.ExtensionMethods is { Count: > 0 };
+
+    [MarkoutSection(Name = "Extension Methods", ShowWhenProperty = nameof(HasExtensionMethods))]
+    public List<ExtensionMethodRow>? ExtensionMethodsSection =>
+        _data.ExtensionMethods?.Select(e =>
+        {
+            var name = e.Overloads > 1 ? $"{e.MethodName} ({e.Overloads} overloads)" : e.MethodName;
+            return new ExtensionMethodRow(name, e.Kind, e.ExtendedType, e.ExtensionClass);
+        }).ToList();
+
+    [MarkoutIgnore]
     public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };
 
     [MarkoutSection(Name = "Non-normalized Paths", ShowWhenProperty = nameof(HasNonNormalizedPaths))]
@@ -317,3 +328,10 @@ public record ReferenceRow(
     string Name,
     string Version,
     [property: MarkoutPropertyName("Public Key Token")] string PublicKeyToken);
+
+[MarkoutSerializable]
+public record ExtensionMethodRow(
+    string Name,
+    string Kind,
+    [property: MarkoutPropertyName("Extended Type")] string ExtendedType,
+    string Class);

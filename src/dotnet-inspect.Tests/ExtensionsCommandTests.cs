@@ -89,6 +89,51 @@ public class ExtensionsCommandTests
     }
 
     [Fact]
+    public void FindAllExtensions_ReturnsAllExtensionsFromAssembly()
+    {
+        var assemblyPath = typeof(ExtensionsCommandTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+
+        var extensions = ExtensionMethodScanner.FindAllExtensions(stream, includeAll: true).ToList();
+
+        // Should find our sample extensions (ToUpperCase, Repeat, FirstOrNull, GetInfo)
+        Assert.True(extensions.Count >= 4);
+        Assert.Contains(extensions, e => e.MethodName == "ToUpperCase");
+        Assert.Contains(extensions, e => e.MethodName == "FirstOrNull");
+        Assert.Contains(extensions, e => e.MethodName == "GetInfo");
+
+        // Each result should have an extended type
+        Assert.All(extensions, e => Assert.False(string.IsNullOrEmpty(e.ExtendedType)));
+    }
+
+    [Fact]
+    public void FindAllExtensions_FindsCSharp14ExtensionBlockMembers()
+    {
+        // MetadataReaderExtensions uses C# 14 extension blocks:
+        //   extension(MetadataReader reader) { GetFullTypeName (3 overloads), GetGenericParameterName }
+        //   extension(TypeDefinition typeDef) { IsPublic (property) }
+        var testDir = Path.GetDirectoryName(typeof(ExtensionsCommandTests).Assembly.Location)!;
+        var targetPath = Path.Combine(testDir, "DotnetInspector.Metadata.dll");
+        Assert.True(File.Exists(targetPath), $"DotnetInspector.Metadata.dll not found at {targetPath}");
+
+        using var stream = File.OpenRead(targetPath);
+        var extensions = ExtensionMethodScanner.FindAllExtensions(stream).ToList();
+
+        // C# 14 extension methods on MetadataReader
+        var readerExtensions = extensions.Where(e =>
+            e.ExtendedType.Contains("MetadataReader") &&
+            !e.ExtendedType.Contains("TypeDefinition")).ToList();
+        Assert.Contains(readerExtensions, e => e.MethodName == "GetFullTypeName");
+        Assert.Equal(3, readerExtensions.Count(e => e.MethodName == "GetFullTypeName"));
+        Assert.Contains(readerExtensions, e => e.MethodName == "GetGenericParameterName");
+
+        // C# 14 extension property on TypeDefinition
+        var typeDefExtensions = extensions.Where(e =>
+            e.ExtendedType.Contains("TypeDefinition")).ToList();
+        Assert.Contains(typeDefExtensions, e => e.MethodName == "IsPublic" && e.Kind == "property");
+    }
+
+    [Fact]
     public void MatchesTargetType_ExactMatch()
     {
         // Test exact matching logic

@@ -131,6 +131,104 @@ public static class ExtensionMethodScanner
     }
 
     /// <summary>
+    /// Finds all extension methods in an assembly (no target type filter).
+    /// </summary>
+    public static IEnumerable<ExtensionMethodInfo> FindAllExtensions(
+        Stream peStream, bool includeAll = false)
+    {
+        using var peReader = new PEReader(peStream);
+        return FindAllExtensions(peReader, includeAll).ToList();
+    }
+
+    /// <summary>
+    /// Finds all extension methods in an assembly (no target type filter).
+    /// </summary>
+    public static IEnumerable<ExtensionMethodInfo> FindAllExtensions(
+        PEReader peReader, bool includeAll = false)
+    {
+        if (!peReader.HasMetadata)
+            yield break;
+
+        var reader = peReader.GetMetadataReader();
+
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            var typeAttrs = typeDef.Attributes;
+
+            bool isStatic = (typeAttrs & TypeAttributes.Sealed) != 0 &&
+                           (typeAttrs & TypeAttributes.Abstract) != 0;
+            if (!isStatic) continue;
+
+            if (!AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())) continue;
+
+            if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+                continue;
+
+            string classNs = reader.GetString(typeDef.Namespace);
+            string fullClassName = reader.GetFullTypeName(typeDef);
+
+            var seenPropertyNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes & MethodAttributes.Public) == 0) continue;
+                if ((method.Attributes & MethodAttributes.Static) == 0) continue;
+
+                string methodName = reader.GetString(method.Name);
+
+                bool hasExtension = AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
+                if (!hasExtension &&
+                    (methodName.StartsWith("get_", StringComparison.Ordinal) ||
+                     methodName.StartsWith("set_", StringComparison.Ordinal)))
+                {
+                    if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
+                        continue;
+
+                    var context = GenericContext.ForMethod(reader, typeDef, method);
+                    var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                    if (signature.ParameterTypes.Length == 0) continue;
+
+                    var extendedType = signature.ParameterTypes[0];
+                    string propertyName = methodName.Substring(4);
+                    if (!seenPropertyNames.Add(propertyName)) continue;
+
+                    var propSignature = FormatPropertySignature(signature, extendedType, propertyName);
+                    yield return new ExtensionMethodInfo(
+                        MethodName: propertyName,
+                        ExtensionClass: fullClassName,
+                        Namespace: classNs,
+                        ExtendedType: extendedType,
+                        Signature: propSignature,
+                        Kind: "property");
+                    continue;
+                }
+
+                if (!hasExtension) continue;
+
+                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
+                    continue;
+
+                {
+                    var context = GenericContext.ForMethod(reader, typeDef, method);
+                    var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                    if (signature.ParameterTypes.Length == 0) continue;
+
+                    var extendedType = signature.ParameterTypes[0];
+
+                    yield return new ExtensionMethodInfo(
+                        MethodName: methodName,
+                        ExtensionClass: fullClassName,
+                        Namespace: classNs,
+                        ExtendedType: extendedType,
+                        Signature: FormatMethodSignature(reader, typeDef, method, context));
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Finds extension methods in a stream containing a PE image.
     /// </summary>
     public static IEnumerable<ExtensionMethodInfo> FindExtensions(
