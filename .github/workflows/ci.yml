@@ -49,11 +49,21 @@ jobs:
         with:
           globs: '**/*.md'
 
-  # Build, test, pack (pointer + any + linux-x64), and smoke test — all on one runner
-  build-and-test:
+  # Build and test on Ubuntu and Windows
+  test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -67,8 +77,49 @@ jobs:
       - name: Build
         run: dotnet build src/dotnet-inspect -c Release
 
-      - name: Run unit tests
+      - name: Install ilspycmd
+        run: dotnet tool install -g ilspycmd --allow-roll-forward
+
+      - name: Install ilasm/ildasm
+        shell: bash
+        run: |
+          RID=${{ matrix.rid }}
+          VERSION=10.0.2
+          PACKAGES_DIR=$(mktemp -d)
+          PROJ_DIR=$(mktemp -d)
+          cat > "$PROJ_DIR/iltools.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+            <ItemGroup>
+              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
+              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
+            </ItemGroup>
+          </Project>
+          EOF
+          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR"
+          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
+          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
+          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
+          echo "$ILASM_DIR" >> "$GITHUB_PATH"
+          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+
+      - name: Run tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
+
+  # Pack and smoke test on Ubuntu
+  pack:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_INSPECT_TIPS: q
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Pack pointer package
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
@@ -154,7 +205,7 @@ jobs:
         run: dotnet tool uninstall --global dotnet-inspect
 
   # Build RID-specific Native AOT packages (cross-platform)
-  build-rid:
+  pack-rid:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     strategy:
