@@ -66,6 +66,15 @@ internal static class LibraryMetadataService
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
 
+            // Populate cheap presence flags for fast -s discovery
+            var presenceFlags = pdbContext.ScanPresenceFlags();
+            inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
+            inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
+            inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
+            inspection.HasManifestResources = presenceFlags.HasManifestResources;
+            inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
+            inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
+
             // PE debug directory fields
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
             inspection.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;

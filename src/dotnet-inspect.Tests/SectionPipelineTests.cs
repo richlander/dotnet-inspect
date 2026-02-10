@@ -388,6 +388,133 @@ public class SectionPipelineTests
         Assert.NotEmpty(detailedScanners);
     }
 
+    // ===== Presence flag / CanRender discovery tests =====
+
+    [Fact]
+    public void CanRender_ExtensionMethods_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        // No scanner has run (ExtensionMethods list is null), but flag is set
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasExtensionTypes = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Extension Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_ExtensionMethods_FalseWhenNoFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasExtensionTypes = false
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.DoesNotContain("Extension Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_UnsafeMethods_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasUnsafeCode = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Unsafe Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_PInvokeMethods_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasPInvokeImports = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("P/Invoke Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_Resources_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasManifestResources = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Resources", effective);
+    }
+
+    [Fact]
+    public void CanRender_CustomAttributes_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasAssemblyAttributes = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Custom Attributes", effective);
+    }
+
+    [Fact]
+    public void CanRender_TypeForwarders_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasExportedTypeForwarders = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Type Forwarders", effective);
+    }
+
+    [Fact]
+    public void CanRender_AllFlagsFalse_OnlyAlwaysOnSections()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection { AssemblyInfo = new AssemblyInfo() };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        // Only sections that don't depend on scanners or presence flags
+        Assert.Contains("Library Info", effective);
+        Assert.Contains("Symbols", effective);
+        Assert.DoesNotContain("Extension Methods", effective);
+        Assert.DoesNotContain("Unsafe Methods", effective);
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+        Assert.DoesNotContain("Resources", effective);
+        Assert.DoesNotContain("Custom Attributes", effective);
+        Assert.DoesNotContain("Type Forwarders", effective);
+    }
+
     // ===== Package pipeline tests =====
 
     [Fact]

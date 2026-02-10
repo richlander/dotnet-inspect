@@ -166,6 +166,33 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<TypeForwarderSummary>? TypeForwarders { get; set; }
 
+    // Presence flags — populated cheaply from MetadataReader before scanners run.
+    // Used by CanRender for fast -s discovery without full scanning.
+
+    /// <summary>Whether the assembly contains any static classes with [Extension] attribute.</summary>
+    [JsonIgnore]
+    public bool HasExtensionTypes { get; set; }
+
+    /// <summary>Whether the assembly contains any methods with PInvokeImpl flag.</summary>
+    [JsonIgnore]
+    public bool HasPInvokeImports { get; set; }
+
+    /// <summary>Whether the assembly contains any methods with unsafe (pointer) signatures.</summary>
+    [JsonIgnore]
+    public bool HasUnsafeCode { get; set; }
+
+    /// <summary>Whether the assembly has manifest resources.</summary>
+    [JsonIgnore]
+    public bool HasManifestResources { get; set; }
+
+    /// <summary>Whether the assembly has non-well-known custom attributes.</summary>
+    [JsonIgnore]
+    public bool HasAssemblyAttributes { get; set; }
+
+    /// <summary>Whether the assembly has type forwarders.</summary>
+    [JsonIgnore]
+    public bool HasExportedTypeForwarders { get; set; }
+
     /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.
     /// </summary>
