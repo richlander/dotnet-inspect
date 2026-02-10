@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Metadata;
 
@@ -179,6 +180,71 @@ public class ILDisassemblerTests
             peReader,
             declaringType.FullName!,
             methodName);
+    }
+
+    /// <summary>
+    /// Disassembles every method in every dotnet-inspect assembly to verify
+    /// the decoder handles all real-world IL patterns without crashing.
+    /// </summary>
+    [Fact]
+    public void Disassemble_AllMethodsInProjectAssemblies_NoCrashes()
+    {
+        var testDir = Path.GetDirectoryName(typeof(ILDisassemblerTests).Assembly.Location)!;
+        string[] assemblyNames = [
+            "DotnetInspector.Core.dll",
+            "DotnetInspector.Metadata.dll",
+            "DotnetInspector.Packages.dll",
+            "DotnetInspector.Services.dll",
+            "dotnet-inspect.dll",
+        ];
+
+        int totalMethods = 0;
+        int totalInstructions = 0;
+        List<string> failures = [];
+
+        foreach (var assemblyName in assemblyNames)
+        {
+            var path = Path.Combine(testDir, assemblyName);
+            if (!File.Exists(path))
+                continue;
+
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+
+            if (!peReader.HasMetadata)
+                continue;
+
+            var reader = peReader.GetMetadataReader();
+
+            foreach (var typeDefHandle in reader.TypeDefinitions)
+            {
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                string typeName = reader.GetString(typeDef.Name);
+
+                foreach (var methodHandle in typeDef.GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(methodHandle);
+                    string methodName = reader.GetString(method.Name);
+                    totalMethods++;
+
+                    try
+                    {
+                        var instructions = ILDisassembler.Disassemble(peReader, reader, method);
+                        if (instructions is not null)
+                            totalInstructions += instructions.Count;
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add($"{assemblyName} {typeName}::{methodName}: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        Assert.True(totalMethods > 100, $"Expected to scan many methods, got {totalMethods}");
+        Assert.True(totalInstructions > 1000, $"Expected many instructions, got {totalInstructions}");
+        Assert.True(failures.Count == 0,
+            $"Disassembly failed for {failures.Count} method(s):\n{string.Join("\n", failures.Take(20))}");
     }
 }
 
