@@ -68,7 +68,7 @@ jobs:
         run: dotnet build src/dotnet-inspect -c Release
 
       - name: Run unit tests
-        run: dotnet test src/dotnet-inspect.Tests -c Release --no-build
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       - name: Pack pointer package
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true

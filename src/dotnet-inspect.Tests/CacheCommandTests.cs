@@ -7,6 +7,7 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Tests for cache management command.
 /// </summary>
+[Collection("Console")]
 public class CacheCommandTests
 {
     public CacheCommandTests()
