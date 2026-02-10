@@ -1,5 +1,6 @@
 using DotnetInspector.Models;
 using System.Collections.Concurrent;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
@@ -38,12 +39,18 @@ internal static class LibraryMetadataService
             {
                 var nativeInfo = pdbContext.CreateNativeInfo();
 
-                return new AssemblyAudit
+                var nativeAudit = new AssemblyAudit
                 {
                     FileName = Path.GetFileName(path),
                     FileType = "native",
-                    AssemblyInfo = nativeInfo
+                    AssemblyInfo = nativeInfo,
+                    FileSize = AssemblyDetailScanner.GetFileSize(path)
                 };
+
+                nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
+                nativeAudit.IsDeterministic = pdbContext.HasReproducibleFlag;
+
+                return nativeAudit;
             }
 
             var audit = new AssemblyAudit
@@ -84,7 +91,11 @@ internal static class LibraryMetadataService
                 audit.ExtensionMethods = ScanExtensionMethods(path, logger);
                 ScanClassifiedMethods(path, audit, logger);
                 audit.Resources = ScanResources(path, logger);
+                ScanCustomAttributes(path, audit, logger);
+                ScanTypeForwarders(path, audit, logger);
             }
+
+            audit.FileSize = AssemblyDetailScanner.GetFileSize(path);
 
             await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
 
@@ -454,6 +465,62 @@ internal static class LibraryMetadataService
         {
             logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly for custom attributes (assembly-level and module-level).
+    /// </summary>
+    private static void ScanCustomAttributes(string path, AssemblyAudit audit, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var attrs = AssemblyDetailScanner.ScanCustomAttributes(peReader);
+            if (attrs.Count > 0)
+            {
+                audit.CustomAttributes = attrs
+                    .Select(a => new CustomAttributeSummary
+                    {
+                        Name = a.Name,
+                        Target = a.Target,
+                        Value = a.Value
+                    })
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly for type forwarders.
+    /// </summary>
+    private static void ScanTypeForwarders(string path, AssemblyAudit audit, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var forwarders = AssemblyDetailScanner.ScanTypeForwarders(peReader);
+            if (forwarders.Count > 0)
+            {
+                audit.TypeForwarders = forwarders
+                    .Select(f => new TypeForwarderSummary
+                    {
+                        TypeName = f.TypeName,
+                        TargetAssembly = f.TargetAssembly
+                    })
+                    .OrderBy(f => f.TypeName)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
         }
     }
 }

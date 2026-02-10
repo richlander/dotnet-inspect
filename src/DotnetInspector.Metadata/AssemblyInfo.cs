@@ -82,6 +82,10 @@ public class AssemblyInfo
     public bool HasCorHeader { get; set; }
     public bool HasILCode { get; set; }
 
+    // Metadata statistics
+    public int TypeDefinitionCount { get; set; }
+    public int MethodDefinitionCount { get; set; }
+
     /// <summary>
     /// List of assemblies referenced by this assembly.
     /// </summary>

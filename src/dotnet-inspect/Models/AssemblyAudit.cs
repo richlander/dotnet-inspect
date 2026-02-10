@@ -149,6 +149,24 @@ public class AssemblyAudit
     public List<ResourceSummary>? Resources { get; set; }
 
     /// <summary>
+    /// File size of the assembly in bytes.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long FileSize { get; set; }
+
+    /// <summary>
+    /// Assembly-level and module-level custom attributes.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<CustomAttributeSummary>? CustomAttributes { get; set; }
+
+    /// <summary>
+    /// Type forwarders defined in this assembly.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<TypeForwarderSummary>? TypeForwarders { get; set; }
+
+    /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.
     /// </summary>
     [JsonIgnore]
@@ -187,4 +205,24 @@ public record class ResourceSummary
     public string Name { get; init; } = "";
     public string Visibility { get; init; } = "";
     public int Size { get; init; }
+}
+
+/// <summary>
+/// Summary of a custom attribute on the assembly or module.
+/// </summary>
+public record class CustomAttributeSummary
+{
+    public string Name { get; init; } = "";
+    public string Target { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Value { get; init; }
+}
+
+/// <summary>
+/// Summary of a type forwarder in a library.
+/// </summary>
+public record class TypeForwarderSummary
+{
+    public string TypeName { get; init; } = "";
+    public string TargetAssembly { get; init; } = "";
 }

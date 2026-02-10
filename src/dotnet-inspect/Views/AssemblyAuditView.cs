@@ -195,6 +195,20 @@ public class AssemblyAuditView
         _data.Resources?.Select(r => new ResourceRow(r.Name, r.Visibility, FormatSize(r.Size))).ToList();
 
     [MarkoutIgnore]
+    public bool HasCustomAttributes => _data.CustomAttributes is { Count: > 0 };
+
+    [MarkoutSection(Name = "Custom Attributes", ShowWhenProperty = nameof(HasCustomAttributes))]
+    public List<CustomAttributeRow>? CustomAttributesSection =>
+        _data.CustomAttributes?.Select(a => new CustomAttributeRow(a.Name, a.Target, a.Value ?? "")).ToList();
+
+    [MarkoutIgnore]
+    public bool HasTypeForwarders => _data.TypeForwarders is { Count: > 0 };
+
+    [MarkoutSection(Name = "Type Forwarders", ShowWhenProperty = nameof(HasTypeForwarders))]
+    public List<TypeForwarderRow>? TypeForwardersSection =>
+        _data.TypeForwarders?.Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly)).ToList();
+
+    [MarkoutIgnore]
     public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };
 
     [MarkoutSection(Name = "Non-normalized Paths", ShowWhenProperty = nameof(HasNonNormalizedPaths))]
@@ -237,6 +251,12 @@ public class AssemblyAuditView
             fields.Add(new("Public Key Token", info.PublicKeyToken));
         fields.Add(new("Deterministic", _data.IsDeterministic ? "✓" : "✗"));
         fields.Add(new("Reproducible", _data.HasReproducibleFlag ? "✓" : "✗"));
+        if (_data.FileSize > 0)
+            fields.Add(new("File Size", FormatFileSize(_data.FileSize)));
+        if (info.TypeDefinitionCount > 0)
+            fields.Add(new("Types", info.TypeDefinitionCount.ToString("N0")));
+        if (info.MethodDefinitionCount > 0)
+            fields.Add(new("Methods", info.MethodDefinitionCount.ToString("N0")));
 
         return fields;
     }
@@ -253,8 +273,6 @@ public class AssemblyAuditView
             fields.Add(new("Symbol Server", _data.SymbolServer));
         if (!string.IsNullOrEmpty(_data.PdbPath))
             fields.Add(new("PDB Path", _data.PdbPath));
-        if (_data.PdbLocation == null && !string.IsNullOrEmpty(_data.PdbPath))
-            fields.Add(new("Note", "Path is from the CodeView record; actual PDB location is unknown"));
 
         fields.Add(new("SourceLink", SourceLinkStatus));
 
@@ -301,6 +319,13 @@ public class AssemblyAuditView
     private static string FormatSize(int bytes) => bytes switch
     {
         0 => "",
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
+    };
+
+    private static string FormatFileSize(long bytes) => bytes switch
+    {
         < 1024 => $"{bytes} B",
         < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
         _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
@@ -383,3 +408,14 @@ public record ResourceRow(
     string Name,
     string Visibility,
     string Size);
+
+[MarkoutSerializable]
+public record CustomAttributeRow(
+    string Name,
+    string Target,
+    string Value);
+
+[MarkoutSerializable]
+public record TypeForwarderRow(
+    [property: MarkoutPropertyName("Type")] string TypeName,
+    [property: MarkoutPropertyName("Target Assembly")] string TargetAssembly);
