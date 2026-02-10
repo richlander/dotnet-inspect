@@ -13,7 +13,7 @@ public static class FindOutputFormatter
         if (grouped)
         {
             // Grouped: one line per pattern with matching type names
-            var lines = new List<string>();
+            List<string> lines = [];
             foreach (var (pattern, results) in resultsByPattern)
             {
                 var typeNames = results.Select(r => r.TypeName).Distinct().OrderBy(n => n);

@@ -24,7 +24,7 @@ public static class PackageCacheService
     public static CacheInfo GetCacheInfo()
     {
         var basePath = NuGetCache.GetAppCacheBasePath();
-        var categories = new List<CacheCategoryInfo>();
+        List<CacheCategoryInfo> categories = [];
         long totalSize = 0;
 
         if (Directory.Exists(basePath))

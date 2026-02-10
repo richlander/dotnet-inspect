@@ -74,7 +74,7 @@ public static class TfmResolver
     /// </summary>
     public static List<string> GetPackageDlls(string extractPath)
     {
-        var result = new List<string>();
+        List<string> result = [];
         var libDir = Path.Combine(extractPath, "lib");
         var toolsDir = Path.Combine(extractPath, "tools");
 

@@ -139,10 +139,10 @@ internal static class SourceEnricher
                 var fetcher = new SourceFetcher(httpClient);
                 var parser = new DocCommentParser();
 
-                var sourceFilesToFetch = new List<(string Url, string FilePath)>
-                {
+                List<(string Url, string FilePath)> sourceFilesToFetch =
+                [
                     (sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? "")
-                };
+                ];
 
                 if (sourceInfo.AdditionalSourceFiles != null)
                 {
@@ -155,7 +155,7 @@ internal static class SourceEnricher
                     }
                 }
 
-                var allSourceContents = new List<(string Content, string Url, string FilePath)>();
+                List<(string Content, string Url, string FilePath)> allSourceContents = [];
                 string? primaryNamespace = null;
                 bool isPrimaryPartial = false;
 
@@ -254,8 +254,8 @@ internal static class SourceEnricher
             return;
         }
 
-        var typeSourceInfo = new List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)>();
-        var allUrlsToFetch = new HashSet<string>();
+        List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)> typeSourceInfo = [];
+        HashSet<string> allUrlsToFetch = [];
 
         foreach (var apiType in types)
         {
@@ -281,7 +281,7 @@ internal static class SourceEnricher
 
         var fetcher = new SourceFetcher(httpClient);
         var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
-        var contentCache = new Dictionary<string, string?>();
+        Dictionary<string, string?> contentCache = [];
 
         logger.Log($"Phase 2: Fetching {urlList.Count} URLs in parallel");
         var fetchTasks = urlList.Select(async url =>
@@ -324,7 +324,7 @@ internal static class SourceEnricher
 
             if ((options.ShowDocs || options.ShowSamples) && sourceInfo.SourceUrl != null)
             {
-                var sourceContents = new List<(string Content, string Url, string FilePath)>();
+                List<(string Content, string Url, string FilePath)> sourceContents = [];
 
                 if (contentCache.TryGetValue(sourceInfo.SourceUrl, out var primaryContent) && primaryContent != null)
                 {
@@ -479,7 +479,7 @@ internal static class SourceEnricher
         await Task.CompletedTask;
 
         DocComment? mergedTypeDoc = null;
-        var allSamples = new List<SampleReference>();
+        List<SampleReference> allSamples = [];
 
         foreach (var (content, url, filePath) in sourceContents)
         {

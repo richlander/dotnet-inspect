@@ -178,7 +178,7 @@ public class AssemblyAuditView
 
     private List<MarkoutField> GetAssemblyInfoFields()
     {
-        var fields = new List<MarkoutField>();
+        List<MarkoutField> fields = [];
         if (_data.AssemblyInfo is not { } info) return fields;
 
         if (!string.IsNullOrEmpty(info.AssemblyName))
@@ -211,11 +211,11 @@ public class AssemblyAuditView
 
     private List<MarkoutField> GetSymbolsFields()
     {
-        var fields = new List<MarkoutField>
-        {
+        List<MarkoutField> fields =
+        [
             new("PDB Format", _data.PdbFormat ?? "Unknown"),
             new("PDB Location", _data.PdbLocation ?? "Unknown")
-        };
+        ];
 
         if (!string.IsNullOrEmpty(_data.SymbolServer))
             fields.Add(new("Symbol Server", _data.SymbolServer));
@@ -253,7 +253,7 @@ public class AssemblyAuditView
 
     private List<MarkoutField> GetSourceCoverageFields()
     {
-        var fields = new List<MarkoutField>();
+        List<MarkoutField> fields = [];
         if (_data.TotalSourceFiles <= 0) return fields;
 
         int accessible = _data.AccessibleSourceFiles + _data.EmbeddedSourceFiles;
@@ -268,7 +268,7 @@ public class AssemblyAuditView
 
     private static List<TreeNode> BuildFlatTransitiveTree(List<AssemblyReferenceNode> nodes)
     {
-        var result = new List<TreeNode>();
+        List<TreeNode> result = [];
         foreach (var node in nodes)
         {
             var icon = node.ResolvedFrom switch
@@ -285,7 +285,7 @@ public class AssemblyAuditView
 
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
-        var result = new List<TreeNode>();
+        List<TreeNode> result = [];
         int i = 0;
         BuildNestedNodes(nodes, ref i, 0, result);
         return result;
@@ -301,7 +301,7 @@ public class AssemblyAuditView
                 : $"{node.Name} {node.Version}";
             index++;
 
-            var children = new List<TreeNode>();
+            List<TreeNode> children = [];
             if (index < nodes.Count && nodes[index].Depth > currentDepth)
             {
                 BuildNestedNodes(nodes, ref index, currentDepth + 1, children);

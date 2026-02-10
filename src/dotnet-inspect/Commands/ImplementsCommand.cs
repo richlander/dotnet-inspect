@@ -17,7 +17,7 @@ public class ImplementsCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        var tempDirs = new List<string>();
+        List<string> tempDirs = [];
 
         try
         {
@@ -28,7 +28,7 @@ public class ImplementsCommand
                 options = options with { PlatformFrameworks = ["runtime"] };
             }
 
-            var results = new List<ImplementerResult>();
+            List<ImplementerResult> results = [];
 
             // Collect all assembly paths from various sources
             var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-impl");
@@ -83,7 +83,7 @@ public class ImplementsCommand
         bool includeAll,
         VerboseLogger logger)
     {
-        var results = new List<ImplementerResult>();
+        List<ImplementerResult> results = [];
 
         try
         {
@@ -126,7 +126,7 @@ public class ImplementsCommand
 /// <summary>
 /// Result of implementer search.
 /// </summary>
-public class ImplementerResult
+public record class ImplementerResult
 {
     [JsonPropertyName("type")]
     public string TypeName { get; set; } = "";

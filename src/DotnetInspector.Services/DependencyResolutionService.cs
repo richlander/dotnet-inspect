@@ -14,7 +14,7 @@ public static class DependencyResolutionService
         HttpClient client, List<PackageDependency> dependencies, string tfm,
         HashSet<string> globalSeen, Action<string>? log)
     {
-        var nodes = new List<DependencyNode>();
+        List<DependencyNode> nodes = [];
 
         foreach (var dep in dependencies.OrderBy(d => d.Id))
         {

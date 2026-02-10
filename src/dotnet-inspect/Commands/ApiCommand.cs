@@ -224,7 +224,7 @@ public class ApiCommand
                     if (options.MemberFilter?.Count > 0 && apiType.Members != null)
                     {
                         var memberNames = apiType.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        var missedFilters = new List<string>();
+                        List<string> missedFilters = [];
 
                         foreach (var filter in options.MemberFilter)
                         {

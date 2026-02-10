@@ -13,7 +13,7 @@ public static class ProjectAssetsParser
     /// </summary>
     public static List<(string Path, string PackageName, string Version)> Parse(string assetsPath, string? tfmFilter, Action<string>? log)
     {
-        var results = new List<(string Path, string PackageName, string Version)>();
+        List<(string Path, string PackageName, string Version)> results = [];
         var nugetCache = NuGetCache.GetNuGetCachePath();
 
         try

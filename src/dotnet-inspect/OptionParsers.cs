@@ -52,7 +52,7 @@ public static class OptionParsers
         if (string.IsNullOrEmpty(value)) return null;
 
         var v = value.TrimStart(':');
-        var sections = new HashSet<string>();
+        HashSet<string> sections = [];
         foreach (var part in v.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
             var trimmed = part.Trim();

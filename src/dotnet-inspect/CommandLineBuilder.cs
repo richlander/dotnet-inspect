@@ -310,7 +310,7 @@ public static class CommandLineBuilder
 
             if (exitCode == 0)
             {
-                var tips = new List<Tip>();
+                List<Tip> tips = [];
                 var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
                 var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
 
@@ -1007,7 +1007,7 @@ public static class CommandLineBuilder
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
 
-                var tips = new List<Tip>();
+                List<Tip> tips = [];
 
                 if (options.Verbosity < Verbosity.Detailed)
                     tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));

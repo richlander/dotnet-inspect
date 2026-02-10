@@ -235,7 +235,7 @@ public static class PackageMetadataService
     private static async Task<List<PackageVulnerability>> GetPackageVulnerabilitiesAsync(
         HttpClient client, string packageName, string version, Action<string>? log)
     {
-        var result = new List<PackageVulnerability>();
+        List<PackageVulnerability> result = [];
 
         if (!NuGet.Versioning.NuGetVersion.TryParse(version, out var packageVersion))
         {

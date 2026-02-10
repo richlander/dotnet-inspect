@@ -223,7 +223,7 @@ public class SourceLinkResolver
     /// </summary>
     private List<PartialSourceFile> FindDocumentsMatchingTypeName(MetadataReader pdb, string typeName)
     {
-        var matches = new List<PartialSourceFile>();
+        List<PartialSourceFile> matches = [];
 
         foreach (var docHandle in pdb.Documents)
         {
@@ -387,7 +387,7 @@ public class SourceLinkResolver
 
     private static Dictionary<string, string> ParseSourceLinkMappings(string sourceLinkJson)
     {
-        var mappings = new Dictionary<string, string>();
+        Dictionary<string, string> mappings = [];
 
         try
         {

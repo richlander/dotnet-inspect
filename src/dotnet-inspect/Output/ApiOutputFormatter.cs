@@ -203,7 +203,7 @@ public static class ApiOutputFormatter
             : packageName != null ? $" ({packageName})" : "";
 
         // Build modifiers
-        var modifiers = new List<string>();
+        List<string> modifiers = [];
         if (type.IsStatic) modifiers.Add("static");
         if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
@@ -282,7 +282,7 @@ public static class ApiOutputFormatter
 
     internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string>? memberFilter)
     {
-        var nodes = new List<TreeNode>();
+        List<TreeNode> nodes = [];
 
         // Inheritance (always show)
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
@@ -333,7 +333,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        var modifiers = new List<string>();
+        List<string> modifiers = [];
         if (type.IsStatic) modifiers.Add("static");
         if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
         if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
@@ -481,7 +481,7 @@ public static class ApiOutputFormatter
         bool isPartial = type.IsPartialType;
         int fileCount = 1 + (type.AdditionalSourceFiles?.Count ?? 0);
 
-        var rows = new List<string[]>();
+        List<string[]> rows = [];
         if (!string.IsNullOrEmpty(resolution))
             rows.Add(new[] { "Resolution", resolution });
         rows.Add(new[] { "Partial Type", isPartial ? "true" : "false" });
@@ -517,7 +517,7 @@ public static class ApiOutputFormatter
         if (resolution == null && string.IsNullOrEmpty(api.RepositoryUrl))
             return;
 
-        var rows = new List<string[]>();
+        List<string[]> rows = [];
         if (!string.IsNullOrEmpty(resolution))
             rows.Add(new[] { "Resolution", resolution });
         if (!string.IsNullOrEmpty(api.RepositoryUrl))

@@ -53,7 +53,7 @@ internal static class SignatureParser
             return signature;
 
         // Split parameters respecting generic depth
-        var paramTypes = new List<string>();
+        List<string> paramTypes = [];
         int depth = 0;
         int lastSplit = 0;
         for (int i = 0; i < paramSection.Length; i++)
@@ -164,7 +164,7 @@ internal static class SignatureParser
     /// </summary>
     public static List<(string name, string type, bool hasDefault)> ExtractParameterInfo(string? signature)
     {
-        var result = new List<(string, string, bool)>();
+        List<(string, string, bool)> result = [];
         if (string.IsNullOrEmpty(signature))
             return result;
 
@@ -177,7 +177,7 @@ internal static class SignatureParser
         if (string.IsNullOrEmpty(paramSection))
             return result;
 
-        var params_ = new List<string>();
+        List<string> params_ = [];
         int depth = 0;
         int lastSplit = 0;
         for (int i = 0; i < paramSection.Length; i++)

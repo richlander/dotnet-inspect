@@ -394,7 +394,7 @@ public class PackageCommand
     {
         if (options.ScopeLib || options.ScopeTools || !string.IsNullOrEmpty(options.Tfm)) return;
 
-        var tips = new List<Tip>();
+        List<Tip> tips = [];
         var flag = isLayout ? "--layout" : "--files";
         var otherFlag = isLayout ? "--files" : "--layout";
         var otherDesc = isLayout ? "flat file list" : "file tree";

@@ -54,7 +54,7 @@ public class SourceFetcher(HttpClient httpClient)
     public static string? ExtractRegion(string content, string regionName)
     {
         var lines = content.Split('\n');
-        var regionLines = new List<string>();
+        List<string> regionLines = [];
         bool inRegion = false;
         int regionDepth = 0;
 
@@ -126,7 +126,7 @@ public class SourceFetcher(HttpClient httpClient)
             return string.Join('\n', lines).TrimEnd();
 
         // Remove common indentation
-        var result = new List<string>();
+        List<string> result = [];
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line))

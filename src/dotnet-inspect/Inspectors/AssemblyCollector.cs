@@ -31,7 +31,7 @@ public static class AssemblyCollector
         VerboseLogger logger,
         string tempDirPrefix = "inspect")
     {
-        var assemblyPaths = new List<AssemblyInfo>();
+        List<AssemblyInfo> assemblyPaths = [];
 
         // 1. Packages
         foreach (var pkg in options.Packages)

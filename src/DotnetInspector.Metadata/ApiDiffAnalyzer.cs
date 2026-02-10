@@ -104,7 +104,7 @@ public static class ApiDiffAnalyzer
         foreach (var key in oldTypes.Keys) allTypeNames.Add(key);
         foreach (var key in newTypes.Keys) allTypeNames.Add(key);
 
-        var typeDiffs = new List<TypeDiff>();
+        List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
         int totalAdditive = 0;
         int totalPotentiallyBreaking = 0;
@@ -162,7 +162,7 @@ public static class ApiDiffAnalyzer
 
     private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType)
     {
-        var changes = new List<ApiChange>();
+        List<ApiChange> changes = [];
         CompareTypeMetadata(oldType, newType, changes);
         CompareTypeParameters(oldType, newType, changes);
         CompareMembers(oldType, newType, changes);
@@ -318,14 +318,14 @@ public static class ApiDiffAnalyzer
             }
         }
 
-        var unmatchedOld = new List<ApiMember>();
+        List<ApiMember> unmatchedOld = [];
         foreach (var kvp in oldBySignature)
         {
             if (!matchedOldKeys.Contains(kvp.Key))
                 unmatchedOld.Add(kvp.Value);
         }
 
-        var unmatchedNew = new List<ApiMember>();
+        List<ApiMember> unmatchedNew = [];
         foreach (var kvp in newBySignature)
         {
             if (!matchedNewKeys.Contains(kvp.Key))

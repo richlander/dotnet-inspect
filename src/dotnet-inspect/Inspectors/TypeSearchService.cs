@@ -24,7 +24,7 @@ internal static class TypeSearchService
         List<string> tempDirs,
         HttpClient httpClient)
     {
-        var results = new List<TypeSearchResult>();
+        List<TypeSearchResult> results = [];
 
         bool ReachedLimit() => pattern != null && options.Limit.HasValue && results.Count >= options.Limit.Value;
 
@@ -226,7 +226,7 @@ internal static class TypeSearchService
         }
         else if (Directory.Exists(path))
         {
-            var results = new List<TypeSearchResult>();
+            List<TypeSearchResult> results = [];
             var dlls = Directory.GetFiles(path, "*.dll", SearchOption.AllDirectories);
             foreach (var dll in dlls)
             {
@@ -242,7 +242,7 @@ internal static class TypeSearchService
     /// </summary>
     public static List<TypeSearchResult> CollectFromAssembly(string assemblyPath, string? pattern, bool includeAll, VerboseLogger logger)
     {
-        var results = new List<TypeSearchResult>();
+        List<TypeSearchResult> results = [];
 
         try
         {

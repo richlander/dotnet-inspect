@@ -51,7 +51,7 @@ public class CliSchemaCommand
 
     private static TreeNode BuildCommandNode(Command command, Verbosity verbosity)
     {
-        var children = new List<TreeNode>();
+        List<TreeNode> children = [];
 
         // Minimal: command + description only, no children
         if (verbosity > Verbosity.Minimal)

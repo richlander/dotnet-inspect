@@ -180,7 +180,7 @@ public partial class DocCommentParser
         if (currentIdx < 0) return null;
         
         // Search backwards to find /// comment lines
-        var lines = new List<string>();
+        List<string> lines = [];
         
         while (currentIdx >= 0)
         {
@@ -311,7 +311,7 @@ public partial class DocCommentParser
     /// </summary>
     private static List<SampleReference>? ExtractSampleReferences(XmlDocument doc)
     {
-        var samples = new List<SampleReference>();
+        List<SampleReference> samples = [];
 
         // Pattern 1: Sandcastle-style <code source="..." region="..." title="..."/>
         var codeNodes = doc.SelectNodes("//example/code[@source]");

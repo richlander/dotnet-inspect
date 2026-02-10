@@ -17,7 +17,7 @@ public class ExtensionsCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        var tempDirs = new List<string>();
+        List<string> tempDirs = [];
 
         try
         {
@@ -28,7 +28,7 @@ public class ExtensionsCommand
                 options = options with { PlatformFrameworks = ["runtime"] };
             }
 
-            var results = new List<ExtensionMethodResult>();
+            List<ExtensionMethodResult> results = [];
 
             // Collect all assembly paths from various sources
             var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-ext");
@@ -99,7 +99,7 @@ public class ExtensionsCommand
         bool includeAll,
         VerboseLogger logger)
     {
-        var results = new List<ExtensionMethodResult>();
+        List<ExtensionMethodResult> results = [];
 
         try
         {
@@ -144,7 +144,7 @@ public class ExtensionsCommand
 /// <summary>
 /// Result of extension method search.
 /// </summary>
-public class ExtensionMethodResult
+public record class ExtensionMethodResult
 {
     [JsonPropertyName("method")]
     public string MethodName { get; set; } = "";

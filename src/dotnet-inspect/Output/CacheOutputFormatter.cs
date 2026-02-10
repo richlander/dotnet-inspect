@@ -7,7 +7,7 @@ public static class CacheOutputFormatter
 {
     public static string FormatCacheInfo(string location, List<(string Name, long Size, int Count)> categories, long totalSize)
     {
-        var lines = new List<string>();
+        List<string> lines = [];
         lines.Add($"Cache location: {location}");
         lines.Add("");
 

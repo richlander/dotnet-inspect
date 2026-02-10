@@ -133,7 +133,7 @@ public class ProjectAssetsParserTests
         """;
 
         var assetsPath = WriteTempFile(json);
-        var messages = new List<string>();
+        List<string> messages = [];
         try
         {
             var results = ProjectAssetsParser.Parse(assetsPath, "net8.0", s => messages.Add(s));
@@ -150,7 +150,7 @@ public class ProjectAssetsParserTests
     public void Parse_InvalidJson_ReturnsEmptyAndLogs()
     {
         var assetsPath = WriteTempFile("not valid json {{{");
-        var messages = new List<string>();
+        List<string> messages = [];
 
         try
         {
@@ -192,7 +192,7 @@ public class ProjectAssetsParserTests
         """;
 
         var assetsPath = WriteTempFile(json);
-        var messages = new List<string>();
+        List<string> messages = [];
         try
         {
             var results = ProjectAssetsParser.Parse(assetsPath, null, s => messages.Add(s));

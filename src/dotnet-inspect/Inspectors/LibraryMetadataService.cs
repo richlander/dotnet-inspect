@@ -180,7 +180,7 @@ internal static class LibraryMetadataService
         int embeddedFiles = 0;
         int accessibleCount = 0;
         var missingFiles = new ConcurrentBag<string>();
-        var urlDocs = new List<SourceDocument>();
+        List<SourceDocument> urlDocs = [];
 
         foreach (var doc in documents)
         {
@@ -258,7 +258,7 @@ internal static class LibraryMetadataService
         Dictionary<string, int>? globalSeen = null)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var nodes = new List<AssemblyReferenceNode>();
+        List<AssemblyReferenceNode> nodes = [];
 
         foreach (var reference in references.OrderBy(r => r.Name))
         {
