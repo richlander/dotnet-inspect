@@ -28,6 +28,8 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILSpyMethodCases))]
     public void ILSpy_InstructionsMatch(string assembly, string typeName, string methodName)
     {
+        Assert.SkipUnless(HasILSpyCmd, "ilspycmd is not available");
+
         var assemblyPath = ResolveAssembly(assembly);
         var ilspyMethods = ParseILSpyTypeOutput(assemblyPath, typeName);
         Assert.True(
@@ -53,6 +55,8 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILSpyTypeCases))]
     public void ILSpy_AllMethodInstructionCountsMatch(string assembly, string typeName)
     {
+        Assert.SkipUnless(HasILSpyCmd, "ilspycmd is not available");
+
         var assemblyPath = ResolveAssembly(assembly);
 
         using var stream = File.OpenRead(assemblyPath);
@@ -77,14 +81,16 @@ public partial class ILDisassemblerComparisonTests
             $"Instruction count mismatches:\n{string.Join("\n", mismatches)}");
     }
 
-    // --- ILAsm: roundtrip validation (Windows only — guarded at runtime) ---
+    // --- ILAsm: roundtrip validation ---
 
-    [Fact]
-    public void ILAsm_Roundtrip_ProducesValidAssembly()
+    [Theory]
+    [MemberData(nameof(ILAsmAssemblyCases))]
+    public void ILAsm_Roundtrip_ProducesValidAssembly(string assembly)
     {
-        if (!HasILAsm) return;
+        Assert.SkipUnless(HasILAsm, "ilasm/ildasm require Windows");
 
-        var outputDll = RoundtripWithILAsm(CoreDll);
+        var assemblyPath = ResolveAssembly(assembly);
+        var outputDll = RoundtripWithILAsm(assemblyPath);
         Assert.True(File.Exists(outputDll), $"ILAsm failed to produce {outputDll}");
 
         using var stream = File.OpenRead(outputDll);
@@ -95,27 +101,31 @@ public partial class ILDisassemblerComparisonTests
         Assert.True(reader.TypeDefinitions.Count > 0);
     }
 
-    [Fact]
-    public void ILAsm_Roundtrip_MethodCountPreserved()
+    [Theory]
+    [MemberData(nameof(ILAsmAssemblyCases))]
+    public void ILAsm_Roundtrip_MethodCountPreserved(string assembly)
     {
-        if (!HasILAsm) return;
+        Assert.SkipUnless(HasILAsm, "ilasm/ildasm require Windows");
 
-        int originalCount = CountMethods(CoreDll);
-        var outputDll = RoundtripWithILAsm(CoreDll);
+        var assemblyPath = ResolveAssembly(assembly);
+        int originalCount = CountMethods(assemblyPath);
+        var outputDll = RoundtripWithILAsm(assemblyPath);
         int roundtripCount = CountMethods(outputDll);
 
         Assert.Equal(originalCount, roundtripCount);
     }
 
-    [Fact]
-    public void ILAsm_Roundtrip_OpcodesPreserved()
+    [Theory]
+    [MemberData(nameof(ILAsmMethodCases))]
+    public void ILAsm_Roundtrip_OpcodesPreserved(string assembly, string typeName, string methodName)
     {
-        if (!HasILAsm) return;
+        Assert.SkipUnless(HasILAsm, "ilasm/ildasm require Windows");
 
-        var outputDll = RoundtripWithILAsm(CoreDll);
+        var assemblyPath = ResolveAssembly(assembly);
+        var outputDll = RoundtripWithILAsm(assemblyPath);
 
-        var original = DisassembleFrom(CoreDll, "DotnetInspector.Core.CoreCache", "Initialize");
-        var roundtripped = DisassembleFrom(outputDll, "DotnetInspector.Core.CoreCache", "Initialize");
+        var original = DisassembleFrom(assemblyPath, typeName, methodName);
+        var roundtripped = DisassembleFrom(outputDll, typeName, methodName);
 
         Assert.NotNull(original);
         Assert.NotNull(roundtripped);
@@ -133,9 +143,6 @@ public partial class ILDisassemblerComparisonTests
     /// <summary>Methods to compare instruction-by-instruction against ILSpy.</summary>
     public static IEnumerable<object[]> ILSpyMethodCases()
     {
-        if (!HasILSpyCmd)
-            yield break;
-
         yield return ["Core", "DotnetInspector.Core.CoreCache", "Initialize"];
         yield return ["Core", "DotnetInspector.Core.CoreCache", "GetBasePath"];
         yield return ["Core", "DotnetInspector.Core.CoreCache", "GetDirectorySize"];
@@ -147,10 +154,20 @@ public partial class ILDisassemblerComparisonTests
     /// <summary>Types to compare all method instruction counts against ILSpy.</summary>
     public static IEnumerable<object[]> ILSpyTypeCases()
     {
-        if (!HasILSpyCmd)
-            yield break;
-
         yield return ["Core", "DotnetInspector.Core.CoreCache"];
+    }
+
+    /// <summary>Assemblies for ILAsm roundtrip validation.</summary>
+    public static IEnumerable<object[]> ILAsmAssemblyCases()
+    {
+        yield return ["Core"];
+    }
+
+    /// <summary>Methods for ILAsm roundtrip opcode comparison.</summary>
+    public static IEnumerable<object[]> ILAsmMethodCases()
+    {
+        yield return ["Core", "DotnetInspector.Core.CoreCache", "Initialize"];
+        yield return ["Core", "DotnetInspector.Core.CoreCache", "GetBasePath"];
     }
 
     // --- ILSpy output parsing ---
