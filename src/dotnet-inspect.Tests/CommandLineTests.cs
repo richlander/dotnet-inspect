@@ -35,7 +35,7 @@ public class CommandLineTests
         try
         {
             var root = CommandLineBuilder.CreateRootCommand();
-            await root.Parse(["-v:q"]).InvokeAsync();
+            await root.Parse(["-v:q"]).InvokeAsync(null, TestContext.Current.CancellationToken);
             var stderr = errWriter.ToString();
             Assert.DoesNotContain("Tip:", stderr);
         }
@@ -57,7 +57,7 @@ public class CommandLineTests
         try
         {
             var root = CommandLineBuilder.CreateRootCommand();
-            await root.Parse([]).InvokeAsync();
+            await root.Parse([]).InvokeAsync(null, TestContext.Current.CancellationToken);
             var stderr = errWriter.ToString();
             Assert.Contains("Tip:", stderr);
         }
