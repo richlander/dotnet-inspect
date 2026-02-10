@@ -180,10 +180,6 @@ public class ApiCommand
                 }
 
                 var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                if (pdbLookupPath != null)
-                {
-                    api.RepositoryUrl = await SourceEnricher.ExtractRepositoryUrlAsync(pdbLookupPath, options, logger, context.HttpClient);
-                }
                 api.Tfm = selectedTfm;
                 api.Source = apiSource;
                 api.Version = apiVersion;
@@ -254,14 +250,20 @@ public class ApiCommand
                     }
 
                     var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
-                    if (options.ShowDocs || options.ShowSamples || options.SourceLinkOnly)
+
+                    // Default --docs on for single-type view unless explicitly disabled
+                    var effectiveOptions = options;
+                    if (!options.DocsExplicitlySet)
+                        effectiveOptions = options with { ShowDocs = true };
+
+                    if (effectiveOptions.ShowDocs || effectiveOptions.ShowSamples || effectiveOptions.SourceLinkOnly)
                     {
                         var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                         if (pdbLookupPath != null)
-                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
+                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
                     }
 
-                    WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+                    WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
                 }
                 else if (lookupResult.Suggestions.Count > 0)
                 {

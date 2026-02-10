@@ -19,6 +19,12 @@ public record ApiOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string>? MemberFilter { get; init; }
     public bool ShowDocs { get; init; }
+
+    /// <summary>
+    /// Whether the user explicitly set --docs (true or false).
+    /// When false, the command decides the default based on context.
+    /// </summary>
+    public bool DocsExplicitlySet { get; init; }
     public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
     public bool SourceLinkOnly { get; init; }
