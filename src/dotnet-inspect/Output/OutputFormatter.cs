@@ -76,6 +76,7 @@ public static class OutputFormatter
             var auditView = new LibraryInspectionView(inspection);
             var context = new MarkoutContext(new MarkoutWriterOptions
             {
+                IncludeSections = options.IncludeSections,
                 ExcludeSections = GetLibraryExcludeSections(options)
             });
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
@@ -97,6 +98,7 @@ public static class OutputFormatter
             };
             var context = new MarkoutContext(new MarkoutWriterOptions
             {
+                IncludeSections = options.IncludeSections,
                 ExcludeSections = GetLibraryExcludeSections(options)
             });
             Console.WriteLine(context.Serialize(report).TrimEnd());
@@ -105,9 +107,22 @@ public static class OutputFormatter
 
     private static HashSet<string>? GetLibraryExcludeSections(AssemblyOptions options)
     {
-        if (!options.IncludeSourcelinkAudit)
-            return ["Source Coverage", "Missing Sources"];
-        return null;
+        // When explicit include sections are set, skip exclude logic
+        if (options.IncludeSections != null)
+            return null;
+
+        HashSet<string> excluded = ["Source Coverage", "Missing Sources"];
+
+        if (options.Verbosity != Verbosity.Detailed)
+            excluded.Add("Symbols");
+
+        if (options.IncludeSourcelinkAudit)
+        {
+            excluded.Remove("Source Coverage");
+            excluded.Remove("Missing Sources");
+        }
+
+        return excluded.Count > 0 ? excluded : null;
     }
 
 }
