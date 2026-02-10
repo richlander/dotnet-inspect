@@ -89,6 +89,9 @@ public static class AssemblyInspector
 
             ExtractCustomAttributes(metadataReader, info);
 
+            info.TypeDefinitionCount = metadataReader.GetTableRowCount(TableIndex.TypeDef);
+            info.MethodDefinitionCount = metadataReader.GetTableRowCount(TableIndex.MethodDef);
+
             if (includeReferences)
             {
                 info.References = ExtractReferences(metadataReader);
