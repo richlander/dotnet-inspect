@@ -1,12 +1,12 @@
-# Assembly Audit
+# Library Audit
 
-The `assembly --audit` command inspects an assembly's build quality and provenance. This document explains each field and what the values mean.
+The `library --audit` command inspects a library's build quality and provenance. This document explains each field and what the values mean.
 
 ## Build Audit Fields
 
 ### Deterministic
 
-Whether the assembly was built with deterministic compilation, meaning the same source produces identical binaries.
+Whether the library was built with deterministic compilation, meaning the same source produces identical binaries.
 
 | Value | Meaning |
 | ----- | ------- |
@@ -17,7 +17,7 @@ Whether the assembly was built with deterministic compilation, meaning the same 
 
 ### Reproducible Flag
 
-Whether the assembly has the reproducible build flag set in its PE header.
+Whether the library has the reproducible build flag set in its PE header.
 
 | Value | Meaning |
 | ----- | ------- |
@@ -41,20 +41,20 @@ Whether SourceLink metadata is available, enabling navigation to exact source co
 
 ### Builder
 
-For assemblies branded as Microsoft (Company = "Microsoft Corporation"), indicates whether we could verify the build came from Microsoft.
+For libraries branded as Microsoft (Company = "Microsoft Corporation"), indicates whether we could verify the build came from Microsoft.
 
 | Value | Meaning |
 | ----- | ------- |
 | Microsoft | Verified via Microsoft symbol server (MSDL) |
 | Unknown | Could not verify - symbols not found on Microsoft servers |
-| *(not shown)* | Non-Microsoft assembly - see Company field instead |
+| *(not shown)* | Non-Microsoft library - see Company field instead |
 
 **Why it matters:** Linux distributions rebuild .NET from source. These builds have Microsoft branding in metadata but aren't the official Microsoft binaries. The Builder field helps distinguish them.
 
 **How verification works:**
 
 - Microsoft publishes symbols to `msdl.microsoft.com`
-- If we can download the PDB (matching the assembly's GUID) and extract SourceLink, it's verified
+- If we can download the PDB (matching the library's GUID) and extract SourceLink, it's verified
 - If symbols aren't found, we can't verify who built it
 
 ## PDB Section Fields
@@ -75,8 +75,8 @@ Where the PDB was found.
 
 | Value | Meaning |
 | ----- | ------- |
-| Embedded | PDB embedded in the assembly itself |
-| Standalone | PDB file next to the assembly |
+| Embedded | PDB embedded in the library itself |
+| Standalone | PDB file next to the library |
 | Symbol Package | Downloaded from symbol server or .snupkg |
 | Unknown | PDB not found |
 
@@ -97,7 +97,7 @@ dotnet-inspect pulls information from multiple sources:
 
 | Data | Source |
 | ---- | ------ |
-| Assembly metadata | PE file headers and custom attributes |
+| Library metadata | PE file headers and custom attributes |
 | PDB / SourceLink | Embedded PDB, local .pdb files, symbol servers |
 | Package metadata | NuGet.org API |
 | Version verification | Microsoft symbol server (MSDL) |
@@ -121,7 +121,7 @@ Symbols downloaded from Microsoft, SourceLink verified.
 | Builder | Unknown |
 ```
 
-Assembly says "Microsoft Corporation" but symbols aren't on Microsoft servers. Rebuilt by distribution maintainers.
+Library says "Microsoft Corporation" but symbols aren't on Microsoft servers. Rebuilt by distribution maintainers.
 
 ### NuGet Package
 
@@ -130,7 +130,7 @@ Assembly says "Microsoft Corporation" but symbols aren't on Microsoft servers. R
 | Server | nuget.org |
 ```
 
-Symbols from NuGet symbol package. Builder field not shown (not a Microsoft-branded assembly).
+Symbols from NuGet symbol package. Builder field not shown (not a Microsoft-branded library).
 
 ### Local/Development Build
 

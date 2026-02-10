@@ -105,7 +105,7 @@ public class SamplesCommand
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         };
 
-        logger.Log("Extracting samples from all types in assembly...");
+        logger.Log("Extracting samples from all types in library...");
         var (api, selectedTfm) = await ApiServices.ExtractApiSurfaceAsync(apiOptions, logger, httpClient);
         
         if (api == null)
@@ -129,7 +129,7 @@ public class SamplesCommand
 
         if (allSamples.Count == 0)
         {
-            Console.Error.WriteLine("No samples found in assembly.");
+            Console.Error.WriteLine("No samples found in library.");
             return 0;
         }
 

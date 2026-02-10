@@ -53,7 +53,7 @@ internal static class SourceEnricher
 
             if (!context.HasMetadata)
             {
-                logger.Log("No metadata in assembly, cannot resolve source.");
+                logger.Log("No metadata in library, cannot resolve source.");
                 return;
             }
 
@@ -82,7 +82,7 @@ internal static class SourceEnricher
                 {
                     Console.Error.WriteLine("Warning: No readable PDB found.");
                 }
-                Console.Error.WriteLine("         Run 'assembly --sourcelink-audit' for more details.");
+                Console.Error.WriteLine("         Run 'library --sourcelink-audit' for more details.");
                 Console.Error.WriteLine();
                 return;
             }
@@ -225,7 +225,7 @@ internal static class SourceEnricher
 
         if (!context.HasMetadata)
         {
-            logger.Log("No metadata in assembly, cannot resolve source.");
+            logger.Log("No metadata in library, cannot resolve source.");
             return;
         }
 
@@ -407,7 +407,7 @@ internal static class SourceEnricher
 
         if (string.IsNullOrEmpty(options.PlatformAssembly))
         {
-            logger.Log("XML doc fallback only available for platform assemblies");
+            logger.Log("XML doc fallback only available for platform libraries");
             return;
         }
 
@@ -581,7 +581,7 @@ internal static class SourceEnricher
         var targetDllPath = Path.Combine(runtimeDir, targetAssemblyName + ".dll");
         if (!File.Exists(targetDllPath))
         {
-            logger.Log($"Target assembly '{targetAssemblyName}' not found at '{targetDllPath}'.");
+            logger.Log($"Target library '{targetAssemblyName}' not found at '{targetDllPath}'.");
             return false;
         }
 

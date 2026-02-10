@@ -33,7 +33,7 @@ public class ImplementsCommand
             // Collect all assembly paths from various sources
             var assemblyInfos = await AssemblyCollector.CollectAsync(context.HttpClient, options, tempDirs, logger, "inspect-impl");
 
-            logger.Log($"Scanning {assemblyInfos.Count} assemblies for types implementing {targetType}");
+            logger.Log($"Scanning {assemblyInfos.Count} libraries for types implementing {targetType}");
 
             // Scan assemblies for implementers
             foreach (var asmInfo in assemblyInfos)
@@ -140,7 +140,7 @@ public class ImplementerResult
     [JsonPropertyName("relationship")]
     public string Relationship { get; set; } = "";
 
-    [JsonPropertyName("assembly")]
+    [JsonPropertyName("library")]
     public string? Assembly { get; set; }
 
     [JsonPropertyName("source")]

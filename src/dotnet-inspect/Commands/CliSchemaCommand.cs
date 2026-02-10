@@ -41,7 +41,7 @@ public class CliSchemaCommand
         {
             Name = "dotnet-inspect",
             Version = VersionInfo.Version,
-            Description = "CLI tool for inspecting .NET assemblies and NuGet packages",
+            Description = "CLI tool for inspecting .NET libraries and NuGet packages",
             Commands = nodes
         };
 

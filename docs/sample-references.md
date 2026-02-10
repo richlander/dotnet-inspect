@@ -205,7 +205,7 @@ This format is not currently supported by the `samples` command.
 
 ```bash
 # Note: Newtonsoft.Json samples are in MAML files, not source code doc comments
-# The tool reads from compiled assembly PDB/source, so MAML samples may not be available
+# The tool reads from compiled library PDB/source, so MAML samples may not be available
 ```
 
 ### Markout

@@ -52,7 +52,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--files` | File structure | Tree of DLLs (or all files with `--all`) |
 | `--readme` | README content | Raw readme text from the package |
 | `--versions` | Version history | Available versions from nuget.org |
-| `--assembly` | Assembly metadata | Delegates to assembly inspection |
+| `--library` | Library metadata | Delegates to library inspection |
 | `--audit` | Build provenance | SourceLink, determinism, signatures |
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
@@ -61,13 +61,13 @@ Each lens is self-contained. `--files` shows a file tree and exits. It does not 
 
 ### `api` Command
 
-The `api` command extracts the public API surface from an assembly. Its default view is *type identity*: kind, modifiers, source URL, and member tables.
+The `api` command extracts the public API surface from a library. Its default view is *type identity*: kind, modifiers, source URL, and member tables.
 
 **Verbosity levels (identity):**
 
 | Level | Sections |
 |-------|----------|
-| `-v:q` | Title and fields only (kind, modifiers, assembly, source) |
+| `-v:q` | Title and fields only (kind, modifiers, library, source) |
 | `-v:m` | Members table |
 | `-v:n` | Members table with full details |
 | `-v:d` | Members table, hierarchy, interfaces |
@@ -80,7 +80,7 @@ The `api` command extracts the public API surface from an assembly. Its default 
 | `--samples` | Code samples | Sample references from XML docs |
 | `--signatures-only` | Compact signatures | One signature per line, no tables |
 
-`--docs` enriches the member table with a Description column rather than replacing the view, but it still functions as a lens -- it fetches external data (source files via SourceLink) that is not part of the assembly's identity metadata.
+`--docs` enriches the member table with a Description column rather than replacing the view, but it still functions as a lens -- it fetches external data (source files via SourceLink) that is not part of the library's identity metadata.
 
 ## Design Principles
 
@@ -104,9 +104,9 @@ When a lens has multiple possible rendering modes, the default should be the mos
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 |---------|---------------------|---------------------------|
-| `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--assembly`, `--audit` |
+| `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--library`, `--audit` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--signatures-only` |
-| `assembly` | Assembly info, PE headers | `--audit`, `--sourcelink`, `--references` |
-| `platform` | Framework listing | (delegates to `assembly` when given a name) |
+| `library` | Library info, PE headers | `--audit`, `--sourcelink`, `--references` |
+| `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
 | `diff` | Change summary | `--stat`, `--name-only` |

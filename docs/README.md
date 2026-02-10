@@ -1,15 +1,15 @@
 # dotnet-inspect Documentation
 
-dotnet-inspect is a CLI tool for exploring .NET assemblies and NuGet packages. It's designed for both humans and LLMs—the structured markdown output is easy to read and easy to parse.
+dotnet-inspect is a CLI tool for exploring .NET libraries and NuGet packages. It's designed for both humans and LLMs—the structured markdown output is easy to read and easy to parse.
 
 The tool answers questions like:
 
 - What methods does `JsonSerializer` have?
 - What changed between v9 and v10 of a package?
 - Where does this type come from?
-- Was this assembly built by Microsoft or rebuilt by my distro?
+- Was this library built by Microsoft or rebuilt by my distro?
 
-Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the contracts you code against, not implementation details. It pulls from multiple sources (assemblies, PDBs, symbol servers, NuGet metadata) to give you a complete picture.
+Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the contracts you code against, not implementation details. It pulls from multiple sources (libraries, PDBs, symbol servers, NuGet metadata) to give you a complete picture.
 
 ## Quick Example
 
@@ -39,8 +39,8 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 | -------- | ----------- |
 | [Architecture](architecture.md) | Tool overview, commands, and design philosophy |
 | [LLM Design](llm-design.md) | Why output is structured for AI-assisted development |
-| [Platform Components](platform-components.md) | Accessing SDK assemblies vs NuGet packages |
-| [Assembly Audit](assembly-audit.md) | Understanding `--audit` output and build verification |
+| [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages |
+| [Library Audit](assembly-audit.md) | Understanding `--audit` output and build verification |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs |
 

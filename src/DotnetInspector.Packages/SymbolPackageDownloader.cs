@@ -129,7 +129,7 @@ public class SymbolPackageDownloader(HttpClient client)
         bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
         if (isMicrosoftPackage)
         {
-            log?.Invoke(isPlatformAssembly ? "Platform assembly, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
+            log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryDownloadFromMsdlAsync(codeView.Value, isPortablePdb, log);
             if (msdlResult.Reader != null)
                 return msdlResult;
@@ -185,7 +185,7 @@ public class SymbolPackageDownloader(HttpClient client)
         bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
         if (isMicrosoftPackage)
         {
-            log?.Invoke(isPlatformAssembly ? "Platform assembly, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
+            log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log);
             if (msdlResult.PdbFilePath != null)
                 return msdlResult;

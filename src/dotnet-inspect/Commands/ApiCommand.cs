@@ -53,7 +53,7 @@ public class ApiCommand
                     var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm);
                     if (tfmAssembly == null)
                     {
-                        Console.Error.WriteLine($"Error: No assembly found for TFM '{options.Tfm}'.");
+                        Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}'.");
                         return 1;
                     }
                     searchPath = tfmAssembly;
@@ -64,7 +64,7 @@ public class ApiCommand
                     var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
                     if (!File.Exists(targetPath))
                     {
-                        Console.Error.WriteLine($"Error: Assembly '{options.AssemblyPath}' not found in package.");
+                        Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
                         return 1;
                     }
                     searchPath = targetPath;
@@ -97,7 +97,7 @@ public class ApiCommand
                 searchPath = assemblyPath!;
                 apiSource = $"platform ({framework})";
                 apiVersion = version;
-                logger.Log($"Using platform ref assembly: {framework} {version}");
+                logger.Log($"Using platform ref library: {framework} {version}");
 
                 var (runtimePath, _, _, runtimeError) = Inspectors.PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
@@ -108,12 +108,12 @@ public class ApiCommand
                 if (runtimeError == null && runtimePath != null)
                 {
                     runtimeAssemblyPath = runtimePath;
-                    logger.Log($"Using runtime assembly for PDB lookup: {runtimePath}");
+                    logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
                 }
             }
             else
             {
-                Console.Error.WriteLine("Error: No package, assembly, or platform specified.");
+                Console.Error.WriteLine("Error: No package, library, or platform specified.");
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("Example: dotnet-inspect api System.Text.Json JsonSerializer");
                 return 1;
@@ -150,7 +150,7 @@ public class ApiCommand
                         }
                         else
                         {
-                            Console.Error.WriteLine("Error: Multiple assemblies found. Please specify one with --assembly or --tfm.");
+                            Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
                             return 1;
                         }
                     }
@@ -159,7 +159,7 @@ public class ApiCommand
                 var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
                 if (api == null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from assembly.");
+                    Console.Error.WriteLine("Error: Could not extract API from library.");
                     return 1;
                 }
 
@@ -205,7 +205,7 @@ public class ApiCommand
                 var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
                 if (api == null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from assembly.");
+                    Console.Error.WriteLine("Error: Could not extract API from library.");
                     return 1;
                 }
 

@@ -20,7 +20,7 @@ The tool is organized around seven commands plus a meta command, each targeting 
 │                        package                               │
 │  NuGet package metadata, dependencies, file structure        │
 ├─────────────────────────────────────────────────────────────┤
-│                        assembly                              │
+│                        library                              │
 │  PE headers, SourceLink, determinism audit                   │
 ├─────────────────────────────────────────────────────────────┤
 │                          api                                 │
@@ -36,22 +36,22 @@ The tool is organized around seven commands plus a meta command, each targeting 
 │  Extract code sample references from XML doc comments        │
 ├─────────────────────────────────────────────────────────────┤
 │                       platform                               │
-│  List platform/framework assemblies from installed SDK       │
+│  List platform/framework libraries from installed SDK       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### package
 
-Inspects NuGet package metadata without extracting assemblies:
+Inspects NuGet package metadata without extracting libraries:
 
 - Package ID, version, authors, license
 - Target frameworks and dependencies per TFM
 - File listing (DLLs or all files with `--all`)
 - Version history from nuget.org
 
-### assembly
+### library
 
-Inspects .NET assembly files (PE/COFF format):
+Inspects .NET library files (PE/COFF format):
 
 - Assembly identity (name, version, public key token)
 - PE characteristics (architecture, compilation type)
@@ -93,10 +93,10 @@ Extracts code sample references from XML doc comments:
 
 ### platform
 
-Lists platform/framework assemblies from the installed .NET SDK:
+Lists platform/framework libraries from the installed .NET SDK:
 
 - Available frameworks and versions
-- Assembly listing per framework
+- Library listing per framework
 - Useful for inspecting BCL types
 
 ## LLM Integration
@@ -124,7 +124,7 @@ The llms.txt content includes:
 - **Full signatures** - Parameter names included, not just types
 - **Minimal noise** - Hidden/obsolete members excluded by default
 
-## Assembly Inspection
+## Library Inspection
 
 The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecutable` for low-level assembly inspection without loading assemblies into the runtime.
 
@@ -450,7 +450,7 @@ src/DotnetInspector.Metadata/   # PE/assembly domain provider
 
 ## Key Design Decisions
 
-1. **No assembly loading** — Uses `MetadataReader` to avoid loading assemblies into the runtime, enabling inspection of any .NET assembly regardless of target framework.
+1. **No assembly loading** — Uses `MetadataReader` to avoid loading assemblies into the runtime, enabling inspection of any .NET library regardless of target framework.
 
 2. **Data/View model split** — Data models (`Models/`) have zero Markout references. View models (`Views/`) own all presentation. This prevents serialization concerns from bleeding into domain types.
 

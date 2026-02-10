@@ -17,7 +17,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "assembly", "api", "diff", "find", "search", "samples", "platform", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "diff", "find", "search", "samples", "platform", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -39,7 +39,7 @@ public static class CommandLineBuilder
     public static RootCommand CreateRootCommand()
     {
         var rootCommand = new RootCommand(
-            $"{VersionInfo.ToolName} {VersionInfo.Version} - A CLI tool for inspecting .NET assemblies and NuGet packages");
+            $"{VersionInfo.ToolName} {VersionInfo.Version} - A CLI tool for inspecting .NET libraries and NuGet packages");
 
         // Shared options (defined once, reused across commands)
         var jsonOption = new Option<bool>("--json") { Description = "Output as JSON" };
@@ -158,7 +158,7 @@ public static class CommandLineBuilder
                 new Tip("-T:d", "", "show more tips per command"),
                 new Tip(ApiCommand.Name, "--package <package>", "view public API surface"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
-                new Tip(FindCommand.Name, "<pattern> --platform <assembly>", "search platform types"));
+                new Tip(FindCommand.Name, "<pattern> --platform <library>", "search platform types"));
         });
 
         return rootCommand;
@@ -210,7 +210,7 @@ public static class CommandLineBuilder
         };
         var platformOption = new Option<string?>("--platform")
         {
-            Description = "Platform assembly with version range (e.g., System.Text.Json@8.0.23..10.0.2)"
+            Description = "Platform library with version range (e.g., System.Text.Json@8.0.23..10.0.2)"
         };
         var frameworkOption = new Option<string?>("--framework")
         {
@@ -364,19 +364,19 @@ public static class CommandLineBuilder
             Description = "Search in package(s) (name or name@version). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var assemblyOption = new Option<string[]>("--assembly")
+        var assemblyOption = new Option<string[]>("--library")
         {
-            Description = "Search in assembly file(s). Can repeat.",
+            Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var platformOption = new Option<string[]>("--platform")
         {
-            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            Description = "Search in platform library(s) (e.g., System.Text.Json). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var frameworkOption = new Option<string[]>("--framework")
         {
-            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            Description = "Search all libraries in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var reachableOption = new Option<bool>("--reachable")
@@ -448,7 +448,7 @@ public static class CommandLineBuilder
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var findCommand = new Command(FindCommand.Name, "Search for types across packages and assemblies");
+        var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");
         findCommand.Aliases.Add("search");
 
         var patternArg = new Argument<string>("pattern")
@@ -461,19 +461,19 @@ public static class CommandLineBuilder
             Description = "Search in package(s) (name or name@version). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var assemblyOption = new Option<string[]>("--assembly")
+        var assemblyOption = new Option<string[]>("--library")
         {
-            Description = "Search in assembly file(s). Can repeat.",
+            Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var platformOption = new Option<string[]>("--platform")
         {
-            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            Description = "Search in platform library(s) (e.g., System.Text.Json). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var frameworkOption = new Option<string[]>("--framework")
         {
-            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            Description = "Search all libraries in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var projectOption = new Option<string[]>("--project")
@@ -486,7 +486,7 @@ public static class CommandLineBuilder
             Description = "Search all DLLs in output directory(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly or target framework by TFM (e.g., net8.0)" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "Space-separated type names on one line" };
@@ -550,7 +550,7 @@ public static class CommandLineBuilder
             if (exitCode == 0 && !options.OneLine && !options.NameOnly)
             {
                 var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
-                var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <assembly>";
+                var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <library>";
 
                 Hints.WriteTips(tipLevel,
                     new(ApiCommand.Name, $"<TypeName> {sourceFlag} --shape", "view type shape"),
@@ -573,19 +573,19 @@ public static class CommandLineBuilder
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var samplesCommand = new Command("samples", "Show sample code references for a type or assembly");
+        var samplesCommand = new Command("samples", "Show sample code references for a type or library");
 
         var typeNameArg = new Argument<string?>("type")
         {
-            Description = "Type name to get samples for (omit for assembly-wide samples)",
+            Description = "Type name to get samples for (omit for library-wide samples)",
             Arity = ArgumentArity.ZeroOrOne
         };
 
         var packageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
-        var assemblyOption = new Option<string?>("--assembly") { Description = "Assembly path" };
-        var platformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
+        var assemblyOption = new Option<string?>("--library") { Description = "Library path" };
+        var platformOption = new Option<string?>("--platform") { Description = "Extract from platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
-        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs" };
         var listOption = new Option<bool>("--list") { Description = "List samples only (don't fetch content)" };
         var printOption = new Option<int?>("--print") { Description = "Print specific sample by number (raw code, no markdown)", Arity = ArgumentArity.ExactlyOne };
@@ -639,11 +639,11 @@ public static class CommandLineBuilder
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption)
     {
-        var platformCommand = new Command(PlatformCommand.Name, "Inspect platform assemblies and frameworks");
+        var platformCommand = new Command(PlatformCommand.Name, "Inspect platform libraries and frameworks");
 
-        var assemblyNameArg = new Argument<string?>("assembly")
+        var assemblyNameArg = new Argument<string?>("library")
         {
-            Description = "Platform assembly name to inspect (e.g., System.Text.Json)",
+            Description = "Platform library name to inspect (e.g., System.Text.Json)",
             Arity = ArgumentArity.ZeroOrOne
         };
         assemblyNameArg.DefaultValueFactory = _ => null;
@@ -654,7 +654,7 @@ public static class CommandLineBuilder
         };
         var metadataOption = new Option<bool>("--metadata")
         {
-            Description = "Show assembly info (PE metadata: name, version, TFM, architecture)"
+            Description = "Show library info (PE metadata: name, version, TFM, architecture)"
         };
         var symbolsOption = new Option<bool>("--symbols")
         {
@@ -677,7 +677,7 @@ public static class CommandLineBuilder
         platformCommand.Options.Add(tipsOption);
 
         // list subcommand (alias: ls) - list installed frameworks and assemblies
-        var listCommand = new Command("list", "List installed frameworks and assemblies");
+        var listCommand = new Command("list", "List installed frameworks and libraries");
         listCommand.Aliases.Add("ls");
 
         var listFrameworkOption = new Option<string?>("--framework")
@@ -690,7 +690,7 @@ public static class CommandLineBuilder
         };
         var includeTypesOption = new Option<bool>("--types")
         {
-            Description = "Include public type count for each assembly (use with --framework)"
+            Description = "Include public type count for each library (use with --framework)"
         };
         var listJsonOption = new Option<bool>("--json")
         {
@@ -798,19 +798,19 @@ public static class CommandLineBuilder
             Description = "Search in package(s) (name or name@version). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var assemblyOption = new Option<string[]>("--assembly")
+        var assemblyOption = new Option<string[]>("--library")
         {
-            Description = "Search in assembly file(s). Can repeat.",
+            Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var platformOption = new Option<string[]>("--platform")
         {
-            Description = "Search in platform assembly(s) (e.g., System.Text.Json). Can repeat.",
+            Description = "Search in platform library(s) (e.g., System.Text.Json). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var frameworkOption = new Option<string[]>("--framework")
         {
-            Description = "Search all assemblies in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
+            Description = "Search all libraries in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
@@ -894,10 +894,10 @@ public static class CommandLineBuilder
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
         var discoverOption = new Option<bool>("--discover") { Description = "List available sections and exit" };
         // New tiered flags
-        var metadataOption = new Option<bool>("--metadata") { Description = "Show assembly info (PE metadata: name, version, TFM, architecture)" };
+        var metadataOption = new Option<bool>("--metadata") { Description = "Show library info (PE metadata: name, version, TFM, architecture)" };
         var symbolsOption = new Option<bool>("--symbols") { Description = "Show Build Audit + PDB info (downloads PDB if needed)" };
         var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
-        var tfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var versionOption = new Option<string?>("--version") { Description = "Package version" };
 
         packageCommand.Arguments.Add(packageNameArg);
@@ -1041,26 +1041,26 @@ public static class CommandLineBuilder
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var assemblyCommand = new Command("assembly", "Inspect a .NET assembly file");
+        var assemblyCommand = new Command("library", "Inspect a .NET library file");
 
         var assemblyPathArg = new Argument<string?>("path")
         {
-            Description = "Path to assembly file",
+            Description = "Path to library file",
             Arity = ArgumentArity.ZeroOrOne
         };
         assemblyPathArg.DefaultValueFactory = _ => null;
 
         // New tiered flags
-        var metadataOption = new Option<bool>("--metadata") { Description = "Show assembly info (PE metadata: name, version, TFM, architecture)" };
+        var metadataOption = new Option<bool>("--metadata") { Description = "Show library info (PE metadata: name, version, TFM, architecture)" };
         var symbolsOption = new Option<bool>("--symbols") { Description = "Show Build Audit + PDB info (downloads PDB if needed)" };
         var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
-        var referencesOption = new Option<bool>("--references") { Description = "Show assembly references" };
-        var transitiveOption = new Option<bool>("--transitive") { Description = "[Deprecated: use --dependencies] Show transitive assembly references" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show assembly dependencies as a tree" };
+        var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
+        var transitiveOption = new Option<bool>("--transitive") { Description = "[Deprecated: use --dependencies] Show transitive library references" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree" };
         var asmPackageOption = new Option<string?>("--package") { Description = "[Deprecated: use 'package X --metadata/--symbols/--sourcelink-audit'] Extract from package" };
-        var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform assembly (e.g., System.Text.Json)" };
+        var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
-        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0, or 'all' for every TFM)" };
+        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(metadataOption);
@@ -1092,7 +1092,7 @@ public static class CommandLineBuilder
             // Emit deprecation warning for --package
             if (!string.IsNullOrEmpty(packagePath))
             {
-                Console.Error.WriteLine("Warning: 'assembly --package X' is deprecated. Use 'package X --metadata' instead.");
+                Console.Error.WriteLine("Warning: 'library --package X' is deprecated. Use 'package X --metadata' instead.");
             }
 
             // New tiered flags
@@ -1153,15 +1153,15 @@ public static class CommandLineBuilder
 
         var argsArg = new Argument<string[]>("args")
         {
-            Description = "Package and type name. When no --package/--assembly/--platform is given, first arg is the package.",
+            Description = "Package and type name. When no --package/--library/--platform is given, first arg is the package.",
             Arity = ArgumentArity.ZeroOrMore
         };
 
         var apiPackageOption = new Option<string?>("--package") { Description = "Extract from package (file, name, or name@version)" };
-        var apiAssemblyOption = new Option<string?>("--assembly") { Description = "Assembly path (local file, or relative path within package)" };
-        var apiPlatformOption = new Option<string?>("--platform") { Description = "Extract from platform assembly (e.g., System.Text.Json)" };
+        var apiAssemblyOption = new Option<string?>("--library") { Description = "Library path (local file, or relative path within package)" };
+        var apiPlatformOption = new Option<string?>("--platform") { Description = "Extract from platform library (e.g., System.Text.Json)" };
         var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
-        var apiTfmOption = new Option<string?>("--tfm") { Description = "Select assembly by TFM (e.g., net8.0)" };
+        var apiTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter to types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");

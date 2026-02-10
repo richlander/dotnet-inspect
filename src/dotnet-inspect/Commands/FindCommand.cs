@@ -162,7 +162,7 @@ public class TypeSearchResult
     [JsonPropertyName("kind")]
     public string Kind { get; set; } = "";
 
-    [JsonPropertyName("assembly")]
+    [JsonPropertyName("library")]
     public string? Assembly { get; set; }
 
     [JsonPropertyName("source")]

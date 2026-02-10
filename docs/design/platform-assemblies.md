@@ -1,10 +1,10 @@
-# Platform Assembly Resolution
+# Platform Library Resolution
 
-This document describes how dotnet-inspect resolves and uses platform assemblies from the installed .NET SDK.
+This document describes how dotnet-inspect resolves and uses platform libraries from the installed .NET SDK.
 
 ## Overview
 
-The .NET SDK installs assemblies in two distinct locations:
+The .NET SDK installs libraries in two distinct locations:
 
 | Location | Path Pattern | Purpose | Debug Info |
 | -------- | ------------ | ------- | ---------- |
@@ -33,7 +33,7 @@ Commands that use ref assemblies for primary data:
 
 ### Runtime Assemblies (Shared)
 
-**Use for:** PDB/SourceLink resolution, full assembly inspection
+**Use for:** PDB/SourceLink resolution, full library inspection
 
 Runtime assemblies are the actual implementation. They:
 
@@ -44,7 +44,7 @@ Runtime assemblies are the actual implementation. They:
 
 Commands that use runtime assemblies:
 
-- `assembly` - Full assembly inspection (always uses runtime for `--platform`)
+- `library` - Full library inspection (always uses runtime for `--platform`)
 - Any command with `--audit` flag
 - PDB/SourceLink resolution for `--docs`, `--samples`, or source URL extraction
 
@@ -106,7 +106,7 @@ Note: `netstandard` has no runtime assemblies. It's a reference-only framework t
 | `samples --platform` | Ref | Runtime | Hybrid: type lookup from ref, samples from PDB |
 | `find --platform` | Ref | *(none)* | Ref only: no PDB needed for search |
 | `diff --platform` | Ref | *(none)* | Ref only: comparing public API |
-| `assembly --platform` | Runtime | Runtime | Runtime only: full inspection with debug info |
+| `library --platform` | Runtime | Runtime | Runtime only: full inspection with debug info |
 
 ## Implementation
 
@@ -148,7 +148,7 @@ The resolver:
 1. Parses `framework@version` syntax
 2. Lists installed versions (sorted descending)
 3. Matches requested version prefix or uses latest
-4. Returns full path to assembly
+4. Returns full path to library
 
 ## Troubleshooting
 
@@ -160,9 +160,9 @@ This usually means the code is trying to use a **ref assembly** for PDB lookup. 
 2. The assembly exists in `shared/` directory
 3. MSDL symbol server is accessible
 
-### "Assembly not found in framework"
+### "Library not found in framework"
 
-The assembly may only exist in a specific framework:
+The library may only exist in a specific framework:
 
 - BCL types → `runtime`
 - ASP.NET types → `aspnetcore`

@@ -249,16 +249,16 @@ public class CommandLineTests
     [Fact]
     public void AssemblyCommand_WithPackage_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "--package", "System.Text.Json"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "--package", "System.Text.Json"]);
 
         Assert.Empty(result.Errors);
-        Assert.Equal("assembly", result.CommandResult.Command.Name);
+        Assert.Equal("library", result.CommandResult.Command.Name);
     }
 
     [Fact]
     public void AssemblyCommand_WithTfm_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "--package", "System.Text.Json", "--tfm", "net8.0"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "--package", "System.Text.Json", "--tfm", "net8.0"]);
 
         Assert.Empty(result.Errors);
     }
@@ -266,7 +266,7 @@ public class CommandLineTests
     [Fact]
     public void AssemblyCommand_WithLocalPath_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "MyLib.dll"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "MyLib.dll"]);
 
         Assert.Empty(result.Errors);
     }
@@ -274,10 +274,10 @@ public class CommandLineTests
     [Fact]
     public void AssemblyCommand_WithDependencies_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["assembly", "MyLib.dll", "--dependencies"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "MyLib.dll", "--dependencies"]);
 
         Assert.Empty(result.Errors);
-        Assert.Equal("assembly", result.CommandResult.Command.Name);
+        Assert.Equal("library", result.CommandResult.Command.Name);
     }
 
     [Fact]

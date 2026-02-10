@@ -111,7 +111,7 @@ public class AssemblyAuditView
     [MarkoutIgnore]
     public ApiSurface? ApiSurface => _data.ApiSurface;
 
-    [MarkoutPropertyName("Assembly")]
+    [MarkoutPropertyName("Library")]
     public string? AssemblySummary => _data.AssemblyInfo switch
     {
         null => null,
@@ -133,7 +133,7 @@ public class AssemblyAuditView
 
     // ===== Field Collection Sections =====
 
-    [MarkoutSection(Name = "Assembly Info")]
+    [MarkoutSection(Name = "Library Info")]
     public List<MarkoutField> AssemblyInfoSection => GetAssemblyInfoFields();
 
     [MarkoutSection(Name = "Symbols")]
@@ -145,14 +145,14 @@ public class AssemblyAuditView
     [MarkoutIgnore]
     public bool UseDependenciesView => _data.UseDependenciesView;
 
-    [MarkoutSection(Name = "Assembly References")]
+    [MarkoutSection(Name = "Library References")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         _data.AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
         _data.AssemblyInfo?.References?.OrderBy(r => r.Name)
             .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
             .ToList() is { Count: > 0 } list ? list : null;
 
-    [MarkoutSection(Name = "Assembly References (Transitive)")]
+    [MarkoutSection(Name = "Library References (Transitive)")]
     public List<TreeNode>? TransitiveReferencesSection =>
         _data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
         BuildFlatTransitiveTree(_data.AssemblyInfo.TransitiveReferences);

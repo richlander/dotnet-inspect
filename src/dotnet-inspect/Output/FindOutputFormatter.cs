@@ -91,7 +91,7 @@ public static class FindOutputFormatter
 
     private static void WriteResultTable(MarkoutWriter writer, List<TypeSearchResult> results)
     {
-        var headers = new[] { "Type", "Namespace", "Kind", "Assembly", "Source" };
+        var headers = new[] { "Type", "Namespace", "Kind", "Library", "Source" };
         var rows = results.Select(result =>
         {
             var ns = result.Namespace ?? "";

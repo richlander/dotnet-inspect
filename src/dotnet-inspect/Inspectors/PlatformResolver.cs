@@ -349,7 +349,7 @@ public static class PlatformResolver
         var refPath = GetRefAssemblyPath(refPackPath, version);
         if (refPath == null)
         {
-            return (null, null, $"Could not find ref assemblies for '{frameworkName}' version {version}");
+            return (null, null, $"Could not find ref libraries for '{frameworkName}' version {version}");
         }
 
         return (refPath, version, null);
@@ -398,7 +398,7 @@ public static class PlatformResolver
             var assemblyPath = Path.Combine(refPath!, assemblyName);
             if (!File.Exists(assemblyPath))
             {
-                return (null, null, null, $"Assembly '{assemblyName}' not found in {frameworkSpec}");
+                return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
             }
 
             // Get framework short name
@@ -430,7 +430,7 @@ public static class PlatformResolver
             }
         }
 
-        return (null, null, null, $"Assembly '{assemblyName}' not found in any installed framework");
+        return (null, null, null, $"Library '{assemblyName}' not found in any installed framework");
     }
 
     /// <summary>
@@ -471,7 +471,7 @@ public static class PlatformResolver
             // netstandard doesn't have a runtime, fall back to runtime
             if (frameworkName.Equals("netstandard", StringComparison.OrdinalIgnoreCase))
             {
-                return (null, null, null, "netstandard does not have runtime assemblies (ref-only)");
+                return (null, null, null, "netstandard does not have runtime libraries (ref-only)");
             }
             return (null, null, null, $"Unknown framework '{frameworkName}'. Valid names for runtime: {string.Join(", ", SharedFrameworkMappings.Keys)}");
         }
@@ -515,7 +515,7 @@ public static class PlatformResolver
         var assemblyPath = Path.Combine(frameworkPath, version, assemblyName);
         if (!File.Exists(assemblyPath))
         {
-            return (null, null, null, $"Assembly '{assemblyName}' not found in {frameworkName} runtime {version}");
+            return (null, null, null, $"Library '{assemblyName}' not found in {frameworkName} runtime {version}");
         }
 
         return (assemblyPath, frameworkName, version, null);

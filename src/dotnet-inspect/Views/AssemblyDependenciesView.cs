@@ -33,7 +33,7 @@ public class AssemblyDependenciesView
     {
         var fields = new List<MarkoutField>();
         if (!string.IsNullOrEmpty(AssemblyName))
-            fields.Add(new("Assembly", AssemblyName));
+            fields.Add(new("Library", AssemblyName));
         if (!string.IsNullOrEmpty(Version))
             fields.Add(new("Version", Version));
         if (!string.IsNullOrEmpty(Tfm))

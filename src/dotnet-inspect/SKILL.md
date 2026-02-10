@@ -1,11 +1,11 @@
 ---
 name: dotnet-inspect
-description: Inspect .NET assemblies and NuGet packages. Use when you need to understand package contents, view public API surfaces, compare APIs between versions, or audit assemblies for SourceLink/determinism. Essential for .NET development tasks involving package exploration or API discovery.
+description: Inspect .NET libraries and NuGet packages. Use when you need to understand package contents, view public API surfaces, compare APIs between versions, or audit libraries for SourceLink/determinism. Essential for .NET development tasks involving package exploration or API discovery.
 ---
 
 # dotnet-inspect
 
-A CLI tool for inspecting .NET assemblies and NuGet packages.
+A CLI tool for inspecting .NET libraries and NuGet packages.
 
 ## Requirements
 
@@ -89,11 +89,11 @@ dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
 | ------- | ------- |
 | `api <type>` | **Start here.** Public API surface (table format, or `--shape` for hierarchy) |
 | `diff` | Compare API surfaces between package versions (whole-package or filtered) |
-| `find <pattern>` | Search for types across packages, assemblies, or frameworks |
+| `find <pattern>` | Search for types across packages, libraries, or frameworks |
 | `extensions <type>` | Find extension methods for a type |
 | `implements <type>` | Find types implementing an interface or extending a class |
 | `package <name>` | Package metadata, files, versions, dependencies |
-| `assembly <path>` | Assembly info, SourceLink/determinism audit |
+| `library <path>` | Library info, SourceLink/determinism audit |
 | `llmstxt` | Complete usage examples for all commands |
 
 ## Full Documentation
@@ -111,6 +111,6 @@ dnx dotnet-inspect -y -- llmstxt
 - Finding types that implement an interface or extend a base class
 - Understanding method signatures and overloads
 - Comparing API changes between package versions
-- Auditing assemblies for SourceLink and determinism
+- Auditing libraries for SourceLink and determinism
 - Finding types matching a pattern (`--filter "Progress*"`)
 - Getting documentation from source (`--docs`)
