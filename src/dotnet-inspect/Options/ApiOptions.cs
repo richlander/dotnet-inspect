@@ -39,4 +39,9 @@ public record ApiOptions
     public HashSet<string>? ExcludeSections { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// </summary>
+    public bool IsRawOutput => JsonOutput || SignaturesOnly || ShapeOutput;
 }

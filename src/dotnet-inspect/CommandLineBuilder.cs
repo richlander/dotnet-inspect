@@ -306,7 +306,7 @@ public static class CommandLineBuilder
             var exitCode = await DiffCommand.ExecuteAsync(options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            var tipLevel = verbosity == Verbosity.Quiet
+            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             if (exitCode == 0)
@@ -546,10 +546,10 @@ public static class CommandLineBuilder
             var exitCode = await FindCommand.ExecuteAsync(pattern!, options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            var tipLevel = options.JsonOutput || verbosity == Verbosity.Quiet
+            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
-            if (exitCode == 0 && !options.OneLine && !options.NameOnly)
+            if (exitCode == 0 && !options.IsRawOutput)
             {
                 var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
                 var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <library>";
@@ -920,9 +920,6 @@ public static class CommandLineBuilder
             var explicitVersion = parseResult.GetValue(versionOption);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            var jsonOutput = parseResult.GetValue(jsonOption);
-            var tipLevel = jsonOutput || verbosity == Verbosity.Quiet
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             var options = new InspectionOptions
             {
@@ -938,19 +935,21 @@ public static class CommandLineBuilder
                 ShowReadme = parseResult.GetValue(readmeOption),
                 OutputPath = parseResult.GetValue(outOption),
                 Limit = parseResult.GetValue(limitOption),
-                JsonOutput = jsonOutput,
+                JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = verbosity,
-                TipLevel = tipLevel,
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
+            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+            options = options with { TipLevel = tipLevel };
+
             var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options, explicitVersion);
 
-            if (exitCode == 0 && packageArgs.Length > 0
-                && !options.ListVersions && !options.ListFiles && !options.ListLayout && !options.ListTfms && !options.ShowReadme)
+            if (exitCode == 0 && packageArgs.Length > 0 && !options.IsRawOutput)
             {
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
@@ -1236,9 +1235,13 @@ public static class CommandLineBuilder
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                TipLevel = parseResult.GetValue(verbosityOption)?.TrimStart(':').StartsWith("q", StringComparison.OrdinalIgnoreCase) == true
-                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+            };
+
+            options = options with
+            {
+                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
+                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
             };
 
             return await ApiCommand.ExecuteAsync(typeName, options);
