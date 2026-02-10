@@ -32,7 +32,7 @@ public class InspectionResultView
     [MarkoutIgnoreInTable]
     public List<MarkoutField> Summary => GetCompactFields();
 
-    [MarkoutSection(Name = "Package")]
+    [MarkoutSection(Name = PackageSections.Package)]
     public List<MarkoutField> Metadata => GetMetadataFields();
 
     public string? Authors => _data.Authors;
@@ -43,24 +43,24 @@ public class InspectionResultView
     [MarkoutPropertyName("Updated")]
     public DateTimeOffset? Published => _data.Published;
 
-    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutSkipNull]
     [MarkoutValueFormatter(typeof(CompactNumberFormatter))]
     [MarkoutPropertyName("Downloads")]
     public long? TotalDownloads => _data.TotalDownloads;
 
-    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutSkipNull]
     [MarkoutValueFormatter(typeof(CompactNumberFormatter))]
     [MarkoutPropertyName("Version Downloads")]
     public long? VersionDownloads => _data.VersionDownloads;
 
-    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutSkipNull]
     [MarkoutPropertyName("Version Count")]
     public int? VersionCount => _data.VersionCount;
 
-    [MarkoutSection(Name = "Statistics")]
+    [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutSkipNull]
     [MarkoutValueFormatter(typeof(ByteSizeFormatter))]
     [MarkoutPropertyName("Package Size")]
@@ -75,7 +75,7 @@ public class InspectionResultView
     [MarkoutIgnoreInTable]
     public PackageDeprecation? Deprecation => _data.Deprecation;
 
-    [MarkoutSection(Name = "Vulnerabilities")]
+    [MarkoutSection(Name = PackageSections.Vulnerabilities)]
     [MarkoutIgnoreInTable]
     public List<PackageVulnerability>? Vulnerabilities => _data.Vulnerabilities;
 
@@ -146,7 +146,7 @@ public class InspectionResultView
     [MarkoutPropertyName("Tool Commands")]
     public List<string>? ToolCommands => _data.ToolCommands;
 
-    [MarkoutSection(Name = "RID Packages")]
+    [MarkoutSection(Name = PackageSections.RidPackages)]
     public List<RidPackageReferenceView>? RuntimeIdentifierPackages => _data.RuntimeIdentifierPackages?
         .Select(r => new RidPackageReferenceView(r))
         .ToList();
@@ -161,7 +161,7 @@ public class InspectionResultView
     [MarkoutIgnoreInTable]
     public List<DependencyGroup>? DependencyGroups => _data.DependencyGroups;
 
-    [MarkoutSection(Name = "Package Dependencies")]
+    [MarkoutSection(Name = PackageSections.PackageDependencies)]
     public List<FlatDependency>? FlatDependencies => _data.DependencyGroups?
         .OrderBy(g => GetTfmSortOrder(g.TargetFramework))
         .ThenBy(g => g.TargetFramework)
@@ -188,10 +188,10 @@ public class InspectionResultView
         return 3;
     }
 
-    [MarkoutSection(Name = "Runtime Dependencies")]
+    [MarkoutSection(Name = PackageSections.RuntimeDependencies)]
     public List<PackageDependency>? RuntimeDependencies => _data.RuntimeDependencies;
 
-    [MarkoutSection(Name = "Files")]
+    [MarkoutSection(Name = PackageSections.Files)]
     public List<string>? Files => _data.Files;
 
     private List<MarkoutField> GetCompactFields()

@@ -22,7 +22,7 @@ public class PackageCommand
         // Handle --discover mode: list sections and exit early
         if (options.Discover)
         {
-            string[] sectionNames = ["Package", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"];
+            string[] sectionNames = [PackageSections.Package, PackageSections.Statistics, PackageSections.PackageDependencies, PackageSections.Files, PackageSections.Vulnerabilities, PackageSections.RidPackages, PackageSections.RuntimeDependencies];
             foreach (var name in sectionNames)
             {
                 Console.WriteLine(name);

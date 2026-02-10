@@ -48,12 +48,12 @@ public static class OutputFormatter
         return options.Verbosity switch
         {
             // Quiet: exclude all sections (just title + compact line)
-            Verbosity.Quiet => ["Package", "Statistics", "Package Dependencies", "Files", "Vulnerabilities", "RID Packages", "Runtime Dependencies"],
+            Verbosity.Quiet => [PackageSections.Package, PackageSections.Statistics, PackageSections.PackageDependencies, PackageSections.Files, PackageSections.Vulnerabilities, PackageSections.RidPackages, PackageSections.RuntimeDependencies],
             // Minimal: show Metadata, exclude Statistics, Package Dependencies, Files, Vulnerabilities
-            Verbosity.Minimal => ["Statistics", "Package Dependencies", "Files", "Vulnerabilities"],
+            Verbosity.Minimal => [PackageSections.Statistics, PackageSections.PackageDependencies, PackageSections.Files, PackageSections.Vulnerabilities],
             // Normal: show most sections, exclude Vulnerabilities (use -v:d to see them)
-            Verbosity.Normal => ["Vulnerabilities"],
-            Verbosity.Detailed => ["Files"],
+            Verbosity.Normal => [PackageSections.Vulnerabilities],
+            Verbosity.Detailed => [PackageSections.Files],
             _ => null
         };
     }
