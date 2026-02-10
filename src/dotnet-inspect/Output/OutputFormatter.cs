@@ -11,19 +11,14 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class OutputFormatter
 {
-    public static void WriteResult(InspectionResult result, InspectionOptions options)
+    public static string FormatResult(InspectionResult result, InspectionOptions options)
     {
-        string output;
         if (options.JsonOutput)
         {
-            output = JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
+            return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
-        else
-        {
-            output = RenderMarkout(result, options);
-        }
-        
-        WriteOutput(output, options.OutputPath);
+
+        return RenderMarkout(result, options);
     }
 
     private static string RenderMarkout(InspectionResult result, InspectionOptions options)
@@ -117,18 +112,4 @@ public static class OutputFormatter
         return null;
     }
 
-    /// <summary>
-    /// Writes output to file if path is specified, otherwise to stdout.
-    /// </summary>
-    public static void WriteOutput(string content, string? outputPath)
-    {
-        if (!string.IsNullOrEmpty(outputPath))
-        {
-            File.WriteAllText(outputPath, content);
-        }
-        else
-        {
-            Console.WriteLine(content);
-        }
-    }
 }
