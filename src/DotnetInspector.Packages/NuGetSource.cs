@@ -23,11 +23,16 @@ public record NuGetSource(string Name, string Url)
     public string? GetFlatContainerUrl()
     {
         // nuget.org has a well-known flat-container URL
-        if (Url.Contains("api.nuget.org", StringComparison.OrdinalIgnoreCase))
+        if (IsNuGetOrg())
         {
             return "https://api.nuget.org/v3-flatcontainer";
         }
 
         return null;
     }
+
+    /// <summary>
+    /// Returns true if this source points to nuget.org.
+    /// </summary>
+    public bool IsNuGetOrg() => Url.Contains("api.nuget.org", StringComparison.OrdinalIgnoreCase);
 }

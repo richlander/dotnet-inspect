@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -103,19 +104,73 @@ public static class PackageResolverService
 
     /// <summary>
     /// Gets the latest version of a package from NuGet. Prefers stable versions.
+    /// Uses a 1-hour disk cache to avoid network calls on repeated invocations.
     /// </summary>
     public static async Task<string?> GetLatestVersionAsync(
+        HttpClient client, string packageName, Action<string>? log)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+
+        // Check version cache first (1-hour TTL)
+        var cached = CoreCache.TryGet("versions", normalizedName, TimeSpan.FromHours(1), extension: "txt");
+        if (cached != null)
+        {
+            log?.Invoke($"Using cached version: {cached}");
+            return cached;
+        }
+
+        // Use the search API — returns latest stable version directly
+        var version = await GetLatestVersionFromSearchAsync(client, normalizedName, log);
+
+        // Fall back to flat-container index
+        version ??= await GetLatestVersionFromIndexAsync(client, normalizedName, log);
+
+        if (version != null)
+        {
+            CoreCache.Set("versions", normalizedName, version, extension: "txt");
+            log?.Invoke($"Latest version: {version}");
+        }
+
+        return version;
+    }
+
+    private static async Task<string?> GetLatestVersionFromSearchAsync(
+        HttpClient client, string packageName, Action<string>? log)
+    {
+        string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{packageName}&take=1&prerelease=false";
+        log?.Invoke($"Fetching latest version from: {searchUrl}");
+
+        try
+        {
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl);
+            if (json == null)
+                return null;
+
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                data.GetArrayLength() > 0 &&
+                data[0].TryGetProperty("version", out var version))
+            {
+                return version.GetString();
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Search API failed: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> GetLatestVersionFromIndexAsync(
         HttpClient client, string packageName, Action<string>? log)
     {
         var versions = await FetchVersionIndexAsync(client, packageName, log);
         if (versions == null || versions.Count == 0)
             return null;
 
-        // Prefer stable versions (those without a hyphen)
         var stableVersions = versions.Where(v => !v.Contains('-')).ToList();
-        string latest = stableVersions.Count > 0 ? stableVersions[^1] : versions[^1];
-        log?.Invoke($"Latest version: {latest}");
-        return latest;
+        return stableVersions.Count > 0 ? stableVersions[^1] : versions[^1];
     }
 
     /// <summary>
