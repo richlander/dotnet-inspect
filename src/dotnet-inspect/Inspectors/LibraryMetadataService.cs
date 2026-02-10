@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Collections.Concurrent;
 using System.Reflection.PortableExecutable;
@@ -226,21 +227,47 @@ internal static class LibraryMetadataService
         foreach (var doc in documents)
         {
             if (doc.IsEmbedded) { embeddedFiles++; continue; }
-            if (doc.ResolvedUrl == null) { missingFiles.Add(doc.FilePath); continue; }
+            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath))
+            {
+                missingFiles.Add(doc.FilePath);
+                continue;
+            }
             urlDocs.Add(doc);
         }
 
-        await Parallel.ForEachAsync(urlDocs,
-            new ParallelOptions { MaxDegreeOfParallelism = 16 },
-            async (doc, ct) =>
-            {
-                using var response = await HttpRetryHelper.HeadWithRetryAsync(
-                    httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
-                if (response != null)
-                    Interlocked.Increment(ref accessibleCount);
-                else
-                    missingFiles.Add(doc.FilePath);
-            });
+        // Partition into cached (already verified) and uncached (need HEAD request)
+        List<SourceDocument> uncachedDocs = [];
+        foreach (var doc in urlDocs)
+        {
+            if (CoreCache.TryGet("source-audit", doc.ResolvedUrl!, extension: "ok") != null)
+                Interlocked.Increment(ref accessibleCount);
+            else
+                uncachedDocs.Add(doc);
+        }
+
+        if (uncachedDocs.Count > 0)
+        {
+            logger.Log($"Verifying {uncachedDocs.Count} source URLs ({urlDocs.Count - uncachedDocs.Count} cached)...");
+
+            await Parallel.ForEachAsync(uncachedDocs,
+                new ParallelOptions { MaxDegreeOfParallelism = 16 },
+                async (doc, ct) =>
+                {
+                    using var response = await HttpRetryHelper.HeadWithRetryAsync(
+                        httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
+                    if (response != null)
+                    {
+                        Interlocked.Increment(ref accessibleCount);
+                        // Source URLs are commit-pinned and immutable — cache permanently
+                        CoreCache.Set("source-audit", doc.ResolvedUrl!, "1", extension: "ok");
+                    }
+                    else
+                    {
+                        logger.Log($"Source not accessible: {doc.ResolvedUrl}");
+                        missingFiles.Add(doc.FilePath);
+                    }
+                });
+        }
 
         inspection.TotalSourceFiles = documents.Count;
         inspection.AccessibleSourceFiles = accessibleCount;
@@ -250,6 +277,13 @@ internal static class LibraryMetadataService
 
         logger.Log($"Source coverage: {accessibleCount + embeddedFiles}/{documents.Count} files accessible");
     }
+
+    /// <summary>
+    /// Build artifacts (e.g. AssemblyInfo.cs, Forwards.cs) are generated during CI and
+    /// never exist in source control. Skip the HEAD request — they will always 404.
+    /// </summary>
+    private static bool IsBuildArtifact(string filePath) =>
+        filePath.Contains("/artifacts/obj/") || filePath.Contains("\\artifacts\\obj\\");
 
     /// <summary>
     /// Infers who built the assembly based on symbol availability and SourceLink.
