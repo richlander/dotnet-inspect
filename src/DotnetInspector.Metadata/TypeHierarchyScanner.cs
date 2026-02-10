@@ -57,12 +57,8 @@ public static class TypeHierarchyScanner
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            var attributes = typeDef.Attributes;
-
             // Only public types
-            bool isPublic = (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.Public ||
-                           (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.NestedPublic;
-            if (!isPublic)
+            if (!typeDef.IsPublic)
                 continue;
 
             string typeName = reader.GetString(typeDef.Name);

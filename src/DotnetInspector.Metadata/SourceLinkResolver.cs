@@ -178,8 +178,7 @@ public class SourceLinkResolver
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             string name = reader.GetString(typeDef.Name);
-            string ns = reader.GetString(typeDef.Namespace);
-            string fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+            string fullName = reader.GetFullTypeName(typeDef);
 
             if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
                 name.Equals(typeName, StringComparison.OrdinalIgnoreCase))

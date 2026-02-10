@@ -50,9 +50,8 @@ public static class ExtensionMethodScanner
             if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
                 continue;
 
-            string className = reader.GetString(typeDef.Name);
             string classNs = reader.GetString(typeDef.Namespace);
-            string fullClassName = string.IsNullOrEmpty(classNs) ? className : $"{classNs}.{className}";
+            string fullClassName = reader.GetFullTypeName(typeDef);
 
             // Track property accessors seen (for deduplication of get_/set_ pairs)
             var seenPropertyNames = new HashSet<string>(StringComparer.Ordinal);
@@ -178,8 +177,7 @@ public static class ExtensionMethodScanner
                     {
                         var typeDef = reader.GetTypeDefinition(typeDefHandle);
                         string typeName = reader.GetString(typeDef.Name);
-                        string typeNs = reader.GetString(typeDef.Namespace);
-                        string fullName = string.IsNullOrEmpty(typeNs) ? typeName : $"{typeNs}.{typeName}";
+                        string fullName = reader.GetFullTypeName(typeDef);
 
                         // Match by simple name or full name
                         if (!typeName.Equals(currentType, StringComparison.OrdinalIgnoreCase) &&
