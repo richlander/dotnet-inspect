@@ -225,6 +225,40 @@ public class LibraryInspectionView
     public List<string>? MissingSourcesSection =>
         _data.MissingSourceFiles?.Select(f => $"`{f}`").ToList();
 
+    /// <summary>
+    /// Resolves the display version using priority: PlatformVersion, InformationalVersion (prefix), AssemblyVersion, FileVersion.
+    /// </summary>
+    private string ResolveVersion()
+    {
+        if (!string.IsNullOrEmpty(_data.PlatformVersion))
+            return _data.PlatformVersion;
+
+        if (_data.AssemblyInfo is { } info)
+        {
+            if (!string.IsNullOrEmpty(info.InformationalVersion))
+            {
+                var ver = info.InformationalVersion;
+                // Strip +commit suffix (e.g., "13.0.4+4e13299..." → "13.0.4")
+                var plusIndex = ver.IndexOf('+');
+                if (plusIndex > 0)
+                    ver = ver[..plusIndex];
+                // Strip -prerelease suffix for version part count check
+                var dashIndex = ver.IndexOf('-');
+                var versionPart = dashIndex > 0 ? ver[..dashIndex] : ver;
+                if (versionPart.Split('.').All(p => int.TryParse(p, out _)))
+                    return dashIndex > 0 ? ver : versionPart;
+            }
+
+            if (!string.IsNullOrEmpty(info.AssemblyVersion))
+                return info.AssemblyVersion;
+
+            if (!string.IsNullOrEmpty(info.FileVersion))
+                return info.FileVersion;
+        }
+
+        return "";
+    }
+
     private List<MarkoutField> GetCompactFields()
     {
         List<MarkoutField> fields = [];
@@ -232,8 +266,7 @@ public class LibraryInspectionView
 
         if (!string.IsNullOrEmpty(info.AssemblyName))
             fields.Add(new("Name", info.AssemblyName));
-        if (!string.IsNullOrEmpty(info.AssemblyVersion))
-            fields.Add(new("Version", info.AssemblyVersion));
+        fields.Add(new("Version", ResolveVersion()));
         if (!string.IsNullOrEmpty(info.TargetFramework))
             fields.Add(new("TFM", info.TargetFramework));
         if (!string.IsNullOrEmpty(info.Architecture))
@@ -242,6 +275,8 @@ public class LibraryInspectionView
             fields.Add(new("Size", FormatFileSize(_data.FileSize)));
         if (!string.IsNullOrEmpty(_data.Source))
             fields.Add(new("Source", _data.Source));
+        if (_data.LastModified.HasValue)
+            fields.Add(new("Modified", _data.LastModified.Value.ToString("yyyy-MM-dd")));
 
         return fields;
     }
@@ -253,16 +288,17 @@ public class LibraryInspectionView
 
         if (!string.IsNullOrEmpty(info.AssemblyName))
             fields.Add(new("Name", info.AssemblyName));
+        fields.Add(new("Version", ResolveVersion()));
+        if (!string.IsNullOrEmpty(info.InformationalVersion))
+            fields.Add(new("Informational Version", info.InformationalVersion));
         if (!string.IsNullOrEmpty(info.AssemblyVersion))
-            fields.Add(new("Version", info.AssemblyVersion));
+            fields.Add(new("Assembly Version", info.AssemblyVersion));
         if (!string.IsNullOrEmpty(info.TargetFramework))
             fields.Add(new("Target Framework", info.TargetFramework));
         if (!string.IsNullOrEmpty(info.Architecture))
             fields.Add(new("Architecture", info.Architecture));
         if (!string.IsNullOrEmpty(info.CompilationType))
             fields.Add(new("Compilation", info.CompilationType));
-        if (!string.IsNullOrEmpty(info.InformationalVersion))
-            fields.Add(new("Informational Version", info.InformationalVersion));
         if (!string.IsNullOrEmpty(info.Product))
             fields.Add(new("Product", info.Product));
         if (!string.IsNullOrEmpty(info.Company))
@@ -283,6 +319,8 @@ public class LibraryInspectionView
             fields.Add(new("Methods", info.MethodDefinitionCount.ToString("N0")));
         if (!string.IsNullOrEmpty(_data.Source))
             fields.Add(new("Source", _data.Source));
+        if (_data.LastModified.HasValue)
+            fields.Add(new("Modified", _data.LastModified.Value.ToString("yyyy-MM-dd")));
 
         return fields;
     }

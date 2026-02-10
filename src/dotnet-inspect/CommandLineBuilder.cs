@@ -1125,6 +1125,7 @@ public static class CommandLineBuilder
         var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
+        var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
@@ -1134,6 +1135,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
         assemblyCommand.Options.Add(asmPlatformOption);
+        assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -1151,12 +1153,15 @@ public static class CommandLineBuilder
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
             var source = parseResult.GetValue(assemblyPathArg);
+            var explicitPackage = parseResult.GetValue(asmPackageOption);
+            var explicitPlatform = parseResult.GetValue(asmPlatformOption);
 
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
-            string? packagePath = null;
-            string? platformAssembly = null;
-            if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(parseResult.GetValue(asmPlatformOption)))
+            string? packagePath = explicitPackage;
+            string? platformAssembly = explicitPlatform;
+
+            if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
                 if (File.Exists(source))
                     assemblyPath = source;
@@ -1185,7 +1190,7 @@ public static class CommandLineBuilder
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
                 PackagePath = packagePath,
-                PlatformAssembly = platformAssembly ?? parseResult.GetValue(asmPlatformOption),
+                PlatformAssembly = platformAssembly,
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(jsonOption),

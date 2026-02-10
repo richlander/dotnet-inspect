@@ -101,6 +101,8 @@ public class AssemblyCommand
                 }
 
                 inspection.Source = $"Platform ({framework})";
+                inspection.PlatformVersion = version;
+                inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
                 if (discoverSections)
                 {
@@ -177,6 +179,8 @@ public class AssemblyCommand
                     Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
                     return 1;
                 }
+
+                inspection.Source = "File";
 
                 if (discoverSections)
                 {
