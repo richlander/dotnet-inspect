@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DotnetInspector.Metadata;
 
 /// <summary>
@@ -69,6 +71,17 @@ public class ApiSurface
     /// Package or assembly name.
     /// </summary>
     public string? Name { get; set; }
+
+    /// <summary>
+    /// Package or assembly version.
+    /// </summary>
+    public string? Version { get; set; }
+
+    /// <summary>
+    /// Where the assembly was loaded from (e.g., "nuget", "platform", "local").
+    /// </summary>
+    [JsonIgnore]
+    public string? Source { get; set; }
 
     public List<ApiType> Types { get; set; } = [];
 
