@@ -66,6 +66,18 @@ public class LibraryInspection
     public string? Source { get; set; }
 
     /// <summary>
+    /// Platform/package version (e.g., "10.0.1"), distinct from the PE assembly version.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlatformVersion { get; set; }
+
+    /// <summary>
+    /// File last modified timestamp.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? LastModified { get; set; }
+
+    /// <summary>
     /// Publisher identity from NuGet package author signature (CN).
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

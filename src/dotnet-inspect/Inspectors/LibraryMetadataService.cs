@@ -120,6 +120,7 @@ internal static class LibraryMetadataService
             }
 
             inspection.FileSize = AssemblyDetailScanner.GetFileSize(path);
+            inspection.LastModified = File.GetLastWriteTimeUtc(path);
 
             await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
 

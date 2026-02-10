@@ -232,8 +232,7 @@ public class LibraryInspectionView
 
         if (!string.IsNullOrEmpty(info.AssemblyName))
             fields.Add(new("Name", info.AssemblyName));
-        if (!string.IsNullOrEmpty(info.AssemblyVersion))
-            fields.Add(new("Version", info.AssemblyVersion));
+        fields.Add(new("Version", _data.PlatformVersion ?? info.AssemblyVersion ?? ""));
         if (!string.IsNullOrEmpty(info.TargetFramework))
             fields.Add(new("TFM", info.TargetFramework));
         if (!string.IsNullOrEmpty(info.Architecture))
@@ -242,6 +241,8 @@ public class LibraryInspectionView
             fields.Add(new("Size", FormatFileSize(_data.FileSize)));
         if (!string.IsNullOrEmpty(_data.Source))
             fields.Add(new("Source", _data.Source));
+        if (_data.LastModified.HasValue)
+            fields.Add(new("Modified", _data.LastModified.Value.ToString("yyyy-MM-dd")));
 
         return fields;
     }
@@ -255,6 +256,8 @@ public class LibraryInspectionView
             fields.Add(new("Name", info.AssemblyName));
         if (!string.IsNullOrEmpty(info.AssemblyVersion))
             fields.Add(new("Version", info.AssemblyVersion));
+        if (!string.IsNullOrEmpty(_data.PlatformVersion))
+            fields.Add(new("Platform Version", _data.PlatformVersion));
         if (!string.IsNullOrEmpty(info.TargetFramework))
             fields.Add(new("Target Framework", info.TargetFramework));
         if (!string.IsNullOrEmpty(info.Architecture))
@@ -283,6 +286,8 @@ public class LibraryInspectionView
             fields.Add(new("Methods", info.MethodDefinitionCount.ToString("N0")));
         if (!string.IsNullOrEmpty(_data.Source))
             fields.Add(new("Source", _data.Source));
+        if (_data.LastModified.HasValue)
+            fields.Add(new("Modified", _data.LastModified.Value.ToString("yyyy-MM-dd")));
 
         return fields;
     }

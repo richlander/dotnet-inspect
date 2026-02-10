@@ -101,6 +101,8 @@ public class AssemblyCommand
                 }
 
                 inspection.Source = $"Platform ({framework})";
+                inspection.PlatformVersion = version;
+                inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
                 if (discoverSections)
                 {
