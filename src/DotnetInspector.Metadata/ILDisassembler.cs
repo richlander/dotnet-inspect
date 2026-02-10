@@ -241,7 +241,17 @@ public static class ILDisassembler
         string methodName = reader.GetString(method.Name);
         var declaringType = method.GetDeclaringType();
         string typeName = TypeResolver.GetTypeName(reader, declaringType) ?? "?";
-        return $"{typeName}::{methodName}";
+        string baseName = $"{typeName}::{methodName}";
+
+        try
+        {
+            var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+            return $"{baseName}({string.Join(", ", sig.ParameterTypes)})";
+        }
+        catch
+        {
+            return baseName;
+        }
     }
 
     static string FormatMemberRef(MetadataReader reader, MemberReferenceHandle handle)
@@ -249,7 +259,22 @@ public static class ILDisassembler
         var memberRef = reader.GetMemberReference(handle);
         string name = reader.GetString(memberRef.Name);
         string? parentName = TypeResolver.GetTypeName(reader, memberRef.Parent);
-        return parentName is not null ? $"{parentName}::{name}" : name;
+        string baseName = parentName is not null ? $"{parentName}::{name}" : name;
+
+        try
+        {
+            if (memberRef.GetKind() == MemberReferenceKind.Method)
+            {
+                var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericContext: null);
+                return $"{baseName}({string.Join(", ", sig.ParameterTypes)})";
+            }
+        }
+        catch
+        {
+            // Fall through to baseName
+        }
+
+        return baseName;
     }
 
     static string FormatMethodSpec(MetadataReader reader, MethodSpecificationHandle handle)
