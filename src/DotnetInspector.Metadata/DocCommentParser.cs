@@ -1,11 +1,9 @@
-using System.Collections.Concurrent;
 using System.Buffers;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
-using DotnetInspector.Metadata;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Metadata;
 
 /// <summary>
 /// Parses XML doc comments (///) from C# source files.
