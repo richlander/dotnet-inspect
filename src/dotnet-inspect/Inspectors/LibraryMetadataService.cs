@@ -78,10 +78,11 @@ internal static class LibraryMetadataService
                     deduplicate: options.IncludeDependencies);
             }
 
-            // Scan for extension methods in detailed mode
+            // Scan for extension methods and classified methods in detailed mode
             if (options.Verbosity == Options.Verbosity.Detailed)
             {
                 audit.ExtensionMethods = ScanExtensionMethods(path, logger);
+                ScanClassifiedMethods(path, audit, logger);
             }
 
             if (options.HasAuditTier)
@@ -382,6 +383,51 @@ internal static class LibraryMetadataService
         {
             logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly for unsafe and P/Invoke methods.
+    /// </summary>
+    private static void ScanClassifiedMethods(string path, AssemblyAudit audit, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var classified = MethodClassificationScanner.Scan(stream);
+            if (classified.Count == 0) return;
+
+            var unsafe_ = classified
+                .Where(m => m.Classification == MethodClassification.Unsafe)
+                .Select(m => new ClassifiedMethodSummary
+                {
+                    MethodName = m.MethodName,
+                    DeclaringType = m.DeclaringType,
+                    Signature = m.Signature
+                })
+                .OrderBy(m => m.DeclaringType)
+                .ThenBy(m => m.MethodName)
+                .ToList();
+
+            var pinvoke = classified
+                .Where(m => m.Classification == MethodClassification.PInvoke)
+                .Select(m => new ClassifiedMethodSummary
+                {
+                    MethodName = m.MethodName,
+                    DeclaringType = m.DeclaringType,
+                    Signature = m.Signature,
+                    ModuleName = m.ModuleName
+                })
+                .OrderBy(m => m.DeclaringType)
+                .ThenBy(m => m.MethodName)
+                .ToList();
+
+            audit.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
+            audit.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
         }
     }
 }
