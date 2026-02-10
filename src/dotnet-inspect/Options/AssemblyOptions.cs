@@ -8,6 +8,12 @@ namespace DotnetInspector.Options;
 public record AssemblyOptions
 {
     /// <summary>
+    /// Assembly name within a package (positional argument).
+    /// Null when inspecting via --package, --platform, or direct file path.
+    /// </summary>
+    public string? AssemblyName { get; init; }
+
+    /// <summary>
     /// Show PE metadata (Assembly Info section: name, version, TFM, arch, signed, etc.).
     /// </summary>
     public bool IncludeMetadata { get; init; }

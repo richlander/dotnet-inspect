@@ -14,11 +14,12 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class SamplesCommand
 {
-    public static async Task<int> ExecuteAsync(string? typeName, SamplesOptions options)
+    public static async Task<int> ExecuteAsync(SamplesOptions options)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        
+        var typeName = options.TypeName;
+
         // Get package info from options
         string? packageName = null;
         string? packageVersion = null;
@@ -289,6 +290,11 @@ public record TypedSample(string TypeName, string? TypeNamespace, SampleReferenc
 
 public record SamplesOptions
 {
+    /// <summary>
+    /// Type name to get samples for (positional argument). Null for library-wide samples.
+    /// </summary>
+    public string? TypeName { get; init; }
+
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
     public string? PlatformAssembly { get; init; }

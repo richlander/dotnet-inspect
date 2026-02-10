@@ -8,6 +8,16 @@ namespace DotnetInspector.Options;
 public record InspectionOptions
 {
     /// <summary>
+    /// Package name/path arguments (positional). First element is package identifier.
+    /// </summary>
+    public string[] PackageArgs { get; init; } = [];
+
+    /// <summary>
+    /// Explicit version override (from --version option).
+    /// </summary>
+    public string? ExplicitVersion { get; init; }
+
+    /// <summary>
     /// Show package dependencies as a tree view with transitive resolution.
     /// </summary>
     public bool ShowDependencies { get; init; }
