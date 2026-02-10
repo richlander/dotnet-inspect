@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -9,16 +8,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>A library for downloading and extracting NuGet packages</Description>
+    <Description>Core utilities for dotnet-inspect, including caching infrastructure</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
-  </ItemGroup>
-
 </Project>
