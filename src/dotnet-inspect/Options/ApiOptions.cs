@@ -37,6 +37,7 @@ public record ApiOptions
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? DllPath { get; init; }
+    public MethodSourceContext? MethodSource { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
     public HashSet<string>? ExcludeSections { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
@@ -47,3 +48,8 @@ public record ApiOptions
     /// </summary>
     public bool IsRawOutput => JsonOutput || SignaturesOnly || ShapeOutput;
 }
+
+/// <summary>
+/// Resolved source context for a single method, ready for rendering.
+/// </summary>
+public record MethodSourceContext(string SourceCode, string? SourceUrl);

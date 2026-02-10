@@ -53,6 +53,16 @@ public class SourceLinkResolver
         string? GitHubBrowseUrl
     );
 
+    /// <summary>
+    /// Source location for a method, including the full line range from sequence points.
+    /// </summary>
+    public record MethodSourceInfo(
+        string FilePath,
+        string? SourceUrl,
+        int StartLine,
+        int EndLine
+    );
+
     private SourceLinkResolver(Dictionary<string, string> documentMappings)
     {
         _documentMappings = documentMappings;
@@ -317,6 +327,44 @@ public class SourceLinkResolver
             string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
 
             return new TypeSourceInfo(filePath, sourceUrl, lineNumber, browseUrl);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the full source line range for a method using all sequence points.
+    /// Returns null if the method has no debug info.
+    /// </summary>
+    public MethodSourceInfo? ResolveMethodSourceRange(MetadataReader pdb, MethodDefinitionHandle methodHandle)
+    {
+        var debugInfoHandle = MetadataTokens.MethodDebugInformationHandle(MetadataTokens.GetRowNumber(methodHandle));
+
+        try
+        {
+            var debugInfo = pdb.GetMethodDebugInformation(debugInfoHandle);
+
+            if (debugInfo.Document.IsNil)
+                return null;
+
+            var document = pdb.GetDocument(debugInfo.Document);
+            string filePath = pdb.GetString(document.Name);
+
+            int minLine = int.MaxValue, maxLine = 0;
+            foreach (var sp in debugInfo.GetSequencePoints())
+            {
+                if (sp.IsHidden) continue;
+                if (sp.StartLine < minLine) minLine = sp.StartLine;
+                if (sp.EndLine > maxLine) maxLine = sp.EndLine;
+            }
+
+            if (minLine == int.MaxValue)
+                return null;
+
+            string? sourceUrl = ApplySourceLinkMapping(filePath);
+            return new MethodSourceInfo(filePath, sourceUrl, minLine, maxLine);
         }
         catch
         {

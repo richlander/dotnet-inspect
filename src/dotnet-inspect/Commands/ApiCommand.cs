@@ -321,6 +321,19 @@ public class ApiCommand
                             await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
                     }
 
+                    // Resolve method source code for --index view (after PDB acquisition)
+                    if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null)
+                    {
+                        var methodSource = await ResolveMethodSourceAsync(
+                            apiDllPath, apiType.FullName,
+                            effectiveOptions.MemberFilter.First(),
+                            effectiveOptions.OverloadIndex.Value - 1,
+                            context.HttpClient, logger);
+
+                        if (methodSource != null)
+                            effectiveOptions = effectiveOptions with { MethodSource = methodSource };
+                    }
+
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
                 }
                 else if (lookupResult.Suggestions.Count > 0)
@@ -429,6 +442,73 @@ public class ApiCommand
         else
         {
             Console.WriteLine(ApiOutputFormatter.RenderFullApiMarkdown(api, options));
+        }
+    }
+
+    // ===== Method Source Resolution =====
+
+    private static async Task<MethodSourceContext?> ResolveMethodSourceAsync(
+        string dllPath, string typeName, string methodName, int overloadIndex,
+        HttpClient httpClient, VerboseLogger logger)
+    {
+        try
+        {
+            using var service = SourceLinkService.Open(dllPath, logger.Log);
+
+            if (!service.HasPdb || !service.HasSourceLink)
+                return null;
+
+            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly: true);
+            if (methodInfo?.SourceUrl == null)
+                return null;
+
+            var fetcher = new SourceFetcher(httpClient);
+            var content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
+            if (content == null)
+                return null;
+
+            var lines = content.Split('\n');
+            int startLine = methodInfo.StartLine;
+            int endLine = Math.Min(methodInfo.EndLine, lines.Length);
+
+            // Scan backward from first sequence point to capture method signature
+            int sigStart = startLine;
+            for (int i = startLine - 2; i >= Math.Max(0, startLine - 10); i--)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.Length == 0 || trimmed.StartsWith("//") || trimmed.StartsWith("///")
+                    || trimmed.StartsWith("[") || trimmed.StartsWith("#"))
+                    continue;
+                // Found a non-comment, non-attribute, non-empty line — likely the signature or opening brace
+                if (trimmed == "{")
+                    continue;
+                sigStart = i + 1; // 0-based
+                break;
+            }
+
+            // Extract lines (convert from 1-based sequence points to 0-based array)
+            int from = sigStart - 1;
+            int to = endLine; // endLine is 1-based, so endLine as exclusive index is correct
+            if (from < 0) from = 0;
+            if (to > lines.Length) to = lines.Length;
+
+            var methodLines = lines[from..to];
+
+            // Dedent: find minimum indentation and remove it
+            int minIndent = methodLines
+                .Where(l => l.TrimStart().Length > 0)
+                .Select(l => l.Length - l.TrimStart().Length)
+                .DefaultIfEmpty(0)
+                .Min();
+
+            var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
+            var sourceCode = string.Join('\n', dedented).TrimEnd();
+
+            return new MethodSourceContext(sourceCode, methodInfo.SourceUrl);
+        }
+        catch
+        {
+            return null;
         }
     }
 

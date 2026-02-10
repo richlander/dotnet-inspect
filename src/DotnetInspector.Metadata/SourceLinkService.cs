@@ -105,6 +105,14 @@ public class SourceLinkService : IDisposable
     }
 
     /// <summary>
+    /// Resolves source file and line range for a specific method overload.
+    /// </summary>
+    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false)
+    {
+        return _context.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly);
+    }
+
+    /// <summary>
     /// Gets the source file paths for a type, including all partial class files.
     /// Uses a cached index built from PDB sequence point data.
     /// The index is persisted to disk keyed by commit hash for cross-invocation reuse.
