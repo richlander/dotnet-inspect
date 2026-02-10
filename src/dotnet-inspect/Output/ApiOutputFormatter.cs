@@ -2,6 +2,7 @@ using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -27,11 +28,15 @@ public static class ApiOutputFormatter
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
 
+        // Compute effective sections via pipeline
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
         // Single writer with section filtering
         var writerOptions = new MarkoutWriterOptions
         {
-            IncludeSections = options.IncludeSections,
-            ExcludeSections = options.ExcludeSections,
+            IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet
         };
         var writer = new MarkoutWriter(writerOptions);
@@ -91,11 +96,15 @@ public static class ApiOutputFormatter
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
             PopulateEnumValues(view, type, options);
 
+        // Compute effective sections via pipeline
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            type, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
         // Single writer with section filtering via MarkoutWriterOptions
         var writerOptions = new MarkoutWriterOptions
         {
-            IncludeSections = options.IncludeSections,
-            ExcludeSections = options.ExcludeSections,
+            IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet
         };
         var writer = new MarkoutWriter(writerOptions);

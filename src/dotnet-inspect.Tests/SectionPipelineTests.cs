@@ -729,4 +729,213 @@ public class SectionPipelineTests
 
         Assert.Null(include);
     }
+
+    // ===== API type-list pipeline tests =====
+
+    [Fact]
+    public void ApiTypePipeline_HasExpectedSectionCount()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        Assert.Equal(5, pipeline.AllSectionNames.Length);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_SectionNamesMatchExpected()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var names = pipeline.AllSectionNames;
+
+        Assert.Contains("Classes", names);
+        Assert.Contains("Structs", names);
+        Assert.Contains("Interfaces", names);
+        Assert.Contains("Enums", names);
+        Assert.Contains("Delegates", names);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_ShowsClassesWhenPresent()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface { Types = [new ApiType { Name = "Foo", Kind = "class" }] };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Classes", effective);
+        Assert.DoesNotContain("Structs", effective);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_EmptyTypes_NoSections()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface { Types = [] };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Empty(effective);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_AllKindsPresent()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Name = "C", Kind = "class" },
+                new ApiType { Name = "S", Kind = "struct" },
+                new ApiType { Name = "I", Kind = "interface" },
+                new ApiType { Name = "E", Kind = "enum" },
+                new ApiType { Name = "D", Kind = "delegate" },
+            ]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Equal(5, effective.Count);
+    }
+
+    // ===== API member pipeline tests =====
+
+    [Fact]
+    public void ApiMemberPipeline_HasExpectedSectionCount()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        Assert.Equal(10, pipeline.AllSectionNames.Length);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_SectionNamesMatchExpected()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var names = pipeline.AllSectionNames;
+
+        Assert.Contains("Values", names);
+        Assert.Contains("Type Parameters", names);
+        Assert.Contains("Interfaces", names);
+        Assert.Contains("Baseclass", names);
+        Assert.Contains("Sources", names);
+        Assert.Contains("Constructors", names);
+        Assert.Contains("Fields", names);
+        Assert.Contains("Properties", names);
+        Assert.Contains("Methods", names);
+        Assert.Contains("Events", names);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_EnumValues_RequiresNormalVerbosity()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Color", Kind = "enum",
+            Members = [new ApiMember { Name = "Red", Kind = "field", EnumValue = 0 }]
+        };
+
+        var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+
+        Assert.DoesNotContain("Values", atMinimal);
+        Assert.Contains("Values", atNormal);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_TypeParameters_RequiresNormalVerbosity()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "List", Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "T" }]
+        };
+
+        var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+
+        Assert.DoesNotContain("Type Parameters", atMinimal);
+        Assert.Contains("Type Parameters", atNormal);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_Interfaces_RequiresDetailedVerbosity()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Foo", Kind = "class",
+            Interfaces = ["IDisposable"]
+        };
+
+        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var atDetailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.DoesNotContain("Interfaces", atNormal);
+        Assert.Contains("Interfaces", atDetailed);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_Baseclass_RequiresDetailedAndNonTrivial()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+
+        // Trivial base (System.Object) should not render
+        var trivialModel = new ApiType { Name = "Foo", Kind = "class", BaseType = "System.Object" };
+        var trivialEffective = pipeline.GetEffectiveSections(trivialModel, Verbosity.Detailed);
+        Assert.DoesNotContain("Baseclass", trivialEffective);
+
+        // Real base should render at Detailed
+        var realModel = new ApiType { Name = "Foo", Kind = "class", BaseType = "MyBase" };
+        var realEffective = pipeline.GetEffectiveSections(realModel, Verbosity.Detailed);
+        Assert.Contains("Baseclass", realEffective);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_MemberSections_AtMinimal()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Foo", Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = ".ctor", Kind = "constructor" },
+                new ApiMember { Name = "Count", Kind = "property" },
+                new ApiMember { Name = "GetValue", Kind = "method" },
+            ]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Constructors", effective);
+        Assert.Contains("Properties", effective);
+        Assert.Contains("Methods", effective);
+        Assert.DoesNotContain("Fields", effective);
+        Assert.DoesNotContain("Events", effective);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_VerbosityAutoPromote_ForInterfaces()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+
+        var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Interfaces" });
+
+        Assert.Equal(Verbosity.Detailed, required);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_Sources_AtMinimal()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Foo", Kind = "class",
+            SourceFilePath = "src/Foo.cs"
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Sources", effective);
+    }
 }
