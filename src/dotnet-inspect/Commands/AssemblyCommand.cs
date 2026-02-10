@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Commands;
 
@@ -24,6 +25,14 @@ public class AssemblyCommand
             Console.Error.WriteLine("Run 'dotnet-inspect library --help' for usage.");
             return 1;
         }
+
+        // Validate section filters
+        options = options with
+        {
+            IncludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.ExcludeSections, out var excludeError),
+        };
+        if (includeError || excludeError) return 1;
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;

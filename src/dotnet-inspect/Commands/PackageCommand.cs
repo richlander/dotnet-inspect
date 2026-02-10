@@ -22,8 +22,7 @@ public class PackageCommand
         // Handle --discover mode: list sections and exit early
         if (options.Discover)
         {
-            string[] sectionNames = [PackageSections.Package, PackageSections.Statistics, PackageSections.PackageDependencies, PackageSections.Files, PackageSections.Vulnerabilities, PackageSections.RidPackages, PackageSections.RuntimeDependencies];
-            foreach (var name in sectionNames)
+            foreach (var name in SectionRegistry.PackageCommandSections)
             {
                 Console.WriteLine(name);
             }
@@ -36,6 +35,14 @@ public class PackageCommand
             Console.Error.WriteLine("Run 'dotnet-inspect package --help' for usage.");
             return 1;
         }
+
+        // Validate section filters
+        options = options with
+        {
+            IncludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.ExcludeSections, out var excludeError),
+        };
+        if (includeError || excludeError) return 1;
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
