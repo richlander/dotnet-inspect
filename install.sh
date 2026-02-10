@@ -19,10 +19,9 @@ fi
 # Clean previous packages
 rm -rf "$PACK_OUTPUT"
 
-# Build and pack
+# Pack
 echo "Packing..."
-dotnet build "$PROJECT" -c Release
-dotnet pack "$PROJECT" -o "$PACK_OUTPUT" --no-build
+dotnet pack "$PROJECT" -o "$PACK_OUTPUT"
 dotnet pack "$PROJECT" -o "$PACK_OUTPUT" --ucr
 
 # Install from local packages
