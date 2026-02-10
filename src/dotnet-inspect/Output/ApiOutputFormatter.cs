@@ -252,6 +252,29 @@ public static class ApiOutputFormatter
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
 
+        // Source files (when SourceLink data is available)
+        List<SourceRow>? sourceRows = null;
+        if (type.SourceFilePath != null)
+        {
+            sourceRows = [new SourceRow
+            {
+                File = Path.GetFileName(type.SourceFilePath),
+                Url = type.GitHubBrowseUrl
+            }];
+
+            if (type.AdditionalSourceFiles != null)
+            {
+                foreach (var f in type.AdditionalSourceFiles)
+                {
+                    sourceRows.Add(new SourceRow
+                    {
+                        File = Path.GetFileName(f.FilePath ?? ""),
+                        Url = f.GitHubBrowseUrl
+                    });
+                }
+            }
+        }
+
         return new ApiTypeView
         {
             Title = $"{type.FullName}{packageInfo}",
@@ -268,7 +291,8 @@ public static class ApiOutputFormatter
             SamplesInfo = samplesInfo,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
-            BaseclassRows = baseclassRows
+            BaseclassRows = baseclassRows,
+            SourceRows = sourceRows
         };
     }
 

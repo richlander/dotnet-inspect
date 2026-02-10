@@ -256,7 +256,8 @@ public class ApiCommand
                     if (!options.DocsExplicitlySet)
                         effectiveOptions = options with { ShowDocs = true };
 
-                    if (effectiveOptions.ShowDocs || effectiveOptions.ShowSamples || effectiveOptions.SourceLinkOnly)
+                    // Always enrich with SourceLink info for single-type view (Sources section).
+                    // Doc comment fetching is gated by ShowDocs inside the enricher.
                     {
                         var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                         if (pdbLookupPath != null)

@@ -84,6 +84,13 @@ public class ApiTypeView
     [JsonIgnore]
     public List<BaseclassRow>? BaseclassRows { get; set; }
 
+    /// <summary>
+    /// Source files (populated via SourceLink). Null → section skipped.
+    /// </summary>
+    [MarkoutSection(Name = "Sources")]
+    [JsonIgnore]
+    public List<SourceRow>? SourceRows { get; set; }
+
 }
 
 [MarkoutSerializable]
@@ -111,6 +118,15 @@ public class InterfaceRow
 public class BaseclassRow
 {
     public string Type { get; set; } = "";
+}
+
+[MarkoutSerializable]
+public class SourceRow
+{
+    public string File { get; set; } = "";
+
+    [MarkoutSkipNull]
+    public string? Url { get; set; }
 }
 
 /// <summary>
