@@ -309,7 +309,7 @@ public class ApiCommand
                         var selected = overloads[idx - 1];
                         apiType.Members = [selected];
                         var exclude = effectiveOptions.ExcludeSections ?? [];
-                        exclude.Add("Sources");
+                        exclude.Add("Remote Source");
                         effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
                     }
 

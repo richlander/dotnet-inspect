@@ -54,7 +54,7 @@ public static class SectionRegistry
         "Type Parameters",
         "Interfaces",
         "Baseclass",
-        "Sources",
+        "Remote Source",
         "Constructors",
         "Fields",
         "Properties",

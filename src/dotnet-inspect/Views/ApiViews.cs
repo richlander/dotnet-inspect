@@ -87,7 +87,7 @@ public class ApiTypeView
     /// <summary>
     /// Source files (populated via SourceLink). Null → section skipped.
     /// </summary>
-    [MarkoutSection(Name = "Sources")]
+    [MarkoutSection(Name = "Remote Source")]
     [JsonIgnore]
     public List<SourceRow>? SourceRows { get; set; }
 

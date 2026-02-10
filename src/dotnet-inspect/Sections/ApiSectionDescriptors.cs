@@ -134,7 +134,7 @@ public static class ApiMemberSectionDescriptors
 
     public sealed class Sources : ISectionDescriptor<ApiType>
     {
-        public static string Name => "Sources";
+        public static string Name => "Remote Source";
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

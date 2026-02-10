@@ -815,7 +815,7 @@ public class SectionPipelineTests
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);
         Assert.Contains("Baseclass", names);
-        Assert.Contains("Sources", names);
+        Assert.Contains("Remote Source", names);
         Assert.Contains("Constructors", names);
         Assert.Contains("Fields", names);
         Assert.Contains("Properties", names);
@@ -938,6 +938,6 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        Assert.Contains("Sources", effective);
+        Assert.Contains("Remote Source", effective);
     }
 }
