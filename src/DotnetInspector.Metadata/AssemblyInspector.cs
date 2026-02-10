@@ -573,28 +573,7 @@ public static class AssemblyInspector
     }
 
     internal static string? GetAttributeName(MetadataReader reader, CustomAttribute attr)
-    {
-        if (attr.Constructor.Kind == HandleKind.MemberReference)
-        {
-            var memberRef = reader.GetMemberReference((MemberReferenceHandle)attr.Constructor);
-            if (memberRef.Parent.Kind == HandleKind.TypeReference)
-            {
-                var typeRef = reader.GetTypeReference((TypeReferenceHandle)memberRef.Parent);
-                string ns = reader.GetString(typeRef.Namespace);
-                string name = reader.GetString(typeRef.Name);
-                return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-            }
-        }
-        else if (attr.Constructor.Kind == HandleKind.MethodDefinition)
-        {
-            var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)attr.Constructor);
-            var typeDef = reader.GetTypeDefinition(methodDef.GetDeclaringType());
-            string ns = reader.GetString(typeDef.Namespace);
-            string name = reader.GetString(typeDef.Name);
-            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-        }
-        return null;
-    }
+        => AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
 
     internal static string? GetAttributeStringValue(MetadataReader reader, CustomAttribute attr)
     {

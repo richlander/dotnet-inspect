@@ -178,9 +178,7 @@ public class PdbContext : IDisposable
             if (!exportedType.IsForwarder)
                 continue;
 
-            var name = reader.GetString(exportedType.Name);
-            var ns = reader.GetString(exportedType.Namespace);
-            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+            var fullName = reader.GetFullTypeName(exportedType);
 
             if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase))
             {

@@ -22,7 +22,7 @@ public class GenericContext
     public static GenericContext ForType(MetadataReader reader, TypeDefinition typeDef)
     {
         var typeParams = typeDef.GetGenericParameters()
-            .Select(h => reader.GetString(reader.GetGenericParameter(h).Name))
+            .Select(h => reader.GetGenericParameterName(h))
             .ToList();
         return new GenericContext(typeParams, []);
     }
@@ -33,10 +33,10 @@ public class GenericContext
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
     {
         var typeParams = typeDef.GetGenericParameters()
-            .Select(h => reader.GetString(reader.GetGenericParameter(h).Name))
+            .Select(h => reader.GetGenericParameterName(h))
             .ToList();
         var methodParams = methodDef.GetGenericParameters()
-            .Select(h => reader.GetString(reader.GetGenericParameter(h).Name))
+            .Select(h => reader.GetGenericParameterName(h))
             .ToList();
         return new GenericContext(typeParams, methodParams);
     }

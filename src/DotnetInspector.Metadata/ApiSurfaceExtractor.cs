@@ -20,10 +20,7 @@ public static class ApiSurfaceExtractor
             var attributes = typeDef.Attributes;
 
             // Only include public types
-            bool isPublic = (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.Public ||
-                            (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.NestedPublic;
-
-            if (!isPublic)
+            if (!typeDef.IsPublic)
                 continue;
 
             string typeName = reader.GetString(typeDef.Name);
@@ -320,9 +317,7 @@ public static class ApiSurfaceExtractor
             if (!exportedType.IsForwarder)
                 continue;
 
-            var eTypeName = reader.GetString(exportedType.Name);
-            var ns = reader.GetString(exportedType.Namespace);
-            var fullName = string.IsNullOrEmpty(ns) ? eTypeName : $"{ns}.{eTypeName}";
+            var fullName = reader.GetFullTypeName(exportedType);
 
             // Get the target assembly
             string targetAssembly = "";

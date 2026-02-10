@@ -31,9 +31,7 @@ public static class TypeResolver
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
     {
         var typeRef = reader.GetTypeReference(handle);
-        string ns = reader.GetString(typeRef.Namespace);
-        string name = reader.GetString(typeRef.Name);
-        return GetFullName(ns, name);
+        return reader.GetFullTypeName(typeRef);
     }
 
     /// <summary>
@@ -42,9 +40,7 @@ public static class TypeResolver
     public static string GetTypeNameFromDefinition(MetadataReader reader, TypeDefinitionHandle handle)
     {
         var typeDef = reader.GetTypeDefinition(handle);
-        string ns = reader.GetString(typeDef.Namespace);
-        string name = reader.GetString(typeDef.Name);
-        return GetFullName(ns, name);
+        return reader.GetFullTypeName(typeDef);
     }
 
     /// <summary>
@@ -61,9 +57,7 @@ public static class TypeResolver
     /// </summary>
     public static string GetFullName(MetadataReader reader, TypeDefinition typeDef)
     {
-        string ns = reader.GetString(typeDef.Namespace);
-        string name = reader.GetString(typeDef.Name);
-        return GetFullName(ns, name);
+        return reader.GetFullTypeName(typeDef);
     }
 
     /// <summary>

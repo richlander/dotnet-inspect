@@ -86,12 +86,8 @@ public static class AssemblyReader
             foreach (var typeDefHandle in reader.TypeDefinitions)
             {
                 var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                var attributes = typeDef.Attributes;
 
-                bool isPublic = (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.Public ||
-                                (attributes & TypeAttributes.VisibilityMask) == TypeAttributes.NestedPublic;
-
-                if (isPublic)
+                if (typeDef.IsPublic)
                 {
                     var name = reader.GetString(typeDef.Name);
                     if (!name.StartsWith("<") && !name.StartsWith("__"))
