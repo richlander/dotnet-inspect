@@ -9,6 +9,7 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Validates that library versions are displayed as 3-part versions
 /// (e.g., "10.0.1") rather than 4-part PE assembly versions (e.g., "10.0.0.0").
+/// Version priority: PlatformVersion → InformationalVersion prefix → AssemblyVersion → FileVersion.
 /// </summary>
 public class VersionDisplayTests
 {
@@ -28,6 +29,97 @@ public class VersionDisplayTests
 
     private static bool IsThreePartVersion(string version) =>
         version.Split('.').Length == 3 && version.Split('.').All(p => int.TryParse(p, out _));
+
+    // --- Priority chain tests ---
+
+    [Fact]
+    public void ResolveVersion_PlatformVersion_WinsOverAll()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Test.dll", FileType = "dll", FileSize = 1024,
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Test",
+                AssemblyVersion = "10.0.0.0",
+                InformationalVersion = "10.0.0+abc",
+                FileVersion = "10.0.0.1"
+            },
+            PlatformVersion = "10.0.1"
+        };
+
+        Assert.Equal("10.0.1", ExtractVersionField(SerializeCompact(inspection)));
+    }
+
+    [Fact]
+    public void ResolveVersion_InformationalVersion_UsedWhenNoPlatformVersion()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Test.dll", FileType = "dll", FileSize = 1024,
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Test",
+                AssemblyVersion = "13.0.0.0",
+                InformationalVersion = "13.0.4+4e13299d",
+                FileVersion = "13.0.4.25416"
+            }
+        };
+
+        Assert.Equal("13.0.4", ExtractVersionField(SerializeCompact(inspection)));
+    }
+
+    [Fact]
+    public void ResolveVersion_InformationalVersion_PreservesPrerelease()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Test.dll", FileType = "dll", FileSize = 1024,
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Test",
+                AssemblyVersion = "9.0.0.0",
+                InformationalVersion = "9.0.0-preview.1+abc123"
+            }
+        };
+
+        Assert.Equal("9.0.0-preview.1", ExtractVersionField(SerializeCompact(inspection)));
+    }
+
+    [Fact]
+    public void ResolveVersion_AssemblyVersion_FallbackWhenNoInformational()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Test.dll", FileType = "dll", FileSize = 1024,
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Test",
+                AssemblyVersion = "2.1.0.0",
+                FileVersion = "2.1.3.0"
+            }
+        };
+
+        Assert.Equal("2.1.0.0", ExtractVersionField(SerializeCompact(inspection)));
+    }
+
+    [Fact]
+    public void ResolveVersion_FileVersion_LastResort()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Test.dll", FileType = "dll", FileSize = 1024,
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Test",
+                FileVersion = "1.2.3.0"
+            }
+        };
+
+        Assert.Equal("1.2.3.0", ExtractVersionField(SerializeCompact(inspection)));
+    }
+
+    // --- Platform integration tests ---
 
     [Fact]
     public void PlatformVersion_IsThreePart()
@@ -64,92 +156,45 @@ public class VersionDisplayTests
 
         var inspection = new LibraryInspection
         {
-            FileName = "System.Text.Json.dll",
-            FileType = "dll",
+            FileName = "System.Text.Json.dll", FileType = "dll", FileSize = 1024,
+            Source = "Platform (runtime)",
+            PlatformVersion = version,
             AssemblyInfo = new AssemblyInfo
             {
                 AssemblyName = "System.Text.Json",
                 AssemblyVersion = "10.0.0.0",
                 TargetFramework = ".NETCoreApp,Version=v10.0"
-            },
-            FileSize = 1024,
-            Source = "Platform (runtime)",
-            PlatformVersion = version
+            }
         };
 
         var displayed = ExtractVersionField(SerializeCompact(inspection));
-
         Assert.Equal(version, displayed);
         Assert.True(IsThreePartVersion(displayed), $"Expected 3-part version, got: {displayed}");
     }
 
-    [Fact]
-    public void NuGetAssembly_CompactView_ShowsThreePartVersion()
-    {
-        // Simulate a NuGet-resolved assembly with PlatformVersion set
-        // to the package version discovered from the extract path
-        var inspection = new LibraryInspection
-        {
-            FileName = "Newtonsoft.Json.dll",
-            FileType = "dll",
-            AssemblyInfo = new AssemblyInfo
-            {
-                AssemblyName = "Newtonsoft.Json",
-                AssemblyVersion = "13.0.0.0",
-                TargetFramework = ".NETCoreApp,Version=v6.0"
-            },
-            FileSize = 1024,
-            Source = "NuGet",
-            PlatformVersion = "13.0.3"
-        };
-
-        var displayed = ExtractVersionField(SerializeCompact(inspection));
-
-        Assert.True(IsThreePartVersion(displayed), $"Expected 3-part version, got: {displayed}");
-    }
+    // --- Detailed view tests ---
 
     [Fact]
-    public void NuGetAssembly_PlatformVersionSet_PrefersItOverAssemblyVersion()
+    public void DetailedView_ShowsVersionInformationalAndAssemblyVersion()
     {
         var inspection = new LibraryInspection
         {
-            FileName = "Example.dll",
-            FileType = "dll",
+            FileName = "Test.dll", FileType = "dll", FileSize = 1024,
+            PlatformVersion = "10.0.1",
             AssemblyInfo = new AssemblyInfo
             {
-                AssemblyName = "Example",
-                AssemblyVersion = "2.0.0.0",
-            },
-            FileSize = 1024,
-            Source = "NuGet",
-            PlatformVersion = "2.0.5"
+                AssemblyName = "Test",
+                AssemblyVersion = "10.0.0.0",
+                InformationalVersion = "10.0.1+abc123"
+            }
         };
 
-        var displayed = ExtractVersionField(SerializeCompact(inspection));
+        var view = new LibraryInspectionView(inspection);
+        var context = new MarkoutContext();
+        var output = context.Serialize(view).TrimEnd();
 
-        Assert.Equal("2.0.5", displayed);
-        Assert.DoesNotContain("2.0.0.0", SerializeCompact(inspection).Split('\n').First(l => l.Contains('|')));
-    }
-
-    [Fact]
-    public void FileAssembly_NoPlatformVersion_FallsBackToAssemblyVersion()
-    {
-        var inspection = new LibraryInspection
-        {
-            FileName = "MyLib.dll",
-            FileType = "dll",
-            AssemblyInfo = new AssemblyInfo
-            {
-                AssemblyName = "MyLib",
-                AssemblyVersion = "2.1.0.0",
-                TargetFramework = ".NETCoreApp,Version=v8.0"
-            },
-            FileSize = 1024,
-            Source = "File"
-        };
-
-        var displayed = ExtractVersionField(SerializeCompact(inspection));
-
-        Assert.Equal("2.1.0.0", displayed);
+        Assert.Contains("| Version | 10.0.1 |", output);
+        Assert.Contains("| Informational Version | 10.0.1+abc123 |", output);
+        Assert.Contains("| Assembly Version | 10.0.0.0 |", output);
     }
 }
