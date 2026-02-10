@@ -161,7 +161,7 @@ public class ApiCommand
                 var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                 if (pdbLookupPath != null)
                 {
-                    api.RepositoryUrl = await ApiServices.ExtractRepositoryUrlAsync(pdbLookupPath, options, logger, context.HttpClient);
+                    api.RepositoryUrl = await SourceEnricher.ExtractRepositoryUrlAsync(pdbLookupPath, options, logger, context.HttpClient);
                 }
                 api.Tfm = selectedTfm;
 
@@ -170,7 +170,7 @@ public class ApiCommand
                     logger.Log("Enriching types with source info...");
                     foreach (var type in api.Types)
                     {
-                        await ApiServices.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
+                        await SourceEnricher.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
                     }
                 }
 
@@ -234,7 +234,7 @@ public class ApiCommand
                     {
                         var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                         if (pdbLookupPath != null)
-                            await ApiServices.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
+                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, context.HttpClient);
                     }
 
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, options);
