@@ -313,6 +313,68 @@ public class ApiCommand
                         effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
                     }
 
+                    // --params / -of: select overload by parameter type matching
+                    if (!options.OverloadIndex.HasValue && (options.ParamTypes != null || options.FirstParamType != null))
+                    {
+                        if (options.MemberFilter.Count != 1)
+                        {
+                            Console.Error.WriteLine("Error: --params/-of requires exactly one member name via -m.");
+                            return 1;
+                        }
+
+                        var memberName = options.MemberFilter.First();
+                        var overloads = apiType.Members
+                            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+
+                        var matches = new List<(ApiMember member, int index)>();
+                        for (int i = 0; i < overloads.Count; i++)
+                        {
+                            var sig = overloads[i].Signature;
+                            if (sig == null) continue;
+                            var paramTypes = ExtractParameterTypes(sig);
+
+                            if (options.ParamTypes != null)
+                            {
+                                if (MatchesParamTypes(paramTypes, options.ParamTypes))
+                                    matches.Add((overloads[i], i));
+                            }
+                            else if (options.FirstParamType != null)
+                            {
+                                if (paramTypes.Count > 0 && SimpleNameMatches(paramTypes[0], options.FirstParamType))
+                                    matches.Add((overloads[i], i));
+                            }
+                        }
+
+                        if (matches.Count == 0)
+                        {
+                            var filter = options.ParamTypes != null
+                                ? $"--params \"{string.Join(",", options.ParamTypes)}\""
+                                : $"-of \"{options.FirstParamType}\"";
+                            Console.Error.WriteLine($"Error: No overload of {memberName} matches {filter}.");
+                            return 1;
+                        }
+
+                        if (matches.Count > 1)
+                        {
+                            Console.Error.WriteLine($"Error: Multiple overloads of {memberName} match. Use --params with more specific types to disambiguate:");
+                            foreach (var (m, _) in matches)
+                                Console.Error.WriteLine($"  {m.Signature}");
+                            return 1;
+                        }
+
+                        var (selected, overloadIdx) = matches[0];
+                        apiType.Members = [selected];
+                        var exclude = effectiveOptions.ExcludeSections ?? [];
+                        exclude.Add("Remote Source");
+                        effectiveOptions = effectiveOptions with
+                        {
+                            DllPath = apiDllPath,
+                            ExcludeSections = exclude,
+                            OverloadIndex = overloadIdx + 1
+                        };
+                    }
+
                     // Always enrich with SourceLink info for single-type view (Sources section).
                     // Doc comment fetching is gated by ShowDocs inside the enricher.
                     {
@@ -603,6 +665,119 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeCompactJsonContext.Default.ApiType));
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
+    }
+
+    /// <summary>
+    /// Extracts parameter type names from a signature string like "TValue Method(System.IO.Stream s, int count)".
+    /// Returns fully qualified type names without parameter names or default values.
+    /// </summary>
+    static List<string> ExtractParameterTypes(string signature)
+    {
+        List<string> types = [];
+        int parenStart = signature.IndexOf('(');
+        if (parenStart < 0) return types;
+        int parenEnd = signature.LastIndexOf(')');
+        if (parenEnd <= parenStart + 1) return types;
+
+        var paramSection = signature.AsSpan((parenStart + 1)..(parenEnd));
+        int depth = 0;
+        int segStart = 0;
+
+        for (int i = 0; i <= paramSection.Length; i++)
+        {
+            char c = i < paramSection.Length ? paramSection[i] : ',';
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                var seg = paramSection[segStart..i].Trim();
+                if (seg.Length > 0)
+                    types.Add(ExtractTypeFromParam(seg));
+                segStart = i + 1;
+            }
+        }
+
+        return types;
+    }
+
+    /// <summary>
+    /// Extracts the type portion from a single parameter like "System.IO.Stream utf8Json" or "int count = 0".
+    /// Handles ref/out/in/params modifiers and generic types.
+    /// </summary>
+    static string ExtractTypeFromParam(ReadOnlySpan<char> param)
+    {
+        // Strip modifiers: ref, out, in, params, this (extension)
+        var s = param.ToString();
+        foreach (var mod in (ReadOnlySpan<string>)["ref ", "out ", "in ", "params ", "this "])
+        {
+            if (s.StartsWith(mod))
+            {
+                s = s[mod.Length..];
+                break;
+            }
+        }
+
+        // Strip default value: "Type name = default"
+        int eqIdx = s.IndexOf(" = ");
+        if (eqIdx > 0)
+            s = s[..eqIdx];
+
+        // The type is everything before the last space (the parameter name).
+        // But generic types can have spaces inside <>, so find last space outside angle brackets.
+        int depth = 0;
+        int lastSpace = -1;
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (s[i] == '<') depth++;
+            else if (s[i] == '>') depth--;
+            else if (s[i] == ' ' && depth == 0) lastSpace = i;
+        }
+
+        return lastSpace > 0 ? s[..lastSpace] : s;
+    }
+
+    /// <summary>
+    /// Checks if a fully qualified type name matches a simple (unqualified) type name.
+    /// "System.Text.Json.JsonDocument" matches "JsonDocument".
+    /// Also matches if the user provides the full name.
+    /// </summary>
+    static bool SimpleNameMatches(string fullTypeName, string simpleName)
+    {
+        if (string.Equals(fullTypeName, simpleName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Match simple name: extract after last '.' that is outside angle brackets
+        int depth = 0;
+        int lastDot = -1;
+        for (int i = 0; i < fullTypeName.Length; i++)
+        {
+            if (fullTypeName[i] == '<') depth++;
+            else if (fullTypeName[i] == '>') depth--;
+            else if (fullTypeName[i] == '.' && depth == 0) lastDot = i;
+        }
+
+        if (lastDot > 0)
+        {
+            var simple = fullTypeName[(lastDot + 1)..];
+            return string.Equals(simple, simpleName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if extracted parameter types match the user-specified type list.
+    /// Each entry is matched by simple name. Parameter count must match exactly.
+    /// </summary>
+    static bool MatchesParamTypes(List<string> extractedTypes, string[] requestedTypes)
+    {
+        if (extractedTypes.Count != requestedTypes.Length) return false;
+        for (int i = 0; i < extractedTypes.Count; i++)
+        {
+            if (!SimpleNameMatches(extractedTypes[i], requestedTypes[i]))
+                return false;
+        }
+        return true;
     }
 
 }
