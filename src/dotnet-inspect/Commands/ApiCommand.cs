@@ -308,7 +308,9 @@ public class ApiCommand
 
                         var selected = overloads[idx - 1];
                         apiType.Members = [selected];
-                        effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                        var exclude = effectiveOptions.ExcludeSections ?? [];
+                        exclude.Add("Sources");
+                        effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
                     }
 
                     // Always enrich with SourceLink info for single-type view (Sources section).
