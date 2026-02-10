@@ -73,7 +73,10 @@ public class ILDisassemblerTests
         var instructions = DisassembleTestMethod(nameof(ILSampleClass.Classify));
 
         Assert.NotNull(instructions);
-        var branch = instructions.FirstOrDefault(i => i.OpCodeName.StartsWith("br"));
+        // Match any branch opcode (br, brtrue, brfalse, beq, bne, bge, bgt, ble, blt, and .s variants)
+        var branch = instructions.FirstOrDefault(i =>
+            i.OpCodeName.StartsWith("br") || i.OpCodeName.StartsWith("be") ||
+            i.OpCodeName.StartsWith("bg") || i.OpCodeName.StartsWith("bl"));
         Assert.NotNull(branch);
         Assert.NotNull(branch.Operand);
         Assert.StartsWith("IL_", branch.Operand);
@@ -268,7 +271,8 @@ public class ILSampleClass
     public static string Classify(int x)
     {
         if (x > 0) return "positive";
-        return "non-positive";
+        if (x < 0) return "negative";
+        return "zero";
     }
 
     public int GetValue() => _value;

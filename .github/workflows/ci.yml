@@ -67,8 +67,13 @@ jobs:
       - name: Build
         run: dotnet build src/dotnet-inspect -c Release
 
+      - name: Install ilspycmd
+        run: dotnet tool install -g ilspycmd
+
       - name: Run unit tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
 
       - name: Pack pointer package
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
@@ -152,6 +157,32 @@ jobs:
 
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
+
+  # Run tests on Windows (exercises ILAsm roundtrip + ILSpy comparison)
+  test-windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    env:
+      DOTNET_INSPECT_TIPS: q
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build src/dotnet-inspect -c Release
+
+      - name: Install ilspycmd
+        run: dotnet tool install -g ilspycmd
+
+      - name: Run unit tests
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
 
   # Build RID-specific Native AOT packages (cross-platform)
   build-rid:
