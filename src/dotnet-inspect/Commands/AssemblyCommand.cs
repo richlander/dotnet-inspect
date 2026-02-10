@@ -180,6 +180,8 @@ public class AssemblyCommand
                     return 1;
                 }
 
+                inspection.Source = "File";
+
                 if (discoverSections)
                 {
                     ListEffectiveSections(pipeline, inspection);

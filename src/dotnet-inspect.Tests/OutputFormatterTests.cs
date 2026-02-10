@@ -366,4 +366,77 @@ public class OutputFormatterTests
             Published = DateTimeOffset.Parse("2025-01-15"),
         };
     }
+
+    [Fact]
+    public void LibraryCompactView_AllSourcePaths_ShowSameFields()
+    {
+        var modified = new DateTime(2025, 6, 15, 0, 0, 0, DateTimeKind.Utc);
+        var assemblyInfo = new AssemblyInfo
+        {
+            AssemblyName = "TestLib",
+            AssemblyVersion = "10.0.0.0",
+            TargetFramework = ".NETCoreApp,Version=v10.0",
+            Architecture = "AnyCPU"
+        };
+
+        var platform = new LibraryInspection
+        {
+            FileName = "TestLib.dll",
+            FileType = "dll",
+            AssemblyInfo = assemblyInfo,
+            FileSize = 1024,
+            Source = "Platform (runtime)",
+            PlatformVersion = "10.0.1",
+            LastModified = modified
+        };
+
+        var nuget = new LibraryInspection
+        {
+            FileName = "TestLib.dll",
+            FileType = "dll",
+            AssemblyInfo = assemblyInfo,
+            FileSize = 1024,
+            Source = "NuGet",
+            LastModified = modified
+        };
+
+        var file = new LibraryInspection
+        {
+            FileName = "TestLib.dll",
+            FileType = "dll",
+            AssemblyInfo = assemblyInfo,
+            FileSize = 1024,
+            Source = "File",
+            LastModified = modified
+        };
+
+        var platformOutput = Serialize(platform);
+        var nugetOutput = Serialize(nuget);
+        var fileOutput = Serialize(file);
+
+        // Extract field names from compact line (format: "Name: value | Name: value | ...")
+        static HashSet<string> ExtractFieldNames(string output)
+        {
+            var compactLine = output.Split('\n').First(l => l.Contains('|'));
+            return compactLine.Split('|')
+                .Select(f => f.Trim().Split(':')[0].Trim())
+                .ToHashSet();
+        }
+
+        var platformFields = ExtractFieldNames(platformOutput);
+        var nugetFields = ExtractFieldNames(nugetOutput);
+        var fileFields = ExtractFieldNames(fileOutput);
+
+        Assert.Equal(platformFields, nugetFields);
+        Assert.Equal(platformFields, fileFields);
+
+        // Verify expected fields are present
+        Assert.Contains("Name", platformFields);
+        Assert.Contains("Version", platformFields);
+        Assert.Contains("TFM", platformFields);
+        Assert.Contains("Arch", platformFields);
+        Assert.Contains("Size", platformFields);
+        Assert.Contains("Source", platformFields);
+        Assert.Contains("Modified", platformFields);
+    }
 }
