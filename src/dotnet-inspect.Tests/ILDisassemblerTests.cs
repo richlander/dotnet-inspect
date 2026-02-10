@@ -185,6 +185,155 @@ public class ILDisassemblerTests
             methodName);
     }
 
+    // --- Edge case tests borrowed from ILSpy/runtime test patterns ---
+
+    [Fact]
+    public void Disassemble_SwitchStatement_HasSwitchOpcode()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.SwitchCase));
+        Assert.NotNull(instructions);
+
+        var switchInstr = instructions.FirstOrDefault(i => i.OpCodeName == "switch");
+        Assert.NotNull(switchInstr);
+        // Switch operand should list branch targets in parentheses
+        Assert.NotNull(switchInstr.Operand);
+        Assert.StartsWith("(", switchInstr.Operand);
+        Assert.EndsWith(")", switchInstr.Operand);
+        // Should have at least 4 targets for cases 0-3
+        Assert.True(switchInstr.Operand.Split("IL_").Length > 4,
+            $"Expected multiple branch targets, got: {switchInstr.Operand}");
+    }
+
+    [Fact]
+    public void Disassemble_TryCatch_HasExpectedStructure()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.TryCatch));
+        Assert.NotNull(instructions);
+
+        // Should contain call to int.Parse (or Int32::Parse)
+        Assert.Contains(instructions, i =>
+            i.OpCodeName is "call" or "callvirt" &&
+            i.Operand?.Contains("Parse") == true);
+
+        // Should have leave or leave.s (exits try block)
+        Assert.Contains(instructions, i =>
+            i.OpCodeName is "leave" or "leave.s");
+    }
+
+    [Fact]
+    public void Disassemble_TryFinally_HasLeaveInstruction()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.TryFinally));
+        Assert.NotNull(instructions);
+
+        Assert.Contains(instructions, i =>
+            i.OpCodeName is "leave" or "leave.s");
+
+        // Should have endfinally
+        Assert.Contains(instructions, i => i.OpCodeName == "endfinally");
+    }
+
+    [Fact]
+    public void Disassemble_GenericMethodCall_ResolvesMethodSpec()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.CallGeneric));
+        Assert.NotNull(instructions);
+
+        // Should have at least one call/callvirt/newobj
+        Assert.Contains(instructions, i =>
+            i.OpCodeName is "call" or "callvirt" or "newobj" &&
+            i.Operand is not null);
+    }
+
+    [Fact]
+    public void Disassemble_LongConstant_DecodesI8Operand()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.LongConstant));
+        Assert.NotNull(instructions);
+
+        // Should contain ldc.i8 with the constant value
+        var ldcI8 = instructions.FirstOrDefault(i => i.OpCodeName == "ldc.i8");
+        Assert.NotNull(ldcI8);
+        Assert.Equal("1311768467463790320", ldcI8.Operand); // 0x123456789ABCDEF0
+    }
+
+    [Fact]
+    public void Disassemble_DoubleConstant_DecodesR8Operand()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.DoubleConstant));
+        Assert.NotNull(instructions);
+
+        var ldcR8 = instructions.FirstOrDefault(i => i.OpCodeName == "ldc.r8");
+        Assert.NotNull(ldcR8);
+        Assert.NotNull(ldcR8.Operand);
+        // Value should parse back to approximately pi
+        Assert.True(double.TryParse(ldcR8.Operand, out var val));
+        Assert.Equal(3.14159265358979, val, 10);
+    }
+
+    [Fact]
+    public void Disassemble_FloatConstant_DecodesR4Operand()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.FloatConstant));
+        Assert.NotNull(instructions);
+
+        var ldcR4 = instructions.FirstOrDefault(i => i.OpCodeName == "ldc.r4");
+        Assert.NotNull(ldcR4);
+        Assert.NotNull(ldcR4.Operand);
+        Assert.True(float.TryParse(ldcR4.Operand, out var val));
+        Assert.Equal(2.718f, val, 2);
+    }
+
+    [Fact]
+    public void Disassemble_StringWithEscapes_ResolvesUserString()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.StringWithEscapes));
+        Assert.NotNull(instructions);
+
+        var ldstr = instructions.FirstOrDefault(i => i.OpCodeName == "ldstr");
+        Assert.NotNull(ldstr);
+        Assert.NotNull(ldstr.Operand);
+        // Should contain escaped characters
+        Assert.Contains("\\t", ldstr.Operand);
+        Assert.Contains("\\n", ldstr.Operand);
+    }
+
+    [Fact]
+    public void Disassemble_NestedGenerics_ResolvesComplexTypes()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.NestedGenerics));
+        Assert.NotNull(instructions);
+
+        // Should contain a newobj for Dictionary<string, List<int>>
+        var newobj = instructions.FirstOrDefault(i => i.OpCodeName == "newobj");
+        Assert.NotNull(newobj);
+        Assert.NotNull(newobj.Operand);
+    }
+
+    [Fact]
+    public void Disassemble_CompareEquals_Has2ByteOpcode()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.CompareEquals));
+        Assert.NotNull(instructions);
+
+        // ceq is 0xFE01 (2-byte opcode)
+        Assert.Contains(instructions, i => i.OpCodeName == "ceq");
+    }
+
+    [Fact]
+    public void Disassemble_ManyLocals_HandlesLocalVariableAccess()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.ManyLocals));
+        Assert.NotNull(instructions);
+
+        // Should have stloc/stloc.s instructions for storing to locals
+        Assert.Contains(instructions, i =>
+            i.OpCodeName.StartsWith("stloc"));
+
+        // Should end with ret
+        Assert.Equal("ret", instructions[^1].OpCodeName);
+    }
+
     /// <summary>
     /// Disassembles every method in every dotnet-inspect assembly to verify
     /// the decoder handles all real-world IL patterns without crashing.
@@ -278,6 +427,78 @@ public class ILSampleClass
     public int GetValue() => _value;
 
     public static object BoxInt(int x) => x;
+
+    // Edge case: switch statement (generates InlineSwitch opcode)
+    public static string SwitchCase(int x) => x switch
+    {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "other"
+    };
+
+    // Edge case: try/catch (exception handler regions)
+    public static int TryCatch(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (FormatException)
+        {
+            return -1;
+        }
+    }
+
+    // Edge case: try/finally
+    public static void TryFinally(Action action)
+    {
+        try
+        {
+            action();
+        }
+        finally
+        {
+            Console.WriteLine("done");
+        }
+    }
+
+    // Edge case: generic method (generates MethodSpec token)
+    public static T GenericMethod<T>(T value) => value;
+
+    // Edge case: generic method call (callvirt with MethodSpec)
+    public static int CallGeneric()
+    {
+        var list = new List<int> { 1, 2, 3 };
+        return list.Count;
+    }
+
+    // Edge case: long constant (InlineI8 operand)
+    public static long LongConstant() => 0x123456789ABCDEF0L;
+
+    // Edge case: double constant (InlineR operand)
+    public static double DoubleConstant() => 3.14159265358979;
+
+    // Edge case: float constant (ShortInlineR operand)
+    public static float FloatConstant() => 2.718f;
+
+    // Edge case: ldstr with escapes (special characters in user strings)
+    public static string StringWithEscapes() => "hello\tworld\n\"quotes\"";
+
+    // Edge case: nested generics (complex type resolution)
+    public static Dictionary<string, List<int>> NestedGenerics()
+        => new();
+
+    // Edge case: 2-byte opcode (ceq, cgt, clt are 0xFE prefixed)
+    public static bool CompareEquals(int a, int b) => a == b;
+
+    // Edge case: multiple local variables
+    public static int ManyLocals()
+    {
+        int a = 1, b = 2, c = 3, d = 4, e = 5;
+        return a + b + c + d + e;
+    }
 }
 
 /// <summary>

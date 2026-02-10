@@ -148,18 +148,27 @@ public partial class ILDisassemblerComparisonTests
         yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "Add"];
         yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "Classify"];
         yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "CreateList"];
+        // Edge cases: switch, try/catch, generics, constants, 2-byte opcodes
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "SwitchCase"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "TryCatch"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "TryFinally"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "LongConstant"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "CompareEquals"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "ManyLocals"];
     }
 
     /// <summary>Types to compare all method instruction counts against ILSpy.</summary>
     public static IEnumerable<object[]> ILSpyTypeCases()
     {
         yield return ["Core", "DotnetInspector.Core.CoreCache"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass"];
     }
 
     /// <summary>Assemblies for ILAsm roundtrip validation.</summary>
     public static IEnumerable<object[]> ILAsmAssemblyCases()
     {
         yield return ["Core"];
+        yield return ["Test"];
     }
 
     /// <summary>Methods for ILAsm roundtrip opcode comparison.</summary>
@@ -167,6 +176,9 @@ public partial class ILDisassemblerComparisonTests
     {
         yield return ["Core", "DotnetInspector.Core.CoreCache", "Initialize"];
         yield return ["Core", "DotnetInspector.Core.CoreCache", "GetBasePath"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "SwitchCase"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "TryCatch"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "CompareEquals"];
     }
 
     // --- ILSpy output parsing ---
