@@ -1,0 +1,146 @@
+using DotnetInspector.Models;
+using DotnetInspector.Options;
+
+namespace DotnetInspector.Sections;
+
+/// <summary>
+/// Section descriptors for the library command.
+/// Each descriptor declares its name, minimum verbosity, and a
+/// <c>CanRender</c> check against <see cref="LibraryInspection"/>.
+/// </summary>
+public static class LibrarySections
+{
+    /// <summary>Builds the section pipeline with all library sections registered.</summary>
+    public static SectionPipeline<LibraryInspection> CreatePipeline()
+    {
+        return new SectionPipeline<LibraryInspection>()
+            .Add<LibraryInfo>()
+            .Add<Symbols>()
+            .Add<SourceCoverage>()
+            .Add<LibraryReferences>()
+            .Add<LibraryReferencesTransitive>()
+            .Add<Dependencies>()
+            .Add<ExtensionMethods>()
+            .Add<UnsafeMethods>()
+            .Add<PInvokeMethods>()
+            .Add<Resources>()
+            .Add<CustomAttributes>()
+            .Add<TypeForwarders>()
+            .Add<NonNormalizedPaths>()
+            .Add<MissingSources>();
+    }
+
+    // ===== Always-on sections (Normal verbosity) =====
+
+    public sealed class LibraryInfo : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Library Info";
+        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
+    }
+
+    public sealed class Symbols : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Symbols";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    // ===== Source-link audit sections =====
+
+    public sealed class SourceCoverage : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Source Coverage";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.TotalSourceFiles > 0;
+    }
+
+    // ===== Reference sections (Normal verbosity) =====
+
+    public sealed class LibraryReferences : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Library References";
+        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool CanRender(LibraryInspection model)
+            => model.AssemblyInfo?.References is { Count: > 0 }
+               && model.AssemblyInfo?.TransitiveReferences is not { Count: > 0 };
+    }
+
+    public sealed class LibraryReferencesTransitive : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Library References (Transitive)";
+        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool CanRender(LibraryInspection model)
+            => !model.UseDependenciesView
+               && model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+    }
+
+    public sealed class Dependencies : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Dependencies";
+        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool CanRender(LibraryInspection model)
+            => model.UseDependenciesView
+               && model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+    }
+
+    // ===== Detailed sections =====
+
+    public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Extension Methods";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.ExtensionMethods is { Count: > 0 };
+    }
+
+    public sealed class UnsafeMethods : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Unsafe Methods";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.UnsafeMethods is { Count: > 0 };
+    }
+
+    public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "P/Invoke Methods";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.PInvokeMethods is { Count: > 0 };
+    }
+
+    public sealed class Resources : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Resources";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.Resources is { Count: > 0 };
+    }
+
+    public sealed class CustomAttributes : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Custom Attributes";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.CustomAttributes is { Count: > 0 };
+    }
+
+    public sealed class TypeForwarders : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Type Forwarders";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.TypeForwarders is { Count: > 0 };
+    }
+
+    // ===== Source-link audit detail sections =====
+
+    public sealed class NonNormalizedPaths : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Non-normalized Paths";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
+    }
+
+    public sealed class MissingSources : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Missing Sources";
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool CanRender(LibraryInspection model) => model.MissingSourceFiles is { Count: > 0 };
+    }
+}

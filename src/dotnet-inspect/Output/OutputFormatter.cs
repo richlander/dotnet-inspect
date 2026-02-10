@@ -2,6 +2,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Views;
 using System.Text.Json;
 using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -58,7 +59,8 @@ public static class OutputFormatter
         };
     }
 
-    public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options)
+    public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options,
+        SectionPipeline<LibraryInspection>? pipeline = null)
     {
         if (inspection.UseDependenciesView)
         {
@@ -74,16 +76,23 @@ public static class OutputFormatter
         else
         {
             var auditView = new LibraryInspectionView(inspection);
-            var context = new MarkoutContext(new MarkoutWriterOptions
-            {
-                IncludeSections = options.IncludeSections,
-                ExcludeSections = GetLibraryExcludeSections(options)
-            });
+            var includeSections = pipeline?.ComputeIncludeSections(
+                inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
+            var writerOptions = pipeline != null
+                ? new MarkoutWriterOptions { IncludeSections = includeSections }
+                : new MarkoutWriterOptions
+                {
+                    IncludeSections = options.IncludeSections,
+                    ExcludeSections = GetLibraryExcludeSections(options)
+                };
+            var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
         }
     }
 
-    public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options)
+    public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
+        SectionPipeline<LibraryInspection>? pipeline = null)
     {
         if (options.JsonOutput)
         {
@@ -96,11 +105,18 @@ public static class OutputFormatter
                 Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
                 Assemblies = inspections.Select(a => new LibraryInspectionView(a)).ToList()
             };
-            var context = new MarkoutContext(new MarkoutWriterOptions
-            {
-                IncludeSections = options.IncludeSections,
-                ExcludeSections = GetLibraryExcludeSections(options)
-            });
+            var writerOptions = pipeline != null
+                ? new MarkoutWriterOptions
+                {
+                    IncludeSections = pipeline.ComputeIncludeSections(
+                        inspections[0], options.Verbosity, options.IncludeSections, options.ExcludeSections)
+                }
+                : new MarkoutWriterOptions
+                {
+                    IncludeSections = options.IncludeSections,
+                    ExcludeSections = GetLibraryExcludeSections(options)
+                };
+            var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(report).TrimEnd());
         }
     }
