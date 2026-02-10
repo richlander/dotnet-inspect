@@ -260,4 +260,9 @@ public record DiffOptions
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// </summary>
+    public bool IsRawOutput => Stat || NameOnly;
 }

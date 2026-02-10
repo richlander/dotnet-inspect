@@ -90,4 +90,9 @@ public record ExtensionsOptions : IAssemblySourceOptions
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||
         PlatformFrameworks.Length > 0;
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// </summary>
+    public bool IsRawOutput => JsonOutput;
 }

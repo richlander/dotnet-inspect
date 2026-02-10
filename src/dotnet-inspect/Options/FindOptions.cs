@@ -97,4 +97,9 @@ public record FindOptions : IAssemblySourceOptions
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0 ||
         BinPaths.Length > 0;
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// </summary>
+    public bool IsRawOutput => JsonOutput || OneLine || NameOnly;
 }

@@ -98,4 +98,9 @@ public record AssemblyOptions
     {
         IncludeSourcelinkAudit = true
     };
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// </summary>
+    public bool IsRawOutput => JsonOutput || ExtractResources != null;
 }

@@ -108,6 +108,11 @@ public record InspectionOptions
     public static InspectionOptions Default => new();
 
     /// <summary>
+    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// </summary>
+    public bool IsRawOutput => JsonOutput || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
+
+    /// <summary>
     /// All inspection features enabled.
     /// </summary>
     public static InspectionOptions All => new();
