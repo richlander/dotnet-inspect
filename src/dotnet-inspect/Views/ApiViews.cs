@@ -129,6 +129,9 @@ public class CliApiSurface
     [MarkoutIgnore]
     public string? Name => _inner.Name;
 
+    [MarkoutSkipNull]
+    public string? Library => _inner.Library;
+
     public int Types => _inner.PublicTypeCount;
     public int Methods => _inner.PublicMethodCount;
     public int Properties => _inner.PublicPropertyCount;

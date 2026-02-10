@@ -187,6 +187,7 @@ public class ApiCommand
                 api.Tfm = selectedTfm;
                 api.Source = apiSource;
                 api.Version = apiVersion;
+                api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
 
                 if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && pdbLookupPath != null)
                 {
@@ -280,6 +281,7 @@ public class ApiCommand
                         api.Tfm = selectedTfm;
                         api.Source = apiSource;
                         api.Version = apiVersion;
+                        api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
 
                         options = options with
                         {

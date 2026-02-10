@@ -94,4 +94,4 @@ dotnet inspect library System.Text.Json --platform
 
 | Deprecated | Use Instead |
 |------------|-------------|
-| `library --package X` | `package X --library` |
+| `package X --metadata` | `library X` |

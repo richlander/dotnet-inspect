@@ -16,7 +16,6 @@ internal static class PackageInspector
         string version,
         bool isLocalFile,
         string? localFilePath,
-        bool includeDeps,
         NuspecData? nuspec,
         HttpClient httpClient,
         VerboseLogger logger)
@@ -81,8 +80,7 @@ internal static class PackageInspector
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
 
-        // Parse deps.json files if deps flag is set
-        if (includeDeps)
+        // Parse deps.json files (present in tool packages)
         {
             string[] depsFiles = Directory.GetFiles(extractPath, "*.deps.json", SearchOption.AllDirectories);
             foreach (string depsFile in depsFiles)

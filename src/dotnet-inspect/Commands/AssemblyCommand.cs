@@ -20,7 +20,7 @@ public class AssemblyCommand
             string.IsNullOrEmpty(options.PackagePath) &&
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
-            Console.Error.WriteLine("Error: Library path, --package, or --platform required.");
+            Console.Error.WriteLine("Error: Library path, package name, or --platform required.");
             Console.Error.WriteLine("Run 'dotnet-inspect library --help' for usage.");
             return 1;
         }

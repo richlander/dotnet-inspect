@@ -196,7 +196,7 @@ public class PackageCommand
             var result = await PackageInspector.InspectAsync(
                 extractPath, packageName, version, isLocalFile,
                 isLocalFile ? packageArgs[0] : null,
-                options.IncludeDeps, nuspec, client, logger);
+                nuspec, client, logger);
 
             // Filter output based on options
             FilterResultForOutput(result, options);
@@ -258,12 +258,6 @@ public class PackageCommand
 
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)
     {
-        // If deps is not requested, clear runtime dependencies
-        if (!options.IncludeDeps)
-        {
-            result.RuntimeDependencies = null;
-        }
-
         // Filter dependency groups and set TFM when --tfm is requested
         if (!string.IsNullOrEmpty(options.Tfm))
         {

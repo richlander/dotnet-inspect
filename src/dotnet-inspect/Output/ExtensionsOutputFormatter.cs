@@ -1,4 +1,5 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Options;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -8,7 +9,8 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class ExtensionsOutputFormatter
 {
-    public static string FormatResults(string targetType, List<ExtensionMethodResult> results)
+    public static string FormatResults(string targetType, List<ExtensionMethodResult> results,
+        Verbosity verbosity = Verbosity.Normal)
     {
         var writer = new MarkoutWriter();
 
@@ -19,6 +21,12 @@ public static class ExtensionsOutputFormatter
         var reachableExtensions = results.Where(r => r.ReachablePath != null)
             .GroupBy(r => r.ReachablePath)
             .ToList();
+
+        if (verbosity == Verbosity.Quiet)
+        {
+            WriteCountsTable(writer, targetType, directExtensions, reachableExtensions);
+            return writer.ToString();
+        }
 
         // Direct extensions (always shown)
         writer.WriteHeading(2, $"{targetType} Extensions ({directExtensions.Count})");
@@ -38,6 +46,25 @@ public static class ExtensionsOutputFormatter
         return writer.ToString();
     }
 
+    private static void WriteCountsTable(MarkoutWriter writer,
+        string targetType,
+        List<ExtensionMethodResult> directExtensions,
+        List<IGrouping<string?, ExtensionMethodResult>> reachableExtensions)
+    {
+        var headers = new[] { "Type", "Extensions", "Via" };
+        List<string[]> rows = [];
+
+        rows.Add([targetType, directExtensions.Count.ToString(), ""]);
+
+        foreach (var group in reachableExtensions)
+        {
+            var reachableType = group.First().ReachableFromType ?? "";
+            rows.Add([reachableType, group.Count().ToString(), group.Key ?? ""]);
+        }
+
+        writer.WriteTable(headers, rows);
+    }
+
     private static void WriteExtensionTable(MarkoutWriter writer, List<ExtensionMethodResult> results)
     {
         var byClass = results.GroupBy(r => r.ExtensionClass).ToList();
@@ -48,7 +75,10 @@ public static class ExtensionsOutputFormatter
             var sourceDisplay = ext.SourceVersion != null
                 ? $"{ext.Source}@{ext.SourceVersion}"
                 : ext.Source;
-            return new[] { ext.MethodName, ext.Kind, ext.ExtensionClass ?? "", ext.Assembly ?? "", sourceDisplay ?? "" };
+            var name = ext.Overloads > 1
+                ? $"{ext.MethodName} ({ext.Overloads} overloads)"
+                : ext.MethodName;
+            return new[] { name, ext.Kind, ext.ExtensionClass ?? "", ext.Assembly ?? "", sourceDisplay ?? "" };
         }));
         writer.WriteTable(headers, rows);
     }

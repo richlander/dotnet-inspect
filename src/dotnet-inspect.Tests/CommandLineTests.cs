@@ -249,7 +249,7 @@ public class CommandLineTests
     [Fact]
     public void AssemblyCommand_WithPackage_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "--package", "System.Text.Json"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "System.Text.Json"]);
 
         Assert.Empty(result.Errors);
         Assert.Equal("library", result.CommandResult.Command.Name);
@@ -258,7 +258,7 @@ public class CommandLineTests
     [Fact]
     public void AssemblyCommand_WithTfm_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "--package", "System.Text.Json", "--tfm", "net8.0"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "System.Text.Json", "--tfm", "net8.0"]);
 
         Assert.Empty(result.Errors);
     }
