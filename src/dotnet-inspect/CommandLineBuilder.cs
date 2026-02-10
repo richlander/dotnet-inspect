@@ -1306,81 +1306,12 @@ public static class CommandLineBuilder
         return apiCommand;
     }
 
-    public static Verbosity ParseVerbosity(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return Verbosity.Minimal;
-
-        var v = value.TrimStart(':').ToLowerInvariant();
-        return v switch
-        {
-            "q" or "quiet" => Verbosity.Quiet,
-            "m" or "minimal" => Verbosity.Minimal,
-            "n" or "normal" => Verbosity.Normal,
-            "d" or "detailed" => Verbosity.Detailed,
-            _ => Verbosity.Minimal
-        };
-    }
-
-    public static TipLevel ParseTipLevel(string? value, bool optionPresent)
-    {
-        // Bare -T (no value) means quiet
-        if (optionPresent && string.IsNullOrEmpty(value))
-            return TipLevel.Quiet;
-
-        // --tips flag takes precedence, then DOTNET_INSPECT_TIPS env var, then default
-        if (string.IsNullOrEmpty(value))
-            value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
-        if (string.IsNullOrEmpty(value)) return TipLevel.Minimal;
-
-        var v = value.TrimStart(':').ToLowerInvariant();
-        return v switch
-        {
-            "q" or "quiet" => TipLevel.Quiet,
-            "m" or "minimal" => TipLevel.Minimal,
-            "d" or "detailed" => TipLevel.Detailed,
-            _ => TipLevel.Minimal
-        };
-    }
-
-    public static HashSet<string>? ParseSectionList(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return null;
-
-        var v = value.TrimStart(':');
-        var sections = new HashSet<string>();
-        foreach (var part in v.Split(',', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmed = part.Trim();
-            if (trimmed.Length > 0)
-                sections.Add(trimmed);
-        }
-        return sections.Count > 0 ? sections : null;
-    }
-
-
-    /// <summary>
-    /// Creates NuGetSourceOptions from parsed command line values.
-    /// </summary>
+    // Parse helpers delegated to OptionParsers
+    public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
+    public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
+    public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
-        ParseResult parseResult,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
-    {
-        var sources = parseResult.GetValue(sourceOption) ?? [];
-        var addSources = parseResult.GetValue(addSourceOption) ?? [];
-        var configFile = parseResult.GetValue(nugetConfigOption);
-
-        if (sources.Length == 0 && addSources.Length == 0 && configFile == null)
-        {
-            return NuGetSourceOptions.Default;
-        }
-
-        return new NuGetSourceOptions
-        {
-            Sources = sources,
-            AdditionalSources = addSources,
-            ConfigFile = configFile
-        };
-    }
+        ParseResult parseResult, Option<string[]> sourceOption,
+        Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
+        => OptionParsers.ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
 }
