@@ -40,7 +40,7 @@ public class CommandLineTests
             var root = CommandLineBuilder.CreateRootCommand();
             await root.Parse(["-v:q"]).InvokeAsync(null, TestContext.Current.CancellationToken);
             var stderr = errWriter.ToString();
-            Assert.DoesNotContain("Tip:", stderr);
+            Assert.DoesNotContain("Tips:", stderr);
         }
         finally
         {
@@ -64,7 +64,7 @@ public class CommandLineTests
             var root = CommandLineBuilder.CreateRootCommand();
             await root.Parse([]).InvokeAsync(null, TestContext.Current.CancellationToken);
             var stderr = errWriter.ToString();
-            Assert.Contains("Tip:", stderr);
+            Assert.Contains("Tips:", stderr);
         }
         finally
         {
@@ -100,7 +100,7 @@ public class CommandLineTests
         try
         {
             Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
-            Assert.Contains("Tip:", errWriter.ToString());
+            Assert.Contains("Tips:", errWriter.ToString());
         }
         finally
         {
