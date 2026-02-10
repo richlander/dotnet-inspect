@@ -24,14 +24,33 @@ public class CliSchemaCommand
                 return 1;
             }
             commands = [match];
-            // Single command always shows full detail
-            verbosity = Verbosity.Detailed;
+            // Default to full detail unless quiet was explicitly requested
+            if (verbosity != Verbosity.Quiet)
+                verbosity = Verbosity.Detailed;
         }
 
-        // Quiet: command names only, space-separated
+        // Quiet: single command shows description + flags, all commands shows space-separated names
         if (verbosity == Verbosity.Quiet)
         {
-            Console.WriteLine(string.Join(" ", commands.Select(c => c.Name)));
+            if (!string.IsNullOrEmpty(commandFilter))
+            {
+                var cmd = commands[0];
+                var label = cmd.Name;
+                if (!string.IsNullOrEmpty(cmd.Description))
+                    label += $"  {cmd.Description}";
+                Console.WriteLine(label);
+
+                var flags = cmd.Options
+                    .Where(o => !o.Hidden && o is not HelpOption)
+                    .Select(o => o.Name)
+                    .ToList();
+                if (flags.Count > 0)
+                    Console.WriteLine(string.Join(" ", flags));
+            }
+            else
+            {
+                Console.WriteLine(string.Join(" ", commands.Select(c => c.Name)));
+            }
             return 0;
         }
 
