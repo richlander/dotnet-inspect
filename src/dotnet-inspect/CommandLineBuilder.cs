@@ -1249,6 +1249,8 @@ public static class CommandLineBuilder
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
         var indexOption = new Option<int?>("--index") { Description = "Select a specific overload by 1-based index (use with -m)" };
+        var paramsOption = new Option<string>("--params") { Description = "Select overload by comma-separated simple parameter type names (use with -m)" };
+        var ofOption = new Option<string>("-of") { Description = "Select overload by first parameter simple type name (use with -m)" };
 
         apiCommand.Arguments.Add(argsArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -1272,6 +1274,8 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(shapeOption);
         apiCommand.Options.Add(unsafeOption);
         apiCommand.Options.Add(indexOption);
+        apiCommand.Options.Add(paramsOption);
+        apiCommand.Options.Add(ofOption);
         apiCommand.Options.Add(includeSectionsOption);
         apiCommand.Options.Add(excludeSectionsOption);
         apiCommand.Options.Add(markoutOption);
@@ -1379,6 +1383,8 @@ public static class CommandLineBuilder
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
                 OverloadIndex = parseResult.GetValue(indexOption),
+                ParamTypes = parseResult.GetValue(paramsOption)?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+                FirstParamType = parseResult.GetValue(ofOption),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),

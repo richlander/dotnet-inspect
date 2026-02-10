@@ -36,6 +36,8 @@ public record ApiOptions
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
+    public string[]? ParamTypes { get; init; }
+    public string? FirstParamType { get; init; }
     public string? DllPath { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
