@@ -1,13 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
+using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// Utilities for working with package and content caches.
+/// Utilities for working with NuGet package caches.
 /// Uses cross-platform paths via Environment.SpecialFolder.
 /// Never writes to ~/.nuget/packages (read-only).
 /// Call <see cref="Initialize"/> before using app cache methods.
+/// Source content caching is delegated to <see cref="CoreCache"/>.
 /// </summary>
 public static class NuGetCache
 {
@@ -16,12 +18,14 @@ public static class NuGetCache
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
     /// Must be called before any app cache operations.
+    /// Also initializes <see cref="CoreCache"/> with the same app name.
     /// </summary>
     /// <param name="appName">Application name used as the cache subdirectory (e.g., "dotnet-inspect")</param>
     public static void Initialize(string appName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
         _appName = appName;
+        CoreCache.Initialize(appName);
     }
 
     private static string AppName => _appName
@@ -48,14 +52,9 @@ public static class NuGetCache
 
     /// <summary>
     /// Gets the base path for application caches (read-write).
-    /// Windows: %LOCALAPPDATA%\{appName}
-    /// macOS/Linux: ~/.local/share/{appName}
+    /// Delegates to <see cref="CoreCache.GetBasePath"/>.
     /// </summary>
-    public static string GetAppCacheBasePath()
-    {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, AppName);
-    }
+    public static string GetAppCacheBasePath() => CoreCache.GetBasePath();
 
     /// <summary>
     /// Gets the path to the application package cache (read-write).
@@ -70,7 +69,7 @@ public static class NuGetCache
     /// </summary>
     public static string GetSourceCachePath()
     {
-        return Path.Combine(GetAppCacheBasePath(), "sources");
+        return CoreCache.GetCategoryPath("sources");
     }
 
     /// <summary>
@@ -215,63 +214,13 @@ public static class NuGetCache
 
     /// <summary>
     /// Gets cached source content for a URL, if available.
+    /// Delegates to <see cref="CoreCache"/>.
     /// </summary>
-    /// <param name="url">The source URL (e.g., raw.githubusercontent.com)</param>
-    /// <returns>The cached content, or null if not cached</returns>
-    public static string? TryGetCachedSource(string url)
-    {
-        var cachePath = GetSourceFilePath(url);
-        if (File.Exists(cachePath))
-        {
-            try
-            {
-                return File.ReadAllText(cachePath);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-        return null;
-    }
+    public static string? TryGetCachedSource(string url) => CoreCache.TryGet("sources", url, "txt");
 
     /// <summary>
     /// Caches source content for a URL.
+    /// Delegates to <see cref="CoreCache"/>.
     /// </summary>
-    /// <param name="url">The source URL</param>
-    /// <param name="content">The content to cache</param>
-    public static void CacheSource(string url, string content)
-    {
-        try
-        {
-            var cachePath = GetSourceFilePath(url);
-            var cacheDir = Path.GetDirectoryName(cachePath);
-            if (cacheDir != null && !Directory.Exists(cacheDir))
-            {
-                Directory.CreateDirectory(cacheDir);
-            }
-            File.WriteAllText(cachePath, content);
-        }
-        catch
-        {
-            // Caching is best-effort
-        }
-    }
-
-    /// <summary>
-    /// Gets the file path for cached source content.
-    /// Uses SHA256 hash of URL to create a unique, filesystem-safe filename.
-    /// </summary>
-    private static string GetSourceFilePath(string url)
-    {
-        // Hash the URL to create a safe filename
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(url));
-        var hashString = Convert.ToHexString(hash).ToLowerInvariant();
-        
-        // Use first 2 chars as subdirectory to avoid too many files in one folder
-        var subDir = hashString[..2];
-        var fileName = hashString[2..] + ".txt";
-        
-        return Path.Combine(GetSourceCachePath(), subDir, fileName);
-    }
+    public static void CacheSource(string url, string content) => CoreCache.Set("sources", url, content, "txt");
 }
