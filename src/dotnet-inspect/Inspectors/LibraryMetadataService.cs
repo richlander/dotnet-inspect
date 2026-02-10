@@ -122,7 +122,7 @@ internal static class LibraryMetadataService
         // If no local PDB, try downloading
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected)
         {
-            await ApiServices.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
+            await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
 
             if (pdbContext.HasPdb)
             {
