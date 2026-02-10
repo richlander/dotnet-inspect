@@ -64,6 +64,7 @@ public class AssemblyCommand
                 }
 
                 OutputFormatter.WriteAssemblyResult(audit, options);
+                ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
@@ -78,9 +79,9 @@ public class AssemblyCommand
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
                 tempDir = extractTempDir;
 
-                // Verify package signature if symbols or sourcelink-audit is specified and nupkg is available
+                // Verify package signature if nupkg is available
                 SignatureVerificationResult? signatureResult = null;
-                if (options.HasAuditTier && nupkgPath != null)
+                if (nupkgPath != null)
                 {
                     logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
@@ -102,6 +103,9 @@ public class AssemblyCommand
                 else
                     OutputFormatter.WriteAssemblyResults(audits, options);
 
+                if (assemblyPaths.Count > 0)
+                    ExtractResourcesIfRequested(assemblyPaths[0], options, logger);
+
                 return 0;
             }
             else
@@ -121,6 +125,7 @@ public class AssemblyCommand
                 }
 
                 OutputFormatter.WriteAssemblyResult(audit, options);
+                ExtractResourcesIfRequested(assemblyPath!, options, logger);
                 return 0;
             }
         }
@@ -143,6 +148,34 @@ public class AssemblyCommand
                     // Ignore cleanup errors
                 }
             }
+        }
+    }
+
+    private static void ExtractResourcesIfRequested(string assemblyPath, AssemblyOptions options, VerboseLogger logger)
+    {
+        if (string.IsNullOrEmpty(options.ExtractResources))
+            return;
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            var extracted = ResourceScanner.ExtractAll(stream, options.ExtractResources);
+            if (extracted.Count == 0)
+            {
+                Console.Error.WriteLine("No embedded resources found.");
+            }
+            else
+            {
+                Console.Error.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
+                foreach (var path in extracted)
+                {
+                    Console.Error.WriteLine($"  {Path.GetFileName(path)}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error extracting resources: {ex.Message}");
         }
     }
 

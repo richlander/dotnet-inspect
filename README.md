@@ -25,7 +25,7 @@ dotnet tool install -g dotnet-inspect
 
 | Flag | Description |
 |------|-------------|
-| `--sourcelink-audit` | Full provenance verification (parallel HTTP HEAD) |
+| `--source-link-audit` | Full provenance verification (parallel HTTP HEAD) |
 | `--json` | JSON output |
 | `-v:q/m/n/d` | Verbosity: quiet, minimal, normal, detailed |
 
@@ -39,7 +39,7 @@ Inspect NuGet packages. This is the default command.
 dotnet-inspect System.Text.Json                    # Metadata (latest version)
 dotnet-inspect System.Text.Json@8.0.4 -v:d         # Detailed (shows vulnerability)
 dotnet-inspect System.Text.Json --versions         # List available versions
-dotnet-inspect System.Text.Json --sourcelink-audit  # Provenance verification
+dotnet-inspect System.Text.Json --source-link-audit  # Provenance verification
 dotnet-inspect System.Text.Json --layout --all      # File structure
 ```
 
@@ -88,7 +88,7 @@ List frameworks or inspect platform libraries.
 dotnet-inspect platform                            # List frameworks
 dotnet-inspect platform --framework runtime        # List runtime libraries
 dotnet-inspect platform System.Text.Json           # Inspect library
-dotnet-inspect platform System.Text.Json --sourcelink-audit  # Audit platform library
+dotnet-inspect platform System.Text.Json --source-link-audit  # Audit platform library
 ```
 
 ### api
@@ -154,7 +154,7 @@ Inspect a specific library file.
 
 ```bash
 dotnet-inspect library ./bin/MyLib.dll            # Local file
-dotnet-inspect library ./bin/MyLib.dll --sourcelink-audit  # With provenance check
+dotnet-inspect library ./bin/MyLib.dll --source-link-audit  # With provenance check
 ```
 
 ### diff

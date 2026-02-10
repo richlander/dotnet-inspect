@@ -59,7 +59,7 @@ dotnet-inspect api 'IEnumerable<T>' --platform System.Runtime -v n  # Type param
 ### library
 
 ```bash
-dotnet-inspect library --package System.Text.Json --tfm net8.0 --sourcelink-audit
+dotnet-inspect library --package System.Text.Json --tfm net8.0 --source-link-audit
 ```
 
 ### diff
@@ -292,7 +292,7 @@ dotnet-inspect api System.Text.Json JsonSerializer -s              # Header only
 | `--docs` | Fetch XML documentation |
 | `--all` | Include hidden/obsolete |
 | `--unsafe` | Filter to pointer methods |
-| `--sourcelink-audit` | SourceLink/determinism check |
+| `--source-link-audit` | Source Link/determinism check |
 | `--deps` | Show runtime dependencies |
 
 ## Package vs Platform

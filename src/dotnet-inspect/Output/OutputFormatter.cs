@@ -105,8 +105,6 @@ public static class OutputFormatter
 
     private static HashSet<string>? GetAuditExcludeSections(AssemblyOptions options)
     {
-        if (!options.HasAuditTier)
-            return ["Symbols", "Source Coverage", "Non-normalized Paths", "Missing Sources"];
         if (!options.IncludeSourcelinkAudit)
             return ["Source Coverage", "Missing Sources"];
         return null;

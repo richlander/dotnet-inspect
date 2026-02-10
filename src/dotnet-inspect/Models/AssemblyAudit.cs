@@ -131,6 +131,24 @@ public class AssemblyAudit
     public List<ExtensionMethodSummary>? ExtensionMethods { get; set; }
 
     /// <summary>
+    /// Public methods with unsafe (pointer) signatures.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ClassifiedMethodSummary>? UnsafeMethods { get; set; }
+
+    /// <summary>
+    /// Public P/Invoke (DllImport/LibraryImport) methods.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ClassifiedMethodSummary>? PInvokeMethods { get; set; }
+
+    /// <summary>
+    /// Manifest resources embedded in this assembly.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ResourceSummary>? Resources { get; set; }
+
+    /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.
     /// </summary>
     [JsonIgnore]
@@ -147,4 +165,26 @@ public record class ExtensionMethodSummary
     public string ExtensionClass { get; init; } = "";
     public string Kind { get; init; } = "method";
     public int? Overloads { get; init; }
+}
+
+/// <summary>
+/// Summary of a classified method (unsafe or P/Invoke).
+/// </summary>
+public record class ClassifiedMethodSummary
+{
+    public string MethodName { get; init; } = "";
+    public string DeclaringType { get; init; } = "";
+    public string Signature { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ModuleName { get; init; }
+}
+
+/// <summary>
+/// Summary of a manifest resource in a library.
+/// </summary>
+public record class ResourceSummary
+{
+    public string Name { get; init; } = "";
+    public string Visibility { get; init; } = "";
+    public int Size { get; init; }
 }

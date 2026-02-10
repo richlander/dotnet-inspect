@@ -13,30 +13,14 @@ public record AssemblyOptions
     public bool IncludeMetadata { get; init; }
 
     /// <summary>
-    /// Show symbol information (Build Audit + PDB sections). Implies IncludeMetadata.
-    /// </summary>
-    public bool IncludeSymbols { get; init; }
-
-    /// <summary>
     /// Verify SourceLink URLs are fetchable and all source files are accessible.
-    /// Implies IncludeSymbols.
     /// </summary>
     public bool IncludeSourcelinkAudit { get; init; }
-
-    /// <summary>
-    /// Whether any audit tier is enabled (symbols or sourcelink-audit).
-    /// </summary>
-    public bool HasAuditTier => IncludeSymbols || IncludeSourcelinkAudit;
 
     /// <summary>
     /// Include assembly references in output.
     /// </summary>
     public bool IncludeReferences { get; init; }
-
-    /// <summary>
-    /// Include transitive assembly references (full dependency tree).
-    /// </summary>
-    public bool TransitiveReferences { get; init; }
 
     /// <summary>
     /// Show assembly dependencies as a clean deduplicated tree.
@@ -96,6 +80,11 @@ public record AssemblyOptions
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
+
+    /// <summary>
+    /// Extract embedded resources to a directory.
+    /// </summary>
+    public string? ExtractResources { get; init; }
 
     /// <summary>
     /// Default options: basic assembly info only.

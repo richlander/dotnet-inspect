@@ -53,7 +53,7 @@ internal static class LibraryMetadataService
                 UseDependenciesView = options.IncludeDependencies
             };
 
-            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences || options.IncludeDependencies);
+            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
 
             // PE debug directory fields
             audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
@@ -64,7 +64,7 @@ internal static class LibraryMetadataService
             audit.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if ((options.TransitiveReferences || options.IncludeDependencies) && audit.AssemblyInfo?.References != null)
+            if (options.IncludeDependencies && audit.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -78,16 +78,15 @@ internal static class LibraryMetadataService
                     deduplicate: options.IncludeDependencies);
             }
 
-            // Scan for extension methods in detailed mode
+            // Scan for extension methods, classified methods, and resources in detailed mode
             if (options.Verbosity == Options.Verbosity.Detailed)
             {
                 audit.ExtensionMethods = ScanExtensionMethods(path, logger);
+                ScanClassifiedMethods(path, audit, logger);
+                audit.Resources = ScanResources(path, logger);
             }
 
-            if (options.HasAuditTier)
-            {
-                await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
-            }
+            await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
 
             return audit;
         }
@@ -381,6 +380,79 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly for unsafe and P/Invoke methods.
+    /// </summary>
+    private static void ScanClassifiedMethods(string path, AssemblyAudit audit, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var classified = MethodClassificationScanner.Scan(stream);
+            if (classified.Count == 0) return;
+
+            var unsafe_ = classified
+                .Where(m => m.Classification == MethodClassification.Unsafe)
+                .Select(m => new ClassifiedMethodSummary
+                {
+                    MethodName = m.MethodName,
+                    DeclaringType = m.DeclaringType,
+                    Signature = m.Signature
+                })
+                .OrderBy(m => m.DeclaringType)
+                .ThenBy(m => m.MethodName)
+                .ToList();
+
+            var pinvoke = classified
+                .Where(m => m.Classification == MethodClassification.PInvoke)
+                .Select(m => new ClassifiedMethodSummary
+                {
+                    MethodName = m.MethodName,
+                    DeclaringType = m.DeclaringType,
+                    Signature = m.Signature,
+                    ModuleName = m.ModuleName
+                })
+                .OrderBy(m => m.DeclaringType)
+                .ThenBy(m => m.MethodName)
+                .ToList();
+
+            audit.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
+            audit.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly for manifest resources.
+    /// </summary>
+    private static List<ResourceSummary>? ScanResources(string path, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var resources = ResourceScanner.Scan(stream);
+            if (resources.Count == 0) return null;
+
+            return resources
+                .Select(r => new ResourceSummary
+                {
+                    Name = r.Name,
+                    Visibility = r.IsPublic ? "public" : "private",
+                    Size = r.Size
+                })
+                .OrderBy(r => r.Name)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
             return null;
         }
     }
