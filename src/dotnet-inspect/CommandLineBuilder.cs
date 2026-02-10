@@ -1016,6 +1016,7 @@ public static class CommandLineBuilder
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
+        var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(symbolsOption);
@@ -1026,6 +1027,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
+        assemblyCommand.Options.Add(extractResourcesOption);
         assemblyCommand.Options.Add(jsonOption);
         assemblyCommand.Options.Add(markoutOption);
         assemblyCommand.Options.Add(verboseOption);
@@ -1082,7 +1084,8 @@ public static class CommandLineBuilder
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
+                ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
             return await AssemblyCommand.ExecuteAsync(assemblyPath, options);

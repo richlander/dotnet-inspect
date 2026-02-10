@@ -188,6 +188,13 @@ public class AssemblyAuditView
         _data.PInvokeMethods?.Select(m => new PInvokeMethodRow(m.MethodName, m.DeclaringType, m.ModuleName ?? "", m.Signature)).ToList();
 
     [MarkoutIgnore]
+    public bool HasResources => _data.Resources is { Count: > 0 };
+
+    [MarkoutSection(Name = "Resources", ShowWhenProperty = nameof(HasResources))]
+    public List<ResourceRow>? ResourcesSection =>
+        _data.Resources?.Select(r => new ResourceRow(r.Name, r.Visibility, FormatSize(r.Size))).ToList();
+
+    [MarkoutIgnore]
     public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };
 
     [MarkoutSection(Name = "Non-normalized Paths", ShowWhenProperty = nameof(HasNonNormalizedPaths))]
@@ -291,6 +298,14 @@ public class AssemblyAuditView
         return fields;
     }
 
+    private static string FormatSize(int bytes) => bytes switch
+    {
+        0 => "",
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
+    };
+
     private static List<TreeNode> BuildFlatTransitiveTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -362,3 +377,9 @@ public record PInvokeMethodRow(
     [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
     string Module,
     string Signature);
+
+[MarkoutSerializable]
+public record ResourceRow(
+    string Name,
+    string Visibility,
+    string Size);

@@ -143,6 +143,12 @@ public class AssemblyAudit
     public List<ClassifiedMethodSummary>? PInvokeMethods { get; set; }
 
     /// <summary>
+    /// Manifest resources embedded in this assembly.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ResourceSummary>? Resources { get; set; }
+
+    /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.
     /// </summary>
     [JsonIgnore]
@@ -171,4 +177,14 @@ public record class ClassifiedMethodSummary
     public string Signature { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ModuleName { get; init; }
+}
+
+/// <summary>
+/// Summary of a manifest resource in a library.
+/// </summary>
+public record class ResourceSummary
+{
+    public string Name { get; init; } = "";
+    public string Visibility { get; init; } = "";
+    public int Size { get; init; }
 }

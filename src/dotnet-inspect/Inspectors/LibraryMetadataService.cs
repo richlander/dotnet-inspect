@@ -78,11 +78,12 @@ internal static class LibraryMetadataService
                     deduplicate: options.IncludeDependencies);
             }
 
-            // Scan for extension methods and classified methods in detailed mode
+            // Scan for extension methods, classified methods, and resources in detailed mode
             if (options.Verbosity == Options.Verbosity.Detailed)
             {
                 audit.ExtensionMethods = ScanExtensionMethods(path, logger);
                 ScanClassifiedMethods(path, audit, logger);
+                audit.Resources = ScanResources(path, logger);
             }
 
             if (options.HasAuditTier)
@@ -428,6 +429,34 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly for manifest resources.
+    /// </summary>
+    private static List<ResourceSummary>? ScanResources(string path, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var resources = ResourceScanner.Scan(stream);
+            if (resources.Count == 0) return null;
+
+            return resources
+                .Select(r => new ResourceSummary
+                {
+                    Name = r.Name,
+                    Visibility = r.IsPublic ? "public" : "private",
+                    Size = r.Size
+                })
+                .OrderBy(r => r.Name)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
+            return null;
         }
     }
 }

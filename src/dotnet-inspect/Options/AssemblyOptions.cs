@@ -98,6 +98,11 @@ public record AssemblyOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
+    /// Extract embedded resources to a directory.
+    /// </summary>
+    public string? ExtractResources { get; init; }
+
+    /// <summary>
     /// Default options: basic assembly info only.
     /// </summary>
     public static AssemblyOptions Default => new();
