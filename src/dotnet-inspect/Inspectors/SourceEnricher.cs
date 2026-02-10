@@ -49,7 +49,8 @@ internal static class SourceEnricher
 
         try
         {
-            using var context = PdbContext.Open(dllPath, logger.Log);
+            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var context = service.Context;
 
             if (!context.HasMetadata)
             {
@@ -87,13 +88,13 @@ internal static class SourceEnricher
                 return;
             }
 
-            if (!context.HasSourceLink)
+            if (!service.HasSourceLink)
             {
                 logger.Log("No SourceLink information found in PDB.");
                 return;
             }
 
-            var sourceInfo = context.ResolveTypeSource(typeName);
+            var sourceInfo = service.ResolveTypeSource(typeName);
             if (sourceInfo == null)
             {
                 var forwardTarget = context.FindTypeForwarder(typeName);
@@ -221,7 +222,8 @@ internal static class SourceEnricher
 
         var (packageName, packageVersion) = ResolvePackageInfo(options, dllPath);
 
-        using var context = PdbContext.Open(dllPath, logger.Log);
+        using var service = SourceLinkService.Open(dllPath, logger.Log);
+        var context = service.Context;
 
         if (!context.HasMetadata)
         {
@@ -363,7 +365,8 @@ internal static class SourceEnricher
     {
         try
         {
-            using var context = PdbContext.Open(dllPath, logger.Log);
+            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var context = service.Context;
 
             if (!context.HasMetadata)
                 return null;
@@ -373,7 +376,7 @@ internal static class SourceEnricher
             await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
                 isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
 
-            return context.ExtractRepositoryUrl();
+            return service.RepositoryUrl;
         }
         catch (Exception ex)
         {
