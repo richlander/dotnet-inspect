@@ -8,11 +8,6 @@ namespace DotnetInspector.Options;
 public record InspectionOptions
 {
     /// <summary>
-    /// Include dependency analysis.
-    /// </summary>
-    public bool IncludeDeps { get; init; }
-
-    /// <summary>
     /// Show package dependencies as a tree view with transitive resolution.
     /// </summary>
     public bool ShowDependencies { get; init; }
@@ -120,8 +115,5 @@ public record InspectionOptions
     /// <summary>
     /// All inspection features enabled.
     /// </summary>
-    public static InspectionOptions All => new()
-    {
-        IncludeDeps = true
-    };
+    public static InspectionOptions All => new();
 }

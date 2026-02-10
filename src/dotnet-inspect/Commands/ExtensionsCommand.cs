@@ -75,6 +75,9 @@ public class ExtensionsCommand
                 results = results.Take(options.Limit.Value).ToList();
             }
 
+            // Collapse overloads into single entries
+            results = CollapseOverloads(results);
+
             // Output results
             if (options.JsonOutput)
             {
@@ -82,7 +85,7 @@ public class ExtensionsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results);
+                WriteMarkoutOutput(targetType, results, options.Verbosity);
             }
 
             return 0;
@@ -135,9 +138,31 @@ public class ExtensionsCommand
         Console.WriteLine(JsonSerializer.Serialize(results, typeInfo));
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results)
+    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity)
     {
-        Console.WriteLine(ExtensionsOutputFormatter.FormatResults(targetType, results));
+        Console.WriteLine(ExtensionsOutputFormatter.FormatResults(targetType, results, verbosity));
+    }
+
+    /// <summary>
+    /// Collapses method overloads into a single result with an overload count and signatures list.
+    /// </summary>
+    internal static List<ExtensionMethodResult> CollapseOverloads(List<ExtensionMethodResult> results)
+    {
+        return results
+            .GroupBy(r => (r.MethodName, r.Kind, r.ExtensionClass, r.Assembly, r.Source, r.SourceVersion, r.ReachablePath, r.ReachableFromType))
+            .Select(g =>
+            {
+                var first = g.First();
+                var signatures = g.Select(r => r.Signature).Where(s => s != null).Distinct().Cast<string>().ToList();
+                var count = g.Count();
+                return first with
+                {
+                    Overloads = count > 1 ? count : null,
+                    Signatures = signatures.Count > 1 ? signatures : null,
+                    Signature = signatures.Count == 1 ? signatures[0] : null
+                };
+            })
+            .ToList();
     }
 }
 
@@ -160,6 +185,12 @@ public record class ExtensionMethodResult
 
     [JsonPropertyName("signature")]
     public string? Signature { get; set; }
+
+    [JsonPropertyName("signatures")]
+    public List<string>? Signatures { get; set; }
+
+    [JsonPropertyName("overloads")]
+    public int? Overloads { get; set; }
 
     [JsonPropertyName("kind")]
     public string Kind { get; set; } = "method";

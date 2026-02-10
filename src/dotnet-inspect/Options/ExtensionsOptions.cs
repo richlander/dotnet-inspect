@@ -73,6 +73,11 @@ public record ExtensionsOptions : IAssemblySourceOptions
     public bool Verbose { get; init; }
 
     /// <summary>
+    /// Output verbosity level.
+    /// </summary>
+    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

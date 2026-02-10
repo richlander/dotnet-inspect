@@ -72,12 +72,12 @@ Use `--layout` to see the full tree:
       └─ Microsoft.Azure.SignalR.dll
 ```
 
-Inspect or compare individual libraries using `package --metadata` with `--tfm`:
+Inspect or compare individual libraries using `library`:
 
 ```bash
-dotnet-inspect package Microsoft.Azure.SignalR --metadata                   # Primary library (highest TFM)
-dotnet-inspect package Microsoft.Azure.SignalR --metadata --tfm net8.0      # Specific TFM
-dotnet-inspect api Microsoft.Azure.SignalR                                  # API surface (all libraries)
+dotnet-inspect library Microsoft.Azure.SignalR                   # Primary library (highest TFM)
+dotnet-inspect library Microsoft.Azure.SignalR --tfm net8.0      # Specific TFM
+dotnet-inspect api Microsoft.Azure.SignalR                       # API surface (all libraries)
 ```
 
 ### platform

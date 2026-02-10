@@ -92,6 +92,12 @@ public class ApiSurface
     public int PublicFieldCount { get; set; }
 
     /// <summary>
+    /// The assembly file name (e.g., "Foo.dll").
+    /// </summary>
+    [JsonIgnore]
+    public string? Library { get; set; }
+
+    /// <summary>
     /// Target framework moniker for the API surface.
     /// </summary>
     public string? Tfm { get; set; }

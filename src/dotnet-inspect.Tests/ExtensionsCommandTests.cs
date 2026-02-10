@@ -2,6 +2,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -125,6 +126,119 @@ public class ExtensionsCommandTests
         Assert.Equal("String", UnwrapAsyncType("ValueTask<String>"));
         Assert.Equal("", UnwrapAsyncType("Task"));
         Assert.Equal("Int32", UnwrapAsyncType("Int32"));
+    }
+
+    [Fact]
+    public void FormatResults_NoDuplicateRowsForOverloads()
+    {
+        // Overloads with different signatures should be collapsed into a single row.
+        var results = CreateOverloadResults();
+        var collapsed = ExtensionsCommand.CollapseOverloads(results);
+
+        var output = ExtensionsOutputFormatter.FormatResults("IEnumerable<T>", collapsed);
+        var tableRows = output.Split('\n')
+            .Where(l => l.StartsWith("| ") && !l.StartsWith("| -") && !l.Contains("Name"))
+            .ToList();
+
+        // Should produce a single row, not 3 duplicate rows
+        Assert.Single(tableRows);
+        Assert.Contains("3 overloads", tableRows[0]);
+    }
+
+    [Fact]
+    public void CollapseOverloads_PreservesAllSignatures()
+    {
+        var results = CreateOverloadResults();
+        var collapsed = ExtensionsCommand.CollapseOverloads(results);
+
+        Assert.Single(collapsed);
+        var entry = collapsed[0];
+        Assert.Equal(3, entry.Overloads);
+        Assert.NotNull(entry.Signatures);
+        Assert.Equal(3, entry.Signatures!.Count);
+        Assert.Null(entry.Signature); // single signature cleared when multiple exist
+    }
+
+    [Fact]
+    public void CollapseOverloads_SingleMethod_NoOverloadFields()
+    {
+        var results = new List<ExtensionMethodResult>
+        {
+            new()
+            {
+                MethodName = "First",
+                Kind = "method",
+                ExtensionClass = "System.Linq.Enumerable",
+                Assembly = "System.Linq",
+                Signature = "TSource First(this IEnumerable<TSource> source)",
+                Source = "runtime",
+                SourceVersion = "10.0.0"
+            }
+        };
+
+        var collapsed = ExtensionsCommand.CollapseOverloads(results);
+
+        Assert.Single(collapsed);
+        var entry = collapsed[0];
+        Assert.Null(entry.Overloads);
+        Assert.Null(entry.Signatures);
+        Assert.Equal("TSource First(this IEnumerable<TSource> source)", entry.Signature);
+    }
+
+    private static List<ExtensionMethodResult> CreateOverloadResults() =>
+    [
+        new()
+        {
+            MethodName = "ToDictionary",
+            Kind = "method",
+            ExtensionClass = "System.Linq.Enumerable",
+            Assembly = "System.Linq",
+            Signature = "Dictionary<TKey, TSource> ToDictionary(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector)",
+            Source = "runtime",
+            SourceVersion = "10.0.0"
+        },
+        new()
+        {
+            MethodName = "ToDictionary",
+            Kind = "method",
+            ExtensionClass = "System.Linq.Enumerable",
+            Assembly = "System.Linq",
+            Signature = "Dictionary<TKey, TValue> ToDictionary(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector, Func<TSource, TValue> elementSelector)",
+            Source = "runtime",
+            SourceVersion = "10.0.0"
+        },
+        new()
+        {
+            MethodName = "ToDictionary",
+            Kind = "method",
+            ExtensionClass = "System.Linq.Enumerable",
+            Assembly = "System.Linq",
+            Signature = "Dictionary<TKey, TValue> ToDictionary(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector, Func<TSource, TValue> elementSelector, IEqualityComparer<TKey> comparer)",
+            Source = "runtime",
+            SourceVersion = "10.0.0"
+        }
+    ];
+
+    [Fact]
+    public void FormatResults_QuietMode_ShowsCountsTable()
+    {
+        var results = new List<ExtensionMethodResult>
+        {
+            new() { MethodName = "PostAsJson", Kind = "method", ExtensionClass = "JsonExtensions", Assembly = "System.Net.Http.Json" },
+            new() { MethodName = "GetFromJson", Kind = "method", ExtensionClass = "JsonExtensions", Assembly = "System.Net.Http.Json" },
+            new() { MethodName = "CopyToAsync", Kind = "method", ExtensionClass = "StreamExt", Assembly = "System.IO", ReachablePath = ".GetStreamAsync()", ReachableFromType = "Stream" },
+        };
+
+        var output = ExtensionsOutputFormatter.FormatResults("HttpClient", results, Verbosity.Quiet);
+
+        // Should have a counts table, not the full extension tables
+        Assert.Contains("| Type ", output);
+        Assert.Contains("| Extensions ", output);
+        Assert.Contains("| HttpClient | 2 |", output);
+        Assert.Contains("| Stream | 1 | .GetStreamAsync() |", output);
+        // Should NOT have the detailed columns
+        Assert.DoesNotContain("| Name ", output);
+        Assert.DoesNotContain("| Class ", output);
     }
 
     // Helper methods that mirror the logic in ExtensionsCommand

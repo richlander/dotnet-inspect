@@ -132,5 +132,5 @@ Current deprecations:
 
 | Deprecated | Use Instead | Removal Target |
 |------------|-------------|----------------|
-| `library --package X` | `package X --library` | 0.3.0 |
+| `package X --metadata` | `library X` | 0.3.0 |
 | `--strict` | `--audit` (now always strict) | 0.3.0 |
