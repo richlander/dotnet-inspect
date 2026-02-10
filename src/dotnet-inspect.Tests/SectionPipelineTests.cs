@@ -15,6 +15,7 @@ public class SectionPipelineTests
     {
         public static string Name => "Always";
         public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => true;
     }
 
@@ -22,6 +23,7 @@ public class SectionPipelineTests
     {
         public static string Name => "Detailed";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static string? ScannerKey => "DetailedScanner";
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
@@ -29,6 +31,7 @@ public class SectionPipelineTests
     {
         public static string Name => "Normal";
         public static Verbosity MinVerbosity => Verbosity.Normal;
+        public static string? ScannerKey => "NormalScanner";
         public static bool CanRender(TestModel model) => model.Name != null;
     }
 
@@ -244,5 +247,87 @@ public class SectionPipelineTests
         var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Custom Attributes" });
 
         Assert.Equal(Verbosity.Detailed, verbosity);
+    }
+
+    // ===== Scanner tests =====
+
+    [Fact]
+    public void GetRequiredScanners_MinimalVerbosity_ReturnsEmpty()
+    {
+        var pipeline = CreateTestPipeline();
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal);
+
+        Assert.Empty(scanners);
+    }
+
+    [Fact]
+    public void GetRequiredScanners_NormalVerbosity_ReturnsNormalScanner()
+    {
+        var pipeline = CreateTestPipeline();
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Normal);
+
+        Assert.Single(scanners);
+        Assert.Contains("NormalScanner", scanners);
+    }
+
+    [Fact]
+    public void GetRequiredScanners_DetailedVerbosity_ReturnsBothScanners()
+    {
+        var pipeline = CreateTestPipeline();
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
+
+        Assert.Equal(2, scanners.Count);
+        Assert.Contains("NormalScanner", scanners);
+        Assert.Contains("DetailedScanner", scanners);
+    }
+
+    [Fact]
+    public void GetRequiredScanners_IncludeOverridesVerbosity()
+    {
+        var pipeline = CreateTestPipeline();
+        var include = new HashSet<string> { "Detailed" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+
+        Assert.Single(scanners);
+        Assert.Contains("DetailedScanner", scanners);
+    }
+
+    [Fact]
+    public void GetRequiredScanners_NullScannerKeyExcluded()
+    {
+        var pipeline = CreateTestPipeline();
+        var include = new HashSet<string> { "Always" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SharedScannerKey_Deduplicated()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Unsafe Methods", "P/Invoke Methods" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+
+        Assert.Single(scanners);
+        Assert.Contains(LibrarySections.ScannerClassifiedMethods, scanners);
+    }
+
+    [Fact]
+    public void LibraryPipeline_TargetedSection_OnlyRequiredScanner()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Custom Attributes" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+
+        Assert.Single(scanners);
+        Assert.Contains(LibrarySections.ScannerCustomAttributes, scanners);
     }
 }

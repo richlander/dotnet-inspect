@@ -27,7 +27,8 @@ internal static class LibraryMetadataService
         string? packageName,
         string? packageVersion,
         HttpClient httpClient,
-        bool isPlatformAssembly = false)
+        bool isPlatformAssembly = false,
+        HashSet<string>? scanners = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -86,15 +87,26 @@ internal static class LibraryMetadataService
                     deduplicate: options.IncludeDependencies);
             }
 
-            // Scan for extension methods, classified methods, and resources in detailed mode
-            if (options.Verbosity == Options.Verbosity.Detailed)
-            {
+            // Scan for extension methods, classified methods, and resources
+            // When scanners is provided, run only the requested scanners.
+            // When scanners is null, fall back to verbosity-based gating.
+            bool ShouldScan(string key) => scanners?.Contains(key) == true
+                || (scanners == null && options.Verbosity == Options.Verbosity.Detailed);
+
+            if (ShouldScan(Sections.LibrarySections.ScannerExtensionMethods))
                 inspection.ExtensionMethods = ScanExtensionMethods(path, logger);
+
+            if (ShouldScan(Sections.LibrarySections.ScannerClassifiedMethods))
                 ScanClassifiedMethods(path, inspection, logger);
+
+            if (ShouldScan(Sections.LibrarySections.ScannerResources))
                 inspection.Resources = ScanResources(path, logger);
+
+            if (ShouldScan(Sections.LibrarySections.ScannerCustomAttributes))
                 ScanCustomAttributes(path, inspection, logger);
+
+            if (ShouldScan(Sections.LibrarySections.ScannerTypeForwarders))
                 ScanTypeForwarders(path, inspection, logger);
-            }
 
             inspection.FileSize = AssemblyDetailScanner.GetFileSize(path);
 
