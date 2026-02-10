@@ -31,6 +31,10 @@ public class AssemblyCommand
             return 0;
         }
 
+        // -s targeting specific sections: promote to detailed so data is collected
+        if (options.IncludeSections is { Count: > 0 })
+            options = options with { Verbosity = Verbosity.Detailed };
+
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
             string.IsNullOrEmpty(options.PackagePath) &&
