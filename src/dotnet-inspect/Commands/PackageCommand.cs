@@ -202,7 +202,15 @@ public class PackageCommand
             FilterResultForOutput(result, options);
 
             // Output results
-            OutputFormatter.WriteResult(result, options);
+            var output = OutputFormatter.FormatResult(result, options);
+            if (!string.IsNullOrEmpty(options.OutputPath))
+            {
+                File.WriteAllText(options.OutputPath, output);
+            }
+            else
+            {
+                Console.WriteLine(output);
+            }
 
             return 0;
         }
