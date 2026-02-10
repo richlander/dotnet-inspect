@@ -10,6 +10,7 @@ public sealed class SectionEntry<TModel>
 {
     public required string Name { get; init; }
     public required Verbosity MinVerbosity { get; init; }
+    public required string? ScannerKey { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
@@ -31,6 +32,7 @@ public sealed class SectionPipeline<TModel>
         {
             Name = TDescriptor.Name,
             MinVerbosity = TDescriptor.MinVerbosity,
+            ScannerKey = TDescriptor.ScannerKey,
             CanRender = TDescriptor.CanRender,
         });
         return this;
@@ -91,6 +93,24 @@ public sealed class SectionPipeline<TModel>
                 maxVerbosity = entry.MinVerbosity;
         }
         return maxVerbosity;
+    }
+
+    /// <summary>
+    /// Returns the set of scanner keys needed to satisfy all requested sections.
+    /// Sections with a null scanner key are always collected and not included.
+    /// </summary>
+    public HashSet<string> GetRequiredScanners(Verbosity verbosity,
+        HashSet<string>? include = null, HashSet<string>? exclude = null)
+    {
+        HashSet<string> scanners = [];
+        foreach (var entry in _entries)
+        {
+            if (entry.ScannerKey == null)
+                continue;
+            if (IsRequested(entry, verbosity, include, exclude))
+                scanners.Add(entry.ScannerKey);
+        }
+        return scanners;
     }
 
     private static bool IsRequested(SectionEntry<TModel> entry, Verbosity verbosity,

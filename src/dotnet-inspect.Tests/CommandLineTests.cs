@@ -7,6 +7,7 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Tests for command line parsing behavior.
 /// </summary>
+[Collection("Console")]
 public class CommandLineTests
 {
     [Fact]
@@ -30,8 +31,10 @@ public class CommandLineTests
     public async Task RootCommand_WithVerbosityQuiet_SuppressesTips()
     {
         var originalErr = Console.Error;
+        var originalOut = Console.Out;
         var errWriter = new System.IO.StringWriter();
         Console.SetError(errWriter);
+        Console.SetOut(TextWriter.Null);
         try
         {
             var root = CommandLineBuilder.CreateRootCommand();
@@ -42,6 +45,7 @@ public class CommandLineTests
         finally
         {
             Console.SetError(originalErr);
+            Console.SetOut(originalOut);
         }
     }
 
@@ -50,10 +54,11 @@ public class CommandLineTests
     {
         var originalErr = Console.Error;
         var originalOut = Console.Out;
+        var originalTips = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
         var errWriter = new System.IO.StringWriter();
-        var outWriter = new System.IO.StringWriter();
         Console.SetError(errWriter);
-        Console.SetOut(outWriter);
+        Console.SetOut(TextWriter.Null);
+        Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", null);
         try
         {
             var root = CommandLineBuilder.CreateRootCommand();
@@ -63,6 +68,7 @@ public class CommandLineTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", originalTips);
             Console.SetError(originalErr);
             Console.SetOut(originalOut);
         }

@@ -6,6 +6,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
 
@@ -27,7 +28,9 @@ internal static class LibraryMetadataService
         string? packageName,
         string? packageVersion,
         HttpClient httpClient,
-        bool isPlatformAssembly = false)
+        bool isPlatformAssembly = false,
+        HashSet<string>? scanners = null,
+        ScannerRegistry? scannerRegistry = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -86,9 +89,19 @@ internal static class LibraryMetadataService
                     deduplicate: options.IncludeDependencies);
             }
 
-            // Scan for extension methods, classified methods, and resources in detailed mode
-            if (options.Verbosity == Options.Verbosity.Detailed)
+            // Run registered scanners for the requested sections
+            if (scannerRegistry != null && scanners != null)
             {
+                scannerRegistry.RunScanners(scanners, new Sections.ScannerContext
+                {
+                    AssemblyPath = path,
+                    Model = inspection,
+                    Logger = logger,
+                });
+            }
+            else if (options.Verbosity == Options.Verbosity.Detailed)
+            {
+                // Fallback for non-pipeline callers
                 inspection.ExtensionMethods = ScanExtensionMethods(path, logger);
                 ScanClassifiedMethods(path, inspection, logger);
                 inspection.Resources = ScanResources(path, logger);
@@ -364,7 +377,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for all extension methods and returns collapsed summaries.
     /// </summary>
-    private static List<ExtensionMethodSummary>? ScanExtensionMethods(string path, VerboseLogger logger)
+    internal static List<ExtensionMethodSummary>? ScanExtensionMethods(string path, VerboseLogger logger)
     {
         try
         {
@@ -401,7 +414,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for unsafe and P/Invoke methods.
     /// </summary>
-    private static void ScanClassifiedMethods(string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanClassifiedMethods(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
@@ -446,7 +459,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for manifest resources.
     /// </summary>
-    private static List<ResourceSummary>? ScanResources(string path, VerboseLogger logger)
+    internal static List<ResourceSummary>? ScanResources(string path, VerboseLogger logger)
     {
         try
         {
@@ -474,7 +487,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for custom attributes (assembly-level and module-level).
     /// </summary>
-    private static void ScanCustomAttributes(string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanCustomAttributes(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
@@ -502,7 +515,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for type forwarders.
     /// </summary>
-    private static void ScanTypeForwarders(string path, LibraryInspection inspection, VerboseLogger logger)
+    internal static void ScanTypeForwarders(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {

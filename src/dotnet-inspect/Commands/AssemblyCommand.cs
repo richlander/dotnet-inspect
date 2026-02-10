@@ -18,6 +18,7 @@ public class AssemblyCommand
     public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
     {
         var pipeline = LibrarySections.CreatePipeline();
+        var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
         // Validate section filters
         options = options with
@@ -46,6 +47,10 @@ public class AssemblyCommand
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
+
+        // Compute which scanners are needed for the requested sections
+        var scanners = pipeline.GetRequiredScanners(
+            options.Verbosity, options.IncludeSections, options.ExcludeSections);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -88,7 +93,7 @@ public class AssemblyCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
-                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
+                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {resolvedPath}");
@@ -128,7 +133,7 @@ public class AssemblyCommand
                 // Inspect all assemblies
                 var inspections = await CollectPackageInspectionsAsync(
                     assemblyPaths, options, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult);
+                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry);
 
                 if (inspections.Count == 0)
                 {
@@ -161,7 +166,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
+                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
@@ -232,7 +237,8 @@ public class AssemblyCommand
     private static async Task<List<LibraryInspection>> CollectPackageInspectionsAsync(
         List<string> assemblyPaths, AssemblyOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
-        HttpClient httpClient, SignatureVerificationResult? signatureResult)
+        HttpClient httpClient, SignatureVerificationResult? signatureResult,
+        HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null)
     {
         List<LibraryInspection> inspections = [];
 
@@ -240,7 +246,7 @@ public class AssemblyCommand
         {
             var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient);
+            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry);
             if (inspection == null)
             {
                 logger.Log($"Warning: Could not read library: {Path.GetFileName(targetPath)}");
