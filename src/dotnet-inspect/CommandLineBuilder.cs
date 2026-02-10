@@ -657,18 +657,13 @@ public static class CommandLineBuilder
         {
             Description = "Show library info (PE metadata: name, version, TFM, architecture)"
         };
-        var symbolsOption = new Option<bool>("--symbols")
-        {
-            Description = "Show Build Audit + PDB info (downloads PDB if needed)"
-        };
-        var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit")
+        var sourcelinkAuditOption = new Option<bool>("--source-link-audit")
         {
             Description = "Full provenance verification (parallel HTTP HEAD on all source files)"
         };
         platformCommand.Arguments.Add(assemblyNameArg);
         platformCommand.Options.Add(frameworkOption);
         platformCommand.Options.Add(metadataOption);
-        platformCommand.Options.Add(symbolsOption);
         platformCommand.Options.Add(sourcelinkAuditOption);
         platformCommand.Options.Add(jsonOption);
         platformCommand.Options.Add(verboseOption);
@@ -749,7 +744,6 @@ public static class CommandLineBuilder
             if (!string.IsNullOrEmpty(assemblyName))
             {
                 bool showMetadata = parseResult.GetValue(metadataOption);
-                bool showSymbols = parseResult.GetValue(symbolsOption);
                 bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
 
                 var assemblyOptions = new AssemblyOptions
@@ -757,7 +751,6 @@ public static class CommandLineBuilder
                     PlatformAssembly = assemblyName,
                     PlatformFramework = parseResult.GetValue(frameworkOption),
                     IncludeMetadata = showMetadata,
-                    IncludeSymbols = showSymbols,
                     IncludeSourcelinkAudit = runSourcelinkAudit,
                     JsonOutput = parseResult.GetValue(jsonOption),
                     Verbose = parseResult.GetValue(verboseOption),
@@ -1008,10 +1001,8 @@ public static class CommandLineBuilder
         };
         assemblyPathArg.DefaultValueFactory = _ => null;
 
-        var symbolsOption = new Option<bool>("--symbols") { Description = "Show Build Audit + PDB info (downloads PDB if needed)" };
-        var sourcelinkAuditOption = new Option<bool>("--sourcelink-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
+        var sourcelinkAuditOption = new Option<bool>("--source-link-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
         var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
-        var transitiveOption = new Option<bool>("--transitive") { Description = "[Deprecated: use --dependencies] Show transitive library references" };
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
@@ -1019,11 +1010,9 @@ public static class CommandLineBuilder
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
-        assemblyCommand.Options.Add(symbolsOption);
         assemblyCommand.Options.Add(sourcelinkAuditOption);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
-        assemblyCommand.Options.Add(transitiveOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
@@ -1054,26 +1043,16 @@ public static class CommandLineBuilder
                     packagePath = source;
             }
 
-            bool showSymbols = parseResult.GetValue(symbolsOption);
             bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
 
             bool showReferences = parseResult.GetValue(referencesOption);
-            bool showTransitive = parseResult.GetValue(transitiveOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
-
-            if (showTransitive)
-            {
-                Console.Error.WriteLine("Warning: '--transitive' is deprecated. Use '--dependencies' instead.");
-                showDependencies = true;
-            }
 
             var options = new AssemblyOptions
             {
                 IncludeMetadata = true,
-                IncludeSymbols = showSymbols,
                 IncludeSourcelinkAudit = runSourcelinkAudit,
                 IncludeReferences = showReferences,
-                TransitiveReferences = showTransitive,
                 IncludeDependencies = showDependencies,
                 PackagePath = packagePath,
                 PlatformAssembly = parseResult.GetValue(asmPlatformOption),

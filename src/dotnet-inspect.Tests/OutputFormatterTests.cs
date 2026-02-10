@@ -76,20 +76,10 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void SingleAudit_ExcludesSymbols_WhenNoAuditTier()
+    public void SingleAudit_IncludesSymbols_Always()
     {
         var audit = CreateTestAudit("Test.dll", "net9.0");
-        var options = new AssemblyOptions { IncludeMetadata = true };
-        var output = Serialize(audit, GetAuditExcludeSections(options));
-
-        Assert.DoesNotContain("## Symbols", output);
-    }
-
-    [Fact]
-    public void SingleAudit_IncludesSymbols_WhenSymbolsTier()
-    {
-        var audit = CreateTestAudit("Test.dll", "net9.0");
-        var options = new AssemblyOptions { IncludeSymbols = true };
+        var options = new AssemblyOptions();
         var output = Serialize(audit, GetAuditExcludeSections(options));
 
         Assert.Contains("## Symbols", output);
@@ -156,8 +146,6 @@ public class OutputFormatterTests
     // Mirror the logic from OutputFormatter.GetAuditExcludeSections
     private static HashSet<string>? GetAuditExcludeSections(AssemblyOptions options)
     {
-        if (!options.HasAuditTier)
-            return ["Symbols", "Source Coverage", "Non-normalized Paths", "Missing Sources"];
         if (!options.IncludeSourcelinkAudit)
             return ["Source Coverage", "Missing Sources"];
         return null;

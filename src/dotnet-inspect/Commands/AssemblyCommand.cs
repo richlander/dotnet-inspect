@@ -79,9 +79,9 @@ public class AssemblyCommand
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
                 tempDir = extractTempDir;
 
-                // Verify package signature if symbols or sourcelink-audit is specified and nupkg is available
+                // Verify package signature if nupkg is available
                 SignatureVerificationResult? signatureResult = null;
-                if (options.HasAuditTier && nupkgPath != null)
+                if (nupkgPath != null)
                 {
                     logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);

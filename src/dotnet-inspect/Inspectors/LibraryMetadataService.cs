@@ -53,7 +53,7 @@ internal static class LibraryMetadataService
                 UseDependenciesView = options.IncludeDependencies
             };
 
-            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.TransitiveReferences || options.IncludeDependencies);
+            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
 
             // PE debug directory fields
             audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
@@ -64,7 +64,7 @@ internal static class LibraryMetadataService
             audit.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if ((options.TransitiveReferences || options.IncludeDependencies) && audit.AssemblyInfo?.References != null)
+            if (options.IncludeDependencies && audit.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -86,10 +86,7 @@ internal static class LibraryMetadataService
                 audit.Resources = ScanResources(path, logger);
             }
 
-            if (options.HasAuditTier)
-            {
-                await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
-            }
+            await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
 
             return audit;
         }

@@ -88,7 +88,7 @@ public class AssemblyInfo
     public List<AssemblyReference>? References { get; set; }
 
     /// <summary>
-    /// Transitive reference tree (when --transitive is used).
+    /// Transitive reference tree (when --dependencies is used).
     /// </summary>
     public List<AssemblyReferenceNode>? TransitiveReferences { get; set; }
 }
