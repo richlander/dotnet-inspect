@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -27,7 +28,9 @@ public class ApiCommand
         }
 
         // Validate section filters against all known api sections
-        var allApiSections = SectionRegistry.ApiTypeSections.Concat(SectionRegistry.ApiMemberSections).Distinct().ToArray();
+        var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
         options = options with
         {
             IncludeSections = SectionRegistry.Resolve(allApiSections, options.IncludeSections, out var includeError),
@@ -40,6 +43,16 @@ public class ApiCommand
         {
             SectionRegistry.ListSections(allApiSections);
             return 0;
+        }
+
+        // Auto-promote verbosity when -s targets specific sections
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
+            var memberVerbosity = memberPipeline.GetRequiredVerbosity(options.IncludeSections);
+            var requiredVerbosity = typeVerbosity > memberVerbosity ? typeVerbosity : memberVerbosity;
+            if (requiredVerbosity > options.Verbosity)
+                options = options with { Verbosity = requiredVerbosity };
         }
 
         var context = new CommandContext(options.Verbose);
