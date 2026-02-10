@@ -177,6 +177,19 @@ Needs investigation:
 - Determine the right mechanism (FD3, temp file, named pipe)
 - Consider how LLM tooling would consume the secondary channel
 
+## Platform Assembly Resolution
+
+When a user queries a `System.*` or `Microsoft.*` assembly name that exists as a platform assembly (e.g., `System.Runtime`, `System.Text.RegularExpressions`), the tool currently resolves it via NuGet, finding ancient netstandard1.6/net462 shim packages instead of the modern platform assembly.
+
+The tool should detect platform assembly names and resolve from the installed runtime (e.g., `/usr/share/dotnet/shared/Microsoft.NETCore.App/{version}/`) instead of NuGet. On Ubuntu, platform assemblies come from the distro package and don't have PDBs — source resolution should be skipped or handled via MSDL.
+
+Considerations:
+
+- Need a reliable heuristic for "is this a platform assembly?" vs a genuine NuGet package (e.g., `System.Text.Json` exists as both)
+- Should support `--framework` to pick a specific runtime version
+- Falls back to NuGet if the assembly isn't found locally
+- Related to the "On-Demand Ref Pack Downloads" item below
+
 ## On-Demand Ref Pack Downloads
 
 Download reference packs from NuGet on-demand, similar to how regular packages are handled.

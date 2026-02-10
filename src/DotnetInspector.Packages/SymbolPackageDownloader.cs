@@ -389,6 +389,20 @@ public class SymbolPackageDownloader(HttpClient client)
     {
         bool windowsPdbDetected = false;
 
+        // Check cache before hitting the network
+        var cachePath = GetSymbolServerCachePath(pdbFileName, symbolKey);
+        if (File.Exists(cachePath))
+        {
+            var cachedCheck = CheckPdbHeader(cachePath);
+            if (cachedCheck == PdbHeaderKind.Portable)
+            {
+                log?.Invoke("Using cached PDB from symbol server");
+                return new PdbDownloadResult(cachePath, SymbolServer: "cached");
+            }
+            if (cachedCheck == PdbHeaderKind.Windows)
+                windowsPdbDetected = true;
+        }
+
         var symbolServers = new[]
         {
             "https://symbols.nuget.org/download/symbols",
@@ -406,7 +420,6 @@ public class SymbolPackageDownloader(HttpClient client)
                 if (response == null || !response.IsSuccessStatusCode)
                     continue;
 
-                var cachePath = GetSymbolServerCachePath(pdbFileName, symbolKey);
                 Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
 
                 using (var fs = File.Create(cachePath))
