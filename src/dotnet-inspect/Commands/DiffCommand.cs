@@ -3,6 +3,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
 

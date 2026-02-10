@@ -1,8 +1,8 @@
 using System.Text;
-using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Commands;
 

@@ -82,7 +82,7 @@ public class ApiCommand
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
-                var (assemblyPath, framework, version, error) = Inspectors.PlatformResolver.ResolveAssembly(
+                var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
                     options.PlatformFramework,
                     packsDirectory: null,
@@ -99,7 +99,7 @@ public class ApiCommand
                 apiVersion = version;
                 logger.Log($"Using platform ref assembly: {framework} {version}");
 
-                var (runtimePath, _, _, runtimeError) = Inspectors.PlatformResolver.ResolveAssembly(
+                var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
                     options.PlatformFramework,
                     packsDirectory: null,
