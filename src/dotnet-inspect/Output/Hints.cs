@@ -19,6 +19,7 @@ public static class Hints
         var visible = tips.Take(max).ToList();
         int commentColumn = visible.Max(t => t.CommandText.Length) + 3;
         Console.Out.Flush();
+        Console.Error.WriteLine();
         foreach (var tip in visible)
             Console.Error.WriteLine($"Tip: {tip.CommandText.PadRight(commentColumn)}# {tip.Comment}");
     }
