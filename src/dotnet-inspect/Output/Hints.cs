@@ -20,7 +20,8 @@ public static class Hints
         int commentColumn = visible.Max(t => t.CommandText.Length) + 3;
         Console.Out.Flush();
         Console.Error.WriteLine();
+        Console.Error.WriteLine("Tips:");
         foreach (var tip in visible)
-            Console.Error.WriteLine($"Tip: {tip.CommandText.PadRight(commentColumn)}# {tip.Comment}");
+            Console.Error.WriteLine($"{tip.CommandText.PadRight(commentColumn)}# {tip.Comment}");
     }
 }
