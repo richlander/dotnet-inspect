@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace DotnetInspector.Inspectors;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Resolves .NET platform/framework installation paths and discovers available assemblies.
