@@ -215,7 +215,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_LibraryInfoIsMinimal()
+    public void LibraryPipeline_LibraryInfoShowsAtMinimal()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var model = new LibraryInspection { AssemblyInfo = new AssemblyInfo() };
@@ -223,6 +223,17 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
         Assert.Contains("Library Info", effective);
+    }
+
+    [Fact]
+    public void LibraryPipeline_QuietShowsNoSections()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection { AssemblyInfo = new AssemblyInfo() };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Quiet);
+
+        Assert.Empty(effective);
     }
 
     [Fact]

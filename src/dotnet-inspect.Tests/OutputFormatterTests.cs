@@ -4,6 +4,7 @@ using DotnetInspector;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -284,5 +285,85 @@ public class OutputFormatterTests
 
         Assert.DoesNotContain("Source:", output);
         Assert.DoesNotContain("TFM:", output);
+    }
+
+    // ===== Quiet Output Tests =====
+
+    [Fact]
+    public void LibraryQuiet_ThreeLines()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        var pipeline = LibrarySections.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            inspection, Verbosity.Quiet);
+        var output = SerializeWithInclude(inspection, includeSections);
+        var lines = output.Split('\n', StringSplitOptions.None);
+
+        Assert.Equal(3, lines.Length);
+        Assert.StartsWith("# ", lines[0]);
+        Assert.Equal("", lines[1]);
+        Assert.Contains("Name: ", lines[2]);
+        Assert.Contains(" | ", lines[2]);
+        Assert.DoesNotContain("## ", output);
+    }
+
+    [Fact]
+    public void PackageQuiet_ThreeLines()
+    {
+        var result = CreateTestPackageResult();
+        var view = new InspectionResultView(result);
+        var context = new MarkoutContext(new MarkoutWriterOptions
+        {
+            ExcludeSections = [PackageSections.Package, PackageSections.Statistics,
+                PackageSections.PackageDependencies, PackageSections.Files,
+                PackageSections.Vulnerabilities, PackageSections.RidPackages,
+                PackageSections.RuntimeDependencies],
+            IncludeDescription = false
+        });
+        var output = context.Serialize(view).TrimEnd();
+        var lines = output.Split('\n', StringSplitOptions.None);
+
+        Assert.Equal(3, lines.Length);
+        Assert.StartsWith("# ", lines[0]);
+        Assert.Equal("", lines[1]);
+        Assert.Contains(" | ", lines[2]);
+        Assert.DoesNotContain("## ", output);
+    }
+
+    [Fact]
+    public void ApiQuiet_ThreeLines()
+    {
+        var api = CreateTestApiSurface();
+        var options = new ApiOptions { Verbosity = Verbosity.Quiet };
+
+        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options).TrimEnd();
+        var lines = output.Split('\n', StringSplitOptions.None);
+
+        Assert.Equal(3, lines.Length);
+        Assert.StartsWith("# ", lines[0]);
+        Assert.Equal("", lines[1]);
+        Assert.Contains(" | ", lines[2]);
+        Assert.DoesNotContain("## ", output);
+    }
+
+    private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections)
+    {
+        var view = new LibraryInspectionView(inspection);
+        var context = new MarkoutContext(new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections
+        });
+        return context.Serialize(view).TrimEnd();
+    }
+
+    private static InspectionResult CreateTestPackageResult()
+    {
+        return new InspectionResult
+        {
+            PackageName = "TestPackage",
+            Version = "1.0.0",
+            PackageTypes = ["Library"],
+            Published = DateTimeOffset.Parse("2025-01-15"),
+        };
     }
 }

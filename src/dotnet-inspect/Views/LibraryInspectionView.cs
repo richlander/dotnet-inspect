@@ -111,6 +111,9 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public ApiSurface? ApiSurface => _data.ApiSurface;
 
+    [MarkoutIgnoreInTable]
+    public List<MarkoutField> Summary => GetCompactFields();
+
     [MarkoutPropertyName("Library")]
     public string? AssemblySummary => _data.AssemblyInfo switch
     {
@@ -221,6 +224,25 @@ public class LibraryInspectionView
     [MarkoutMaxItems(10)]
     public List<string>? MissingSourcesSection =>
         _data.MissingSourceFiles?.Select(f => $"`{f}`").ToList();
+
+    private List<MarkoutField> GetCompactFields()
+    {
+        List<MarkoutField> fields = [];
+        if (_data.AssemblyInfo is not { } info) return fields;
+
+        if (!string.IsNullOrEmpty(info.AssemblyName))
+            fields.Add(new("Name", info.AssemblyName));
+        if (!string.IsNullOrEmpty(info.AssemblyVersion))
+            fields.Add(new("Version", info.AssemblyVersion));
+        if (!string.IsNullOrEmpty(info.TargetFramework))
+            fields.Add(new("TFM", info.TargetFramework));
+        if (!string.IsNullOrEmpty(info.Architecture))
+            fields.Add(new("Arch", info.Architecture));
+        if (_data.FileSize > 0)
+            fields.Add(new("Size", FormatFileSize(_data.FileSize)));
+
+        return fields;
+    }
 
     private List<MarkoutField> GetAssemblyInfoFields()
     {
