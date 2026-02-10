@@ -95,7 +95,7 @@ Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
 For detailed output, you can include or exclude specific sections:
 
 ```bash
-dotnet-inspect package --discover                        # List available sections
+dotnet-inspect package -s                                # List available sections
 dotnet-inspect System.Text.Json -v:d -x:Statistics,Files # Exclude sections by name
 dotnet-inspect System.Text.Json -v:d -s:Metadata         # Include only named sections
 ```
