@@ -51,8 +51,8 @@ jobs:
 
   # Build, test, pack (pointer + any + linux-x64), and smoke test — all on one runner
   build-and-test:
-    needs: [changes, markdownlint]
-    if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env:
       DOTNET_INSPECT_TIPS: q
@@ -155,8 +155,8 @@ jobs:
 
   # Build RID-specific Native AOT packages (cross-platform)
   build-rid:
-    needs: [changes, markdownlint]
-    if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
