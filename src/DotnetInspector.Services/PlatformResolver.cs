@@ -8,6 +8,13 @@ namespace DotnetInspector.Services;
 public static class PlatformResolver
 {
     /// <summary>
+    /// Returns true if the name looks like a platform assembly (System.* or Microsoft.*).
+    /// </summary>
+    public static bool IsPlatformCandidate(string name)
+        => name.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
+           name.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Framework short names mapped to ref pack directory names.
     /// </summary>
     public static readonly Dictionary<string, string> FrameworkMappings = new(StringComparer.OrdinalIgnoreCase)

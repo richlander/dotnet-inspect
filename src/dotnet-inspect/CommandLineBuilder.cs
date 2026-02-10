@@ -4,6 +4,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 
 namespace DotnetInspector;
@@ -28,8 +29,8 @@ public static class CommandLineBuilder
     {
         if (args.Length > 0 && !args[0].StartsWith('-') && !KnownCommands.Contains(args[0]))
         {
-            // Prepend "package" to treat as package command
-            return ["package", .. args];
+            // Route bare names through the router command (platform-preferred, NuGet fallback)
+            return ["router", .. args];
         }
         return args;
     }
@@ -113,6 +114,10 @@ public static class CommandLineBuilder
         // Platform command
         var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption);
         rootCommand.Subcommands.Add(platformCommand);
+
+        // Router command (hidden, implicit default for bare names)
+        var routerCommand = CreateRouterCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        rootCommand.Subcommands.Add(routerCommand);
 
         // Samples command
         var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -975,6 +980,124 @@ public static class CommandLineBuilder
         });
 
         return packageCommand;
+    }
+
+    /// <summary>
+    /// Hidden command that routes bare names: platform-preferred for System.*/Microsoft.*, NuGet fallback.
+    /// </summary>
+    private static Command CreateRouterCommand(
+        Option<bool> jsonOption,
+        Option<bool> markoutOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string?> tipsOption,
+        Option<string?> includeSectionsOption,
+        Option<string?> excludeSectionsOption,
+        Option<int?> limitOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
+    {
+        var routerCommand = new Command("router", "Auto-resolve package or platform library") { Hidden = true };
+
+        var packageNameArg = new Argument<string[]>("package")
+        {
+            Description = "Package or platform library name",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        routerCommand.Arguments.Add(packageNameArg);
+        routerCommand.Options.Add(jsonOption);
+        routerCommand.Options.Add(markoutOption);
+        routerCommand.Options.Add(verboseOption);
+        routerCommand.Options.Add(verbosityOption);
+        routerCommand.Options.Add(tipsOption);
+        routerCommand.Options.Add(limitOption);
+        routerCommand.Options.Add(includeSectionsOption);
+        routerCommand.Options.Add(excludeSectionsOption);
+        routerCommand.Options.Add(sourceOption);
+        routerCommand.Options.Add(addSourceOption);
+        routerCommand.Options.Add(nugetConfigOption);
+
+        routerCommand.SetAction(async (parseResult, ct) =>
+        {
+            var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
+
+            if (packageArgs.Length < 1)
+            {
+                new HelpAction().Invoke(parseResult);
+                return 0;
+            }
+
+            var name = packageArgs[0];
+            bool hasExplicitVersion = name.Contains('@');
+            var bareName = hasExplicitVersion ? name[..name.IndexOf('@')] : name;
+
+            // Platform candidate without explicit version: try platform resolution first
+            if (!hasExplicitVersion && PlatformResolver.IsPlatformCandidate(bareName))
+            {
+                var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(bareName);
+
+                if (error == null && assemblyPath != null)
+                {
+                    var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+                    var assemblyOptions = new AssemblyOptions
+                    {
+                        PlatformAssembly = bareName,
+                        JsonOutput = parseResult.GetValue(jsonOption),
+                        Verbose = parseResult.GetValue(verboseOption),
+                        Verbosity = verbosity,
+                        IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                        ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                    };
+
+                    return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
+                }
+            }
+
+            // Fall through to package command (NuGet resolution)
+            var options = new InspectionOptions
+            {
+                Limit = parseResult.GetValue(limitOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                Verbose = parseResult.GetValue(verboseOption),
+                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+            };
+
+            var tipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+            options = options with { TipLevel = tipLevel };
+
+            var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options);
+
+            if (exitCode == 0 && !options.IsRawOutput)
+            {
+                var pkg = bareName;
+
+                List<Tip> tips = [];
+
+                if (options.Verbosity < Verbosity.Detailed)
+                    tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
+
+                tips.Add(new("library", pkg, "inspect library"));
+                tips.Add(new(ApiCommand.Name, $"--package {pkg}", "view public API surface"));
+                tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
+                tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
+                tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
+                tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
+                tips.Add(new(PackageCommand.Name, $"{pkg} --layout", "show file tree"));
+                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+                Hints.WriteTips(tipLevel, [.. tips]);
+            }
+
+            return exitCode;
+        });
+
+        return routerCommand;
     }
 
     private static Command CreateAssemblyCommand(

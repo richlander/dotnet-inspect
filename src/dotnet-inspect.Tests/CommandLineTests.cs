@@ -2,6 +2,7 @@ using DotnetInspector;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
@@ -330,12 +331,12 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PreprocessArgs_WithUnknownFirstArg_PrependsPackage()
+    public void PreprocessArgs_WithUnknownFirstArg_PrependsRouter()
     {
         var args = new[] { "System.Text.Json", "--versions" };
         var result = CommandLineBuilder.PreprocessArgs(args);
 
-        Assert.Equal(["package", "System.Text.Json", "--versions"], result);
+        Assert.Equal(["router", "System.Text.Json", "--versions"], result);
     }
 
     [Fact]
@@ -354,6 +355,20 @@ public class CommandLineTests
         var result = CommandLineBuilder.PreprocessArgs(args);
 
         Assert.Empty(result);
+    }
+
+    [Theory]
+    [InlineData("System.Runtime", true)]
+    [InlineData("System.Text.Json", true)]
+    [InlineData("Microsoft.Extensions.Logging", true)]
+    [InlineData("Microsoft.AspNetCore.App", true)]
+    [InlineData("Newtonsoft.Json", false)]
+    [InlineData("Markout", false)]
+    [InlineData("system.runtime", true)] // case-insensitive
+    [InlineData("MICROSOFT.EXTENSIONS", true)]
+    public void IsPlatformCandidate_ReturnsExpected(string name, bool expected)
+    {
+        Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));
     }
 
     [Fact]
