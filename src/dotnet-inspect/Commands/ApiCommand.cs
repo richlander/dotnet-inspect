@@ -26,6 +26,15 @@ public class ApiCommand
             return 1;
         }
 
+        // Validate section filters against all known api sections
+        var allApiSections = SectionRegistry.ApiTypeSections.Concat(SectionRegistry.ApiMemberSections).Distinct().ToArray();
+        options = options with
+        {
+            IncludeSections = SectionRegistry.Resolve(allApiSections, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(allApiSections, options.ExcludeSections, out var excludeError),
+        };
+        if (includeError || excludeError) return 1;
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;
