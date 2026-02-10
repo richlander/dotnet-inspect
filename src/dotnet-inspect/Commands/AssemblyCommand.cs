@@ -46,7 +46,7 @@ public class AssemblyCommand
                     options.PlatformAssembly,
                     options.PlatformFramework,
                     packsDirectory: null,
-                    useRuntimeAssemblies: true);  // Use runtime for audit (has debug info)
+                    useRuntimeAssemblies: true);  // Use runtime for inspection (has debug info)
 
                 if (error != null)
                 {
@@ -56,14 +56,14 @@ public class AssemblyCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
-                var audit = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
-                if (audit == null)
+                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true);
+                if (inspection == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {resolvedPath}");
                     return 1;
                 }
 
-                OutputFormatter.WriteAssemblyResult(audit, options);
+                OutputFormatter.WriteLibraryResult(inspection, options);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
             }
@@ -88,20 +88,20 @@ public class AssemblyCommand
                 }
 
                 // Inspect all assemblies
-                var audits = await CollectPackageAuditsAsync(
+                var inspections = await CollectPackageInspectionsAsync(
                     assemblyPaths, options, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult);
 
-                if (audits.Count == 0)
+                if (inspections.Count == 0)
                 {
                     Console.Error.WriteLine("Error: No libraries could be read from the package.");
                     return 1;
                 }
 
-                if (audits.Count == 1)
-                    OutputFormatter.WriteAssemblyResult(audits[0], options);
+                if (inspections.Count == 1)
+                    OutputFormatter.WriteLibraryResult(inspections[0], options);
                 else
-                    OutputFormatter.WriteAssemblyResults(audits, options);
+                    OutputFormatter.WriteLibraryResults(inspections, options);
 
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options, logger);
@@ -117,14 +117,14 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                var audit = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
-                if (audit == null)
+                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient);
+                if (inspection == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
                     return 1;
                 }
 
-                OutputFormatter.WriteAssemblyResult(audit, options);
+                OutputFormatter.WriteLibraryResult(inspection, options);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
                 return 0;
             }
@@ -179,19 +179,19 @@ public class AssemblyCommand
         }
     }
 
-    private static async Task<List<AssemblyAudit>> CollectPackageAuditsAsync(
+    private static async Task<List<LibraryInspection>> CollectPackageInspectionsAsync(
         List<string> assemblyPaths, AssemblyOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult)
     {
-        List<AssemblyAudit> audits = [];
+        List<LibraryInspection> inspections = [];
 
         foreach (var targetPath in assemblyPaths)
         {
             var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var audit = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient);
-            if (audit == null)
+            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient);
+            if (inspection == null)
             {
                 logger.Log($"Warning: Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
@@ -199,20 +199,20 @@ public class AssemblyCommand
 
             // Populate TFM from path for multi-TFM display
             var relativePath = Path.GetRelativePath(extractPath, targetPath).Replace('\\', '/');
-            audit.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
 
             if (signatureResult != null)
             {
-                audit.Publisher = signatureResult.Publisher;
-                audit.PublisherVerified = signatureResult.AuthorVerified;
-                audit.RepositoryVerified = signatureResult.RepositoryVerified;
-                audit.SignatureStatus = signatureResult.StatusMessage;
+                inspection.Publisher = signatureResult.Publisher;
+                inspection.PublisherVerified = signatureResult.AuthorVerified;
+                inspection.RepositoryVerified = signatureResult.RepositoryVerified;
+                inspection.SignatureStatus = signatureResult.StatusMessage;
             }
 
-            audits.Add(audit);
+            inspections.Add(inspection);
         }
 
-        return audits;
+        return inspections;
     }
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)

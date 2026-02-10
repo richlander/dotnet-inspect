@@ -4,7 +4,7 @@ namespace DotnetInspector.Metadata;
 /// Audit-relevant information extracted from a PE assembly's debug directory and PDB.
 /// This is a pure data type without rendering concerns.
 /// </summary>
-public class AssemblyAuditInfo
+public class LibraryDebugInfo
 {
     public bool HasReproducibleFlag { get; set; }
     public bool HasEmbeddedPdb { get; set; }

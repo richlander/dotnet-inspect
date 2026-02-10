@@ -173,7 +173,7 @@ public static class AssemblyInspector
     /// Audits a DLL file for build quality: SourceLink, determinism, PDB info.
     /// Handles both managed and native binaries.
     /// </summary>
-    public static AssemblyAuditInfo AuditDll(string dllPath)
+    public static LibraryDebugInfo InspectDll(string dllPath)
     {
         using FileStream stream = File.OpenRead(dllPath);
         using PEReader peReader = new(stream);
@@ -185,22 +185,22 @@ public static class AssemblyInspector
             nativeInfo.IsNativeAot = isNativeAot;
             nativeInfo.CompilationType = isNativeAot ? "NativeAOT" : "Native";
 
-            return new AssemblyAuditInfo
+            return new LibraryDebugInfo
             {
                 AssemblyInfo = nativeInfo,
                 IsNativeAot = isNativeAot
             };
         }
 
-        return AuditManagedDll(peReader);
+        return InspectManagedDll(peReader);
     }
 
     /// <summary>
     /// Audits a managed DLL for build quality: SourceLink, determinism, PDB info.
     /// </summary>
-    public static AssemblyAuditInfo AuditManagedDll(PEReader peReader)
+    public static LibraryDebugInfo InspectManagedDll(PEReader peReader)
     {
-        var audit = new AssemblyAuditInfo();
+        var audit = new LibraryDebugInfo();
 
         // Check debug directory entries
         foreach (var entry in peReader.ReadDebugDirectory())
@@ -267,7 +267,7 @@ public static class AssemblyInspector
     /// Audits a standalone Portable PDB file.
     /// Returns null if the file is not a Portable PDB.
     /// </summary>
-    public static AssemblyAuditInfo? AuditStandalonePdb(Stream pdbStream)
+    public static LibraryDebugInfo? InspectStandalonePdb(Stream pdbStream)
     {
         byte[] header = new byte[4];
         pdbStream.ReadExactly(header, 0, 4);
@@ -276,7 +276,7 @@ public static class AssemblyInspector
         // Only handle Portable PDBs (BSJB header)
         if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
         {
-            return new AssemblyAuditInfo
+            return new LibraryDebugInfo
             {
                 PdbFormat = "Windows PDB (legacy)",
                 HasSourceLink = false,
@@ -287,7 +287,7 @@ public static class AssemblyInspector
         using MetadataReaderProvider provider = MetadataReaderProvider.FromPortablePdbStream(pdbStream);
         MetadataReader reader = provider.GetMetadataReader();
 
-        var audit = new AssemblyAuditInfo
+        var audit = new LibraryDebugInfo
         {
             PdbFormat = "Portable PDB"
         };

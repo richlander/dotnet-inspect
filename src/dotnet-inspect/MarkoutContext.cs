@@ -7,8 +7,8 @@ namespace DotnetInspector;
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
-[MarkoutContext(typeof(AssemblyAuditView))]
-[MarkoutContext(typeof(AssemblyAuditReport))]
+[MarkoutContext(typeof(LibraryInspectionView))]
+[MarkoutContext(typeof(LibraryInspectionReport))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(ExtensionMethodRow))]
 [MarkoutContext(typeof(ClassifiedMethodRow))]

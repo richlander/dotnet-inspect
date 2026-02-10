@@ -5,11 +5,11 @@ using Markout;
 namespace DotnetInspector.Views;
 
 [MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFields = false)]
-public class AssemblyAuditView
+public class LibraryInspectionView
 {
-    private readonly AssemblyAudit _data;
+    private readonly LibraryInspection _data;
 
-    public AssemblyAuditView(AssemblyAudit data)
+    public LibraryInspectionView(LibraryInspection data)
     {
         _data = data;
     }

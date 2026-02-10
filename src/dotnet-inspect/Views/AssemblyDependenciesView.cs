@@ -41,15 +41,15 @@ public class AssemblyDependenciesView
         return fields;
     }
 
-    public static AssemblyDependenciesView FromAudit(AssemblyAudit audit)
+    public static AssemblyDependenciesView FromInspection(LibraryInspection inspection)
     {
-        var view = new AssemblyAuditView(audit);
+        var view = new LibraryInspectionView(inspection);
         return new AssemblyDependenciesView
         {
-            Title = audit.FileName,
-            AssemblyName = audit.AssemblyInfo?.AssemblyName,
-            Version = audit.AssemblyInfo?.AssemblyVersion,
-            Tfm = audit.Tfm ?? audit.AssemblyInfo?.TargetFramework,
+            Title = inspection.FileName,
+            AssemblyName = inspection.AssemblyInfo?.AssemblyName,
+            Version = inspection.AssemblyInfo?.AssemblyVersion,
+            Tfm = inspection.Tfm ?? inspection.AssemblyInfo?.TargetFramework,
             Dependencies = view.DependenciesSection ?? []
         };
     }

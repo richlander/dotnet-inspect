@@ -22,8 +22,8 @@ public class OutputFormatterTests
     [Fact]
     public void SingleAssemblyAudit_HasSingleH1()
     {
-        var audit = CreateTestAudit("Test.dll", "net9.0");
-        var output = Serialize(audit);
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        var output = Serialize(inspection);
 
         Assert.Single(output.Split('\n'), l => l.StartsWith("# "));
     }
@@ -78,9 +78,9 @@ public class OutputFormatterTests
     [Fact]
     public void SingleAudit_IncludesSymbols_Always()
     {
-        var audit = CreateTestAudit("Test.dll", "net9.0");
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
         var options = new AssemblyOptions();
-        var output = Serialize(audit, GetAuditExcludeSections(options));
+        var output = Serialize(inspection, GetLibraryExcludeSections(options));
 
         Assert.Contains("## Symbols", output);
     }
@@ -88,18 +88,18 @@ public class OutputFormatterTests
     [Fact]
     public void SingleAudit_MetadataIncludesDeterministic()
     {
-        var audit = CreateTestAudit("Test.dll", "net9.0");
-        audit.IsDeterministic = true;
-        audit.HasReproducibleFlag = true;
-        var output = Serialize(audit);
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.IsDeterministic = true;
+        inspection.HasReproducibleFlag = true;
+        var output = Serialize(inspection);
 
         Assert.Contains("Deterministic", output);
         Assert.Contains("Reproducible", output);
     }
 
-    private static AssemblyAudit CreateTestAudit(string fileName, string? tfm)
+    private static LibraryInspection CreateTestAudit(string fileName, string? tfm)
     {
-        return new AssemblyAudit
+        return new LibraryInspection
         {
             FileName = fileName,
             FileType = "dll",
@@ -114,17 +114,17 @@ public class OutputFormatterTests
         };
     }
 
-    private static AssemblyAuditReport CreateTestReport(string fileName, params string[] tfms)
+    private static LibraryInspectionReport CreateTestReport(string fileName, params string[] tfms)
     {
-        var audits = tfms.Select(tfm => CreateTestAudit(fileName, tfm)).ToList();
-        return new AssemblyAuditReport
+        var inspections = tfms.Select(tfm => CreateTestAudit(fileName, tfm)).ToList();
+        return new LibraryInspectionReport
         {
             Title = Path.GetFileNameWithoutExtension(fileName),
-            Assemblies = audits.Select(a => new AssemblyAuditView(a)).ToList()
+            Assemblies = inspections.Select(a => new LibraryInspectionView(a)).ToList()
         };
     }
 
-    private static string Serialize(AssemblyAuditReport report, HashSet<string>? excludeSections = null)
+    private static string Serialize(LibraryInspectionReport report, HashSet<string>? excludeSections = null)
     {
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
@@ -133,9 +133,9 @@ public class OutputFormatterTests
         return context.Serialize(report).TrimEnd();
     }
 
-    private static string Serialize(AssemblyAudit audit, HashSet<string>? excludeSections = null)
+    private static string Serialize(LibraryInspection inspection, HashSet<string>? excludeSections = null)
     {
-        var view = new AssemblyAuditView(audit);
+        var view = new LibraryInspectionView(inspection);
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
             ExcludeSections = excludeSections
@@ -143,8 +143,8 @@ public class OutputFormatterTests
         return context.Serialize(view).TrimEnd();
     }
 
-    // Mirror the logic from OutputFormatter.GetAuditExcludeSections
-    private static HashSet<string>? GetAuditExcludeSections(AssemblyOptions options)
+    // Mirror the logic from OutputFormatter.GetLibraryExcludeSections
+    private static HashSet<string>? GetLibraryExcludeSections(AssemblyOptions options)
     {
         if (!options.IncludeSourcelinkAudit)
             return ["Source Coverage", "Missing Sources"];

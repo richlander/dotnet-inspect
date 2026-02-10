@@ -12,7 +12,7 @@ using AssemblyReference = DotnetInspector.Metadata.AssemblyReference;
 namespace DotnetInspector.Inspectors;
 
 /// <summary>
-/// Inspects assemblies/libraries: metadata extraction, PDB audit, SourceLink verification,
+/// Inspects assemblies/libraries: metadata extraction, PDB inspection, SourceLink verification,
 /// builder inference, and transitive reference resolution.
 /// </summary>
 internal static class LibraryMetadataService
@@ -20,7 +20,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Full inspection pipeline for a single assembly.
     /// </summary>
-    public static async Task<AssemblyAudit?> InspectAsync(
+    public static async Task<LibraryInspection?> InspectAsync(
         string path,
         AssemblyOptions options,
         VerboseLogger logger,
@@ -39,7 +39,7 @@ internal static class LibraryMetadataService
             {
                 var nativeInfo = pdbContext.CreateNativeInfo();
 
-                var nativeAudit = new AssemblyAudit
+                var nativeAudit = new LibraryInspection
                 {
                     FileName = Path.GetFileName(path),
                     FileType = "native",
@@ -53,32 +53,32 @@ internal static class LibraryMetadataService
                 return nativeAudit;
             }
 
-            var audit = new AssemblyAudit
+            var inspection = new LibraryInspection
             {
                 FileName = Path.GetFileName(path),
                 FileType = "dll",
                 UseDependenciesView = options.IncludeDependencies
             };
 
-            audit.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
 
             // PE debug directory fields
-            audit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
-            audit.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
-            audit.PdbPath = pdbContext.CodeViewPdbPath;
-            audit.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
-            audit.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
-            audit.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
+            inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
+            inspection.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
+            inspection.PdbPath = pdbContext.CodeViewPdbPath;
+            inspection.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
+            inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
+            inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if (options.IncludeDependencies && audit.AssemblyInfo?.References != null)
+            if (options.IncludeDependencies && inspection.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                visited.Add(audit.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
+                visited.Add(inspection.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
 
-                audit.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    audit.AssemblyInfo.References,
+                inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
+                    inspection.AssemblyInfo.References,
                     sourceDir,
                     visited,
                     logger,
@@ -88,18 +88,18 @@ internal static class LibraryMetadataService
             // Scan for extension methods, classified methods, and resources in detailed mode
             if (options.Verbosity == Options.Verbosity.Detailed)
             {
-                audit.ExtensionMethods = ScanExtensionMethods(path, logger);
-                ScanClassifiedMethods(path, audit, logger);
-                audit.Resources = ScanResources(path, logger);
-                ScanCustomAttributes(path, audit, logger);
-                ScanTypeForwarders(path, audit, logger);
+                inspection.ExtensionMethods = ScanExtensionMethods(path, logger);
+                ScanClassifiedMethods(path, inspection, logger);
+                inspection.Resources = ScanResources(path, logger);
+                ScanCustomAttributes(path, inspection, logger);
+                ScanTypeForwarders(path, inspection, logger);
             }
 
-            audit.FileSize = AssemblyDetailScanner.GetFileSize(path);
+            inspection.FileSize = AssemblyDetailScanner.GetFileSize(path);
 
-            await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
+            await AuditAsync(pdbContext, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
 
-            return audit;
+            return inspection;
         }
         catch
         {
@@ -112,7 +112,7 @@ internal static class LibraryMetadataService
     /// </summary>
     public static async Task AuditAsync(
         PdbContext pdbContext,
-        AssemblyAudit audit,
+        LibraryInspection inspection,
         string assemblyPath,
         string? packageName,
         string? packageVersion,
@@ -123,17 +123,17 @@ internal static class LibraryMetadataService
     {
         if (pdbContext.HasPdb)
         {
-            audit.PdbFormat = pdbContext.PdbFormat;
-            audit.PdbLocation = pdbContext.PdbLocation;
-            audit.HasSourceLink = pdbContext.HasSourceLink;
-            audit.SourceLinkJson = pdbContext.SourceLinkJson;
+            inspection.PdbFormat = pdbContext.PdbFormat;
+            inspection.PdbLocation = pdbContext.PdbLocation;
+            inspection.HasSourceLink = pdbContext.HasSourceLink;
+            inspection.SourceLinkJson = pdbContext.SourceLinkJson;
         }
 
         if (!pdbContext.HasPdb && pdbContext.WindowsPdbDetected)
         {
-            audit.WindowsPdbDetected = true;
-            audit.PdbFormat = pdbContext.PdbFormat;
-            audit.PdbLocation = pdbContext.PdbLocation;
+            inspection.WindowsPdbDetected = true;
+            inspection.PdbFormat = pdbContext.PdbFormat;
+            inspection.PdbLocation = pdbContext.PdbLocation;
         }
 
         // If no local PDB, try downloading
@@ -143,43 +143,43 @@ internal static class LibraryMetadataService
 
             if (pdbContext.HasPdb)
             {
-                audit.PdbFormat = pdbContext.PdbFormat;
-                audit.PdbLocation = pdbContext.PdbLocation;
-                audit.SymbolServer = pdbContext.SymbolServer;
-                audit.HasSourceLink = pdbContext.HasSourceLink;
-                audit.SourceLinkJson = pdbContext.SourceLinkJson;
+                inspection.PdbFormat = pdbContext.PdbFormat;
+                inspection.PdbLocation = pdbContext.PdbLocation;
+                inspection.SymbolServer = pdbContext.SymbolServer;
+                inspection.HasSourceLink = pdbContext.HasSourceLink;
+                inspection.SourceLinkJson = pdbContext.SourceLinkJson;
             }
             else if (pdbContext.WindowsPdbDetected)
             {
-                audit.WindowsPdbDetected = true;
-                audit.PdbFormat = "Windows";
+                inspection.WindowsPdbDetected = true;
+                inspection.PdbFormat = "Windows";
             }
         }
 
         // Determine reason for missing SourceLink
-        if (!audit.HasSourceLink)
+        if (!inspection.HasSourceLink)
         {
-            if (audit.WindowsPdbDetected)
+            if (inspection.WindowsPdbDetected)
             {
-                audit.SourceLinkUnavailableReason = "Windows PDB";
+                inspection.SourceLinkUnavailableReason = "Windows PDB";
             }
-            else if (audit.PdbLocation == null && audit.PdbPath != null)
+            else if (inspection.PdbLocation == null && inspection.PdbPath != null)
             {
-                audit.SourceLinkUnavailableReason = "no symbols";
+                inspection.SourceLinkUnavailableReason = "no symbols";
             }
-            else if (!audit.HasEmbeddedPdb && audit.PdbPath != null)
+            else if (!inspection.HasEmbeddedPdb && inspection.PdbPath != null)
             {
-                audit.SourceLinkUnavailableReason = "external PDB not found";
+                inspection.SourceLinkUnavailableReason = "external PDB not found";
             }
         }
 
-        audit.Builder = InferBuilder(audit);
+        inspection.Builder = InferBuilder(inspection);
 
-        // SourceLink audit: verify that all source files are accessible
-        if (includeSourcelinkAudit && pdbContext.HasPdb && audit.HasSourceLink && audit.SourceLinkJson != null)
+        // SourceLink inspection: verify that all source files are accessible
+        if (includeSourcelinkAudit && pdbContext.HasPdb && inspection.HasSourceLink && inspection.SourceLinkJson != null)
         {
             logger.Log("Running strict source verification...");
-            await VerifySourceAccessibilityAsync(pdbContext, audit, httpClient, logger);
+            await VerifySourceAccessibilityAsync(pdbContext, inspection, httpClient, logger);
         }
     }
 
@@ -188,7 +188,7 @@ internal static class LibraryMetadataService
     /// </summary>
     public static async Task VerifySourceAccessibilityAsync(
         PdbContext pdbContext,
-        AssemblyAudit audit,
+        LibraryInspection inspection,
         HttpClient httpClient,
         VerboseLogger logger)
     {
@@ -217,11 +217,11 @@ internal static class LibraryMetadataService
                     missingFiles.Add(doc.FilePath);
             });
 
-        audit.TotalSourceFiles = documents.Count;
-        audit.AccessibleSourceFiles = accessibleCount;
-        audit.EmbeddedSourceFiles = embeddedFiles;
-        audit.AllSourcesAccessible = missingFiles.IsEmpty;
-        audit.MissingSourceFiles = missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)];
+        inspection.TotalSourceFiles = documents.Count;
+        inspection.AccessibleSourceFiles = accessibleCount;
+        inspection.EmbeddedSourceFiles = embeddedFiles;
+        inspection.AllSourcesAccessible = missingFiles.IsEmpty;
+        inspection.MissingSourceFiles = missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)];
 
         logger.Log($"Source coverage: {accessibleCount + embeddedFiles}/{documents.Count} files accessible");
     }
@@ -229,9 +229,9 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Infers who built the assembly based on symbol availability and SourceLink.
     /// </summary>
-    public static string? InferBuilder(AssemblyAudit audit)
+    public static string? InferBuilder(LibraryInspection inspection)
     {
-        var company = audit.AssemblyInfo?.Company;
+        var company = inspection.AssemblyInfo?.Company;
         bool isMicrosoftAssembly = company?.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) == true;
 
         if (!isMicrosoftAssembly)
@@ -239,21 +239,21 @@ internal static class LibraryMetadataService
             return null;
         }
 
-        if (audit.SymbolServer == "msdl.microsoft.com" && audit.HasSourceLink)
+        if (inspection.SymbolServer == "msdl.microsoft.com" && inspection.HasSourceLink)
         {
             return "Microsoft";
         }
 
-        if (audit.HasSourceLink && audit.SourceLinkJson != null)
+        if (inspection.HasSourceLink && inspection.SourceLinkJson != null)
         {
-            if (audit.SourceLinkJson.Contains("github.com/dotnet/", StringComparison.OrdinalIgnoreCase) ||
-                audit.SourceLinkJson.Contains("raw.githubusercontent.com/dotnet/", StringComparison.OrdinalIgnoreCase))
+            if (inspection.SourceLinkJson.Contains("github.com/dotnet/", StringComparison.OrdinalIgnoreCase) ||
+                inspection.SourceLinkJson.Contains("raw.githubusercontent.com/dotnet/", StringComparison.OrdinalIgnoreCase))
             {
                 return "Microsoft";
             }
         }
 
-        if (audit.SourceLinkUnavailableReason == "no symbols")
+        if (inspection.SourceLinkUnavailableReason == "no symbols")
         {
             return "Unknown";
         }
@@ -398,7 +398,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for unsafe and P/Invoke methods.
     /// </summary>
-    private static void ScanClassifiedMethods(string path, AssemblyAudit audit, VerboseLogger logger)
+    private static void ScanClassifiedMethods(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
@@ -431,8 +431,8 @@ internal static class LibraryMetadataService
                 .ThenBy(m => m.MethodName)
                 .ToList();
 
-            audit.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
-            audit.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
+            inspection.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
+            inspection.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
         }
         catch (Exception ex)
         {
@@ -471,7 +471,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for custom attributes (assembly-level and module-level).
     /// </summary>
-    private static void ScanCustomAttributes(string path, AssemblyAudit audit, VerboseLogger logger)
+    private static void ScanCustomAttributes(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
@@ -480,7 +480,7 @@ internal static class LibraryMetadataService
             var attrs = AssemblyDetailScanner.ScanCustomAttributes(peReader);
             if (attrs.Count > 0)
             {
-                audit.CustomAttributes = attrs
+                inspection.CustomAttributes = attrs
                     .Select(a => new CustomAttributeSummary
                     {
                         Name = a.Name,
@@ -499,7 +499,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for type forwarders.
     /// </summary>
-    private static void ScanTypeForwarders(string path, AssemblyAudit audit, VerboseLogger logger)
+    private static void ScanTypeForwarders(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
         {
@@ -508,7 +508,7 @@ internal static class LibraryMetadataService
             var forwarders = AssemblyDetailScanner.ScanTypeForwarders(peReader);
             if (forwarders.Count > 0)
             {
-                audit.TypeForwarders = forwarders
+                inspection.TypeForwarders = forwarders
                     .Select(f => new TypeForwarderSummary
                     {
                         TypeName = f.TypeName,
