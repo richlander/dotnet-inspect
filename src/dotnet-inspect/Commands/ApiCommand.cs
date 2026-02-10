@@ -35,6 +35,13 @@ public class ApiCommand
         };
         if (includeError || excludeError) return 1;
 
+        // Bare -s: list available sections and exit
+        if (options.IncludeSections is { Count: 0 })
+        {
+            SectionRegistry.ListSections(allApiSections);
+            return 0;
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;

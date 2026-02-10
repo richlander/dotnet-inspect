@@ -19,13 +19,18 @@ public class PackageCommand
     public const string Name = "package";
     public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options, string? explicitVersion = null)
     {
-        // Handle --discover mode: list sections and exit early
-        if (options.Discover)
+        // Validate section filters
+        options = options with
         {
-            foreach (var name in SectionRegistry.PackageCommandSections)
-            {
-                Console.WriteLine(name);
-            }
+            IncludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.ExcludeSections, out var excludeError),
+        };
+        if (includeError || excludeError) return 1;
+
+        // Bare -s: list available sections and exit
+        if (options.IncludeSections is { Count: 0 })
+        {
+            SectionRegistry.ListSections(SectionRegistry.PackageCommandSections);
             return 0;
         }
 
@@ -35,14 +40,6 @@ public class PackageCommand
             Console.Error.WriteLine("Run 'dotnet-inspect package --help' for usage.");
             return 1;
         }
-
-        // Validate section filters
-        options = options with
-        {
-            IncludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.ExcludeSections, out var excludeError),
-        };
-        if (includeError || excludeError) return 1;
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;

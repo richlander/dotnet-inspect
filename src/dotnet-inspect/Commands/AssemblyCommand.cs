@@ -16,6 +16,21 @@ public class AssemblyCommand
 {
     public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
     {
+        // Validate section filters
+        options = options with
+        {
+            IncludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.ExcludeSections, out var excludeError),
+        };
+        if (includeError || excludeError) return 1;
+
+        // Bare -s: list available sections and exit
+        if (options.IncludeSections is { Count: 0 })
+        {
+            SectionRegistry.ListSections(SectionRegistry.LibrarySections);
+            return 0;
+        }
+
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
             string.IsNullOrEmpty(options.PackagePath) &&
@@ -25,14 +40,6 @@ public class AssemblyCommand
             Console.Error.WriteLine("Run 'dotnet-inspect library --help' for usage.");
             return 1;
         }
-
-        // Validate section filters
-        options = options with
-        {
-            IncludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.ExcludeSections, out var excludeError),
-        };
-        if (includeError || excludeError) return 1;
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;

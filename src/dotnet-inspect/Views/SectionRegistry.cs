@@ -63,6 +63,15 @@ public static class SectionRegistry
     ];
 
     /// <summary>
+    /// Prints available section names to stdout.
+    /// </summary>
+    public static void ListSections(string[] knownSections)
+    {
+        foreach (var section in knownSections)
+            Console.WriteLine(section);
+    }
+
+    /// <summary>
     /// Resolves user-supplied section names against known sections.
     /// Supports case-insensitive matching and trailing <c>*</c> wildcards.
     /// </summary>

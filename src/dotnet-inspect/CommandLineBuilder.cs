@@ -4,6 +4,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Views;
 
 namespace DotnetInspector;
 
@@ -46,7 +47,7 @@ public static class CommandLineBuilder
         var markoutOption = new Option<bool>("--markout") { Description = "Output as Markout (default)" };
         var verboseOption = new Option<bool>("--verbose") { Description = "Show progress messages on stderr" };
         var verbosityOption = new Option<string?>("-v") { Description = "Verbosity level: q(uiet), m(inimal), n(ormal), d(etailed)" };
-        var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections by name (comma-separated, e.g., -s:Methods,Properties).\nUse -s alone for header only.", Arity = ArgumentArity.ZeroOrOne };
+        var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections (comma-separated, supports wildcards e.g. -s:Extension*).\nUse -s alone to list available sections.", Arity = ArgumentArity.ZeroOrOne };
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
         var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
@@ -755,7 +756,7 @@ public static class CommandLineBuilder
                     JsonOutput = parseResult.GetValue(jsonOption),
                     Verbose = parseResult.GetValue(verboseOption),
                     Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                    IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
+                    IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                     ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
                 };
 
@@ -885,7 +886,6 @@ public static class CommandLineBuilder
         prereleaseOption.Aliases.Add("--prerelease");
         var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
-        var discoverOption = new Option<bool>("--discover") { Description = "List available sections and exit" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var versionOption = new Option<string?>("--version") { Description = "Package version" };
 
@@ -902,7 +902,6 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(outOption);
-        packageCommand.Options.Add(discoverOption);
         packageCommand.Options.Add(limitOption);
         packageCommand.Options.Add(jsonOption);
         packageCommand.Options.Add(markoutOption);
@@ -938,13 +937,12 @@ public static class CommandLineBuilder
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 ShowReadme = parseResult.GetValue(readmeOption),
                 OutputPath = parseResult.GetValue(outOption),
-                Discover = parseResult.GetValue(discoverOption),
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = jsonOutput,
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = verbosity,
                 TipLevel = tipLevel,
-                IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
+                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
@@ -952,7 +950,7 @@ public static class CommandLineBuilder
             var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options, explicitVersion);
 
             if (exitCode == 0 && packageArgs.Length > 0
-                && !options.ListVersions && !options.ListFiles && !options.ListLayout && !options.ListTfms && !options.Discover && !options.ShowReadme)
+                && !options.ListVersions && !options.ListFiles && !options.ListLayout && !options.ListTfms && !options.ShowReadme)
             {
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
@@ -1061,7 +1059,7 @@ public static class CommandLineBuilder
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                IncludeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption)),
+                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
@@ -1158,9 +1156,16 @@ public static class CommandLineBuilder
             var explicitPlatform = parseResult.GetValue(apiPlatformOption);
             bool hasExplicitSource = explicitPackage != null || explicitAssembly != null || explicitPlatform != null;
 
-            // No args and no explicit source: show help
+            // No args and no explicit source: show help (unless bare -s for section discovery)
             if (args.Length == 0 && !hasExplicitSource)
             {
+                if (parseResult.GetResult(includeSectionsOption) != null && parseResult.GetValue(includeSectionsOption) == null)
+                {
+                    var allApiSections = SectionRegistry.ApiTypeSections.Concat(SectionRegistry.ApiMemberSections).Distinct().ToArray();
+                    SectionRegistry.ListSections(allApiSections);
+                    return 0;
+                }
+
                 new HelpAction().Invoke(parseResult);
                 return 0;
             }
@@ -1204,11 +1209,6 @@ public static class CommandLineBuilder
                 memberFilter = new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase);
             }
 
-            var includeSections = ParseSectionList(parseResult.GetValue(includeSectionsOption));
-            // Bare -s with no value means "header only" (empty set excludes all sections)
-            if (includeSections == null && parseResult.GetResult(includeSectionsOption) != null)
-                includeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
             var options = new ApiOptions
             {
                 PackagePath = packagePath,
@@ -1232,7 +1232,7 @@ public static class CommandLineBuilder
                 ShapeOutput = parseResult.GetValue(shapeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
-                IncludeSections = includeSections,
+                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
@@ -1251,6 +1251,8 @@ public static class CommandLineBuilder
     public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
     public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
     public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
+    public static HashSet<string>? ParseIncludeSections(ParseResult parseResult, Option<string?> option)
+        => OptionParsers.ParseIncludeSections(parseResult, option);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
