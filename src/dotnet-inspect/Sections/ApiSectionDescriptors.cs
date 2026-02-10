@@ -144,7 +144,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Constructors : ISectionDescriptor<ApiType>
     {
         public static string Name => "Constructors";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
@@ -153,7 +153,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Fields : ISectionDescriptor<ApiType>
     {
         public static string Name => "Fields";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "field" && !m.EnumValue.HasValue);
@@ -162,7 +162,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Properties : ISectionDescriptor<ApiType>
     {
         public static string Name => "Properties";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "property");
@@ -171,7 +171,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
         public static string Name => "Methods";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "method");
@@ -180,7 +180,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Events : ISectionDescriptor<ApiType>
     {
         public static string Name => "Events";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
