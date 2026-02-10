@@ -4,6 +4,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -16,24 +17,27 @@ public class AssemblyCommand
 {
     public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
     {
+        var pipeline = LibrarySections.CreatePipeline();
+
         // Validate section filters
         options = options with
         {
-            IncludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.LibrarySections, options.ExcludeSections, out var excludeError),
+            IncludeSections = SectionRegistry.Resolve(pipeline.AllSectionNames, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(pipeline.AllSectionNames, options.ExcludeSections, out var excludeError),
         };
         if (includeError || excludeError) return 1;
 
         // Bare -s: list available sections and exit
         if (options.IncludeSections is { Count: 0 })
         {
-            SectionRegistry.ListSections(SectionRegistry.LibrarySections);
+            SectionRegistry.ListSections(pipeline.AllSectionNames);
             return 0;
         }
 
-        // -s targeting specific sections: promote to detailed so data is collected
-        if (options.IncludeSections is { Count: > 0 })
-            options = options with { Verbosity = Verbosity.Detailed };
+        // -s targeting specific sections: promote verbosity to ensure data collection
+        var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
+        if (requiredVerbosity > options.Verbosity)
+            options = options with { Verbosity = requiredVerbosity };
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -83,7 +87,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                OutputFormatter.WriteLibraryResult(inspection, options);
+                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
             }
@@ -119,9 +123,9 @@ public class AssemblyCommand
                 }
 
                 if (inspections.Count == 1)
-                    OutputFormatter.WriteLibraryResult(inspections[0], options);
+                    OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
-                    OutputFormatter.WriteLibraryResults(inspections, options);
+                    OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
 
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options, logger);
@@ -144,7 +148,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                OutputFormatter.WriteLibraryResult(inspection, options);
+                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
                 return 0;
             }
