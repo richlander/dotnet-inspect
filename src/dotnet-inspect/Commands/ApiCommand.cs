@@ -281,7 +281,11 @@ public class ApiCommand
                         api.Source = apiSource;
                         api.Version = apiVersion;
 
-                        options = options with { TypeFilter = typeName };
+                        options = options with
+                        {
+                            TypeFilter = typeName,
+                            Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
+                        };
                         WriteFullApiOutput(api, options, selectedTfm);
                     }
                     else

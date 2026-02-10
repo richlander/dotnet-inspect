@@ -3,6 +3,7 @@ using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -160,5 +161,121 @@ public class OutputFormatterTests
         if (!options.IncludeSourcelinkAudit)
             return ["Source Coverage", "Missing Sources"];
         return null;
+    }
+
+    // ===== API Output Formatter Tests =====
+
+    private static ApiSurface CreateTestApiSurface(int typeCount = 3)
+    {
+        var types = Enumerable.Range(1, typeCount).Select(i => new ApiType
+        {
+            Namespace = "TestLib",
+            Name = $"Type{i}",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Method1", Kind = "method", Signature = "void Method1()" }]
+        }).ToList();
+
+        return new ApiSurface
+        {
+            Name = "TestLib",
+            Source = "NuGet",
+            Version = "1.0.0",
+            Tfm = "net10.0",
+            Types = types,
+            PublicTypeCount = types.Count,
+            PublicMethodCount = types.Count,
+            PublicPropertyCount = 0
+        };
+    }
+
+    [Fact]
+    public void ApiFullSurface_QuietMode_SuppressesTypeTables()
+    {
+        var api = CreateTestApiSurface();
+        var options = new ApiOptions { Verbosity = Verbosity.Quiet };
+
+        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+
+        Assert.Contains("Source: NuGet", output);
+        Assert.DoesNotContain("## Classes", output);
+        Assert.DoesNotContain("Type1", output);
+    }
+
+    [Fact]
+    public void ApiFullSurface_MinimalMode_ShowsTypeTables()
+    {
+        var api = CreateTestApiSurface();
+        var options = new ApiOptions { Verbosity = Verbosity.Minimal };
+
+        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+
+        Assert.Contains("## Classes", output);
+        Assert.Contains("TestLib.Type1", output);
+    }
+
+    [Fact]
+    public void ApiFullSurface_QuietWithTypeFilter_ShowsTypeTables()
+    {
+        var api = CreateTestApiSurface();
+        // Glob upgrade: quiet + TypeFilter should behave as minimal
+        var options = new ApiOptions
+        {
+            Verbosity = Verbosity.Minimal,  // caller upgrades quiet to minimal for globs
+            TypeFilter = "Type1*"
+        };
+
+        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+
+        Assert.Contains("## Classes", output);
+        Assert.Contains("TestLib.Type1", output);
+    }
+
+    [Fact]
+    public void ApiFullSurface_SourceAndTfm_PresentInCompactLine()
+    {
+        var api = CreateTestApiSurface();
+        var options = new ApiOptions { Verbosity = Verbosity.Quiet };
+
+        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+
+        Assert.Contains("Source: NuGet", output);
+        Assert.Contains("TFM: net10.0", output);
+        Assert.Contains("Version: 1.0.0", output);
+    }
+
+    [Fact]
+    public void ApiTypeView_SourceAndTfm_PresentInCompactLine()
+    {
+        var type = new ApiType
+        {
+            Namespace = "TestLib",
+            Name = "MyClass",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Run", Kind = "method", Signature = "void Run()" }]
+        };
+        var options = new ApiOptions { Verbosity = Verbosity.Quiet };
+
+        var output = ApiOutputFormatter.RenderTypeMarkdown(type, "TestLib", "TestLib", "1.0.0", "NuGet", "net10.0", options);
+
+        Assert.Contains("Source: NuGet", output);
+        Assert.Contains("TFM: net10.0", output);
+    }
+
+    [Fact]
+    public void ApiTypeView_NullSource_OmitsSourceField()
+    {
+        var type = new ApiType
+        {
+            Namespace = "TestLib",
+            Name = "MyClass",
+            Kind = "class",
+            Members = []
+        };
+        var options = new ApiOptions { Verbosity = Verbosity.Minimal };
+
+        var output = ApiOutputFormatter.RenderTypeMarkdown(type, "TestLib", null, null, null, null, options);
+
+        Assert.DoesNotContain("Source:", output);
+        Assert.DoesNotContain("TFM:", output);
     }
 }
