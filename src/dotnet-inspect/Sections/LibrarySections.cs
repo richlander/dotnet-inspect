@@ -1,3 +1,4 @@
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 
@@ -38,6 +39,22 @@ public static class LibrarySections
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
             .Add<MissingSources>();
+    }
+
+    /// <summary>Builds the scanner registry with all library scanners registered.</summary>
+    public static ScannerRegistry CreateScannerRegistry()
+    {
+        return new ScannerRegistry()
+            .Add(ScannerExtensionMethods, ctx =>
+                ctx.Model.ExtensionMethods = LibraryMetadataService.ScanExtensionMethods(ctx.AssemblyPath, ctx.Logger))
+            .Add(ScannerClassifiedMethods, ctx =>
+                LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerResources, ctx =>
+                ctx.Model.Resources = LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger))
+            .Add(ScannerCustomAttributes, ctx =>
+                LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerTypeForwarders, ctx =>
+                LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Always-on sections (Normal verbosity) =====
