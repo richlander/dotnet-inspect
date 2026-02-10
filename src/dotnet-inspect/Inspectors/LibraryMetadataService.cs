@@ -227,7 +227,11 @@ internal static class LibraryMetadataService
         foreach (var doc in documents)
         {
             if (doc.IsEmbedded) { embeddedFiles++; continue; }
-            if (doc.ResolvedUrl == null) { missingFiles.Add(doc.FilePath); continue; }
+            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath))
+            {
+                missingFiles.Add(doc.FilePath);
+                continue;
+            }
             urlDocs.Add(doc);
         }
 
@@ -259,6 +263,7 @@ internal static class LibraryMetadataService
                     }
                     else
                     {
+                        logger.Log($"Source not accessible: {doc.ResolvedUrl}");
                         missingFiles.Add(doc.FilePath);
                     }
                 });
@@ -272,6 +277,13 @@ internal static class LibraryMetadataService
 
         logger.Log($"Source coverage: {accessibleCount + embeddedFiles}/{documents.Count} files accessible");
     }
+
+    /// <summary>
+    /// Build artifacts (e.g. AssemblyInfo.cs, Forwards.cs) are generated during CI and
+    /// never exist in source control. Skip the HEAD request — they will always 404.
+    /// </summary>
+    private static bool IsBuildArtifact(string filePath) =>
+        filePath.Contains("/artifacts/obj/") || filePath.Contains("\\artifacts\\obj\\");
 
     /// <summary>
     /// Infers who built the assembly based on symbol availability and SourceLink.
