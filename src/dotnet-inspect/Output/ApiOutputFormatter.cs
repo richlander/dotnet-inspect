@@ -57,14 +57,14 @@ public static class ApiOutputFormatter
                     byAssembly.Select(g => new[] { g.Key, g.Count().ToString() }));
             }
         }
-        else
+        else if (options.Verbosity != Verbosity.Quiet)
         {
             if (api.IsTypeForwardingAssembly)
             {
                 writer.WriteParagraph("*This is a type-forwarding library. Types shown are resolved from target libraries.*");
             }
 
-            // Per-kind type sections (verbosity-independent)
+            // Per-kind type sections
             RenderTypesPerKind(writer, api.Types, options);
 
             if (truncatedCount.HasValue)
@@ -82,14 +82,14 @@ public static class ApiOutputFormatter
 
     // ===== Single Type Rendering =====
 
-    public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
+    public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         // Signatures-only: plain text, no serializer
         if (options.SignaturesOnly)
             return RenderSignaturesOnly(type, options);
 
         // Build the view model
-        var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, options);
+        var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
         // Populate enum values declaratively for Normal+ enums
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
@@ -195,7 +195,7 @@ public static class ApiOutputFormatter
 
     // ===== View Model Factories =====
 
-    internal static ApiTypeView BuildApiTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, ApiOptions options)
+    internal static ApiTypeView BuildApiTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         // Build title with package context
         var packageInfo = packageName != null && packageVersion != null
@@ -271,6 +271,8 @@ public static class ApiOutputFormatter
             Assembly = foundIn,
             Package = packageName,
             Version = packageVersion,
+            Source = apiSource,
+            Tfm = selectedTfm,
             SamplesInfo = samplesInfo,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,

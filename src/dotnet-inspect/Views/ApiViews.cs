@@ -39,6 +39,13 @@ public class ApiTypeView
     public string? Version { get; set; }
 
     [MarkoutSkipNull]
+    public string? Source { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; set; }
+
+    [MarkoutSkipNull]
     [MarkoutPropertyName("Samples")]
     public string? SamplesInfo { get; set; }
 
