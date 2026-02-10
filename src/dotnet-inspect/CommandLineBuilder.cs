@@ -439,7 +439,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await ExtensionsCommand.ExecuteAsync(targetType!, options);
+            return await ExtensionsCommand.ExecuteAsync(options);
         });
 
         return extCommand;
@@ -530,6 +530,7 @@ public static class CommandLineBuilder
             var terse = parseResult.GetValue(terseOption);
             var options = new FindOptions
             {
+                Pattern = pattern!,
                 Packages = parseResult.GetValue(packageOption) ?? [],
                 Assemblies = parseResult.GetValue(assemblyOption) ?? [],
                 PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
@@ -548,7 +549,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            var exitCode = await FindCommand.ExecuteAsync(pattern!, options);
+            var exitCode = await FindCommand.ExecuteAsync(options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
             var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
@@ -619,6 +620,7 @@ public static class CommandLineBuilder
             
             var options = new SamplesOptions
             {
+                TypeName = typeName,
                 PackagePath = parseResult.GetValue(packageOption),
                 AssemblyPath = parseResult.GetValue(assemblyOption),
                 PlatformAssembly = parseResult.GetValue(platformOption),
@@ -631,7 +633,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await SamplesCommand.ExecuteAsync(typeName, options);
+            return await SamplesCommand.ExecuteAsync(options);
         });
 
         return samplesCommand;
@@ -765,7 +767,7 @@ public static class CommandLineBuilder
                     ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
                 };
 
-                return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
+                return await AssemblyCommand.ExecuteAsync(assemblyOptions);
             }
 
             // No assembly specified: show help
@@ -853,7 +855,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            return await ImplementsCommand.ExecuteAsync(targetType!, options);
+            return await ImplementsCommand.ExecuteAsync(options);
         });
 
         return implCommand;
@@ -928,6 +930,8 @@ public static class CommandLineBuilder
 
             var options = new InspectionOptions
             {
+                PackageArgs = packageArgs,
+                ExplicitVersion = explicitVersion,
                 ShowDependencies = parseResult.GetValue(dependenciesOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 ListLayout = parseResult.GetValue(layoutOption),
@@ -952,7 +956,7 @@ public static class CommandLineBuilder
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
             options = options with { TipLevel = tipLevel };
 
-            var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options, explicitVersion);
+            var exitCode = await PackageCommand.ExecuteAsync(options);
 
             if (exitCode == 0 && packageArgs.Length > 0 && !options.IsRawOutput)
             {
@@ -1051,13 +1055,14 @@ public static class CommandLineBuilder
                         ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
                     };
 
-                    return await AssemblyCommand.ExecuteAsync(null, assemblyOptions);
+                    return await AssemblyCommand.ExecuteAsync(assemblyOptions);
                 }
             }
 
             // Fall through to package command (NuGet resolution)
             var options = new InspectionOptions
             {
+                PackageArgs = packageArgs,
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
@@ -1071,7 +1076,7 @@ public static class CommandLineBuilder
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
             options = options with { TipLevel = tipLevel };
 
-            var exitCode = await PackageCommand.ExecuteAsync(packageArgs, options);
+            var exitCode = await PackageCommand.ExecuteAsync(options);
 
             if (exitCode == 0 && !options.IsRawOutput)
             {
@@ -1185,6 +1190,7 @@ public static class CommandLineBuilder
 
             var options = new AssemblyOptions
             {
+                AssemblyName = assemblyPath,
                 IncludeMetadata = true,
                 IncludeSourcelinkAudit = runSourcelinkAudit,
                 IncludeReferences = showReferences,
@@ -1202,7 +1208,7 @@ public static class CommandLineBuilder
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            return await AssemblyCommand.ExecuteAsync(assemblyPath, options);
+            return await AssemblyCommand.ExecuteAsync(options);
         });
 
         return assemblyCommand;
@@ -1366,6 +1372,7 @@ public static class CommandLineBuilder
 
             var options = new ApiOptions
             {
+                TypeName = typeName,
                 PackagePath = packagePath,
                 AssemblyPath = explicitAssembly,
                 PlatformAssembly = explicitPlatform,
@@ -1403,7 +1410,7 @@ public static class CommandLineBuilder
                     ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
             };
 
-            return await ApiCommand.ExecuteAsync(typeName, options);
+            return await ApiCommand.ExecuteAsync(options);
         });
 
         return apiCommand;

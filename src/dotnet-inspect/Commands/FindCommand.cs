@@ -13,7 +13,7 @@ namespace DotnetInspector.Commands;
 public class FindCommand
 {
     public const string Name = "find";
-    public static async Task<int> ExecuteAsync(string patternInput, FindOptions options)
+    public static async Task<int> ExecuteAsync(FindOptions options)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -22,11 +22,18 @@ public class FindCommand
         try
         {
             // Split comma-separated patterns
-            var patterns = patternInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
             {
                 Console.Error.WriteLine("Error: No pattern specified.");
                 return 1;
+            }
+
+            // Default to runtime framework if no scope specified
+            if (!options.HasAnyScope)
+            {
+                logger.Log("No scope specified, defaulting to --framework runtime");
+                options = options with { PlatformFrameworks = ["runtime"] };
             }
 
             // For oneline/name-only/multi-pattern mode, collect results per pattern
@@ -46,13 +53,6 @@ public class FindCommand
 
     private static async Task<int> ExecuteMultiPatternAsync(string[] patterns, FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
     {
-        // Default to runtime framework if no scope specified
-        if (!options.HasAnyScope)
-        {
-            logger.Log("No scope specified, defaulting to --framework runtime");
-            options = options with { PlatformFrameworks = ["runtime"] };
-        }
-
         // Collect all types first (without pattern filtering)
         var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
 
@@ -102,13 +102,6 @@ public class FindCommand
 
     private static async Task<int> ExecuteSinglePatternAsync(string pattern, FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
     {
-            // Default to runtime framework if no scope specified
-            if (!options.HasAnyScope)
-            {
-                logger.Log("No scope specified, defaulting to --framework runtime");
-                options = options with { PlatformFrameworks = ["runtime"] };
-            }
-
             var results = await TypeSearchService.CollectTypesAsync(options, pattern, logger, tempDirs, httpClient);
 
             // Apply limit

@@ -8,6 +8,11 @@ namespace DotnetInspector.Options;
 public record FindOptions : IAssemblySourceOptions
 {
     /// <summary>
+    /// Type name or glob pattern (positional argument). Comma-separated for multiple.
+    /// </summary>
+    public string Pattern { get; init; } = "";
+
+    /// <summary>
     /// Packages to search (name or name@version). Can specify multiple.
     /// </summary>
     public string[] Packages { get; init; } = [];

@@ -15,8 +15,9 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class AssemblyCommand
 {
-    public static async Task<int> ExecuteAsync(string? assemblyPath, AssemblyOptions options)
+    public static async Task<int> ExecuteAsync(AssemblyOptions options)
     {
+        var assemblyPath = options.AssemblyName;
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 

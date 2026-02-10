@@ -7,6 +7,11 @@ namespace DotnetInspector.Options;
 /// </summary>
 public record ApiOptions
 {
+    /// <summary>
+    /// Type name to inspect (positional argument). Null for full API listing.
+    /// </summary>
+    public string? TypeName { get; init; }
+
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }
     public string? PlatformAssembly { get; init; }

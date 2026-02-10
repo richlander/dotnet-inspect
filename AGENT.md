@@ -19,6 +19,24 @@ var items = await MyService.LoadAsync();
 Console.WriteLine($"Found {items.Count} items");
 ```
 
+## Building and Testing
+
+Build the main project:
+
+```bash
+dotnet build src/dotnet-inspect -c Release
+```
+
+Tests use **xunit v3** with `OutputType Exe`. Run them with `dotnet run`, not `dotnet test`:
+
+```bash
+dotnet run --project src/dotnet-inspect.Tests -c Release
+dotnet run --project src/DotnetInspector.Services.Tests -c Release
+dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
+```
+
+Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
+
 ## Branching
 
 The `main` branch is protected. All work must be done on a feature branch.

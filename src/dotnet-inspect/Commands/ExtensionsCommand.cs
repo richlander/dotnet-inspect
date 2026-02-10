@@ -13,11 +13,12 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class ExtensionsCommand
 {
-    public static async Task<int> ExecuteAsync(string targetType, ExtensionsOptions options)
+    public static async Task<int> ExecuteAsync(ExtensionsOptions options)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<string> tempDirs = [];
+        var targetType = options.TargetType;
 
         try
         {

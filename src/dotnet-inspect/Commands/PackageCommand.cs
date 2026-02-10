@@ -18,8 +18,10 @@ namespace DotnetInspector.Commands;
 public class PackageCommand
 {
     public const string Name = "package";
-    public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options, string? explicitVersion = null)
+    public static async Task<int> ExecuteAsync(InspectionOptions options)
     {
+        var packageArgs = options.PackageArgs;
+        var explicitVersion = options.ExplicitVersion;
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
 

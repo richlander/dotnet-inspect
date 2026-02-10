@@ -36,4 +36,9 @@ public interface IAssemblySourceOptions
     /// NuGet source configuration options.
     /// </summary>
     NuGetSourceOptions? SourceOptions { get; }
+
+    /// <summary>
+    /// Returns true if any search scope is specified.
+    /// </summary>
+    bool HasAnyScope { get; }
 }

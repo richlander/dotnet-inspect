@@ -18,8 +18,9 @@ namespace DotnetInspector.Commands;
 public class ApiCommand
 {
     public const string Name = "api";
-    public static async Task<int> ExecuteAsync(string? typeName, ApiOptions options)
+    public static async Task<int> ExecuteAsync(ApiOptions options)
     {
+        var typeName = options.TypeName;
         if (options.MemberFilter.Count > 0 && string.IsNullOrEmpty(typeName))
         {
             Console.Error.WriteLine("Error: --member requires a type argument.");
