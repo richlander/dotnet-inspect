@@ -488,6 +488,15 @@ public static class ApiOutputFormatter
                 formatter.FormatRows(kind, members, hasDocs));
         }
 
+        // C# source (when --index selects a single member and source is available)
+        if (options.MethodSource != null)
+        {
+            writer.WriteHeading(2, "Source");
+            writer.WriteCodeBlockStart("csharp");
+            writer.WriteParagraph(options.MethodSource.SourceCode);
+            writer.WriteCodeBlockEnd();
+        }
+
         // IL method body (when --index selects a single member)
         if (options.DllPath != null && options.OverloadIndex.HasValue)
         {

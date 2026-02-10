@@ -802,7 +802,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(11, pipeline.AllSectionNames.Length);
+        Assert.Equal(12, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -815,13 +815,14 @@ public class SectionPipelineTests
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);
         Assert.Contains("Baseclass", names);
-        Assert.Contains("Sources", names);
+        Assert.Contains("Remote Source", names);
         Assert.Contains("Constructors", names);
         Assert.Contains("Fields", names);
         Assert.Contains("Properties", names);
         Assert.Contains("Methods", names);
         Assert.Contains("Events", names);
         Assert.Contains("IL Body", names);
+        Assert.Contains("Source", names);
     }
 
     [Fact]
@@ -937,6 +938,6 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        Assert.Contains("Sources", effective);
+        Assert.Contains("Remote Source", effective);
     }
 }

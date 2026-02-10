@@ -86,6 +86,7 @@ public static class ApiMemberSectionDescriptors
             .Add<Properties>()
             .Add<Methods>()
             .Add<Events>()
+            .Add<MethodSource>()
             .Add<ILBody>();
     }
 
@@ -133,7 +134,7 @@ public static class ApiMemberSectionDescriptors
 
     public sealed class Sources : ISectionDescriptor<ApiType>
     {
-        public static string Name => "Sources";
+        public static string Name => "Remote Source";
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -185,6 +186,15 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
+    }
+
+    public sealed class MethodSource : ISectionDescriptor<ApiType>
+    {
+        public static string Name => "Source";
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind is "method" or "constructor");
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>

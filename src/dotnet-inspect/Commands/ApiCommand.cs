@@ -309,7 +309,7 @@ public class ApiCommand
                         var selected = overloads[idx - 1];
                         apiType.Members = [selected];
                         var exclude = effectiveOptions.ExcludeSections ?? [];
-                        exclude.Add("Sources");
+                        exclude.Add("Remote Source");
                         effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
                     }
 
@@ -319,6 +319,20 @@ public class ApiCommand
                         var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                         if (pdbLookupPath != null)
                             await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
+                    }
+
+                    // Resolve method source code for --index view (after PDB acquisition)
+                    if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null)
+                    {
+                        var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
+                        var methodSource = await ResolveMethodSourceAsync(
+                            pdbLookupPath, apiType.FullName,
+                            effectiveOptions.MemberFilter.First(),
+                            effectiveOptions.OverloadIndex.Value - 1,
+                            effectiveOptions, context.HttpClient, logger);
+
+                        if (methodSource != null)
+                            effectiveOptions = effectiveOptions with { MethodSource = methodSource };
                     }
 
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
@@ -429,6 +443,106 @@ public class ApiCommand
         else
         {
             Console.WriteLine(ApiOutputFormatter.RenderFullApiMarkdown(api, options));
+        }
+    }
+
+    // ===== Method Source Resolution =====
+
+    private static async Task<MethodSourceContext?> ResolveMethodSourceAsync(
+        string dllPath, string typeName, string methodName, int overloadIndex,
+        ApiOptions options, HttpClient httpClient, VerboseLogger logger)
+    {
+        try
+        {
+            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var context = service.Context;
+
+            // Acquire PDB if needed (same flow as SourceEnricher)
+            if (context.NeedsPdb)
+            {
+                var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
+                    ? PackageReferenceParser.ParsePackageReference(options.PackagePath)
+                    : (null, null);
+
+                await SourceEnricher.AcquirePdbAsync(context, httpClient,
+                    pkgName, pkgVersion,
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+            }
+
+            if (!service.HasPdb || !service.HasSourceLink)
+                return null;
+
+            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly: true);
+            if (methodInfo?.SourceUrl == null)
+                return null;
+
+            var fetcher = new SourceFetcher(httpClient);
+            var content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
+            if (content == null)
+                return null;
+
+            var lines = content.Split('\n');
+            int startLine = methodInfo.StartLine;
+            int endLine = Math.Min(methodInfo.EndLine, lines.Length);
+
+            // Scan backward from first sequence point to capture method signature
+            // Sequence points start at the first executable statement, so we need to
+            // go back past the opening brace, modifiers, attributes, etc.
+            int sigStart = startLine;
+            for (int i = startLine - 2; i >= Math.Max(0, startLine - 15); i--)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
+                    || trimmed.StartsWith("[") || trimmed.StartsWith("#"))
+                    continue;
+                if (trimmed == "{")
+                    continue;
+
+                sigStart = i + 1; // 0-based → 1-based
+                // Check if this line looks like a method signature (has access modifier or return type)
+                if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
+                    || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
+                    || trimmed.StartsWith("static") || trimmed.Contains(methodName))
+                    break;
+            }
+
+            // Extract lines (convert from 1-based sequence points to 0-based array)
+            int from = sigStart - 1;
+            int to = endLine; // endLine is 1-based, so endLine as exclusive index is correct
+
+            // Scan forward to include the closing brace (sequence points don't cover it)
+            for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("}"))
+                {
+                    to = i + 1;
+                    break;
+                }
+                if (trimmed.Length > 0)
+                    break;
+            }
+
+            if (from < 0) from = 0;
+            if (to > lines.Length) to = lines.Length;
+
+            var methodLines = lines[from..to];
+
+            // Dedent: find minimum indentation and remove it
+            int minIndent = methodLines
+                .Where(l => l.TrimStart().Length > 0)
+                .Select(l => l.Length - l.TrimStart().Length)
+                .DefaultIfEmpty(0)
+                .Min();
+
+            var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
+            var sourceCode = string.Join('\n', dedented).TrimEnd();
+
+            return new MethodSourceContext(sourceCode, methodInfo.SourceUrl);
+        }
+        catch
+        {
+            return null;
         }
     }
 

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -161,6 +162,42 @@ public class PdbContext : IDisposable
 
         var metadataReader = _peReader.GetMetadataReader();
         return _resolver.ResolveTypeSource(metadataReader, _pdbReader, typeName);
+    }
+
+    /// <summary>
+    /// Resolves source file and line range for a specific method overload.
+    /// </summary>
+    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false)
+    {
+        if (_resolver == null || _pdbReader == null || !_peReader.HasMetadata)
+            return null;
+
+        var reader = _peReader.GetMetadataReader();
+
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            if (reader.GetFullTypeName(typeDef) != typeName)
+                continue;
+
+            int matchCount = 0;
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != methodName)
+                    continue;
+
+                if (publicOnly && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                    continue;
+
+                if (matchCount == overloadIndex)
+                    return _resolver.ResolveMethodSourceRange(_pdbReader, methodHandle);
+
+                matchCount++;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
