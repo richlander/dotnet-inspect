@@ -228,11 +228,11 @@ public class DiffCommand
         if (!options.Breaking && !options.Additive)
             return typeDiffs;
 
-        var allowed = new HashSet<ChangeClassification>();
+        HashSet<ChangeClassification> allowed = [];
         if (options.Breaking) allowed.Add(ChangeClassification.Breaking);
         if (options.Additive) allowed.Add(ChangeClassification.Additive);
 
-        var filtered = new List<TypeDiff>();
+        List<TypeDiff> filtered = [];
         foreach (var td in typeDiffs)
         {
             var changes = td.Changes.Where(c => allowed.Contains(c.Classification)).ToList();

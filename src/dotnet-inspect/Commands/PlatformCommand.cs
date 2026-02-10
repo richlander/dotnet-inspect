@@ -154,7 +154,7 @@ public class PlatformCommand
     private static List<FrameworkAssemblyData> ResolveFrameworkAssemblies(
         List<FrameworkInfo> frameworks, string? requestedVersion, bool includeTypes, VerboseLogger logger)
     {
-        var result = new List<FrameworkAssemblyData>();
+        List<FrameworkAssemblyData> result = [];
 
         foreach (var framework in frameworks)
         {

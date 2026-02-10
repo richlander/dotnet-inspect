@@ -392,7 +392,7 @@ public static class AssemblyInspector
 
     private static (bool isNormalized, List<string> nonNormalizedPaths) CheckSourceLinkPaths(string sourceLink)
     {
-        var nonNormalizedPaths = new List<string>();
+        List<string> nonNormalizedPaths = [];
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(sourceLink);
@@ -497,7 +497,7 @@ public static class AssemblyInspector
 
     private static List<AssemblyReference>? ExtractReferences(MetadataReader metadataReader)
     {
-        var references = new List<AssemblyReference>();
+        List<AssemblyReference> references = [];
         foreach (var refHandle in metadataReader.AssemblyReferences)
         {
             var assemblyRef = metadataReader.GetAssemblyReference(refHandle);

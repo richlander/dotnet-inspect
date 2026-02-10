@@ -43,7 +43,7 @@ public class PackageDeprecation
     {
         get
         {
-            var parts = new List<string>();
+            List<string> parts = [];
             if (Reasons is { Count: > 0 })
                 parts.Add(string.Join(", ", Reasons));
             if (!string.IsNullOrEmpty(AlternatePackageId))

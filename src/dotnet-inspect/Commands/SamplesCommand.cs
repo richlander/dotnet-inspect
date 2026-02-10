@@ -115,7 +115,7 @@ public class SamplesCommand
         }
 
         // Collect all samples from all types
-        var allSamples = new List<TypedSample>();
+        List<TypedSample> allSamples = [];
         foreach (var type in api.Types)
         {
             if (type.Documentation?.Samples != null)

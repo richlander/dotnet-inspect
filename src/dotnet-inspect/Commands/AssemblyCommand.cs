@@ -151,7 +151,7 @@ public class AssemblyCommand
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult)
     {
-        var audits = new List<AssemblyAudit>();
+        List<AssemblyAudit> audits = [];
 
         foreach (var targetPath in assemblyPaths)
         {

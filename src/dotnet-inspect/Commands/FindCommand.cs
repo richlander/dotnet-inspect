@@ -17,7 +17,7 @@ public class FindCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        var tempDirs = new List<string>();
+        List<string> tempDirs = [];
 
         try
         {
@@ -57,10 +57,10 @@ public class FindCommand
         var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
 
         // Match types against each pattern
-        var resultsByPattern = new Dictionary<string, List<TypeSearchResult>>();
+        Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
         foreach (var pattern in patterns)
         {
-            var matches = new List<TypeSearchResult>();
+            List<TypeSearchResult> matches = [];
             foreach (var type in allTypes)
             {
                 if (TypeMatcher.MatchesGlob(type.FullName, pattern) || TypeMatcher.MatchesGlob(type.TypeName, pattern))
@@ -148,7 +148,7 @@ public class FindCommand
 /// <summary>
 /// Represents a type found during search.
 /// </summary>
-public class TypeSearchResult
+public record class TypeSearchResult
 {
     [JsonPropertyName("type")]
     public string TypeName { get; set; } = "";

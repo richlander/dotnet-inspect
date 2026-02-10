@@ -79,7 +79,7 @@ public class HttpRetryHelperTests
     public void GetRetryDelay_IncludesJitter()
     {
         // Run multiple times and verify we get different values (jitter is random)
-        var delays = new HashSet<double>();
+        HashSet<double> delays = [];
         for (int i = 0; i < 20; i++)
         {
             delays.Add(HttpRetryHelper.GetRetryDelay(1).TotalMilliseconds);

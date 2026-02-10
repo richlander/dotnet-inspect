@@ -196,7 +196,7 @@ public class InspectionResultView
 
     private List<MarkoutField> GetCompactFields()
     {
-        var fields = new List<MarkoutField>();
+        List<MarkoutField> fields = [];
 
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
@@ -215,7 +215,7 @@ public class InspectionResultView
 
     private List<MarkoutField> GetMetadataFields()
     {
-        var fields = new List<MarkoutField>();
+        List<MarkoutField> fields = [];
 
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));

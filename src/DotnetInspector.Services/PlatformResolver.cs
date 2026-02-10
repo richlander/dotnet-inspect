@@ -194,7 +194,7 @@ public static class PlatformResolver
             return [];
         }
 
-        var frameworks = new List<FrameworkInfo>();
+        List<FrameworkInfo> frameworks = [];
 
         foreach (var (shortName, refPackName) in FrameworkMappings)
         {

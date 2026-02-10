@@ -346,7 +346,7 @@ public static class ApiSurfaceExtractor
             ? targetType.Name
             : $"{targetType.Namespace}.{targetType.Name}";
 
-        var derivedTypes = new List<string>();
+        List<string> derivedTypes = [];
 
         foreach (var type in surface.Types)
         {
@@ -393,7 +393,7 @@ public static class ApiSurfaceExtractor
         var paramHandles = method.GetParameters().ToList();
         var paramTypes = signature.ParameterTypes;
 
-        var parameters = new List<string>();
+        List<string> parameters = [];
         for (int i = 0; i < paramTypes.Length; i++)
         {
             string type = paramTypes[i];

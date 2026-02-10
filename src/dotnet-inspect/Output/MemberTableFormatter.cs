@@ -31,7 +31,7 @@ internal sealed class QuietMemberFormatter : MemberTableFormatter
         var byName = members.GroupBy(m => m.Name);
         bool hasOverloads = byName.Any(g => g.Count() > 1);
 
-        var headers = new List<string> { "Name" };
+        List<string> headers = ["Name"];
 
         switch (kind)
         {
@@ -70,7 +70,7 @@ internal sealed class QuietMemberFormatter : MemberTableFormatter
                 case "constructor":
                 case "method":
                 {
-                    var row = new List<string> { g.Key };
+                    List<string> row = [g.Key];
                     if (kind == "method")
                         row.Add(SignatureParser.ExtractReturnType(g.First().Signature));
                     if (hasOverloads)
@@ -82,26 +82,26 @@ internal sealed class QuietMemberFormatter : MemberTableFormatter
                 case "property":
                 {
                     var m = g.First();
-                    var row = new List<string>
-                    {
+                    List<string> row =
+                    [
                         g.Key,
                         SignatureParser.ExtractReturnType(m.Signature),
                         SignatureParser.ExtractAccessors(m.Signature)
-                    };
+                    ];
                     if (showDocs) row.Add(FirstDocSummary(g));
                     return row.ToArray();
                 }
                 case "event":
                 {
                     var m = g.First();
-                    var row = new List<string> { g.Key, m.ReturnType ?? m.Signature ?? "" };
+                    List<string> row = [g.Key, m.ReturnType ?? m.Signature ?? ""];
                     if (showDocs) row.Add(FirstDocSummary(g));
                     return row.ToArray();
                 }
                 default: // field
                 {
                     var m = g.First();
-                    var row = new List<string> { g.Key, m.ReturnType ?? "" };
+                    List<string> row = [g.Key, m.ReturnType ?? ""];
                     if (showDocs) row.Add(FirstDocSummary(g));
                     return row.ToArray();
                 }

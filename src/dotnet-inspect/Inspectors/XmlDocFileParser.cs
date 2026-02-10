@@ -273,7 +273,7 @@ public partial class XmlDocFileParser
     /// </summary>
     private static List<DocCommentParser.SampleReference>? ExtractSampleReferences(XmlNode node)
     {
-        var samples = new List<DocCommentParser.SampleReference>();
+        List<DocCommentParser.SampleReference> samples = [];
 
         // Pattern: <example><code source="..." region="..." title="..."/></example>
         var codeNodes = node.SelectNodes("example/code[@source]");

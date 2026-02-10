@@ -52,7 +52,7 @@ public static class NuGetSourceResolver
         }
 
         // Default: nuget.org plus any additional sources
-        var result = new List<NuGetSource> { NuGetSource.NuGetOrg };
+        List<NuGetSource> result = [NuGetSource.NuGetOrg];
 
         foreach (var additional in options.AdditionalSources)
         {
@@ -67,7 +67,7 @@ public static class NuGetSourceResolver
     /// </summary>
     private static List<NuGetSource> LoadSourcesFromConfig(string? explicitConfigPath, string workingDirectory)
     {
-        var configFiles = new List<string>();
+        List<string> configFiles = [];
 
         if (!string.IsNullOrEmpty(explicitConfigPath))
         {

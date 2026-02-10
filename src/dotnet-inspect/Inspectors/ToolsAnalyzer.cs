@@ -139,7 +139,7 @@ public static class ToolsAnalyzer
     public static void AnalyzeContentDirectories(string extractPath, InspectionResult result)
     {
         var standardDirs = new[] { "lib", "tools", "analyzers", "build", "buildTransitive", "contentFiles", "ref", "runtimes" };
-        var found = new List<string>();
+        List<string> found = [];
 
         foreach (var dir in standardDirs)
         {

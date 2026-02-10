@@ -43,7 +43,7 @@ public static class PackageOutputFormatter
 
     private static List<TreeNode> BuildTreeNodes(Dictionary<string, object> dict)
     {
-        var nodes = new List<TreeNode>();
+        List<TreeNode> nodes = [];
 
         foreach (var kvp in dict.OrderBy(k => k.Key))
         {

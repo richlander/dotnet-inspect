@@ -130,7 +130,7 @@ public static class TypeMatcher
 
         var targetBase = GetBaseName(GetSimpleName(Normalize(target)));
 
-        var scored = new List<(string Name, double Similarity)>();
+        List<(string Name, double Similarity)> scored = [];
 
         foreach (var candidate in candidates)
         {

@@ -134,7 +134,7 @@ public static class PackageResolverService
             : versions.Where(v => !v.Contains('-')).ToList();
 
         // Newest first, with optional limit
-        var result = new List<string>();
+        List<string> result = [];
         for (int i = filtered.Count - 1; i >= 0; i--)
         {
             result.Add(filtered[i]);

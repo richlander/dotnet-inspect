@@ -31,7 +31,7 @@ public class AssemblyDependenciesView
 
     private List<MarkoutField> GetIdentityFields()
     {
-        var fields = new List<MarkoutField>();
+        List<MarkoutField> fields = [];
         if (!string.IsNullOrEmpty(AssemblyName))
             fields.Add(new("Library", AssemblyName));
         if (!string.IsNullOrEmpty(Version))

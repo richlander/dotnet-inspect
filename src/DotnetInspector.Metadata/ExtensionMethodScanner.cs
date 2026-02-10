@@ -150,7 +150,7 @@ public static class ExtensionMethodScanner
         IEnumerable<string> assemblyPaths,
         int maxDepth)
     {
-        var results = new List<(string Type, string Path)>();
+        List<(string Type, string Path)> results = [];
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var toProcess = new Queue<(string TypeName, string Path, int Depth)>();
 
@@ -300,7 +300,7 @@ public static class ExtensionMethodScanner
         var paramHandles = method.GetParameters().ToList();
         var paramTypes = signature.ParameterTypes;
 
-        var parameters = new List<string>();
+        List<string> parameters = [];
         for (int i = 0; i < paramTypes.Length; i++)
         {
             string type = paramTypes[i];
