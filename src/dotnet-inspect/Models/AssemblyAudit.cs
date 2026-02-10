@@ -125,8 +125,26 @@ public class AssemblyAudit
     public ApiSurface? ApiSurface { get; set; }
 
     /// <summary>
+    /// Extension methods defined in this assembly, grouped by extended type.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ExtensionMethodSummary>? ExtensionMethods { get; set; }
+
+    /// <summary>
     /// View routing flag: when true, show nested dependency tree instead of flat references.
     /// </summary>
     [JsonIgnore]
     public bool UseDependenciesView { get; set; }
+}
+
+/// <summary>
+/// Summary of an extension method defined in a library.
+/// </summary>
+public record class ExtensionMethodSummary
+{
+    public string MethodName { get; init; } = "";
+    public string ExtendedType { get; init; } = "";
+    public string ExtensionClass { get; init; } = "";
+    public string Kind { get; init; } = "method";
+    public int? Overloads { get; init; }
 }

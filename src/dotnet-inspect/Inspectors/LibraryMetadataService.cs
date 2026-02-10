@@ -78,6 +78,12 @@ internal static class LibraryMetadataService
                     deduplicate: options.IncludeDependencies);
             }
 
+            // Scan for extension methods in detailed mode
+            if (options.Verbosity == Options.Verbosity.Detailed)
+            {
+                audit.ExtensionMethods = ScanExtensionMethods(path, logger);
+            }
+
             if (options.HasAuditTier)
             {
                 await AuditAsync(pdbContext, audit, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
@@ -340,5 +346,42 @@ internal static class LibraryMetadataService
         }
 
         return nodes;
+    }
+
+    /// <summary>
+    /// Scans an assembly for all extension methods and returns collapsed summaries.
+    /// </summary>
+    private static List<ExtensionMethodSummary>? ScanExtensionMethods(string path, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var extensions = ExtensionMethodScanner.FindAllExtensions(stream);
+
+            var collapsed = extensions
+                .GroupBy(e => (e.MethodName, e.Kind, e.ExtensionClass, e.ExtendedType))
+                .Select(g =>
+                {
+                    var count = g.Count();
+                    return new ExtensionMethodSummary
+                    {
+                        MethodName = g.Key.MethodName,
+                        ExtendedType = g.Key.ExtendedType,
+                        ExtensionClass = g.Key.ExtensionClass,
+                        Kind = g.Key.Kind,
+                        Overloads = count > 1 ? count : null
+                    };
+                })
+                .OrderBy(e => e.ExtendedType)
+                .ThenBy(e => e.MethodName)
+                .ToList();
+
+            return collapsed.Count > 0 ? collapsed : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
+            return null;
+        }
     }
 }
