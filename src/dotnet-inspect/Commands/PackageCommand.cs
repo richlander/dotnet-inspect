@@ -392,23 +392,9 @@ public class PackageCommand
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
-    private static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
+    internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
     {
-        if (options.ScopeLib || options.ScopeTools || !string.IsNullOrEmpty(options.Tfm)) return;
-
-        List<Tip> tips = [];
-        var flag = isLayout ? "--layout" : "--files";
-        var otherFlag = isLayout ? "--files" : "--layout";
-        var otherDesc = isLayout ? "flat file list" : "file tree";
-
-        tips.Add(new(PackageCommand.Name, $"{packageName} {otherFlag}", otherDesc));
-
-        if (Directory.Exists(Path.Combine(extractPath, "lib")))
-            tips.Add(new(PackageCommand.Name, $"{packageName} {flag} --lib", "lib/ folder only"));
-        if (Directory.Exists(Path.Combine(extractPath, "tools")))
-            tips.Add(new(PackageCommand.Name, $"{packageName} {flag} --tools", "tools/ folder only"));
-
-        Hints.WriteTips(tipLevel, [.. tips]);
+        // Tips are not shown for --files / --layout modes
     }
 
     private static (string path, string? error) ResolveScopedPath(string extractPath, InspectionOptions options)

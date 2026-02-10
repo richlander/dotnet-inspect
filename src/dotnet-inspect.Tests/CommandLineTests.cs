@@ -1,4 +1,5 @@
 using DotnetInspector;
+using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 
@@ -654,5 +655,50 @@ public class CommandLineTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--interfaces", "--hierarchy"]);
 
         Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData(false, false, null, false)]  // --files
+    [InlineData(false, false, null, true)]   // --layout
+    [InlineData(true, false, null, false)]   // --files --lib
+    [InlineData(true, false, null, true)]    // --layout --lib
+    [InlineData(false, true, null, false)]   // --files --tools
+    [InlineData(false, true, null, true)]    // --layout --tools
+    [InlineData(false, false, "net8.0", false)] // --files --tfm net8.0
+    [InlineData(false, false, "net8.0", true)]  // --layout --tfm net8.0
+    public void WriteFileLayoutTips_NeverWritesTips(bool scopeLib, bool scopeTools, string? tfm, bool isLayout)
+    {
+        var originalErr = Console.Error;
+        var originalTips = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
+        var errWriter = new System.IO.StringWriter();
+        Console.SetError(errWriter);
+        Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", null);
+        try
+        {
+            var options = new InspectionOptions
+            {
+                ScopeLib = scopeLib,
+                ScopeTools = scopeTools,
+                Tfm = tfm,
+                TipLevel = TipLevel.Detailed,
+            };
+            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
+            try
+            {
+                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
+                Assert.DoesNotContain("Tips:", errWriter.ToString());
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", originalTips);
+            Console.SetError(originalErr);
+        }
     }
 }
