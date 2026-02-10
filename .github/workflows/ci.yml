@@ -68,12 +68,10 @@ jobs:
         run: dotnet build src/dotnet-inspect -c Release
 
       - name: Install ilspycmd
-        run: dotnet tool install -g ilspycmd
+        run: dotnet tool install -g ilspycmd --allow-roll-forward
 
       - name: Run unit tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
 
       - name: Pack pointer package
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
@@ -177,12 +175,10 @@ jobs:
         run: dotnet build src/dotnet-inspect -c Release
 
       - name: Install ilspycmd
-        run: dotnet tool install -g ilspycmd
+        run: dotnet tool install -g ilspycmd --allow-roll-forward
 
       - name: Run unit tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
 
   # Build RID-specific Native AOT packages (cross-platform)
   build-rid:
