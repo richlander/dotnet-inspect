@@ -12,26 +12,37 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class OutputFormatter
 {
-    public static string FormatResult(InspectionResult result, InspectionOptions options)
+    public static string FormatResult(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult>? pipeline = null)
     {
         if (options.JsonOutput)
         {
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
-        return RenderMarkout(result, options);
+        return RenderMarkout(result, options, pipeline);
     }
 
-    private static string RenderMarkout(InspectionResult result, InspectionOptions options)
+    private static string RenderMarkout(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult>? pipeline)
     {
         var view = new InspectionResultView(result);
-        var context = new MarkoutContext(new MarkoutWriterOptions
-        {
-            IncludeSections = options.IncludeSections,
-            ExcludeSections = GetExcludeSections(options),
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
-        });
 
+        var writerOptions = pipeline != null
+            ? new MarkoutWriterOptions
+            {
+                IncludeSections = pipeline.ComputeIncludeSections(
+                    result, options.Verbosity, options.IncludeSections, options.ExcludeSections),
+                IncludeDescription = options.Verbosity != Verbosity.Quiet
+            }
+            : new MarkoutWriterOptions
+            {
+                IncludeSections = options.IncludeSections,
+                ExcludeSections = GetExcludeSections(options),
+                IncludeDescription = options.Verbosity != Verbosity.Quiet
+            };
+
+        var context = new MarkoutContext(writerOptions);
         return context.Serialize(view).TrimEnd();
     }
 
