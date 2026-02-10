@@ -1115,6 +1115,7 @@ public static class CommandLineBuilder
         var shapeOption = new Option<bool>("--shape") { Description = "View type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
+        var indexOption = new Option<int?>("--index") { Description = "Select a specific overload by 1-based index (use with -m)" };
 
         apiCommand.Arguments.Add(argsArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -1137,6 +1138,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(signaturesOnlyOption);
         apiCommand.Options.Add(shapeOption);
         apiCommand.Options.Add(unsafeOption);
+        apiCommand.Options.Add(indexOption);
         apiCommand.Options.Add(includeSectionsOption);
         apiCommand.Options.Add(excludeSectionsOption);
         apiCommand.Options.Add(markoutOption);
@@ -1231,6 +1233,7 @@ public static class CommandLineBuilder
                 ShapeOutput = parseResult.GetValue(shapeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
+                OverloadIndex = parseResult.GetValue(indexOption),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),

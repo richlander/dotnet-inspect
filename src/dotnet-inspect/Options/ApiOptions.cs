@@ -35,6 +35,8 @@ public record ApiOptions
     public bool ShapeOutput { get; init; }
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
+    public int? OverloadIndex { get; init; }
+    public string? DllPath { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
     public HashSet<string>? ExcludeSections { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }

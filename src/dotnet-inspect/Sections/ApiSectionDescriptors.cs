@@ -85,7 +85,8 @@ public static class ApiMemberSectionDescriptors
             .Add<Fields>()
             .Add<Properties>()
             .Add<Methods>()
-            .Add<Events>();
+            .Add<Events>()
+            .Add<ILBody>();
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
@@ -184,5 +185,14 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
+    }
+
+    public sealed class ILBody : ISectionDescriptor<ApiType>
+    {
+        public static string Name => "IL Body";
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind is "method" or "constructor");
     }
 }

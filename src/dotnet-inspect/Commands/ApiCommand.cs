@@ -285,6 +285,34 @@ public class ApiCommand
                     if (!options.DocsExplicitlySet)
                         effectiveOptions = options with { ShowDocs = true };
 
+                    // --index: select a specific overload and show IL
+                    if (options.OverloadIndex.HasValue)
+                    {
+                        if (options.MemberFilter.Count != 1)
+                        {
+                            Console.Error.WriteLine("Error: --index requires exactly one member name via -m.");
+                            return 1;
+                        }
+
+                        var memberName = options.MemberFilter.First();
+                        var overloads = apiType.Members
+                            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+
+                        int idx = options.OverloadIndex.Value;
+                        if (idx < 1 || idx > overloads.Count)
+                        {
+                            Console.Error.WriteLine($"Error: --index {idx} is out of range. {memberName} has {overloads.Count} overload(s).");
+                            return 1;
+                        }
+
+                        var selected = overloads[idx - 1];
+                        apiType.Members = [selected];
+                        var exclude = effectiveOptions.ExcludeSections ?? [];
+                        exclude.Add("Sources");
+                        effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
+                    }
+
                     // Always enrich with SourceLink info for single-type view (Sources section).
                     // Doc comment fetching is gated by ShowDocs inside the enricher.
                     {
