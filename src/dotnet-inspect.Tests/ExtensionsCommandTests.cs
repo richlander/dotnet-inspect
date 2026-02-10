@@ -26,7 +26,7 @@ public class ExtensionsCommandTests
         Assert.True(extClass.IsStatic);
 
         // Find extension methods
-        var extMethod = extClass.Members?.FirstOrDefault(m => m.Name == "ToUpperCase" && m.IsExtension);
+        var extMethod = extClass.Members.FirstOrDefault(m => m.Name == "ToUpperCase" && m.IsExtension);
         Assert.NotNull(extMethod);
         Assert.True(extMethod.IsExtension);
         Assert.NotNull(extMethod.ExtendedType);
@@ -46,7 +46,7 @@ public class ExtensionsCommandTests
         Assert.NotNull(extClass);
 
         // Find generic extension method
-        var extMethod = extClass.Members?.FirstOrDefault(m => m.Name == "FirstOrNull");
+        var extMethod = extClass.Members.FirstOrDefault(m => m.Name == "FirstOrNull");
         Assert.NotNull(extMethod);
         Assert.True(extMethod.IsExtension);
         Assert.Contains("IEnumerable", extMethod.ExtendedType);
@@ -65,7 +65,7 @@ public class ExtensionsCommandTests
         Assert.NotNull(extClass);
 
         // Regular static method (not an extension)
-        var staticMethod = extClass.Members?.FirstOrDefault(m => m.Name == "RegularStaticMethod");
+        var staticMethod = extClass.Members.FirstOrDefault(m => m.Name == "RegularStaticMethod");
         Assert.NotNull(staticMethod);
         Assert.False(staticMethod.IsExtension);
         Assert.Null(staticMethod.ExtendedType);
@@ -84,7 +84,7 @@ public class ExtensionsCommandTests
         var normalClass = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
         Assert.NotNull(normalClass);
         
-        var anyExtensions = normalClass.Members?.Any(m => m.IsExtension) ?? false;
+        var anyExtensions = normalClass.Members.Any(m => m.IsExtension);
         Assert.False(anyExtensions);
     }
 

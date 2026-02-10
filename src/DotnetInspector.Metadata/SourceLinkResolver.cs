@@ -36,12 +36,12 @@ public class SourceLinkResolver
         /// Additional source files for partial types (e.g., JObject.Async.cs alongside JObject.cs).
         /// Only populated when type has multiple source files.
         /// </summary>
-        public List<PartialSourceFile>? AdditionalSourceFiles { get; init; }
+        public List<PartialSourceFile> AdditionalSourceFiles { get; init; } = [];
 
         /// <summary>
         /// Indicates whether this type is defined across multiple partial files.
         /// </summary>
-        public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
+        public bool IsPartialType => AdditionalSourceFiles.Count > 0;
     }
 
     /// <summary>
@@ -110,7 +110,7 @@ public class SourceLinkResolver
         var primaryFile = SelectPrimarySourceFile(allSourceFiles.Values.ToList(), typeName);
 
         // Build additional source files list (excluding primary)
-        List<PartialSourceFile>? additionalFiles = null;
+        List<PartialSourceFile> additionalFiles = [];
         if (allSourceFiles.Count > 1)
         {
             additionalFiles = allSourceFiles.Values

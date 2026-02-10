@@ -69,7 +69,7 @@ public class SamplesCommand
             return 1;
         }
 
-        if (apiType.Documentation?.Samples == null || apiType.Documentation.Samples.Count == 0)
+        if (apiType.Documentation.Samples.Count == 0)
         {
             Console.Error.WriteLine($"No samples found for type '{typeName}'.");
             return 0;
@@ -118,12 +118,9 @@ public class SamplesCommand
         List<TypedSample> allSamples = [];
         foreach (var type in api.Types)
         {
-            if (type.Documentation?.Samples != null)
+            foreach (var sample in type.Documentation.Samples)
             {
-                foreach (var sample in type.Documentation.Samples)
-                {
-                    allSamples.Add(new TypedSample(type.Name, type.Namespace, sample));
-                }
+                allSamples.Add(new TypedSample(type.Name, type.Namespace, sample));
             }
         }
 
@@ -133,7 +130,7 @@ public class SamplesCommand
             return 0;
         }
 
-        logger.Log($"Found {allSamples.Count} samples across {api.Types.Count(t => t.Documentation?.Samples?.Count > 0)} types");
+        logger.Log($"Found {allSamples.Count} samples across {api.Types.Count(t => t.Documentation.Samples.Count > 0)} types");
 
         return await ProcessSamplesAsync(allSamples, options, packageName, packageVersion, api.Name, logger, httpClient);
     }

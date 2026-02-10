@@ -16,7 +16,7 @@ public class DocComment
     /// <summary>
     /// Sample code references extracted from doc comments.
     /// </summary>
-    public List<SampleReference>? Samples { get; set; }
+    public List<SampleReference> Samples { get; set; } = [];
 }
 
 /// <summary>
@@ -180,19 +180,19 @@ public class ApiType
     public bool IsStatic { get; set; }
 
     public string? BaseType { get; set; }
-    public List<string>? Interfaces { get; set; }
+    public List<string> Interfaces { get; set; } = [];
 
     /// <summary>
     /// Known derived types within the same assembly.
     /// </summary>
-    public List<string>? DerivedTypes { get; set; }
+    public List<string> DerivedTypes { get; set; } = [];
 
     /// <summary>
     /// Generic type parameters with their constraints.
     /// </summary>
-    public List<TypeParameter>? TypeParameters { get; set; }
+    public List<TypeParameter> TypeParameters { get; set; } = [];
 
-    public List<ApiMember>? Members { get; set; }
+    public List<ApiMember> Members { get; set; } = [];
 
     // Source information (populated with --source-url)
     public string? SourceFilePath { get; set; }
@@ -211,12 +211,12 @@ public class ApiType
     /// <summary>
     /// Additional source files for partial types. Only populated when type spans multiple files.
     /// </summary>
-    public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
+    public List<PartialSourceFileInfo> AdditionalSourceFiles { get; set; } = [];
 
     /// <summary>
     /// Indicates whether this type is defined across multiple partial files.
     /// </summary>
-    public bool IsPartialType => AdditionalSourceFiles?.Count > 0;
+    public bool IsPartialType => AdditionalSourceFiles.Count > 0;
 
     /// <summary>
     /// Full name of the type (Namespace.Name, or just Name if no namespace).
@@ -224,7 +224,7 @@ public class ApiType
     public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";
 
     // Documentation (populated with --docs)
-    public DocComment? Documentation { get; set; }
+    public DocComment Documentation { get; set; } = new();
 }
 
 public class ApiMember
@@ -258,5 +258,5 @@ public class ApiMember
     public int? SourceLineNumber { get; set; }
 
     // Documentation (populated with --docs)
-    public DocComment? Documentation { get; set; }
+    public DocComment Documentation { get; set; } = new();
 }

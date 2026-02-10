@@ -110,7 +110,7 @@ internal sealed class QuietMemberFormatter : MemberTableFormatter
     }
 
     private static string FirstDocSummary(IGrouping<string, ApiMember> group) =>
-        group.Select(m => m.Documentation?.Summary).FirstOrDefault(s => s != null) ?? "";
+        group.Select(m => m.Documentation.Summary).FirstOrDefault(s => s != null) ?? "";
 }
 
 /// <summary>
@@ -132,7 +132,7 @@ internal sealed class MinimalMemberFormatter : MemberTableFormatter
             {
                 var sig = SignatureParser.AbbreviateSignature(m.Signature ?? m.ReturnType ?? "");
                 return showDocs
-                    ? new[] { m.Name, $"`{sig}`", m.Documentation?.Summary ?? "" }
+                    ? new[] { m.Name, $"`{sig}`", m.Documentation.Summary ?? "" }
                     : new[] { m.Name, $"`{sig}`" };
             });
     }
@@ -157,7 +157,7 @@ internal sealed class DetailedMemberFormatter : MemberTableFormatter
             {
                 var sig = m.Signature ?? m.ReturnType ?? "";
                 return showDocs
-                    ? new[] { m.Name, $"`{sig}`", m.Documentation?.Summary ?? "" }
+                    ? new[] { m.Name, $"`{sig}`", m.Documentation.Summary ?? "" }
                     : new[] { m.Name, $"`{sig}`" };
             });
     }
