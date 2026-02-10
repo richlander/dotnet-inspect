@@ -155,6 +155,16 @@ public partial class ILDisassemblerComparisonTests
         yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "LongConstant"];
         yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "CompareEquals"];
         yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "ManyLocals"];
+        // More edge cases: arrays, checked math, exceptions, tokens, delegates
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "ArrayOps"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "CheckedArithmetic"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "NestedExceptionHandlers"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "MultipleCatch"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "ThrowAndRethrow"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "GetTypeToken"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "GetDelegate"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "InterfaceCall"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "ConvertTypes"];
     }
 
     /// <summary>Types to compare all method instruction counts against ILSpy.</summary>

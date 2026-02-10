@@ -334,6 +334,130 @@ public class ILDisassemblerTests
         Assert.Equal("ret", instructions[^1].OpCodeName);
     }
 
+    [Fact]
+    public void Disassemble_ArrayOps_HasArrayOpcodes()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.ArrayOps));
+        Assert.NotNull(instructions);
+
+        // newarr creates the array
+        Assert.Contains(instructions, i => i.OpCodeName == "newarr");
+        // stelem.i4 or stelem stores elements
+        Assert.Contains(instructions, i => i.OpCodeName.StartsWith("stelem"));
+        // ldlen gets array length
+        Assert.Contains(instructions, i => i.OpCodeName == "ldlen");
+    }
+
+    [Fact]
+    public void Disassemble_CheckedArithmetic_HasOverflowOpcodes()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.CheckedArithmetic));
+        Assert.NotNull(instructions);
+
+        // checked() generates add.ovf and mul.ovf
+        Assert.Contains(instructions, i => i.OpCodeName == "add.ovf");
+        Assert.Contains(instructions, i => i.OpCodeName == "mul.ovf");
+    }
+
+    [Fact]
+    public void Disassemble_NestedExceptionHandlers_HasMultipleLeaves()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.NestedExceptionHandlers));
+        Assert.NotNull(instructions);
+
+        // Nested try/catch/finally should have multiple leave instructions
+        var leaves = instructions.Where(i => i.OpCodeName is "leave" or "leave.s").ToList();
+        Assert.True(leaves.Count >= 2, $"Expected >= 2 leave instructions, got {leaves.Count}");
+        Assert.Contains(instructions, i => i.OpCodeName == "endfinally");
+    }
+
+    [Fact]
+    public void Disassemble_MultipleCatch_HasMultipleLeaves()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.MultipleCatch));
+        Assert.NotNull(instructions);
+
+        var leaves = instructions.Where(i => i.OpCodeName is "leave" or "leave.s").ToList();
+        Assert.True(leaves.Count >= 3,
+            $"Expected >= 3 leave instructions (try + 2 catches), got {leaves.Count}");
+    }
+
+    [Fact]
+    public void Disassemble_ThrowAndRethrow_HasThrowAndRethrow()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.ThrowAndRethrow));
+        Assert.NotNull(instructions);
+
+        Assert.Contains(instructions, i => i.OpCodeName == "throw");
+        Assert.Contains(instructions, i => i.OpCodeName == "rethrow");
+    }
+
+    [Fact]
+    public void Disassemble_GetTypeToken_HasLdtoken()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.GetTypeToken));
+        Assert.NotNull(instructions);
+
+        var ldtoken = instructions.FirstOrDefault(i => i.OpCodeName == "ldtoken");
+        Assert.NotNull(ldtoken);
+        Assert.NotNull(ldtoken.Operand);
+        // Should resolve to System.String or string
+        Assert.Contains("String", ldtoken.Operand);
+    }
+
+    [Fact]
+    public void Disassemble_CreateStringArray_HasNewarrWithType()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.CreateStringArray));
+        Assert.NotNull(instructions);
+
+        var newarr = instructions.FirstOrDefault(i => i.OpCodeName == "newarr");
+        Assert.NotNull(newarr);
+        Assert.NotNull(newarr.Operand);
+        Assert.Contains("String", newarr.Operand);
+    }
+
+    [Fact]
+    public void Disassemble_GetDelegate_HasLdftn()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.GetDelegate));
+        Assert.NotNull(instructions);
+
+        // ldftn loads a function pointer for the delegate
+        Assert.Contains(instructions, i => i.OpCodeName == "ldftn");
+    }
+
+    [Fact]
+    public void Disassemble_InterfaceCall_HasCallvirt()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.InterfaceCall));
+        Assert.NotNull(instructions);
+
+        var callvirt = instructions.FirstOrDefault(i =>
+            i.OpCodeName == "callvirt" && i.Operand?.Contains("CompareTo") == true);
+        Assert.NotNull(callvirt);
+    }
+
+    [Fact]
+    public void Disassemble_UnsignedCompare_HasUnsignedOpcode()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.UnsignedCompare));
+        Assert.NotNull(instructions);
+
+        // unsigned comparison generates cgt.un (0xFE03, 2-byte opcode)
+        Assert.Contains(instructions, i => i.OpCodeName == "cgt.un");
+    }
+
+    [Fact]
+    public void Disassemble_ConvertTypes_HasConvOpcodes()
+    {
+        var instructions = DisassembleTestMethod(nameof(ILSampleClass.ConvertTypes));
+        Assert.NotNull(instructions);
+
+        // Should have conv.* opcodes for type narrowing/widening
+        Assert.Contains(instructions, i => i.OpCodeName.StartsWith("conv."));
+    }
+
     /// <summary>
     /// Disassembles every method in every dotnet-inspect assembly to verify
     /// the decoder handles all real-world IL patterns without crashing.
@@ -498,6 +622,94 @@ public class ILSampleClass
     {
         int a = 1, b = 2, c = 3, d = 4, e = 5;
         return a + b + c + d + e;
+    }
+
+    // Edge case: array operations (newarr, ldlen, ldelem, stelem)
+    public static int ArrayOps()
+    {
+        int[] arr = new int[5];
+        arr[0] = 10;
+        arr[1] = 20;
+        return arr[0] + arr.Length;
+    }
+
+    // Edge case: checked arithmetic (add.ovf, mul.ovf, conv.ovf)
+    public static int CheckedArithmetic(int a, int b)
+    {
+        return checked(a + b) * checked(a * b);
+    }
+
+    // Edge case: nested try/catch/finally
+    public static int NestedExceptionHandlers(string s)
+    {
+        try
+        {
+            try
+            {
+                return int.Parse(s);
+            }
+            catch (FormatException)
+            {
+                return -1;
+            }
+        }
+        finally
+        {
+            Console.WriteLine("outer finally");
+        }
+    }
+
+    // Edge case: multiple catch handlers
+    public static int MultipleCatch(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (FormatException)
+        {
+            return -1;
+        }
+        catch (OverflowException)
+        {
+            return -2;
+        }
+    }
+
+    // Edge case: throw/rethrow
+    public static void ThrowAndRethrow()
+    {
+        try
+        {
+            throw new InvalidOperationException("test");
+        }
+        catch
+        {
+            throw;
+        }
+    }
+
+    // Edge case: typeof/ldtoken (InlineTok for type)
+    public static Type GetTypeToken() => typeof(string);
+
+    // Edge case: array of reference types (newarr with type token)
+    public static string[] CreateStringArray() => new string[3];
+
+    // Edge case: delegate / ldftn
+    public static Func<int, int, int> GetDelegate() => Add;
+
+    // Edge case: virtual method dispatch on interface
+    public static int InterfaceCall(IComparable<int> c) => c.CompareTo(0);
+
+    // Edge case: unsigned comparison (bge.un, cgt.un, etc.)
+    public static bool UnsignedCompare(uint a, uint b) => a > b;
+
+    // Edge case: type conversion opcodes (conv.i1, conv.r8, etc.)
+    public static double ConvertTypes(int i)
+    {
+        byte b = (byte)i;
+        short s = (short)b;
+        return (double)s;
     }
 }
 
