@@ -1,4 +1,6 @@
 using DotnetInspector;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -14,6 +16,90 @@ public class CommandLineTests
 
         // Root command has a default action (help + tips), so no parse errors
         Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void RootCommand_WithVerbosityQuiet_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["-v:q"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task RootCommand_WithVerbosityQuiet_SuppressesTips()
+    {
+        var originalErr = Console.Error;
+        var errWriter = new System.IO.StringWriter();
+        Console.SetError(errWriter);
+        try
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            await root.Parse(["-v:q"]).InvokeAsync();
+            var stderr = errWriter.ToString();
+            Assert.DoesNotContain("Tip:", stderr);
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    [Fact]
+    public async Task RootCommand_WithoutVerbosityQuiet_ShowsTips()
+    {
+        var originalErr = Console.Error;
+        var originalOut = Console.Out;
+        var errWriter = new System.IO.StringWriter();
+        var outWriter = new System.IO.StringWriter();
+        Console.SetError(errWriter);
+        Console.SetOut(outWriter);
+        try
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            await root.Parse([]).InvokeAsync();
+            var stderr = errWriter.ToString();
+            Assert.Contains("Tip:", stderr);
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public void WriteTips_WithQuietLevel_WritesNothing()
+    {
+        var originalErr = Console.Error;
+        var errWriter = new System.IO.StringWriter();
+        Console.SetError(errWriter);
+        try
+        {
+            Hints.WriteTips(TipLevel.Quiet, new Tip("package", "Foo", "inspect"));
+            Assert.Empty(errWriter.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    [Fact]
+    public void WriteTips_WithMinimalLevel_WritesTips()
+    {
+        var originalErr = Console.Error;
+        var errWriter = new System.IO.StringWriter();
+        Console.SetError(errWriter);
+        try
+        {
+            Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
+            Assert.Contains("Tip:", errWriter.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
     }
 
     [Fact]

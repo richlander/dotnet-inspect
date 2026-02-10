@@ -71,7 +71,8 @@ public static class CommandLineBuilder
         // Commands in alphabetical order (llmstxt last as meta command)
 
         // Root-level display option (distinct instance so it appears in root help)
-        rootCommand.Options.Add(new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" });
+        var rootVerbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
+        rootCommand.Options.Add(rootVerbosityOption);
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");
         rootCommand.Options.Add(rootTipsOption);
@@ -148,7 +149,9 @@ public static class CommandLineBuilder
             Console.SetOut(original);
             Console.WriteLine(sw.ToString().TrimEnd());
 
-            var tipLevel = ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
+            var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
+            var tipLevel = verbosity == Verbosity.Quiet
+                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
                 new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
