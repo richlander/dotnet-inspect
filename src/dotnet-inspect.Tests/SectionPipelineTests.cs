@@ -1,7 +1,9 @@
 using DotnetInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
@@ -384,5 +386,220 @@ public class SectionPipelineTests
         // Registry should handle all of them without throwing
         // (we can't easily inspect the registry, but we can verify it runs)
         Assert.NotEmpty(detailedScanners);
+    }
+
+    // ===== Package pipeline tests =====
+
+    [Fact]
+    public void PackagePipeline_HasExpectedSectionCount()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        Assert.Equal(7, pipeline.AllSectionNames.Length);
+    }
+
+    [Fact]
+    public void PackagePipeline_SectionNamesMatchConstants()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var names = pipeline.AllSectionNames;
+
+        Assert.Contains("Package", names);
+        Assert.Contains("Statistics", names);
+        Assert.Contains("Package Dependencies", names);
+        Assert.Contains("Files", names);
+        Assert.Contains("Vulnerabilities", names);
+        Assert.Contains("RID Packages", names);
+        Assert.Contains("Runtime Dependencies", names);
+    }
+
+    [Fact]
+    public void PackagePipeline_Quiet_NoSections()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Quiet);
+
+        Assert.Empty(effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Minimal_ShowsPackageAndConditionalSections()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        // Package is always renderable at Minimal
+        Assert.Contains("Package", effective);
+        // Statistics requires TotalDownloads (Normal verbosity anyway)
+        Assert.DoesNotContain("Statistics", effective);
+        // Package Dependencies requires DependencyGroups (Normal verbosity anyway)
+        Assert.DoesNotContain("Package Dependencies", effective);
+        // Vulnerabilities is Detailed
+        Assert.DoesNotContain("Vulnerabilities", effective);
+        // Files is Detailed
+        Assert.DoesNotContain("Files", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Minimal_ShowsRidPackagesWhenPresent()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("RID Packages", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Minimal_ShowsRuntimeDepsWhenPresent()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            RuntimeDependencies = [new PackageDependency { Id = "Dep", Version = "1.0.0" }]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Runtime Dependencies", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Normal_ShowsStatisticsWhenPresent()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TotalDownloads = 1000
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+
+        Assert.Contains("Statistics", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Normal_HidesStatisticsWhenNull()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+
+        Assert.DoesNotContain("Statistics", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Normal_ShowsPackageDepsWhenPresent()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+
+        Assert.Contains("Package Dependencies", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Normal_HidesVulnerabilities()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+
+        Assert.DoesNotContain("Vulnerabilities", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Detailed_ShowsVulnerabilitiesWhenPresent()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Vulnerabilities", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Detailed_HidesVulnerabilitiesWhenEmpty()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.DoesNotContain("Vulnerabilities", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_VerbosityAutoPromote_ForVulnerabilities()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Vulnerabilities" });
+
+        Assert.Equal(Verbosity.Detailed, required);
+    }
+
+    [Fact]
+    public void PackagePipeline_VerbosityAutoPromote_ForPackage()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Package" });
+
+        Assert.Equal(Verbosity.Minimal, required);
+    }
+
+    [Fact]
+    public void PackagePipeline_ComputeIncludeSections_NullWhenAllRenderable()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TotalDownloads = 1000,
+            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }],
+            Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }],
+            RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
+            RuntimeDependencies = [new PackageDependency { Id = "Dep2", Version = "2.0" }],
+            Files = ["lib/net8.0/test.dll"]
+        };
+
+        // At Detailed with all data populated, all 7 sections render
+        var include = pipeline.ComputeIncludeSections(model, Verbosity.Detailed);
+
+        Assert.Null(include);
     }
 }

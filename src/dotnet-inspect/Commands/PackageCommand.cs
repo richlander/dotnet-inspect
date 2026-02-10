@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -19,19 +20,30 @@ public class PackageCommand
     public const string Name = "package";
     public static async Task<int> ExecuteAsync(string[] packageArgs, InspectionOptions options, string? explicitVersion = null)
     {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var sectionNames = pipeline.AllSectionNames;
+
         // Validate section filters
         options = options with
         {
-            IncludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(SectionRegistry.PackageCommandSections, options.ExcludeSections, out var excludeError),
+            IncludeSections = SectionRegistry.Resolve(sectionNames, options.IncludeSections, out var includeError),
+            ExcludeSections = SectionRegistry.Resolve(sectionNames, options.ExcludeSections, out var excludeError),
         };
         if (includeError || excludeError) return 1;
 
         // Bare -s: list available sections and exit
         if (options.IncludeSections is { Count: 0 })
         {
-            SectionRegistry.ListSections(SectionRegistry.PackageCommandSections);
+            SectionRegistry.ListSections(sectionNames);
             return 0;
+        }
+
+        // Auto-promote verbosity when -s targets specific sections
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
+            if (requiredVerbosity > options.Verbosity)
+                options = options with { Verbosity = requiredVerbosity };
         }
 
         if (packageArgs.Length < 1)
@@ -210,7 +222,7 @@ public class PackageCommand
             FilterResultForOutput(result, options);
 
             // Output results
-            var output = OutputFormatter.FormatResult(result, options);
+            var output = OutputFormatter.FormatResult(result, options, pipeline);
             if (!string.IsNullOrEmpty(options.OutputPath))
             {
                 File.WriteAllText(options.OutputPath, output);
