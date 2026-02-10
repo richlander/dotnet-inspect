@@ -28,7 +28,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILSpyMethodCases))]
     public void ILSpy_InstructionsMatch(string assembly, string typeName, string methodName)
     {
-        Assert.SkipUnless(HasILSpyCmd, "ilspycmd is not available");
+        Assert.SkipUnless(HasILSpyCmd, "ilspycmd not found — install with: dotnet tool install -g ilspycmd --allow-roll-forward");
 
         var assemblyPath = ResolveAssembly(assembly);
         var ilspyMethods = ParseILSpyTypeOutput(assemblyPath, typeName);
@@ -55,7 +55,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILSpyTypeCases))]
     public void ILSpy_AllMethodInstructionCountsMatch(string assembly, string typeName)
     {
-        Assert.SkipUnless(HasILSpyCmd, "ilspycmd is not available");
+        Assert.SkipUnless(HasILSpyCmd, "ilspycmd not found — install with: dotnet tool install -g ilspycmd --allow-roll-forward");
 
         var assemblyPath = ResolveAssembly(assembly);
 
@@ -87,7 +87,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmAssemblyCases))]
     public void ILAsm_Roundtrip_ProducesValidAssembly(string assembly)
     {
-        Assert.SkipUnless(HasILAsm, "ilasm/ildasm require Windows");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found (Windows only, requires .NET Framework SDK)");
 
         var assemblyPath = ResolveAssembly(assembly);
         var outputDll = RoundtripWithILAsm(assemblyPath);
@@ -105,7 +105,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmAssemblyCases))]
     public void ILAsm_Roundtrip_MethodCountPreserved(string assembly)
     {
-        Assert.SkipUnless(HasILAsm, "ilasm/ildasm require Windows");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found (Windows only, requires .NET Framework SDK)");
 
         var assemblyPath = ResolveAssembly(assembly);
         int originalCount = CountMethods(assemblyPath);
@@ -119,7 +119,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmMethodCases))]
     public void ILAsm_Roundtrip_OpcodesPreserved(string assembly, string typeName, string methodName)
     {
-        Assert.SkipUnless(HasILAsm, "ilasm/ildasm require Windows");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found (Windows only, requires .NET Framework SDK)");
 
         var assemblyPath = ResolveAssembly(assembly);
         var outputDll = RoundtripWithILAsm(assemblyPath);
