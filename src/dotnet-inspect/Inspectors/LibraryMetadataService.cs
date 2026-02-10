@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Collections.Concurrent;
 using System.Reflection.PortableExecutable;
@@ -230,17 +231,38 @@ internal static class LibraryMetadataService
             urlDocs.Add(doc);
         }
 
-        await Parallel.ForEachAsync(urlDocs,
-            new ParallelOptions { MaxDegreeOfParallelism = 16 },
-            async (doc, ct) =>
-            {
-                using var response = await HttpRetryHelper.HeadWithRetryAsync(
-                    httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
-                if (response != null)
-                    Interlocked.Increment(ref accessibleCount);
-                else
-                    missingFiles.Add(doc.FilePath);
-            });
+        // Partition into cached (already verified) and uncached (need HEAD request)
+        List<SourceDocument> uncachedDocs = [];
+        foreach (var doc in urlDocs)
+        {
+            if (CoreCache.TryGet("source-audit", doc.ResolvedUrl!, extension: "ok") != null)
+                Interlocked.Increment(ref accessibleCount);
+            else
+                uncachedDocs.Add(doc);
+        }
+
+        if (uncachedDocs.Count > 0)
+        {
+            logger.Log($"Verifying {uncachedDocs.Count} source URLs ({urlDocs.Count - uncachedDocs.Count} cached)...");
+
+            await Parallel.ForEachAsync(uncachedDocs,
+                new ParallelOptions { MaxDegreeOfParallelism = 16 },
+                async (doc, ct) =>
+                {
+                    using var response = await HttpRetryHelper.HeadWithRetryAsync(
+                        httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
+                    if (response != null)
+                    {
+                        Interlocked.Increment(ref accessibleCount);
+                        // Source URLs are commit-pinned and immutable — cache permanently
+                        CoreCache.Set("source-audit", doc.ResolvedUrl!, "1", extension: "ok");
+                    }
+                    else
+                    {
+                        missingFiles.Add(doc.FilePath);
+                    }
+                });
+        }
 
         inspection.TotalSourceFiles = documents.Count;
         inspection.AccessibleSourceFiles = accessibleCount;
