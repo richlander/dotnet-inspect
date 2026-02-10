@@ -60,6 +60,12 @@ public class LibraryInspection
     public string? Builder { get; set; }
 
     /// <summary>
+    /// Where the assembly was resolved from: "Platform (runtime)", "NuGet", or null for local files.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Source { get; set; }
+
+    /// <summary>
     /// Publisher identity from NuGet package author signature (CN).
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

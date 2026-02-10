@@ -100,6 +100,8 @@ public class AssemblyCommand
                     return 1;
                 }
 
+                inspection.Source = $"Platform ({framework})";
+
                 if (discoverSections)
                 {
                     ListEffectiveSections(pipeline, inspection);
@@ -140,6 +142,9 @@ public class AssemblyCommand
                     Console.Error.WriteLine("Error: No libraries could be read from the package.");
                     return 1;
                 }
+
+                foreach (var insp in inspections)
+                    insp.Source = "NuGet";
 
                 if (discoverSections)
                 {

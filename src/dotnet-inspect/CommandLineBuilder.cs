@@ -1155,10 +1155,20 @@ public static class CommandLineBuilder
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
             string? packagePath = null;
+            string? platformAssembly = null;
             if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(parseResult.GetValue(asmPlatformOption)))
             {
                 if (File.Exists(source))
                     assemblyPath = source;
+                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
+                {
+                    // Platform-preferred routing for System.*/Microsoft.* bare names
+                    var (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(source);
+                    if (error == null && asmPath != null)
+                        platformAssembly = source;
+                    else
+                        packagePath = source;
+                }
                 else
                     packagePath = source;
             }
@@ -1175,7 +1185,7 @@ public static class CommandLineBuilder
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
                 PackagePath = packagePath,
-                PlatformAssembly = parseResult.GetValue(asmPlatformOption),
+                PlatformAssembly = platformAssembly ?? parseResult.GetValue(asmPlatformOption),
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
@@ -1306,10 +1316,22 @@ public static class CommandLineBuilder
             }
             else
             {
-                // First positional is the package
+                // First positional is the package (or platform candidate)
                 if (args.Length >= 1) packagePath = args[0];
                 if (args.Length >= 2) typeName = args[1];
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
+
+                // Platform-preferred routing for System.*/Microsoft.* bare names
+                if (packagePath != null && !packagePath.Contains('@') &&
+                    PlatformResolver.IsPlatformCandidate(packagePath))
+                {
+                    var (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(packagePath);
+                    if (error == null && asmPath != null)
+                    {
+                        explicitPlatform = packagePath;
+                        packagePath = null;
+                    }
+                }
             }
 
             var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
