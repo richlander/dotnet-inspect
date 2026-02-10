@@ -73,10 +73,6 @@ public static class ApiOutputFormatter
             }
         }
 
-        // Source section (--docs/--samples)
-        if (options.ShowDocs || options.ShowSamples)
-            RenderAssemblySourceInfo(writer, api, options);
-
         return writer.ToString().TrimEnd();
     }
 
@@ -130,10 +126,6 @@ public static class ApiOutputFormatter
                 (truncatedCount, truncatedNoun) = RenderMembersPerKind(writer, type, options);
             }
         }
-
-        // Source info section (--docs/--samples)
-        if (options.ShowDocs || options.ShowSamples)
-            RenderSourceInfo(writer, type, options);
 
         // Truncation message
         if (truncatedCount > 0)
@@ -466,65 +458,6 @@ public static class ApiOutputFormatter
         }
 
         return (truncated, "members");
-    }
-
-    private static void RenderSourceInfo(MarkoutWriter writer, ApiType type, ApiOptions options)
-    {
-        var resolution = type.SourceResolution;
-        string? primaryUrl = type.GitHubBrowseUrl != null
-            ? (options.BrowsableUrls ? GitHubUrlResolver.ConvertRawToBlobUrl(type.GitHubBrowseUrl) : type.GitHubBrowseUrl)
-            : null;
-
-        if (resolution == null && primaryUrl == null)
-            return;
-
-        bool isPartial = type.IsPartialType;
-        int fileCount = 1 + (type.AdditionalSourceFiles?.Count ?? 0);
-
-        List<string[]> rows = [];
-        if (!string.IsNullOrEmpty(resolution))
-            rows.Add(new[] { "Resolution", resolution });
-        rows.Add(new[] { "Partial Type", isPartial ? "true" : "false" });
-        rows.Add(new[] { "Files", fileCount.ToString() });
-
-        // Primary source file
-        if (!string.IsNullOrEmpty(primaryUrl))
-        {
-            var fileName = Path.GetFileName(type.SourceFilePath) ?? Path.GetFileName(primaryUrl);
-            rows.Add(new[] { fileName, primaryUrl });
-        }
-
-        // Additional source files for partial types
-        if (type.AdditionalSourceFiles != null)
-        {
-            foreach (var file in type.AdditionalSourceFiles)
-            {
-                var url = file.GitHubBrowseUrl != null
-                    ? (options.BrowsableUrls ? GitHubUrlResolver.ConvertRawToBlobUrl(file.GitHubBrowseUrl) : file.GitHubBrowseUrl)
-                    : file.SourceUrl ?? "";
-                var fileName = Path.GetFileName(file.FilePath) ?? Path.GetFileName(url) ?? "";
-                rows.Add(new[] { fileName, url });
-            }
-        }
-
-        writer.WriteHeading(2, "Source");
-        writer.WriteTable(new[] { "Property", "Value" }, rows);
-    }
-
-    private static void RenderAssemblySourceInfo(MarkoutWriter writer, ApiSurface api, ApiOptions options)
-    {
-        var resolution = api.Types.FirstOrDefault(t => t.SourceResolution != null)?.SourceResolution;
-        if (resolution == null && string.IsNullOrEmpty(api.RepositoryUrl))
-            return;
-
-        List<string[]> rows = [];
-        if (!string.IsNullOrEmpty(resolution))
-            rows.Add(new[] { "Resolution", resolution });
-        if (!string.IsNullOrEmpty(api.RepositoryUrl))
-            rows.Add(new[] { "Repository", api.RepositoryUrl });
-
-        writer.WriteHeading(2, "Source");
-        writer.WriteTable(new[] { "Property", "Value" }, rows);
     }
 
     private static void RenderConstructorEmphasis(MarkoutWriter writer, ApiType type, List<ApiMember> constructors)

@@ -58,52 +58,52 @@ public static class OutputFormatter
         };
     }
 
-    public static void WriteAssemblyResult(AssemblyAudit audit, AssemblyOptions options)
+    public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options)
     {
-        if (audit.UseDependenciesView)
+        if (inspection.UseDependenciesView)
         {
-            var view = AssemblyDependenciesView.FromAudit(audit);
+            var view = AssemblyDependenciesView.FromInspection(inspection);
             MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
             return;
         }
 
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(audit, JsonContext.Default.AssemblyAudit));
+            Console.WriteLine(JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection));
         }
         else
         {
-            var auditView = new AssemblyAuditView(audit);
+            var auditView = new LibraryInspectionView(inspection);
             var context = new MarkoutContext(new MarkoutWriterOptions
             {
-                ExcludeSections = GetAuditExcludeSections(options)
+                ExcludeSections = GetLibraryExcludeSections(options)
             });
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
         }
     }
 
-    public static void WriteAssemblyResults(List<AssemblyAudit> audits, AssemblyOptions options)
+    public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options)
     {
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(audits.ToArray(), JsonContext.Default.AssemblyAuditArray));
+            Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
         }
         else
         {
-            var report = new AssemblyAuditReport
+            var report = new LibraryInspectionReport
             {
-                Title = Path.GetFileNameWithoutExtension(audits[0].FileName),
-                Assemblies = audits.Select(a => new AssemblyAuditView(a)).ToList()
+                Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
+                Assemblies = inspections.Select(a => new LibraryInspectionView(a)).ToList()
             };
             var context = new MarkoutContext(new MarkoutWriterOptions
             {
-                ExcludeSections = GetAuditExcludeSections(options)
+                ExcludeSections = GetLibraryExcludeSections(options)
             });
             Console.WriteLine(context.Serialize(report).TrimEnd());
         }
     }
 
-    private static HashSet<string>? GetAuditExcludeSections(AssemblyOptions options)
+    private static HashSet<string>? GetLibraryExcludeSections(AssemblyOptions options)
     {
         if (!options.IncludeSourcelinkAudit)
             return ["Source Coverage", "Missing Sources"];

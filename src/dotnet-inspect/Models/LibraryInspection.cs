@@ -3,7 +3,7 @@ using DotnetInspector.Metadata;
 
 namespace DotnetInspector.Models;
 
-public class AssemblyAudit
+public class LibraryInspection
 {
     [JsonIgnore]
     public string? Tfm { get; set; }

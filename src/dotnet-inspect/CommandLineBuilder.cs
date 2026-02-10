@@ -1221,6 +1221,7 @@ public static class CommandLineBuilder
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
                 ShowDocs = parseResult.GetValue(docsOption) || parseResult.GetValue(useLocalDocsOption),
+                DocsExplicitlySet = parseResult.GetResult(docsOption) != null || parseResult.GetResult(useLocalDocsOption) != null,
                 UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
                 ShowSamples = parseResult.GetValue(samplesOption),
                 SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
