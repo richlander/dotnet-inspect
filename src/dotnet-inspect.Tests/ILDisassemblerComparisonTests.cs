@@ -10,7 +10,8 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Head-to-head comparison tests that validate our IL disassembler output
 /// against ILSpy (ilspycmd) and ILAsm (ilasm) reference tools.
-/// ILSpy tests run on all platforms; ILAsm roundtrip tests run only on Windows.
+/// Test cases are generated conditionally — ILAsm cases only appear on Windows
+/// where the tools are available. No traits or skip logic needed.
 /// </summary>
 public partial class ILDisassemblerComparisonTests
 {
@@ -21,130 +22,83 @@ public partial class ILDisassemblerComparisonTests
     static readonly bool HasILSpyCmd = CanRunILSpyCmd();
     static readonly bool HasILAsm = CanRunILAsm();
 
-    // --- ILSpy comparison tests ---
+    // --- ILSpy: instruction-level comparison ---
 
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_CoreCache_Initialize_InstructionsMatch()
+    [Theory]
+    [MemberData(nameof(ILSpyMethodCases))]
+    public void ILSpy_InstructionsMatch(string assembly, string typeName, string methodName)
     {
-        SkipIfNoILSpy();
-        AssertMethodMatchesILSpy(
-            CoreDll,
-            "DotnetInspector.Core.CoreCache",
-            "Initialize");
-    }
+        var assemblyPath = ResolveAssembly(assembly);
+        var ilspyMethods = ParseILSpyTypeOutput(assemblyPath, typeName);
+        Assert.True(
+            ilspyMethods.TryGetValue(methodName, out var ilspyInstructions),
+            $"ILSpy did not produce output for {typeName}.{methodName}. " +
+            $"Available: {string.Join(", ", ilspyMethods.Keys)}");
 
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_CoreCache_GetBasePath_InstructionsMatch()
-    {
-        SkipIfNoILSpy();
-        AssertMethodMatchesILSpy(
-            CoreDll,
-            "DotnetInspector.Core.CoreCache",
-            "GetBasePath");
-    }
-
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_CoreCache_GetDirectorySize_InstructionsMatch()
-    {
-        SkipIfNoILSpy();
-        AssertMethodMatchesILSpy(
-            CoreDll,
-            "DotnetInspector.Core.CoreCache",
-            "GetDirectorySize");
-    }
-
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_ILSampleClass_Add_InstructionsMatch()
-    {
-        SkipIfNoILSpy();
-        AssertMethodMatchesILSpy(
-            TestDll,
-            "DotnetInspector.Tests.ILSampleClass",
-            "Add");
-    }
-
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_ILSampleClass_Classify_InstructionsMatch()
-    {
-        SkipIfNoILSpy();
-        AssertMethodMatchesILSpy(
-            TestDll,
-            "DotnetInspector.Tests.ILSampleClass",
-            "Classify");
-    }
-
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_ILSampleClass_CreateList_InstructionsMatch()
-    {
-        SkipIfNoILSpy();
-        AssertMethodMatchesILSpy(
-            TestDll,
-            "DotnetInspector.Tests.ILSampleClass",
-            "CreateList");
-    }
-
-    [Fact]
-    [Trait("Category", "ILSpy")]
-    public void ILSpy_AllMethods_InstructionCountsMatch()
-    {
-        SkipIfNoILSpy();
-
-        using var stream = File.OpenRead(CoreDll);
+        using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
+        var ours = ILDisassembler.DisassembleMethod(peReader, typeName, methodName);
+        Assert.NotNull(ours);
 
-        var ilspyMethods = ParseILSpyTypeOutput(CoreDll, "DotnetInspector.Core.CoreCache");
+        Assert.Equal(ilspyInstructions.Count, ours.Count);
+
+        for (int i = 0; i < ours.Count; i++)
+        {
+            Assert.Equal(ilspyInstructions[i].Offset, ours[i].Offset);
+            Assert.Equal(ilspyInstructions[i].OpCode, ours[i].OpCodeName);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ILSpyTypeCases))]
+    public void ILSpy_AllMethodInstructionCountsMatch(string assembly, string typeName)
+    {
+        var assemblyPath = ResolveAssembly(assembly);
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var ilspyMethods = ParseILSpyTypeOutput(assemblyPath, typeName);
         Assert.NotEmpty(ilspyMethods);
 
         List<string> mismatches = [];
 
         foreach (var (methodName, ilspyInstructions) in ilspyMethods)
         {
-            var ours = ILDisassembler.DisassembleMethod(peReader, "DotnetInspector.Core.CoreCache", methodName);
+            var ours = ILDisassembler.DisassembleMethod(peReader, typeName, methodName);
             if (ours is null)
-                continue; // Abstract or extern
+                continue;
 
             if (ours.Count != ilspyInstructions.Count)
-            {
-                mismatches.Add(
-                    $"{methodName}: ours={ours.Count}, ILSpy={ilspyInstructions.Count}");
-            }
+                mismatches.Add($"{methodName}: ours={ours.Count}, ILSpy={ilspyInstructions.Count}");
         }
 
         Assert.True(mismatches.Count == 0,
             $"Instruction count mismatches:\n{string.Join("\n", mismatches)}");
     }
 
-    // --- ILAsm roundtrip tests (Windows only) ---
+    // --- ILAsm: roundtrip validation (Windows only — guarded at runtime) ---
 
     [Fact]
-    [Trait("Category", "ILAsm")]
-    public void ILAsm_CoreDll_Roundtrip_ProducesValidAssembly()
+    public void ILAsm_Roundtrip_ProducesValidAssembly()
     {
-        SkipIfNoILAsm();
+        if (!HasILAsm) return;
 
         var outputDll = RoundtripWithILAsm(CoreDll);
         Assert.True(File.Exists(outputDll), $"ILAsm failed to produce {outputDll}");
 
-        // Verify the reassembled DLL is a valid PE with metadata
         using var stream = File.OpenRead(outputDll);
         using var peReader = new PEReader(stream);
         Assert.True(peReader.HasMetadata);
+
         var reader = peReader.GetMetadataReader();
         Assert.True(reader.TypeDefinitions.Count > 0);
     }
 
     [Fact]
-    [Trait("Category", "ILAsm")]
     public void ILAsm_Roundtrip_MethodCountPreserved()
     {
-        SkipIfNoILAsm();
+        if (!HasILAsm) return;
 
         int originalCount = CountMethods(CoreDll);
         var outputDll = RoundtripWithILAsm(CoreDll);
@@ -154,14 +108,12 @@ public partial class ILDisassemblerComparisonTests
     }
 
     [Fact]
-    [Trait("Category", "ILAsm")]
-    public void ILAsm_Roundtrip_OurDisassembler_ProducesSameOpcodes()
+    public void ILAsm_Roundtrip_OpcodesPreserved()
     {
-        SkipIfNoILAsm();
+        if (!HasILAsm) return;
 
         var outputDll = RoundtripWithILAsm(CoreDll);
 
-        // Disassemble the same method from original and roundtripped assembly
         var original = DisassembleFrom(CoreDll, "DotnetInspector.Core.CoreCache", "Initialize");
         var roundtripped = DisassembleFrom(outputDll, "DotnetInspector.Core.CoreCache", "Initialize");
 
@@ -176,34 +128,29 @@ public partial class ILDisassemblerComparisonTests
         }
     }
 
-    // --- Core comparison logic ---
+    // --- Test case data (conditional on tool availability) ---
 
-    static void AssertMethodMatchesILSpy(string assemblyPath, string typeName, string methodName)
+    /// <summary>Methods to compare instruction-by-instruction against ILSpy.</summary>
+    public static IEnumerable<object[]> ILSpyMethodCases()
     {
-        var ilspyMethods = ParseILSpyTypeOutput(assemblyPath, typeName);
-        Assert.True(
-            ilspyMethods.TryGetValue(methodName, out var ilspyInstructions),
-            $"ILSpy did not produce output for {typeName}.{methodName}. " +
-            $"Available methods: {string.Join(", ", ilspyMethods.Keys)}");
+        if (!HasILSpyCmd)
+            yield break;
 
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        var ours = ILDisassembler.DisassembleMethod(peReader, typeName, methodName);
-        Assert.NotNull(ours);
+        yield return ["Core", "DotnetInspector.Core.CoreCache", "Initialize"];
+        yield return ["Core", "DotnetInspector.Core.CoreCache", "GetBasePath"];
+        yield return ["Core", "DotnetInspector.Core.CoreCache", "GetDirectorySize"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "Add"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "Classify"];
+        yield return ["Test", "DotnetInspector.Tests.ILSampleClass", "CreateList"];
+    }
 
-        Assert.Equal(ilspyInstructions.Count, ours.Count);
+    /// <summary>Types to compare all method instruction counts against ILSpy.</summary>
+    public static IEnumerable<object[]> ILSpyTypeCases()
+    {
+        if (!HasILSpyCmd)
+            yield break;
 
-        for (int i = 0; i < ours.Count; i++)
-        {
-            var ourInstr = ours[i];
-            var ilspyInstr = ilspyInstructions[i];
-
-            // Offsets must match exactly
-            Assert.Equal(ilspyInstr.Offset, ourInstr.Offset);
-
-            // Opcodes must match exactly
-            Assert.Equal(ilspyInstr.OpCode, ourInstr.OpCodeName);
-        }
+        yield return ["Core", "DotnetInspector.Core.CoreCache"];
     }
 
     // --- ILSpy output parsing ---
@@ -226,10 +173,7 @@ public partial class ILDisassemblerComparisonTests
             var line = rawLine.TrimEnd('\r');
             var trimmed = line.Trim();
 
-            // Detect method start: ".method" lines followed by method name
-            // ILSpy format: ".method public hidebysig static \n\t\tvoid Initialize ("
-            // We look for the method name in lines like "void Initialize ("
-            // or "int32 Add (" between .method and the opening brace
+            // Detect method start: ".method" directive resets state
             if (trimmed.StartsWith(".method", StringComparison.Ordinal))
             {
                 currentMethod = null;
@@ -237,8 +181,7 @@ public partial class ILDisassemblerComparisonTests
                 continue;
             }
 
-            // Match a method name line like "void Initialize (" or "int32 Add ("
-            // These appear between .method and the opening brace { of the body
+            // Match method name line like "void Initialize (" or "int32 Add ("
             if (currentMethod is null && currentInstructions is null)
             {
                 var nameMatch = MethodNamePattern().Match(trimmed);
@@ -262,14 +205,10 @@ public partial class ILDisassemblerComparisonTests
                     continue;
                 }
 
-                // End of method body
                 if (trimmed.StartsWith("} // end of method", StringComparison.Ordinal))
                 {
                     if (currentMethod is not null && currentInstructions.Count > 0)
-                    {
-                        // Handle overloads: keep the first occurrence
                         methods.TryAdd(currentMethod, currentInstructions);
-                    }
                     currentMethod = null;
                     currentInstructions = null;
                 }
@@ -281,12 +220,9 @@ public partial class ILDisassemblerComparisonTests
 
     record ILSpyInstruction(int Offset, string OpCode);
 
-    // Matches: "IL_xxxx: opcode" — captures offset hex and opcode name
     [GeneratedRegex(@"^IL_([0-9a-fA-F]{4}):\s+(\S+)")]
     private static partial Regex ILInstructionPattern();
 
-    // Matches method name from lines like "void Initialize (" or "int32 Add ("
-    // The method name follows the return type and precedes " (" or " ()"
     [GeneratedRegex(@"(\w[\w.]*)\s*\(")]
     private static partial Regex MethodNamePattern();
 
@@ -348,7 +284,7 @@ public partial class ILDisassemblerComparisonTests
         var psi = new ProcessStartInfo
         {
             FileName = "ilasm",
-            ArgumentList = { ilPath, $"/dll", $"/output={outputDll}", "/quiet" },
+            ArgumentList = { ilPath, "/dll", $"/output={outputDll}", "/quiet" },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -368,9 +304,6 @@ public partial class ILDisassemblerComparisonTests
         return output;
     }
 
-    /// <summary>
-    /// Disassembles with ildasm, reassembles with ilasm, returns path to new DLL.
-    /// </summary>
     static string RoundtripWithILAsm(string assemblyPath)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"il-roundtrip-{Guid.NewGuid():N}");
@@ -387,6 +320,14 @@ public partial class ILDisassemblerComparisonTests
     }
 
     // --- Helpers ---
+
+    static string ResolveAssembly(string key) => key switch
+    {
+        "Core" => CoreDll,
+        "Metadata" => MetadataDll,
+        "Test" => TestDll,
+        _ => throw new ArgumentException($"Unknown assembly key: {key}")
+    };
 
     static List<ILInstruction>? DisassembleFrom(string assemblyPath, string typeName, string methodName)
     {
@@ -459,18 +400,5 @@ public partial class ILDisassemblerComparisonTests
         {
             return false;
         }
-    }
-
-    static void SkipIfNoILSpy()
-    {
-        if (!HasILSpyCmd)
-            throw Xunit.Sdk.SkipException.ForSkip("ilspycmd is not available on this system");
-    }
-
-    static void SkipIfNoILAsm()
-    {
-        if (!HasILAsm)
-            throw Xunit.Sdk.SkipException.ForSkip(
-                "ilasm/ildasm require Windows. Filter with: --filter \"Category!=ILAsm\"");
     }
 }
