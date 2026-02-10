@@ -95,6 +95,12 @@ public class AssemblyCommand
                     return 1;
                 }
 
+                if (discoverSections)
+                {
+                    ListEffectiveSections(pipeline, inspection);
+                    return 0;
+                }
+
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
