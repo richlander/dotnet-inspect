@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO.Compression;
+using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 
@@ -303,6 +304,9 @@ public static class PackageExtractor
         return (packageSource, null);
     }
 
+    private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
+    private const string VersionCacheCategory = "versions";
+
     private static async Task<string?> GetLatestVersionAsync(
         HttpClient client,
         string packageName,
@@ -311,11 +315,22 @@ public static class PackageExtractor
     {
         string normalizedName = packageName.ToLowerInvariant();
 
+        // Check version cache first (1-hour TTL)
+        var cached = CoreCache.TryGet(VersionCacheCategory, normalizedName, VersionCacheTtl, extension: "txt");
+        if (cached != null)
+        {
+            log?.Invoke($"Using cached version: {cached}");
+            return cached;
+        }
+
         foreach (var source in sources)
         {
             var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log);
             if (version != null)
+            {
+                CoreCache.Set(VersionCacheCategory, normalizedName, version, extension: "txt");
                 return version;
+            }
         }
 
         return null;
@@ -327,7 +342,15 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log)
     {
-        // Try flat-container index first (faster)
+        // For nuget.org, use the search API — returns latest version directly without listing all versions
+        if (source.IsNuGetOrg())
+        {
+            var version = await GetLatestVersionFromSearchAsync(client, packageName, log);
+            if (version != null)
+                return version;
+        }
+
+        // Fall back to flat-container index (enumerates all versions)
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
@@ -352,6 +375,39 @@ public static class PackageExtractor
             var version = await ParseVersionIndexAsync(client, indexUrl);
             if (version != null)
                 return version;
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> GetLatestVersionFromSearchAsync(
+        HttpClient client,
+        string packageName,
+        Action<string>? log)
+    {
+        string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{packageName}&take=1&prerelease=false";
+        log?.Invoke($"Fetching latest version from: {searchUrl}");
+
+        try
+        {
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl);
+            if (json == null)
+                return null;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                data.GetArrayLength() > 0)
+            {
+                var package = data[0];
+                if (package.TryGetProperty("version", out var version))
+                {
+                    return version.GetString();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Search API failed: {ex.Message}");
         }
 
         return null;
