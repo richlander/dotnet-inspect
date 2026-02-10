@@ -33,7 +33,8 @@ internal static class LibraryMetadataService
 
         try
         {
-            using var pdbContext = PdbContext.Open(path, logger.Log);
+            using var service = SourceLinkService.Open(path, logger.Log);
+            var pdbContext = service.Context;
 
             if (!pdbContext.HasMetadata)
             {
@@ -97,7 +98,7 @@ internal static class LibraryMetadataService
 
             inspection.FileSize = AssemblyDetailScanner.GetFileSize(path);
 
-            await AuditAsync(pdbContext, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
+            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
 
             return inspection;
         }
@@ -111,7 +112,7 @@ internal static class LibraryMetadataService
     /// PDB acquisition, SourceLink detection, and builder inference.
     /// </summary>
     public static async Task AuditAsync(
-        PdbContext pdbContext,
+        SourceLinkService service,
         LibraryInspection inspection,
         string assemblyPath,
         string? packageName,
@@ -121,12 +122,14 @@ internal static class LibraryMetadataService
         bool isPlatformAssembly = false,
         bool includeSourcelinkAudit = false)
     {
+        var pdbContext = service.Context;
+
         if (pdbContext.HasPdb)
         {
             inspection.PdbFormat = pdbContext.PdbFormat;
             inspection.PdbLocation = pdbContext.PdbLocation;
-            inspection.HasSourceLink = pdbContext.HasSourceLink;
-            inspection.SourceLinkJson = pdbContext.SourceLinkJson;
+            inspection.HasSourceLink = service.HasSourceLink;
+            inspection.SourceLinkJson = service.SourceLinkJson;
         }
 
         if (!pdbContext.HasPdb && pdbContext.WindowsPdbDetected)
@@ -146,8 +149,8 @@ internal static class LibraryMetadataService
                 inspection.PdbFormat = pdbContext.PdbFormat;
                 inspection.PdbLocation = pdbContext.PdbLocation;
                 inspection.SymbolServer = pdbContext.SymbolServer;
-                inspection.HasSourceLink = pdbContext.HasSourceLink;
-                inspection.SourceLinkJson = pdbContext.SourceLinkJson;
+                inspection.HasSourceLink = service.HasSourceLink;
+                inspection.SourceLinkJson = service.SourceLinkJson;
             }
             else if (pdbContext.WindowsPdbDetected)
             {
@@ -176,10 +179,10 @@ internal static class LibraryMetadataService
         inspection.Builder = InferBuilder(inspection);
 
         // SourceLink inspection: verify that all source files are accessible
-        if (includeSourcelinkAudit && pdbContext.HasPdb && inspection.HasSourceLink && inspection.SourceLinkJson != null)
+        if (includeSourcelinkAudit && pdbContext.HasPdb && service.HasSourceLink && service.SourceLinkJson != null)
         {
             logger.Log("Running strict source verification...");
-            await VerifySourceAccessibilityAsync(pdbContext, inspection, httpClient, logger);
+            await VerifySourceAccessibilityAsync(service, inspection, httpClient, logger);
         }
     }
 
@@ -187,12 +190,12 @@ internal static class LibraryMetadataService
     /// Verifies that all source files in the PDB are accessible via SourceLink or embedded.
     /// </summary>
     public static async Task VerifySourceAccessibilityAsync(
-        PdbContext pdbContext,
+        SourceLinkService service,
         LibraryInspection inspection,
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        var documents = pdbContext.EnumerateSourceDocuments().ToList();
+        var documents = service.GetTrackedFiles();
         int embeddedFiles = 0;
         int accessibleCount = 0;
         var missingFiles = new ConcurrentBag<string>();
