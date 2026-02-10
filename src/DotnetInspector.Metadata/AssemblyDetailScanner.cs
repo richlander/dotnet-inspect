@@ -176,4 +176,116 @@ public static class AssemblyDetailScanner
             return null;
         }
     }
+
+    /// <summary>
+    /// Cheap presence flags for section discovery. Single MetadataReader pass,
+    /// short-circuits at first match for each flag.
+    /// </summary>
+    public static PresenceFlags ScanPresenceFlags(PEReader peReader)
+    {
+        var reader = peReader.GetMetadataReader();
+        var flags = new PresenceFlags();
+
+        // Resources: cheapest check — just a count
+        flags.HasManifestResources = reader.GetTableRowCount(TableIndex.ManifestResource) > 0;
+
+        // Type forwarders: iterate ExportedTypes, stop at first forwarder
+        foreach (var handle in reader.ExportedTypes)
+        {
+            if (reader.GetExportedType(handle).IsForwarder)
+            {
+                flags.HasTypeForwarders = true;
+                break;
+            }
+        }
+
+        // Custom attributes: check assembly + module level for non-well-known
+        if (reader.IsAssembly)
+        {
+            foreach (var attrHandle in reader.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                var name = AssemblyInspector.GetAttributeName(reader, reader.GetCustomAttribute(attrHandle));
+                if (name != null && !IsWellKnownMetadataAttribute(name))
+                {
+                    flags.HasAssemblyAttributes = true;
+                    break;
+                }
+            }
+        }
+
+        if (!flags.HasAssemblyAttributes)
+        {
+            foreach (var attrHandle in reader.GetModuleDefinition().GetCustomAttributes())
+            {
+                var name = AssemblyInspector.GetAttributeName(reader, reader.GetCustomAttribute(attrHandle));
+                if (name != null && !IsWellKnownMetadataAttribute(name))
+                {
+                    flags.HasAssemblyAttributes = true;
+                    break;
+                }
+            }
+        }
+
+        // Extension types, P/Invoke, unsafe: iterate TypeDefs once
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            if (flags.HasExtensionTypes && flags.HasPInvokeImports && flags.HasUnsafeCode)
+                break;
+
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+
+            // Extension types: static class with [Extension] attribute
+            if (!flags.HasExtensionTypes)
+            {
+                var attrs = typeDef.Attributes;
+                bool isStatic = (attrs & TypeAttributes.Sealed) != 0
+                             && (attrs & TypeAttributes.Abstract) != 0;
+                if (isStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes()))
+                    flags.HasExtensionTypes = true;
+            }
+
+            // P/Invoke and unsafe: check methods
+            if (!flags.HasPInvokeImports || !flags.HasUnsafeCode)
+            {
+                foreach (var methodHandle in typeDef.GetMethods())
+                {
+                    if (flags.HasPInvokeImports && flags.HasUnsafeCode)
+                        break;
+
+                    var method = reader.GetMethodDefinition(methodHandle);
+
+                    if (!flags.HasPInvokeImports
+                        && (method.Attributes & MethodAttributes.PinvokeImpl) != 0)
+                        flags.HasPInvokeImports = true;
+
+                    if (!flags.HasUnsafeCode)
+                    {
+                        try
+                        {
+                            var sig = method.DecodeSignature(SignatureDecoder.Instance, null);
+                            if (sig.ReturnType.Contains('*')
+                                || sig.ParameterTypes.Any(p => p.Contains('*')))
+                                flags.HasUnsafeCode = true;
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+
+        return flags;
+    }
+}
+
+/// <summary>
+/// Lightweight presence flags populated from a single MetadataReader pass.
+/// </summary>
+public class PresenceFlags
+{
+    public bool HasExtensionTypes { get; set; }
+    public bool HasPInvokeImports { get; set; }
+    public bool HasUnsafeCode { get; set; }
+    public bool HasManifestResources { get; set; }
+    public bool HasAssemblyAttributes { get; set; }
+    public bool HasTypeForwarders { get; set; }
 }

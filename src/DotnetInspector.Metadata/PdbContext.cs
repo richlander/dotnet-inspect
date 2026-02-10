@@ -257,6 +257,12 @@ public class PdbContext : IDisposable
     internal MetadataReader? GetMetadataReader()
         => _peReader.HasMetadata ? _peReader.GetMetadataReader() : null;
 
+    /// <summary>
+    /// Cheap presence flags for section discovery, using the already-open PEReader.
+    /// </summary>
+    public PresenceFlags ScanPresenceFlags()
+        => AssemblyDetailScanner.ScanPresenceFlags(_peReader);
+
     public void Dispose()
     {
         foreach (var d in _disposables)
