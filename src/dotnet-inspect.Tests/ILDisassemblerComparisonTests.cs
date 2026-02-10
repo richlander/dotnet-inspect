@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using DotnetInspector.Metadata;
 
@@ -87,7 +86,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmAssemblyCases))]
     public void ILAsm_Roundtrip_ProducesValidAssembly(string assembly)
     {
-        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found (Windows only, requires .NET Framework SDK)");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install via runtime.{rid}.Microsoft.NETCore.ILAsm/ILDAsm NuGet packages");
 
         var assemblyPath = ResolveAssembly(assembly);
         var outputDll = RoundtripWithILAsm(assemblyPath);
@@ -105,7 +104,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmAssemblyCases))]
     public void ILAsm_Roundtrip_MethodCountPreserved(string assembly)
     {
-        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found (Windows only, requires .NET Framework SDK)");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install via runtime.{rid}.Microsoft.NETCore.ILAsm/ILDAsm NuGet packages");
 
         var assemblyPath = ResolveAssembly(assembly);
         int originalCount = CountMethods(assemblyPath);
@@ -119,7 +118,7 @@ public partial class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmMethodCases))]
     public void ILAsm_Roundtrip_OpcodesPreserved(string assembly, string typeName, string methodName)
     {
-        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found (Windows only, requires .NET Framework SDK)");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install via runtime.{rid}.Microsoft.NETCore.ILAsm/ILDAsm NuGet packages");
 
         var assemblyPath = ResolveAssembly(assembly);
         var outputDll = RoundtripWithILAsm(assemblyPath);
@@ -276,7 +275,7 @@ public partial class ILDisassemblerComparisonTests
         var psi = new ProcessStartInfo
         {
             FileName = "ildasm",
-            ArgumentList = { assemblyPath, $"/output={outputPath}", "/utf8" },
+            ArgumentList = { assemblyPath, $"-output={outputPath}", "-utf8" },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -301,7 +300,7 @@ public partial class ILDisassemblerComparisonTests
         var psi = new ProcessStartInfo
         {
             FileName = "ilasm",
-            ArgumentList = { ilPath, "/dll", $"/output={outputDll}", "/quiet" },
+            ArgumentList = { ilPath, "-dll", $"-output={outputDll}", "-quiet" },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -394,15 +393,11 @@ public partial class ILDisassemblerComparisonTests
 
     static bool CanRunILAsm()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            return false;
-
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "ildasm",
-                ArgumentList = { "/?" },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

@@ -297,7 +297,7 @@ public class OutputFormatterTests
         var includeSections = pipeline.ComputeIncludeSections(
             inspection, Verbosity.Quiet);
         var output = SerializeWithInclude(inspection, includeSections);
-        var lines = output.Split('\n', StringSplitOptions.None);
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None);
 
         Assert.Equal(3, lines.Length);
         Assert.StartsWith("# ", lines[0]);
@@ -321,7 +321,7 @@ public class OutputFormatterTests
             IncludeDescription = false
         });
         var output = context.Serialize(view).TrimEnd();
-        var lines = output.Split('\n', StringSplitOptions.None);
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None);
 
         Assert.Equal(3, lines.Length);
         Assert.StartsWith("# ", lines[0]);
@@ -337,7 +337,7 @@ public class OutputFormatterTests
         var options = new ApiOptions { Verbosity = Verbosity.Quiet };
 
         var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options).TrimEnd();
-        var lines = output.Split('\n', StringSplitOptions.None);
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None);
 
         Assert.Equal(3, lines.Length);
         Assert.StartsWith("# ", lines[0]);
