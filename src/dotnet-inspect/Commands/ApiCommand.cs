@@ -20,7 +20,7 @@ public class ApiCommand
     public const string Name = "api";
     public static async Task<int> ExecuteAsync(string? typeName, ApiOptions options)
     {
-        if (options.MemberFilter?.Count > 0 && string.IsNullOrEmpty(typeName))
+        if (options.MemberFilter.Count > 0 && string.IsNullOrEmpty(typeName))
         {
             Console.Error.WriteLine("Error: --member requires a type argument.");
             Console.Error.WriteLine("Usage: dotnet-inspect api <type> --package <pkg> --member <name>");
@@ -247,7 +247,7 @@ public class ApiCommand
                     var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
 
                     // Check each member filter before producing output
-                    if (options.MemberFilter?.Count > 0 && apiType.Members != null)
+                    if (options.MemberFilter.Count > 0)
                     {
                         var memberNames = apiType.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                         List<string> missedFilters = [];
@@ -373,10 +373,10 @@ public class ApiCommand
         {
             api.Types = api.Types.Where(t => !string.IsNullOrEmpty(t.SourceUrl)).ToList();
             api.PublicTypeCount = api.Types.Count;
-            api.PublicMethodCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind is "method" or "constructor") ?? 0);
-            api.PublicPropertyCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "property") ?? 0);
-            api.PublicFieldCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "field") ?? 0);
-            api.PublicEventCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "event") ?? 0);
+            api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(m => m.Kind is "method" or "constructor"));
+            api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
+            api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
+            api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
         }
 
         // Apply unsafe filter
@@ -384,15 +384,14 @@ public class ApiCommand
         {
             foreach (var type in api.Types)
             {
-                if (type.Members != null)
-                    type.Members = type.Members.Where(m => m.IsUnsafe).ToList();
+                type.Members = type.Members.Where(m => m.IsUnsafe).ToList();
             }
-            api.Types = api.Types.Where(t => t.Members?.Count > 0).ToList();
+            api.Types = api.Types.Where(t => t.Members.Count > 0).ToList();
             api.PublicTypeCount = api.Types.Count;
-            api.PublicMethodCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind is "method" or "constructor") ?? 0);
-            api.PublicPropertyCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "property") ?? 0);
-            api.PublicFieldCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "field") ?? 0);
-            api.PublicEventCount = api.Types.Sum(t => t.Members?.Count(m => m.Kind == "event") ?? 0);
+            api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(m => m.Kind is "method" or "constructor"));
+            api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
+            api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
+            api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
         }
 
         if (options.JsonOutput)
@@ -428,13 +427,13 @@ public class ApiCommand
         var outputType = type;
         var members = type.Members;
 
-        if (options.MemberFilter?.Count > 0 && members != null)
+        if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
 
-        if (options.UnsafeOnly && members != null)
+        if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
 
-        if (options.Limit.HasValue && members != null && members.Count > options.Limit.Value)
+        if (options.Limit.HasValue && members.Count > options.Limit.Value)
             members = members.Take(options.Limit.Value).ToList();
 
         if (members != type.Members)

@@ -22,7 +22,7 @@ public class ApiSurfaceExtractorTests
         var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
         Assert.NotNull(testType);
 
-        var method = testType.Members?.FirstOrDefault(m => m.Name == "MethodWithParameters");
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithParameters");
         Assert.NotNull(method);
 
         // Verify parameter names are included, not just types
@@ -42,7 +42,7 @@ public class ApiSurfaceExtractorTests
         var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
         Assert.NotNull(testType);
 
-        var method = testType.Members?.FirstOrDefault(m => m.Name == "MethodWithNoParameters");
+        var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithNoParameters");
         Assert.NotNull(method);
 
         Assert.Contains("()", method.Signature);
@@ -60,7 +60,7 @@ public class ApiSurfaceExtractorTests
         var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
         Assert.NotNull(testType);
 
-        var method = testType.Members?.FirstOrDefault(m => m.Name == "GenericMethod");
+        var method = testType.Members.FirstOrDefault(m => m.Name == "GenericMethod");
         Assert.NotNull(method);
 
         // Should have both the generic type and parameter name
@@ -235,7 +235,7 @@ public class ApiSurfaceExtractorTests
 
         var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleClassForTesting");
         Assert.NotNull(testType);
-        Assert.Null(testType.TypeParameters);
+        Assert.Empty(testType.TypeParameters);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class ApiSurfaceExtractorTests
 
         ApiSurfaceExtractor.PopulateDerivedTypes(surface, leafType);
 
-        Assert.Null(leafType.DerivedTypes);
+        Assert.Empty(leafType.DerivedTypes);
     }
 }
 

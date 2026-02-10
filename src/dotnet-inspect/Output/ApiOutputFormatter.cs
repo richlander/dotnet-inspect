@@ -119,7 +119,7 @@ public static class ApiOutputFormatter
         if (view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
             if (options.CtorOnly && options.Verbosity >= Verbosity.Normal &&
-                type.Members?.Any(m => m.Kind == "constructor") == true)
+                type.Members.Any(m => m.Kind == "constructor"))
             {
                 // --ctor emphasis mode
                 var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
@@ -145,7 +145,7 @@ public static class ApiOutputFormatter
 
     // ===== Shape Output (--shape) =====
 
-    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string>? memberFilter)
+    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)
     {
         var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter);
         MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
@@ -155,13 +155,13 @@ public static class ApiOutputFormatter
 
     public static string RenderSignaturesOnly(ApiType type, ApiOptions options)
     {
-        var members = type.Members?
+        var members = type.Members
             .Where(m => !IsCompilerGenerated(m.Name))
             .OrderBy(m => GetMemberSortOrder(m.Kind))
             .ThenBy(m => m.Name)
-            .ToList() ?? [];
+            .ToList();
 
-        if (options.MemberFilter?.Count > 0)
+        if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
 
         if (options.UnsafeOnly)
@@ -216,7 +216,7 @@ public static class ApiOutputFormatter
 
         // Type parameters inline (for quiet/minimal only)
         string? typeParamsInline = null;
-        if (type.TypeParameters is { Count: > 0 } &&
+        if (type.TypeParameters.Count > 0 &&
             (options.Verbosity == Verbosity.Quiet || options.Verbosity == Verbosity.Minimal))
         {
             var paramDescriptions = type.TypeParameters
@@ -228,17 +228,17 @@ public static class ApiOutputFormatter
 
         // Description (from docs)
         string? description = null;
-        if (options.ShowDocs && type.Documentation?.Summary != null)
+        if (options.ShowDocs && type.Documentation.Summary != null)
             description = type.Documentation.Summary;
 
         // Samples info (only with --docs/--samples)
         string? samplesInfo = null;
-        if ((options.ShowDocs || options.ShowSamples) && type.Documentation?.Samples?.Count > 0)
+        if ((options.ShowDocs || options.ShowSamples) && type.Documentation.Samples.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
 
         // Type parameters table (Normal+)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (type.TypeParameters is { Count: > 0 } && options.Verbosity >= Verbosity.Normal)
+        if (type.TypeParameters.Count > 0 && options.Verbosity >= Verbosity.Normal)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = tp.ConstraintsSummary ?? "" })
@@ -247,7 +247,7 @@ public static class ApiOutputFormatter
 
         // Interfaces (Detailed+)
         List<InterfaceRow>? interfaceRows = null;
-        if (type.Interfaces is { Count: > 0 } && options.Verbosity >= Verbosity.Detailed)
+        if (type.Interfaces.Count > 0 && options.Verbosity >= Verbosity.Detailed)
         {
             interfaceRows = type.Interfaces.Order()
                 .Select(i => new InterfaceRow { Interface = i })
@@ -271,16 +271,13 @@ public static class ApiOutputFormatter
                 Url = type.GitHubBrowseUrl
             }];
 
-            if (type.AdditionalSourceFiles != null)
+            foreach (var f in type.AdditionalSourceFiles)
             {
-                foreach (var f in type.AdditionalSourceFiles)
+                sourceRows.Add(new SourceRow
                 {
-                    sourceRows.Add(new SourceRow
-                    {
-                        File = Path.GetFileName(f.FilePath ?? ""),
-                        Url = f.GitHubBrowseUrl
-                    });
-                }
+                    File = Path.GetFileName(f.FilePath ?? ""),
+                    Url = f.GitHubBrowseUrl
+                });
             }
         }
 
@@ -305,7 +302,7 @@ public static class ApiOutputFormatter
         };
     }
 
-    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string>? memberFilter)
+    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)
     {
         List<TreeNode> nodes = [];
 
@@ -316,13 +313,13 @@ public static class ApiOutputFormatter
         }
 
         // Interfaces (always show)
-        if (type.Interfaces is { Count: > 0 })
+        if (type.Interfaces.Count > 0)
         {
             nodes.Add(new TreeNode("Implements", type.Interfaces));
         }
 
         // Type parameters with constraints (always show)
-        if (type.TypeParameters is { Count: > 0 })
+        if (type.TypeParameters.Count > 0)
         {
             var typeParamDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
@@ -333,11 +330,11 @@ public static class ApiOutputFormatter
         }
 
         // Group members by kind
-        if (type.Members is { Count: > 0 })
+        if (type.Members.Count > 0)
         {
             var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
 
-            if (memberFilter?.Count > 0)
+            if (memberFilter.Count > 0)
             {
                 members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
             }
@@ -403,11 +400,11 @@ public static class ApiOutputFormatter
             {
                 var displayName = FormatGenericTypeName(t.Name, t.TypeParameters);
                 var fullName = string.IsNullOrEmpty(t.Namespace) ? displayName : $"{t.Namespace}.{displayName}";
-                var members = (t.Members?.Count ?? 0).ToString();
+                var members = t.Members.Count.ToString();
 
                 if (showDocs)
                 {
-                    var desc = t.Documentation?.Summary ?? "";
+                    var desc = t.Documentation.Summary ?? "";
                     desc = desc.ReplaceLineEndings(" ");
                     if (desc.Length > 80)
                         desc = desc[..77] + "...";
@@ -423,7 +420,7 @@ public static class ApiOutputFormatter
 
     private static void PopulateEnumValues(ApiTypeView view, ApiType type, ApiOptions options)
     {
-        var enumMembers = (type.Members ?? [])
+        var enumMembers = type.Members
             .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
             .OrderBy(m => m.EnumValue)
             .ToList();
@@ -434,13 +431,13 @@ public static class ApiOutputFormatter
         if (options.Limit.HasValue && options.Limit.Value < enumMembers.Count)
             enumMembers = enumMembers.Take(options.Limit.Value).ToList();
 
-        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation?.Summary != null);
+        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation.Summary != null);
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
             Name = m.Name,
             Value = m.EnumValue.ToString()!,
-            Description = hasAnyDocs ? (m.Documentation?.Summary ?? "") : null
+            Description = hasAnyDocs ? (m.Documentation.Summary ?? "") : null
         }).ToList();
 
         if (hasAnyDocs)
@@ -475,7 +472,7 @@ public static class ApiOutputFormatter
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToList();
 
-        bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation?.Summary != null);
+        bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
         var formatter = MemberTableFormatter.Create(options.Verbosity);
 
         foreach (var group in kindGroups)
@@ -526,9 +523,9 @@ public static class ApiOutputFormatter
 
     internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false)
     {
-        var members = type.Members?
+        var members = type.Members
             .Where(m => !IsCompilerGenerated(m.Name))
-            .ToList() ?? [];
+            .ToList();
 
         if (memberFilter?.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();

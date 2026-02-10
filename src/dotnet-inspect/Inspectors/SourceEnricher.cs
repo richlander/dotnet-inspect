@@ -119,7 +119,7 @@ internal static class SourceEnricher
                 apiType.SourceLineNumber = sourceInfo.LineNumber;
                 apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
 
-                if (sourceInfo.AdditionalSourceFiles?.Count > 0)
+                if (sourceInfo.AdditionalSourceFiles.Count > 0)
                 {
                     apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
                         .Select(f => new PartialSourceFileInfo
@@ -145,14 +145,11 @@ internal static class SourceEnricher
                     (sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? "")
                 ];
 
-                if (sourceInfo.AdditionalSourceFiles != null)
+                foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
                 {
-                    foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
+                    if (additionalFile.SourceUrl != null)
                     {
-                        if (additionalFile.SourceUrl != null)
-                        {
-                            sourceFilesToFetch.Add((additionalFile.SourceUrl, additionalFile.FilePath));
-                        }
+                        sourceFilesToFetch.Add((additionalFile.SourceUrl, additionalFile.FilePath));
                     }
                 }
 
@@ -450,7 +447,7 @@ internal static class SourceEnricher
             logger.Log($"Found type documentation for {apiType.FullName}");
         }
 
-        if (options.ShowDocs && apiType.Members != null)
+        if (options.ShowDocs)
         {
             foreach (var member in apiType.Members)
             {
@@ -528,34 +525,31 @@ internal static class SourceEnricher
                 }
             }
 
-            if (apiType.Members != null)
-            {
-                var membersToDocument = options.MemberFilter?.Count > 0
-                    ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
-                    : apiType.Members;
+            var membersToDocument = options.MemberFilter.Count > 0
+                ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
+                : apiType.Members;
 
-                foreach (var member in membersToDocument)
+            foreach (var member in membersToDocument)
+            {
+                if (member.Documentation.Summary == null)
                 {
-                    if (member.Documentation == null)
+                    var memberDoc = parser.ExtractMemberDocComment(content, apiType.Name, member.Name);
+                    if (memberDoc != null)
                     {
-                        var memberDoc = parser.ExtractMemberDocComment(content, apiType.Name, member.Name);
-                        if (memberDoc != null)
+                        member.Documentation = new DocComment
                         {
-                            member.Documentation = new DocComment
+                            Summary = memberDoc.Summary,
+                            Remarks = memberDoc.Remarks,
+                            Parameters = memberDoc.Parameters,
+                            Returns = memberDoc.Returns,
+                            Samples = memberDoc.Samples?.Select(s => new SampleReference
                             {
-                                Summary = memberDoc.Summary,
-                                Remarks = memberDoc.Remarks,
-                                Parameters = memberDoc.Parameters,
-                                Returns = memberDoc.Returns,
-                                Samples = memberDoc.Samples?.Select(s => new SampleReference
-                                {
-                                    RelativePath = s.RelativePath,
-                                    Description = s.Description,
-                                    Region = s.Region,
-                                    ResolvedUrl = GitHubUrlResolver.ResolveSampleUrl(url, s.RelativePath)
-                                }).ToList()
-                            };
-                        }
+                                RelativePath = s.RelativePath,
+                                Description = s.Description,
+                                Region = s.Region,
+                                ResolvedUrl = GitHubUrlResolver.ResolveSampleUrl(url, s.RelativePath)
+                            }).ToList() ?? []
+                        };
                     }
                 }
             }
@@ -563,7 +557,7 @@ internal static class SourceEnricher
 
         if (mergedTypeDoc != null)
         {
-            mergedTypeDoc.Samples = allSamples.Count > 0 ? allSamples : null;
+            mergedTypeDoc.Samples = allSamples;
             apiType.Documentation = mergedTypeDoc;
         }
     }

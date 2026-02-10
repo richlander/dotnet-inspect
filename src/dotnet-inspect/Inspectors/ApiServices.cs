@@ -309,10 +309,10 @@ internal static class ApiServices
                     if (forwardedTypeNames.Contains(type.FullName))
                     {
                         api.Types.Add(type);
-                        api.PublicMethodCount += type.Members?.Count(m => m.Kind == "method" || m.Kind == "constructor") ?? 0;
-                        api.PublicPropertyCount += type.Members?.Count(m => m.Kind == "property") ?? 0;
-                        api.PublicEventCount += type.Members?.Count(m => m.Kind == "event") ?? 0;
-                        api.PublicFieldCount += type.Members?.Count(m => m.Kind == "field") ?? 0;
+                        api.PublicMethodCount += type.Members.Count(m => m.Kind == "method" || m.Kind == "constructor");
+                        api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
+                        api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
+                        api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
                     }
                 }
             }

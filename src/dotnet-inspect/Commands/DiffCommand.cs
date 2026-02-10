@@ -204,7 +204,7 @@ public class DiffCommand
         var typeDiffs = diff.TypeDiffs;
 
         // Apply type filter post-Compare
-        if (options.TypeFilter?.Count > 0)
+        if (options.TypeFilter.Count > 0)
         {
             typeDiffs = typeDiffs
                 .Where(td => TypeMatcher.MatchesAnyTypeFilter(td.TypeFullName, options.TypeFilter))
@@ -254,7 +254,7 @@ public record DiffOptions
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public bool Verbose { get; init; }
-    public HashSet<string>? TypeFilter { get; init; }
+    public HashSet<string> TypeFilter { get; init; } = [];
     public bool Stat { get; init; }
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }

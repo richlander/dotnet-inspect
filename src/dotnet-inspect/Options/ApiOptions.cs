@@ -17,7 +17,7 @@ public record ApiOptions
     public bool Verbose { get; init; }
     public int? Limit { get; init; }
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
-    public HashSet<string>? MemberFilter { get; init; }
+    public HashSet<string> MemberFilter { get; init; } = [];
     public bool ShowDocs { get; init; }
 
     /// <summary>

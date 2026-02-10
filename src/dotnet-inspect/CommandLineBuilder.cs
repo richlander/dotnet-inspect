@@ -274,7 +274,7 @@ public static class CommandLineBuilder
             var typeFilterValues = parseResult.GetValue(typeFilterOption);
 
             // Merge positional type name with -t filter
-            HashSet<string>? typeFilter = null;
+            HashSet<string> typeFilter = [];
             if (typeFilterValues?.Length > 0 || !string.IsNullOrEmpty(typeName))
             {
                 typeFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1198,7 +1198,7 @@ public static class CommandLineBuilder
             var allMembers = members.Concat(positionalMembers).ToArray();
             var ctorOnly = parseResult.GetValue(ctorOption);
 
-            HashSet<string>? memberFilter = null;
+            HashSet<string> memberFilter = [];
             if (ctorOnly)
             {
                 memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };

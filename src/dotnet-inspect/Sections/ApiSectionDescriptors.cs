@@ -97,7 +97,7 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Kind == "enum"
-               && model.Members?.Any(m => m.Kind == "field" && m.EnumValue.HasValue) == true;
+               && model.Members.Any(m => m.Kind == "field" && m.EnumValue.HasValue);
     }
 
     public sealed class TypeParameters : ISectionDescriptor<ApiType>
@@ -106,7 +106,7 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Normal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.TypeParameters is { Count: > 0 };
+            => model.TypeParameters.Count > 0;
     }
 
     public sealed class TypeInterfaces : ISectionDescriptor<ApiType>
@@ -115,7 +115,7 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Interfaces is { Count: > 0 };
+            => model.Interfaces.Count > 0;
     }
 
     public sealed class Baseclass : ISectionDescriptor<ApiType>
@@ -147,7 +147,7 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members?.Any(m => m.Kind == "constructor") == true;
+            => model.Members.Any(m => m.Kind == "constructor");
     }
 
     public sealed class Fields : ISectionDescriptor<ApiType>
@@ -156,7 +156,7 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members?.Any(m => m.Kind == "field" && !m.EnumValue.HasValue) == true;
+            => model.Members.Any(m => m.Kind == "field" && !m.EnumValue.HasValue);
     }
 
     public sealed class Properties : ISectionDescriptor<ApiType>
@@ -165,7 +165,7 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members?.Any(m => m.Kind == "property") == true;
+            => model.Members.Any(m => m.Kind == "property");
     }
 
     public sealed class Methods : ISectionDescriptor<ApiType>
@@ -174,7 +174,7 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members?.Any(m => m.Kind == "method") == true;
+            => model.Members.Any(m => m.Kind == "method");
     }
 
     public sealed class Events : ISectionDescriptor<ApiType>
@@ -183,6 +183,6 @@ public static class ApiMemberSectionDescriptors
         public static Verbosity MinVerbosity => Verbosity.Minimal;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members?.Any(m => m.Kind == "event") == true;
+            => model.Members.Any(m => m.Kind == "event");
     }
 }
