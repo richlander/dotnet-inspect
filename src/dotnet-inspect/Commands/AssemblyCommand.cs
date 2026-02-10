@@ -27,12 +27,20 @@ public class AssemblyCommand
         };
         if (includeError || excludeError) return 1;
 
-        // Bare -s: list available sections and exit
-        if (options.IncludeSections is { Count: 0 })
+        // Bare -s without input: list all potential sections and exit
+        if (options.IncludeSections is { Count: 0 } &&
+            string.IsNullOrEmpty(assemblyPath) &&
+            string.IsNullOrEmpty(options.PackagePath) &&
+            string.IsNullOrEmpty(options.PlatformAssembly))
         {
             SectionRegistry.ListSections(pipeline.AllSectionNames);
             return 0;
         }
+
+        // Bare -s with input: promote to Detailed to collect all data for discovery
+        bool discoverSections = options.IncludeSections is { Count: 0 };
+        if (discoverSections)
+            options = options with { Verbosity = Verbosity.Detailed };
 
         // -s targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -122,6 +130,12 @@ public class AssemblyCommand
                     return 1;
                 }
 
+                if (discoverSections)
+                {
+                    ListEffectiveSections(pipeline, inspections[0]);
+                    return 0;
+                }
+
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
@@ -146,6 +160,12 @@ public class AssemblyCommand
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
                     return 1;
+                }
+
+                if (discoverSections)
+                {
+                    ListEffectiveSections(pipeline, inspection);
+                    return 0;
                 }
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -393,5 +413,12 @@ public class AssemblyCommand
         }
 
         return null;
+    }
+
+    private static void ListEffectiveSections(SectionPipeline<LibraryInspection> pipeline, LibraryInspection inspection)
+    {
+        var effective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
+        foreach (var name in effective)
+            Console.WriteLine(name);
     }
 }
