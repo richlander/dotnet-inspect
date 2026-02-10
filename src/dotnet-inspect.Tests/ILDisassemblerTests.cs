@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Metadata;
@@ -521,6 +522,67 @@ public class ILDisassemblerTests
         Assert.True(totalInstructions > 1000, $"Expected many instructions, got {totalInstructions}");
         Assert.True(failures.Count == 0,
             $"Disassembly failed for {failures.Count} method(s):\n{string.Join("\n", failures.Take(20))}");
+    }
+
+    /// <summary>
+    /// Disassembles every method in key platform assemblies to validate
+    /// against the full breadth of real-world IL patterns: calli, volatile,
+    /// constrained, readonly, unaligned, localloc, cpblk, initblk, etc.
+    /// </summary>
+    [Theory]
+    [InlineData("System.Private.CoreLib")]
+    [InlineData("System.Collections")]
+    [InlineData("System.Linq")]
+    [InlineData("System.Text.Json")]
+    [InlineData("System.Text.RegularExpressions")]
+    public void Disassemble_PlatformAssembly_NoCrashes(string assemblyName)
+    {
+        var assembly = AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(a => a.GetName().Name == assemblyName);
+
+        // Fall back to loading by name if not already loaded
+        assembly ??= Assembly.Load(assemblyName);
+        Assert.NotNull(assembly);
+
+        var path = assembly.Location;
+        Assert.True(File.Exists(path), $"Assembly not found on disk: {path}");
+
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+
+        int totalMethods = 0;
+        int totalInstructions = 0;
+        List<string> failures = [];
+
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            string typeName = reader.GetString(typeDef.Name);
+
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                string methodName = reader.GetString(method.Name);
+                totalMethods++;
+
+                try
+                {
+                    var instructions = ILDisassembler.Disassemble(peReader, reader, method);
+                    if (instructions is not null)
+                        totalInstructions += instructions.Count;
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{typeName}::{methodName}: {ex.Message}");
+                }
+            }
+        }
+
+        Assert.True(totalMethods > 0, $"No methods found in {assemblyName}");
+        Assert.True(failures.Count == 0,
+            $"Disassembly failed for {failures.Count}/{totalMethods} method(s) in {assemblyName}:\n" +
+            string.Join("\n", failures.Take(20)));
     }
 }
 
