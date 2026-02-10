@@ -86,6 +86,7 @@ public static class ApiMemberSectionDescriptors
             .Add<Properties>()
             .Add<Methods>()
             .Add<Events>()
+            .Add<MethodAttributes>()
             .Add<MethodSource>()
             .Add<ILBody>();
     }
@@ -186,6 +187,15 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
+    }
+
+    public sealed class MethodAttributes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => "Custom Attributes";
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind is "method" or "constructor");
     }
 
     public sealed class MethodSource : ISectionDescriptor<ApiType>

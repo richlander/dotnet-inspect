@@ -497,6 +497,14 @@ public static class ApiOutputFormatter
             writer.WriteCodeBlockEnd();
         }
 
+        // Custom attributes (when --index selects a single member)
+        if (options.DllPath != null && options.OverloadIndex.HasValue)
+        {
+            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
+            if (methods.Count > 0)
+                RenderMethodAttributes(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+        }
+
         // IL method body (when --index selects a single member)
         if (options.DllPath != null && options.OverloadIndex.HasValue)
         {
@@ -526,6 +534,26 @@ public static class ApiOutputFormatter
             writer.WriteCodeBlockStart("il");
             writer.WriteParagraph(ilText);
             writer.WriteCodeBlockEnd();
+        }
+    }
+
+    private static void RenderMethodAttributes(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+
+        foreach (var method in methods)
+        {
+            var attributes = AttributeReader.GetMethodAttributes(
+                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+
+            if (attributes.Count == 0)
+                continue;
+
+            writer.WriteHeading(2, "Custom Attributes");
+            writer.WriteTable(
+                ["Name", "Value"],
+                attributes.Select(a => new[] { a.Name, a.Value ?? "" }));
         }
     }
 
