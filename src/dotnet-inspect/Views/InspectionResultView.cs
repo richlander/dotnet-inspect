@@ -60,12 +60,6 @@ public class InspectionResultView
     [MarkoutPropertyName("Version Count")]
     public int? VersionCount => _data.VersionCount;
 
-    [MarkoutSection(Name = PackageSections.Statistics)]
-    [MarkoutSkipNull]
-    [MarkoutValueFormatter(typeof(ByteSizeFormatter))]
-    [MarkoutPropertyName("Package Size")]
-    public long? PackageSize => _data.PackageSize;
-
     public bool? IsVerified => _data.IsVerified;
 
     [MarkoutJoin(", ")]
@@ -219,6 +213,8 @@ public class InspectionResultView
 
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
+        if (_data.PackageSize.HasValue)
+            fields.Add(new("Size", new ByteSizeFormatter().Format(_data.PackageSize.Value)));
         if (!string.IsNullOrEmpty(Tfm))
             fields.Add(new("TFM", Tfm));
         if (_data.Published.HasValue)

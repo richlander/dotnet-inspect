@@ -198,6 +198,10 @@ public class PackageCommand
                 isLocalFile ? packageArgs[0] : null,
                 nuspec, client, logger);
 
+            // Set package size from local .nupkg file
+            if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
+                result.PackageSize = new FileInfo(resolution.NupkgPath).Length;
+
             // Filter output based on options
             FilterResultForOutput(result, options);
 
