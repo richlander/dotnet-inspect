@@ -126,6 +126,12 @@ public class CliApiSurface
     public int Properties => _inner.PublicPropertyCount;
 
     [MarkoutSkipNull]
+    public string? Source => _inner.Source;
+
+    [MarkoutSkipNull]
+    public string? Version => _inner.Version;
+
+    [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm => _inner.Tfm;
 }

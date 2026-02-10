@@ -36,6 +36,8 @@ public class ApiCommand
             string? runtimeAssemblyPath = null;
             string? packageName = null;
             string? packageVersion = null;
+            string? apiSource = null;
+            string? apiVersion = null;
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -43,6 +45,8 @@ public class ApiCommand
                 if (extracted == null)
                     return 1;
                 (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+                apiSource = "nuget";
+                apiVersion = packageVersion;
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
@@ -74,6 +78,7 @@ public class ApiCommand
                     return 1;
                 }
                 searchPath = options.AssemblyPath;
+                apiSource = "local";
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
@@ -90,6 +95,8 @@ public class ApiCommand
                 }
 
                 searchPath = assemblyPath!;
+                apiSource = $"platform ({framework})";
+                apiVersion = version;
                 logger.Log($"Using platform ref assembly: {framework} {version}");
 
                 var (runtimePath, _, _, runtimeError) = Inspectors.PlatformResolver.ResolveAssembly(
@@ -113,6 +120,19 @@ public class ApiCommand
             }
 
             string? selectedTfm = null;
+
+            // Derive TFM for platform assemblies from the version
+            if (apiSource?.StartsWith("platform") == true && apiVersion != null)
+            {
+                var dotIndex = apiVersion.IndexOf('.');
+                if (dotIndex > 0)
+                {
+                    var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
+                    var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
+                    selectedTfm = $"net{majorMinor}";
+                }
+            }
+
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
@@ -164,6 +184,8 @@ public class ApiCommand
                     api.RepositoryUrl = await SourceEnricher.ExtractRepositoryUrlAsync(pdbLookupPath, options, logger, context.HttpClient);
                 }
                 api.Tfm = selectedTfm;
+                api.Source = apiSource;
+                api.Version = apiVersion;
 
                 if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && pdbLookupPath != null)
                 {
@@ -255,6 +277,8 @@ public class ApiCommand
                             api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
                         }
                         api.Tfm = selectedTfm;
+                        api.Source = apiSource;
+                        api.Version = apiVersion;
 
                         options = options with { TypeFilter = typeName };
                         WriteFullApiOutput(api, options, selectedTfm);
