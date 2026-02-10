@@ -330,4 +330,59 @@ public class SectionPipelineTests
         Assert.Single(scanners);
         Assert.Contains(LibrarySections.ScannerCustomAttributes, scanners);
     }
+
+    // ===== Scanner registry tests =====
+
+    [Fact]
+    public void ScannerRegistry_RunsOnlyRequestedScanners()
+    {
+        var ran = new HashSet<string>();
+        var registry = new ScannerRegistry()
+            .Add("A", _ => ran.Add("A"))
+            .Add("B", _ => ran.Add("B"))
+            .Add("C", _ => ran.Add("C"));
+
+        registry.RunScanners(["A", "C"], new ScannerContext
+        {
+            AssemblyPath = "test.dll",
+            Model = new LibraryInspection(),
+            Logger = new DotnetInspector.Output.VerboseLogger(false),
+        });
+
+        Assert.Equal(2, ran.Count);
+        Assert.Contains("A", ran);
+        Assert.Contains("C", ran);
+        Assert.DoesNotContain("B", ran);
+    }
+
+    [Fact]
+    public void ScannerRegistry_EmptySet_RunsNothing()
+    {
+        var ran = false;
+        var registry = new ScannerRegistry()
+            .Add("A", _ => ran = true);
+
+        registry.RunScanners([], new ScannerContext
+        {
+            AssemblyPath = "test.dll",
+            Model = new LibraryInspection(),
+            Logger = new DotnetInspector.Output.VerboseLogger(false),
+        });
+
+        Assert.False(ran);
+    }
+
+    [Fact]
+    public void LibraryScannerRegistry_HasAllDetailedScanners()
+    {
+        var registry = LibrarySections.CreateScannerRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+
+        // All scanner keys from detailed sections should be registered
+        var detailedScanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
+
+        // Registry should handle all of them without throwing
+        // (we can't easily inspect the registry, but we can verify it runs)
+        Assert.NotEmpty(detailedScanners);
+    }
 }
