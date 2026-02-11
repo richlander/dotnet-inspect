@@ -91,6 +91,7 @@ public static class PackageExtractor
             version = await GetLatestVersionAsync(client, packageName, sources, log);
             if (version == null)
             {
+                Console.Error.WriteLine($"Error: Package '{packageName}' not found.");
                 return null;
             }
         }
@@ -144,6 +145,7 @@ public static class PackageExtractor
         if (packageBytes == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
+            Console.Error.WriteLine($"Error: Failed to download package '{packageName}@{version}'.");
             return null;
         }
 
