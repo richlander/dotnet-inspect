@@ -23,6 +23,22 @@ public static class CommandLineBuilder
     };
 
     /// <summary>
+    /// Curated packages included in the --dotnet scope.
+    /// These are popular Microsoft packages that ship outside the platform frameworks.
+    /// </summary>
+    internal static readonly string[] DotNetScopePackages =
+    [
+        "Microsoft.Extensions.AI",
+        "Microsoft.Extensions.Logging",
+        "Microsoft.Extensions.DependencyInjection",
+        "Microsoft.Extensions.Configuration",
+        "Microsoft.Extensions.Options",
+        "Microsoft.Extensions.Http",
+        "Microsoft.Extensions.Caching.Memory",
+        "Microsoft.EntityFrameworkCore",
+    ];
+
+    /// <summary>
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
@@ -445,12 +461,14 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var dotnetOption = new Option<bool>("--dotnet") { Description = "Search runtime + aspnetcore frameworks and curated Microsoft packages" };
 
         extCommand.Arguments.Add(targetTypeArg);
         extCommand.Options.Add(packageOption);
         extCommand.Options.Add(assemblyOption);
         extCommand.Options.Add(platformOption);
         extCommand.Options.Add(frameworkOption);
+        extCommand.Options.Add(dotnetOption);
         extCommand.Options.Add(reachableOption);
         extCommand.Options.Add(depthOption);
         extCommand.Options.Add(tfmOption);
@@ -468,13 +486,22 @@ public static class CommandLineBuilder
         extCommand.SetAction(async (parseResult, ct) =>
         {
             var targetType = parseResult.GetValue(targetTypeArg);
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var frameworks = parseResult.GetValue(frameworkOption) ?? [];
+
+            if (parseResult.GetValue(dotnetOption))
+            {
+                frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
+                packages = [..packages, ..DotNetScopePackages];
+            }
+
             var options = new ExtensionsOptions
             {
                 TargetType = targetType!,
-                Packages = parseResult.GetValue(packageOption) ?? [],
+                Packages = packages,
                 Assemblies = parseResult.GetValue(assemblyOption) ?? [],
                 PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
-                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                PlatformFrameworks = frameworks,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
@@ -548,12 +575,14 @@ public static class CommandLineBuilder
         var groupedOption = new Option<bool>("--grouped") { Description = "Group results by pattern (use with --oneline)" };
         var terseOption = new Option<bool>("--terse") { Description = "Compact output (alias for --oneline --grouped)" };
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names, one per line" };
+        var dotnetOption = new Option<bool>("--dotnet") { Description = "Search runtime + aspnetcore frameworks and curated Microsoft packages" };
 
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(frameworkOption);
+        findCommand.Options.Add(dotnetOption);
         findCommand.Options.Add(projectOption);
         findCommand.Options.Add(binOption);
         findCommand.Options.Add(tfmOption);
@@ -576,13 +605,22 @@ public static class CommandLineBuilder
         {
             var pattern = parseResult.GetValue(patternArg);
             var terse = parseResult.GetValue(terseOption);
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var frameworks = parseResult.GetValue(frameworkOption) ?? [];
+
+            if (parseResult.GetValue(dotnetOption))
+            {
+                frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
+                packages = [..packages, ..DotNetScopePackages];
+            }
+
             var options = new FindOptions
             {
                 Pattern = pattern!,
-                Packages = parseResult.GetValue(packageOption) ?? [],
+                Packages = packages,
                 Assemblies = parseResult.GetValue(assemblyOption) ?? [],
                 PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
-                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                PlatformFrameworks = frameworks,
                 Projects = parseResult.GetValue(projectOption) ?? [],
                 BinPaths = parseResult.GetValue(binOption) ?? [],
                 Tfm = parseResult.GetValue(tfmOption),
@@ -904,12 +942,14 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var dotnetOption = new Option<bool>("--dotnet") { Description = "Search runtime + aspnetcore frameworks and curated Microsoft packages" };
 
         implCommand.Arguments.Add(targetTypeArg);
         implCommand.Options.Add(packageOption);
         implCommand.Options.Add(assemblyOption);
         implCommand.Options.Add(platformOption);
         implCommand.Options.Add(frameworkOption);
+        implCommand.Options.Add(dotnetOption);
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
         implCommand.Options.Add(limitOption);
@@ -925,13 +965,22 @@ public static class CommandLineBuilder
         implCommand.SetAction(async (parseResult, ct) =>
         {
             var targetType = parseResult.GetValue(targetTypeArg);
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var frameworks = parseResult.GetValue(frameworkOption) ?? [];
+
+            if (parseResult.GetValue(dotnetOption))
+            {
+                frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
+                packages = [..packages, ..DotNetScopePackages];
+            }
+
             var options = new ImplementsOptions
             {
                 TargetType = targetType!,
-                Packages = parseResult.GetValue(packageOption) ?? [],
+                Packages = packages,
                 Assemblies = parseResult.GetValue(assemblyOption) ?? [],
                 PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
-                PlatformFrameworks = parseResult.GetValue(frameworkOption) ?? [],
+                PlatformFrameworks = frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = parseResult.GetValue(limitOption),

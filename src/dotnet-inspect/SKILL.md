@@ -41,13 +41,14 @@ dnx dotnet-inspect -y -- diff "*Json*" --package System.Text.Json@9.0.0..10.0.0
 
 # Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Chat*,Diction*" --framework runtime --package Microsoft.Extensions.AI
+dnx dotnet-inspect -y -- find "Chat*,Diction*" --dotnet --terse
 
 # Find extension methods for a type (detects C# 14 extension properties too)
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
+dnx dotnet-inspect -y -- extensions DbContext --dotnet
 
 # Find types implementing an interface or extending a class
-dnx dotnet-inspect -y -- implements Stream --framework runtime --framework aspnetcore
+dnx dotnet-inspect -y -- implements Stream --dotnet
 
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json -v:d
@@ -75,6 +76,7 @@ dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
 | `--select` | Show Select column for member addressing | `api` |
 | `--index N` | Target Nth overload for decompiled member doc | `api` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
+| `--dotnet` | runtime + aspnetcore + curated Microsoft packages | `find`, `extensions`, `implements` |
 | `--terse` | Compact output (alias for --oneline --grouped) | `find` |
 | `--reachable` | Include extensions on reachable types | `extensions` |
 | `--dependencies` | Dependency tree (visual) | `library`, `package` |

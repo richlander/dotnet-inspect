@@ -167,6 +167,7 @@ dotnet-inspect find "*Stream*" -n 10                     # Glob pattern, limit r
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
 dotnet-inspect find "*Serializer*" --package System.Text.Json --package Newtonsoft.Json  # Multiple packages
 dotnet-inspect find ILogger --framework aspnetcore       # ASP.NET Core framework
+dotnet-inspect find "ChatClient*" --dotnet --terse       # Search runtime + aspnetcore + curated packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
 dotnet-inspect find "*Service*" --bin ./bin/Debug/net8.0  # Built output directory
 ```
@@ -181,6 +182,7 @@ dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --
 | Scope | Description |
 |-------|-------------|
 | (none) | Defaults to `--framework runtime` |
+| `--dotnet` | runtime + aspnetcore frameworks + curated Microsoft packages |
 | `--package` | NuGet package (name or name@version). Repeatable. |
 | `--framework` | All libraries in framework (runtime, aspnetcore). Repeatable. |
 | `--library` | Local library file |
@@ -218,6 +220,7 @@ Find extension methods/properties for a type. Detects both classic extension met
 ```bash
 dotnet-inspect extensions HttpClient                                 # Runtime (default)
 dotnet-inspect extensions HttpClient --reachable                     # Include reachable types
+dotnet-inspect extensions DbContext --dotnet                         # Search all .NET scopes
 dotnet-inspect extensions IServiceCollection \
   --package Microsoft.Extensions.DependencyInjection \
   --package Microsoft.Extensions.Azure                               # Multi-package scan
@@ -234,6 +237,7 @@ Find types implementing an interface or extending a base class.
 
 ```bash
 dotnet-inspect implements Stream --framework runtime --framework aspnetcore  # Cross-framework
+dotnet-inspect implements Stream --dotnet                             # Same, plus curated packages
 dotnet-inspect implements IDisposable --framework runtime             # Interface implementers
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json  # In package
 ```
@@ -332,6 +336,7 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--package` | NuGet package source | api, library, find, extensions, implements, diff |
 | `--platform` | Platform library source | api, library, find, extensions, implements, diff |
 | `--framework` | Framework scope (runtime, aspnetcore) | find, extensions, implements, diff |
+| `--dotnet` | runtime + aspnetcore + curated Microsoft packages | find, extensions, implements |
 | `--library` | Local library file | api, find, extensions, implements |
 | `--tfm net8.0` | Select target framework | package, library, api, extensions |
 | `-m Name` | Filter to member (supports globs) | api |

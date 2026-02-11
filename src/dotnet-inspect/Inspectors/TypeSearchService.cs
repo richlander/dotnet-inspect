@@ -99,7 +99,23 @@ internal static class TypeSearchService
             results.AddRange(types);
         }
 
-        // 4. Search platform frameworks
+        // 4. Search platform frameworks (ensure ref packs are downloaded first)
+        if (options.PlatformFrameworks.Length > 0)
+        {
+            List<PlatformPackService.PackRequest> requests = [];
+            foreach (var fw in options.PlatformFrameworks)
+            {
+                var fwName = fw.Contains('@') ? fw[..fw.IndexOf('@')] : fw;
+                var fwVersion = fw.Contains('@') ? fw[(fw.IndexOf('@') + 1)..] : null;
+                if (PlatformResolver.FrameworkMappings.TryGetValue(fwName, out var packName))
+                    requests.Add(new PlatformPackService.PackRequest(packName, fwVersion));
+            }
+
+            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
+            {
+            }
+        }
+
         foreach (var framework in options.PlatformFrameworks)
         {
             if (ReachedLimit()) break;
