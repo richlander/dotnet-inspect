@@ -82,13 +82,17 @@ public static class ToolsAnalyzer
         }
 
         // Tools directory structure: tools/{tfm}/{rid}/ or tools/{tfm}/any/
+        // RID-specific binary packages use tools/any/{rid}/ where "any" means any framework
         foreach (string tfmDir in Directory.GetDirectories(toolsDir))
         {
             string tfm = Path.GetFileName(tfmDir);
-            result.TargetFrameworks ??= [];
-            if (!result.TargetFrameworks.Contains(tfm))
+            if (!tfm.Equals("any", StringComparison.OrdinalIgnoreCase))
             {
-                result.TargetFrameworks.Add(tfm);
+                result.TargetFrameworks ??= [];
+                if (!result.TargetFrameworks.Contains(tfm))
+                {
+                    result.TargetFrameworks.Add(tfm);
+                }
             }
 
             foreach (string ridDir in Directory.GetDirectories(tfmDir))
