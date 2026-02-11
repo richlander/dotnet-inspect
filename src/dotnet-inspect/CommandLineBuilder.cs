@@ -29,12 +29,6 @@ public static class CommandLineBuilder
     internal static readonly string[] DotNetScopePackages =
     [
         "Microsoft.Extensions.AI",
-        "Microsoft.Extensions.Logging",
-        "Microsoft.Extensions.DependencyInjection",
-        "Microsoft.Extensions.Configuration",
-        "Microsoft.Extensions.Options",
-        "Microsoft.Extensions.Http",
-        "Microsoft.Extensions.Caching.Memory",
         "Microsoft.EntityFrameworkCore",
     ];
 
@@ -500,7 +494,11 @@ public static class CommandLineBuilder
             var packages = parseResult.GetValue(packageOption) ?? [];
             var frameworks = parseResult.GetValue(frameworkOption) ?? [];
 
-            if (parseResult.GetValue(dotnetOption))
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var platforms = parseResult.GetValue(platformOption) ?? [];
+            bool hasScopeFlags = packages.Length > 0 || frameworks.Length > 0 || assemblies.Length > 0 || platforms.Length > 0;
+
+            if (parseResult.GetValue(dotnetOption) || !hasScopeFlags)
             {
                 frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
                 packages = [..packages, ..DotNetScopePackages];
@@ -510,8 +508,8 @@ public static class CommandLineBuilder
             {
                 TargetType = targetType!,
                 Packages = packages,
-                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
-                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                Assemblies = assemblies,
+                PlatformAssemblies = platforms,
                 PlatformFrameworks = frameworks,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
@@ -618,8 +616,14 @@ public static class CommandLineBuilder
             var terse = parseResult.GetValue(terseOption);
             var packages = parseResult.GetValue(packageOption) ?? [];
             var frameworks = parseResult.GetValue(frameworkOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var platforms = parseResult.GetValue(platformOption) ?? [];
+            var projects = parseResult.GetValue(projectOption) ?? [];
+            var binPaths = parseResult.GetValue(binOption) ?? [];
+            bool hasScopeFlags = packages.Length > 0 || frameworks.Length > 0 || assemblies.Length > 0
+                || platforms.Length > 0 || projects.Length > 0 || binPaths.Length > 0;
 
-            if (parseResult.GetValue(dotnetOption))
+            if (parseResult.GetValue(dotnetOption) || !hasScopeFlags)
             {
                 frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
                 packages = [..packages, ..DotNetScopePackages];
@@ -629,11 +633,11 @@ public static class CommandLineBuilder
             {
                 Pattern = pattern!,
                 Packages = packages,
-                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
-                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                Assemblies = assemblies,
+                PlatformAssemblies = platforms,
                 PlatformFrameworks = frameworks,
-                Projects = parseResult.GetValue(projectOption) ?? [],
-                BinPaths = parseResult.GetValue(binOption) ?? [],
+                Projects = projects,
+                BinPaths = binPaths,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = parseResult.GetValue(limitOption),
@@ -978,8 +982,11 @@ public static class CommandLineBuilder
             var targetType = parseResult.GetValue(targetTypeArg);
             var packages = parseResult.GetValue(packageOption) ?? [];
             var frameworks = parseResult.GetValue(frameworkOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var platforms = parseResult.GetValue(platformOption) ?? [];
+            bool hasScopeFlags = packages.Length > 0 || frameworks.Length > 0 || assemblies.Length > 0 || platforms.Length > 0;
 
-            if (parseResult.GetValue(dotnetOption))
+            if (parseResult.GetValue(dotnetOption) || !hasScopeFlags)
             {
                 frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
                 packages = [..packages, ..DotNetScopePackages];
@@ -989,8 +996,8 @@ public static class CommandLineBuilder
             {
                 TargetType = targetType!,
                 Packages = packages,
-                Assemblies = parseResult.GetValue(assemblyOption) ?? [],
-                PlatformAssemblies = parseResult.GetValue(platformOption) ?? [],
+                Assemblies = assemblies,
+                PlatformAssemblies = platforms,
                 PlatformFrameworks = frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),

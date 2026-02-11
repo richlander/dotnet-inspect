@@ -384,23 +384,23 @@ Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.
 
 ## Constructors
 
-| Name | Signature | Select |
-| ---- | --------- | ------ |
-| .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>)` | `-m .ctor --params IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>> --index 1` |
-| .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>>)` | `-m .ctor --params IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>> --index 2` |
+| Select | Name | Signature |
+| ------ | ---- | --------- |
+| `.ctor:1` | .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>)` |
+| `.ctor:2` | .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>>)` |
 
 ## Methods
 
-| Name | Signature | Select |
-| ---- | --------- | ------ |
-| Create | `TOptions Create(string)` | `-m Create --index 1` |
+| Select | Name | Signature |
+| ------ | ---- | --------- |
+| `Create` | Create | `TOptions Create(string)` |
 ```
 
-For create method, there is just one, so we can use the member name and an index. It will print a member document.
+For create method, there is just one, so we can use the member name as a positional argument. It will print a member document.
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1 | head -6
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create | head -6
 # Microsoft.Extensions.Options.OptionsFactory`1 (Microsoft.Extensions.Options 10.0.3)
 
 Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.Options | Package: Microsoft.Extensions.Options | Version: 10.0.3 | Source: NuGet | TFM: net10.0
@@ -408,10 +408,10 @@ Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.
 ## Methods
 ```
 
-The constructors require more care:
+The constructors use the `Name:N` shorthand from the Select column:
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m .ctor --params "IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>"
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory .ctor:1
 ```
 
 The output has four sections:
