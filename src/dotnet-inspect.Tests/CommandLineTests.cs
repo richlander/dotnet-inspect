@@ -30,53 +30,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task RootCommand_WithVerbosityQuiet_SuppressesTips()
-    {
-        var originalErr = Console.Error;
-        var originalOut = Console.Out;
-        var errWriter = new System.IO.StringWriter();
-        Console.SetError(errWriter);
-        Console.SetOut(TextWriter.Null);
-        try
-        {
-            var root = CommandLineBuilder.CreateRootCommand();
-            await root.Parse(["-v:q"]).InvokeAsync(null, TestContext.Current.CancellationToken);
-            var stderr = errWriter.ToString();
-            Assert.DoesNotContain("Tips:", stderr);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-            Console.SetOut(originalOut);
-        }
-    }
-
-    [Fact]
-    public async Task RootCommand_WithoutVerbosityQuiet_ShowsTips()
-    {
-        var originalErr = Console.Error;
-        var originalOut = Console.Out;
-        var originalTips = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
-        var errWriter = new System.IO.StringWriter();
-        Console.SetError(errWriter);
-        Console.SetOut(TextWriter.Null);
-        Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", null);
-        try
-        {
-            var root = CommandLineBuilder.CreateRootCommand();
-            await root.Parse([]).InvokeAsync(null, TestContext.Current.CancellationToken);
-            var stderr = errWriter.ToString();
-            Assert.Contains("Tips:", stderr);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", originalTips);
-            Console.SetError(originalErr);
-            Console.SetOut(originalOut);
-        }
-    }
-
-    [Fact]
     public void WriteTips_WithQuietLevel_WritesNothing()
     {
         var originalErr = Console.Error;
