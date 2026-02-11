@@ -395,9 +395,36 @@ internal static class SourceEnricher
         var (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
         if (packageVersion == null && !string.IsNullOrEmpty(packageName))
         {
+            // Try extracting version from dllPath (works when path contains /packagename/version/)
             packageVersion = PackageReferenceParser.ExtractVersionFromPath(dllPath, packageName);
+
+            // Fallback: dllPath may be in a temp dir (e.g., /tmp/inspect-api-.../extracted/...)
+            // that doesn't encode the version. Check the cache directory instead.
+            if (packageVersion == null)
+            {
+                packageVersion = FindCachedPackageVersion(packageName);
+            }
         }
         return (packageName, packageVersion);
+    }
+
+    /// <summary>
+    /// Finds the latest cached version for a package by checking the cache directory.
+    /// </summary>
+    private static string? FindCachedPackageVersion(string packageName)
+    {
+        var cachePath = NuGetCache.GetAppCachePath();
+        var packageDir = Path.Combine(cachePath, packageName.ToLowerInvariant());
+        if (!Directory.Exists(packageDir))
+            return null;
+
+        // Return the highest version directory (using numeric ordering for correct semver-like sort)
+        var comparer = StringComparer.Create(System.Globalization.CultureInfo.InvariantCulture, System.Globalization.CompareOptions.NumericOrdering);
+        return Directory.GetDirectories(packageDir)
+            .Select(d => Path.GetFileName(d))
+            .Where(name => name.Length > 0 && char.IsDigit(name[0]))
+            .OrderByDescending(v => v, comparer)
+            .FirstOrDefault();
     }
 
     /// <summary>
