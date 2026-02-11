@@ -1414,7 +1414,11 @@ public static class CommandLineBuilder
             var explicitPackage = parseResult.GetValue(apiPackageOption);
             var explicitAssembly = parseResult.GetValue(apiAssemblyOption);
             var explicitPlatform = parseResult.GetValue(apiPlatformOption);
-            bool hasExplicitSource = explicitPackage != null || explicitAssembly != null || explicitPlatform != null;
+            // A bare DLL name in --library (no path separators) is a selector within a package, not a standalone source
+            bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
+                && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
+                && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+            bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
 
             // No args and no explicit source: show help (unless bare -s for section discovery)
             if (args.Length == 0 && !hasExplicitSource)
