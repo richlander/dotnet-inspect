@@ -588,6 +588,33 @@ public static class ILAstBuilder
                 };
             }
 
+            // Function pointer load
+            case ILOpCode.Ldftn:
+            {
+                int token = reader.ReadILToken();
+                string? name = ResolveMethodRefNameFromToken(context.Reader, token, context.GenericContext);
+                return new ILAstExpression
+                {
+                    OpCode = opcode, Operand = name,
+                    ResultType = StackValue.CreatePrimitive(StackValueKind.NativeInt),
+                    Offset = offset
+                };
+            }
+
+            case ILOpCode.Ldvirtftn:
+            {
+                int token = reader.ReadILToken();
+                var obj = TryPop(stack);
+                string? name = ResolveMethodRefNameFromToken(context.Reader, token, context.GenericContext);
+                return new ILAstExpression
+                {
+                    OpCode = opcode, Operand = name,
+                    Arguments = { obj },
+                    ResultType = StackValue.CreatePrimitive(StackValueKind.NativeInt),
+                    Offset = offset
+                };
+            }
+
             // Nop / break / prefixes / endfinally / rethrow
             case ILOpCode.Nop or ILOpCode.Break:
                 return new ILAstExpression { OpCode = opcode, ResultType = StackValue.CreateUnknown(), Offset = offset };
@@ -1043,6 +1070,38 @@ public static class ILAstBuilder
             }
         }
         catch { }
+        return name;
+    }
+
+    static string? ResolveMethodRefNameFromToken(MetadataReader reader, int token, GenericContext? genericContext = null)
+    {
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            return handle.Kind switch
+            {
+                HandleKind.MethodDefinition => FormatMethodDefName(reader, (MethodDefinitionHandle)handle),
+                HandleKind.MemberReference => ResolveMethodRefName(reader,
+                    reader.GetMemberReference((MemberReferenceHandle)handle), genericContext),
+                HandleKind.MethodSpecification => ResolveMethodRefNameFromToken(reader,
+                    MetadataTokens.GetToken(reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method),
+                    genericContext),
+                _ => $"token:0x{token:X8}"
+            };
+        }
+        catch { return $"token:0x{token:X8}"; }
+    }
+
+    static string FormatMethodDefName(MetadataReader reader, MethodDefinitionHandle handle)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        string name = reader.GetString(method.Name);
+        var declType = method.GetDeclaringType();
+        if (!declType.IsNil)
+        {
+            var typeDef = reader.GetTypeDefinition(declType);
+            return $"{reader.GetFullTypeName(typeDef)}::{name}";
+        }
         return name;
     }
 }

@@ -760,6 +760,23 @@ public static class CSharpEmitter
                     _sb.Append($"typeof({SimplifyTypeName(expr.Operand ?? "?")})");
                     break;
 
+                // Function pointer (delegate creation pattern)
+                case ILOpCode.Ldftn:
+                    if (expr.Operand is not null)
+                    {
+                        int ci = expr.Operand.IndexOf("::", StringComparison.Ordinal);
+                        _sb.Append(ci >= 0 ? expr.Operand[(ci + 2)..] : expr.Operand);
+                    }
+                    break;
+                case ILOpCode.Ldvirtftn:
+                    if (expr.Arguments.Count > 0 && expr.Operand is not null)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        int ci = expr.Operand.IndexOf("::", StringComparison.Ordinal);
+                        _sb.Append($".{(ci >= 0 ? expr.Operand[(ci + 2)..] : expr.Operand)}");
+                    }
+                    break;
+
                 case ILOpCode.Localloc:
                     _sb.Append("stackalloc byte[");
                     if (expr.Arguments.Count > 0)
@@ -801,6 +818,14 @@ public static class CSharpEmitter
             {
                 typePart = methodName[..colonIdx];
                 memberPart = methodName[(colonIdx + 2)..].TrimEnd('(', ')');
+            }
+
+            // Base/chaining constructor call: this..ctor() → /* base..ctor() */
+            if (memberPart == ".ctor" && !expr.IsStaticCall && expr.Arguments.Count > 0
+                && expr.Arguments[0].OpCode is ILOpCode.Ldarg_0)
+            {
+                _sb.Append($"/* base({SimplifyTypeName(typePart)}) */");
+                return;
             }
 
             bool isStatic = expr.IsStaticCall;
