@@ -455,9 +455,13 @@ public static class ILAstBuilder
             case ILOpCode.Switch:
             {
                 uint count = reader.ReadILUInt32();
+                int baseOffset = reader.Offset + (int)count * 4; // after all target offsets
                 var targets = new List<string>();
                 for (uint i = 0; i < count; i++)
-                    targets.Add($"IL_{reader.ReadILUInt32():X4}");
+                {
+                    int delta = (int)reader.ReadILUInt32();
+                    targets.Add($"IL_{(baseOffset + delta):X4}");
+                }
                 var index = TryPop(stack);
                 return new ILAstExpression
                 {
@@ -496,7 +500,7 @@ public static class ILAstBuilder
             {
                 int token = reader.ReadILToken();
                 var obj = TryPop(stack);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = typeName,
@@ -510,7 +514,7 @@ public static class ILAstBuilder
             {
                 int token = reader.ReadILToken();
                 var val = TryPop(stack);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = typeName,
@@ -524,7 +528,7 @@ public static class ILAstBuilder
             {
                 int token = reader.ReadILToken();
                 var obj = TryPop(stack);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = typeName,
@@ -539,7 +543,7 @@ public static class ILAstBuilder
             {
                 int token = reader.ReadILToken();
                 var size = TryPop(stack);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = typeName,
@@ -575,7 +579,7 @@ public static class ILAstBuilder
             case ILOpCode.Sizeof:
             {
                 int token = reader.ReadILToken();
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = typeName,
@@ -617,7 +621,7 @@ public static class ILAstBuilder
             {
                 int token = reader.ReadILToken();
                 var addr = TryPop(stack);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = typeName,
@@ -626,7 +630,57 @@ public static class ILAstBuilder
                 };
             }
 
-            // Indirect loads/stores, array ops, etc. — generic handling
+            // Array element load: pop array, pop index, push element
+            case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or
+                 ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or
+                 ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref or
+                 ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4:
+            {
+                if (opcode == ILOpCode.Ldelem)
+                    reader.ReadILToken(); // type token, unused for now
+                var index = TryPop(stack);
+                var array = TryPop(stack);
+                return new ILAstExpression
+                {
+                    OpCode = opcode, Arguments = { array, index },
+                    ResultType = StackValue.CreatePrimitive(opcode == ILOpCode.Ldelem_ref ? StackValueKind.ObjRef : opcode.ResultKind()),
+                    Offset = offset
+                };
+            }
+
+            // Array element address
+            case ILOpCode.Ldelema:
+            {
+                reader.ReadILToken(); // type token
+                var index = TryPop(stack);
+                var array = TryPop(stack);
+                return new ILAstExpression
+                {
+                    OpCode = opcode, Arguments = { array, index },
+                    ResultType = StackValue.CreatePrimitive(StackValueKind.ByRef),
+                    Offset = offset
+                };
+            }
+
+            // Array element store: pop array, pop index, pop value
+            case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
+                 ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
+                 ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref:
+            {
+                if (opcode == ILOpCode.Stelem)
+                    reader.ReadILToken(); // type token
+                var value = TryPop(stack);
+                var index = TryPop(stack);
+                var array = TryPop(stack);
+                return new ILAstExpression
+                {
+                    OpCode = opcode, Arguments = { array, index, value },
+                    ResultType = StackValue.CreateUnknown(),
+                    Offset = offset
+                };
+            }
+
+            // Indirect loads/stores, etc. — generic handling
             default:
                 return HandleGeneric(context, ref reader, opcode, offset, stack);
         }
@@ -691,7 +745,7 @@ public static class ILAstBuilder
                     paramCount = sig.ParameterTypes.Length;
                     isStatic = !sig.Header.IsInstance;
                     returnType = sig.ReturnType;
-                    methodName = ResolveMethodRefName(reader, memberRef);
+                    methodName = ResolveMethodRefName(reader, memberRef, genericCtx);
                     break;
                 }
 
@@ -897,7 +951,7 @@ public static class ILAstBuilder
         return ($"field:0x{token:X8}", StackValue.CreateUnknown());
     }
 
-    static string? ResolveTypeName(MetadataReader reader, int token)
+    static string? ResolveTypeName(MetadataReader reader, int token, GenericContext? genericContext = null)
     {
         try
         {
@@ -913,7 +967,7 @@ public static class ILAstBuilder
             }
             if (handle.Kind == HandleKind.TypeSpecification)
                 return reader.GetTypeSpecification((TypeSpecificationHandle)handle)
-                    .DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+                    .DecodeSignature(SignatureDecoder.Instance, genericContext);
         }
         catch { }
         return null;
@@ -957,7 +1011,7 @@ public static class ILAstBuilder
         return $"token:0x{token:X8}";
     }
 
-    static string? ResolveMethodRefName(MetadataReader reader, MemberReference memberRef)
+    static string? ResolveMethodRefName(MetadataReader reader, MemberReference memberRef, GenericContext? genericContext = null)
     {
         string name = reader.GetString(memberRef.Name);
         var parent = memberRef.Parent;
@@ -975,6 +1029,12 @@ public static class ILAstBuilder
             {
                 var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)parent);
                 return $"{reader.GetFullTypeName(typeDef)}::{name}";
+            }
+            if (parent.Kind == HandleKind.TypeSpecification)
+            {
+                var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)parent);
+                string typeName = typeSpec.DecodeSignature(SignatureDecoder.Instance, genericContext);
+                return $"{typeName}::{name}";
             }
         }
         catch { }

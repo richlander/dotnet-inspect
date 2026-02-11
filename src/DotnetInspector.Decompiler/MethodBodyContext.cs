@@ -51,6 +51,11 @@ public sealed class MethodBodyContext
     /// </summary>
     public string? DeclaringType { get; }
 
+    /// <summary>
+    /// Generic context for resolving type/method generic parameters in signatures.
+    /// </summary>
+    public GenericContext? GenericContext { get; }
+
     MethodBodyContext(
         byte[] ilBytes,
         ImmutableArray<ExceptionRegion> exceptionRegions,
@@ -62,7 +67,8 @@ public sealed class MethodBodyContext
         bool hasReturnValue,
         IReadOnlyList<string> parameterTypes,
         string returnType,
-        string? declaringType = null)
+        string? declaringType = null,
+        GenericContext? genericContext = null)
     {
         ILBytes = ilBytes;
         ExceptionRegions = exceptionRegions;
@@ -75,6 +81,7 @@ public sealed class MethodBodyContext
         ParameterTypes = parameterTypes;
         ReturnType = returnType;
         DeclaringType = declaringType;
+        GenericContext = genericContext;
     }
 
     /// <summary>
@@ -97,10 +104,9 @@ public sealed class MethodBodyContext
         }
 
         var ilBytes = body.GetILContent().ToArray();
-        var localTypes = DecodeLocalTypes(reader, body.LocalSignature);
-        var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
 
-        // Resolve declaring type name for 'this' type resolution
+        // Build generic context from declaring type and method generic parameters
+        GenericContext? genericContext = null;
         string? declaringType = null;
         try
         {
@@ -109,9 +115,13 @@ public sealed class MethodBodyContext
             {
                 var typeDef = reader.GetTypeDefinition(declTypeHandle);
                 declaringType = reader.GetFullTypeName(typeDef);
+                genericContext = GenericContext.ForMethod(reader, typeDef, method);
             }
         }
         catch { }
+
+        var localTypes = DecodeLocalTypes(reader, body.LocalSignature, genericContext);
+        var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext);
 
         return new MethodBodyContext(
             ilBytes,
@@ -124,7 +134,8 @@ public sealed class MethodBodyContext
             sig.ReturnType != "System.Void" && sig.ReturnType != "void",
             [.. sig.ParameterTypes],
             sig.ReturnType,
-            declaringType);
+            declaringType,
+            genericContext);
     }
 
     /// <summary>
@@ -156,7 +167,7 @@ public sealed class MethodBodyContext
         return null;
     }
 
-    static List<string> DecodeLocalTypes(MetadataReader reader, StandaloneSignatureHandle sigHandle)
+    static List<string> DecodeLocalTypes(MetadataReader reader, StandaloneSignatureHandle sigHandle, GenericContext? genericContext)
     {
         if (sigHandle.IsNil)
             return [];
@@ -164,7 +175,7 @@ public sealed class MethodBodyContext
         try
         {
             var sig = reader.GetStandaloneSignature(sigHandle);
-            var types = sig.DecodeLocalSignature(SignatureDecoder.Instance, genericContext: null);
+            var types = sig.DecodeLocalSignature(SignatureDecoder.Instance, genericContext);
             return [.. types];
         }
         catch

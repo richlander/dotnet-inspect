@@ -422,6 +422,28 @@ public static class CSharpEmitter
                     break;
                 }
 
+                // Array element store: array[index] = value;
+                case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
+                     ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
+                     ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref:
+                {
+                    WriteIndent(indent);
+                    if (expr.Arguments.Count >= 3)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append("] = ");
+                        EmitExpression(expr.Arguments[2]);
+                    }
+                    else
+                    {
+                        _sb.Append("/* stelem */");
+                    }
+                    _sb.AppendLine(";");
+                    break;
+                }
+
                 case ILOpCode.Call or ILOpCode.Callvirt:
                     WriteIndent(indent);
                     EmitCallExpression(expr);
@@ -446,21 +468,6 @@ public static class CSharpEmitter
                     _sb.Append($"{RemapArg(expr.Operand, expr.OpCode)} = ");
                     if (expr.Arguments.Count > 0)
                         EmitExpression(expr.Arguments[0]);
-                    _sb.AppendLine(";");
-                    break;
-
-                case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
-                     ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
-                     ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref:
-                    WriteIndent(indent);
-                    if (expr.Arguments.Count >= 3)
-                    {
-                        EmitExpression(expr.Arguments[0]);
-                        _sb.Append('[');
-                        EmitExpression(expr.Arguments[1]);
-                        _sb.Append("] = ");
-                        EmitExpression(expr.Arguments[2]);
-                    }
                     _sb.AppendLine(";");
                     break;
 
@@ -700,6 +707,16 @@ public static class CSharpEmitter
                         _sb.Append(']');
                     }
                     break;
+                case ILOpCode.Ldelema:
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        _sb.Append("ref ");
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(']');
+                    }
+                    break;
 
                 // Dup (pass through, or reconstruct from preceding expression in block)
                 case ILOpCode.Dup:
@@ -788,16 +805,68 @@ public static class CSharpEmitter
 
             bool isStatic = expr.IsStaticCall;
 
-            if (isStatic && expr.Arguments.Count > 0 && typePart.Length > 0)
+            if (isStatic && typePart.Length > 0)
             {
-                // Static call: TypeName.Method(args)
-                _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}(");
-                for (int i = 0; i < expr.Arguments.Count; i++)
+                // Static property getter sugar: Type.get_XXX() → Type.XXX
+                if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 0)
                 {
-                    if (i > 0) _sb.Append(", ");
-                    EmitExpression(expr.Arguments[i]);
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]}");
                 }
-                _sb.Append(')');
+                // Static property setter sugar: Type.set_XXX(value) → Type.XXX = value
+                else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
+                {
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]} = ");
+                    EmitExpression(expr.Arguments[0]);
+                }
+                // Operator sugar: op_Equality → ==, op_Inequality → !=, etc.
+                else if (memberPart.StartsWith("op_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
+                {
+                    string? opSymbol = memberPart switch
+                    {
+                        "op_Equality" => "==",
+                        "op_Inequality" => "!=",
+                        "op_GreaterThan" => ">",
+                        "op_LessThan" => "<",
+                        "op_GreaterThanOrEqual" => ">=",
+                        "op_LessThanOrEqual" => "<=",
+                        "op_Addition" => "+",
+                        "op_Subtraction" => "-",
+                        "op_Multiply" => "*",
+                        "op_Division" => "/",
+                        "op_Modulus" => "%",
+                        "op_BitwiseAnd" => "&",
+                        "op_BitwiseOr" => "|",
+                        "op_ExclusiveOr" => "^",
+                        "op_LeftShift" => "<<",
+                        "op_RightShift" => ">>",
+                        _ => null
+                    };
+                    if (opSymbol is not null)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append($" {opSymbol} ");
+                        EmitExpression(expr.Arguments[1]);
+                    }
+                    else
+                    {
+                        _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}(");
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append(", ");
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(')');
+                    }
+                }
+                else
+                {
+                    // Static call: TypeName.Method(args)
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}(");
+                    for (int i = 0; i < expr.Arguments.Count; i++)
+                    {
+                        if (i > 0) _sb.Append(", ");
+                        EmitExpression(expr.Arguments[i]);
+                    }
+                    _sb.Append(')');
+                }
             }
             else if (!isStatic && expr.Arguments.Count > 0)
             {
@@ -805,18 +874,57 @@ public static class CSharpEmitter
                 bool isNullConditionalCall = _nullConditionalReceiver is not null
                     && expr.Arguments[0] is { OpCode: ILOpCode.Nop, Operand: { } op }
                     && op.StartsWith("S_in_", StringComparison.Ordinal);
-                EmitExpression(expr.Arguments[0]);
-                _sb.Append(isNullConditionalCall ? $"?.{memberPart}(" : $".{memberPart}(");
-                for (int i = 1; i < expr.Arguments.Count; i++)
+                string dot = isNullConditionalCall ? "?." : ".";
+
+                // Indexer getter: get_Item(key) → [key]
+                if (memberPart == "get_Item" && expr.Arguments.Count == 2)
                 {
-                    if (i > 1) _sb.Append(", ");
-                    EmitExpression(expr.Arguments[i]);
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append('[');
+                    EmitExpression(expr.Arguments[1]);
+                    _sb.Append(']');
                 }
-                _sb.Append(')');
+                // Indexer setter: set_Item(key, value) → [key] = value
+                else if (memberPart == "set_Item" && expr.Arguments.Count == 3)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append('[');
+                    EmitExpression(expr.Arguments[1]);
+                    _sb.Append("] = ");
+                    EmitExpression(expr.Arguments[2]);
+                }
+                // Property getter sugar: get_XXX() → .XXX
+                else if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append($"{dot}{memberPart[4..]}");
+                }
+                // Property setter sugar: set_XXX(value) → .XXX = value
+                else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append($"{dot}{memberPart[4..]} = ");
+                    EmitExpression(expr.Arguments[1]);
+                }
+                else
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append($"{dot}{memberPart}(");
+                    for (int i = 1; i < expr.Arguments.Count; i++)
+                    {
+                        if (i > 1) _sb.Append(", ");
+                        EmitExpression(expr.Arguments[i]);
+                    }
+                    _sb.Append(')');
+                }
             }
             else
             {
-                _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}()");
+                // Fallback: no receiver or args
+                if (memberPart.StartsWith("get_", StringComparison.Ordinal))
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]}");
+                else
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}()");
             }
         }
 
