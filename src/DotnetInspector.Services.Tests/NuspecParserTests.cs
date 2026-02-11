@@ -256,7 +256,7 @@ public class NuspecParserTests : IDisposable
     }
 
     [Fact]
-    public void Parse_EmptyDependencyGroup_IsNotAdded()
+    public void Parse_EmptyDependencyGroup_IsAdded()
     {
         var nuspec = WriteNuspec("""
             <?xml version="1.0" encoding="utf-8"?>
@@ -274,7 +274,10 @@ public class NuspecParserTests : IDisposable
 
         var result = NuspecParser.Parse(nuspec);
 
-        Assert.Null(result.DependencyGroups);
+        Assert.NotNull(result.DependencyGroups);
+        Assert.Single(result.DependencyGroups);
+        Assert.Equal("net8.0", result.DependencyGroups[0].TargetFramework);
+        Assert.Empty(result.DependencyGroups[0].Dependencies);
     }
 
     [Fact]
