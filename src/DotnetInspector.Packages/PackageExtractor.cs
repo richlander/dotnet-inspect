@@ -174,7 +174,7 @@ public static class PackageExtractor
     /// <summary>
     /// Gets the download URL for a package from a specific source.
     /// </summary>
-    private static async Task<string?> GetPackageDownloadUrlAsync(
+    public static async Task<string?> GetPackageDownloadUrlAsync(
         HttpClient client,
         NuGetSource source,
         string packageName,
@@ -315,12 +315,18 @@ public static class PackageExtractor
     {
         string normalizedName = packageName.ToLowerInvariant();
 
-        // Check version cache first (1-hour TTL)
-        var cached = CoreCache.TryGet(VersionCacheCategory, normalizedName, VersionCacheTtl, extension: "txt");
-        if (cached != null)
+        // Only use version cache for default (nuget.org-only) sources;
+        // custom feeds may have different latest versions.
+        bool useCache = sources.Count == 1 && sources[0].IsNuGetOrg();
+
+        if (useCache)
         {
-            log?.Invoke($"Using cached version: {cached}");
-            return cached;
+            var cached = CoreCache.TryGet(VersionCacheCategory, normalizedName, VersionCacheTtl, extension: "txt");
+            if (cached != null)
+            {
+                log?.Invoke($"Using cached version: {cached}");
+                return cached;
+            }
         }
 
         foreach (var source in sources)
@@ -328,7 +334,8 @@ public static class PackageExtractor
             var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log);
             if (version != null)
             {
-                CoreCache.Set(VersionCacheCategory, normalizedName, version, extension: "txt");
+                if (useCache)
+                    CoreCache.Set(VersionCacheCategory, normalizedName, version, extension: "txt");
                 return version;
             }
         }
@@ -425,20 +432,22 @@ public static class PackageExtractor
             var versions = doc.RootElement.GetProperty("versions");
             if (versions.GetArrayLength() > 0)
             {
-                // Get latest non-prerelease version, or latest overall
-                string? latestStable = null;
-                string? latestAny = null;
+                // Use NuGetVersion for proper comparison — feeds may return
+                // versions in any order (nuget.org ascending, Azure DevOps descending).
+                NuGet.Versioning.NuGetVersion? latestStable = null;
+                NuGet.Versioning.NuGetVersion? latestAny = null;
                 foreach (var v in versions.EnumerateArray())
                 {
                     var ver = v.GetString();
-                    if (ver != null)
+                    if (ver != null && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed))
                     {
-                        latestAny = ver;
-                        if (!ver.Contains('-'))
-                            latestStable = ver;
+                        if (latestAny == null || parsed > latestAny)
+                            latestAny = parsed;
+                        if (!parsed.IsPrerelease && (latestStable == null || parsed > latestStable))
+                            latestStable = parsed;
                     }
                 }
-                return latestStable ?? latestAny;
+                return (latestStable ?? latestAny)?.OriginalVersion;
             }
         }
         catch (System.Text.Json.JsonException)

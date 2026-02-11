@@ -29,7 +29,8 @@ public static class PackageResolverService
         string packageSource,
         string? version,
         Action<string>? log,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        NuGetSourceOptions? sourceOptions = null)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
@@ -52,10 +53,21 @@ public static class PackageResolverService
             packageName = packageSource.ToLowerInvariant();
         }
 
+        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        bool isDefaultSource = sources.Count == 1 && sources[0].IsNuGetOrg();
+
         // Discover latest version if not specified
         if (string.IsNullOrEmpty(version))
         {
-            version = await GetLatestVersionAsync(httpClient, packageName, log);
+            if (isDefaultSource)
+            {
+                version = await GetLatestVersionAsync(httpClient, packageName, log);
+            }
+            else
+            {
+                version = await PackageExtractor.GetLatestVersionAsync(httpClient, packageName, sources, log);
+            }
+
             if (version == null)
             {
                 return null;
@@ -77,10 +89,23 @@ public static class PackageResolverService
         string extractPath = Path.Combine(tempDir, "extracted");
         Directory.CreateDirectory(tempDir);
 
-        string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{packageName}/{version}/{packageName}.{version}.nupkg";
-        log?.Invoke($"Downloading: {nupkgUrl}");
+        byte[]? packageBytes = null;
+        foreach (var source in sources)
+        {
+            var nupkgUrl = await PackageExtractor.GetPackageDownloadUrlAsync(httpClient, source, packageName, version, log);
+            if (nupkgUrl == null) continue;
 
-        byte[]? packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(httpClient, nupkgUrl);
+            log?.Invoke($"Downloading: {packageName} {version} from {source.Name}");
+            try
+            {
+                packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(httpClient, nupkgUrl);
+                if (packageBytes != null) break;
+            }
+            catch (HttpRequestException)
+            {
+                continue;
+            }
+        }
         if (packageBytes == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }

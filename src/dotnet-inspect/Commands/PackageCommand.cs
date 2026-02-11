@@ -130,18 +130,11 @@ public class PackageCommand
             else
             {
                 packageName = packageArg.ToLowerInvariant();
-                // Auto-discover latest version
-                string? latestVersion = await PackageResolverService.GetLatestVersionAsync(client, packageName, logger.Log);
-                if (latestVersion == null)
-                {
-                    Console.Error.WriteLine($"Error: Package '{packageArg}' not found on nuget.org");
-                    return 1;
-                }
-                version = latestVersion;
+                version = "";
             }
 
             // Validate version looks like a NuGet version
-            if (!NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+            if (version.Length > 0 && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
             {
                 string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
                 Console.Error.WriteLine($"Error: '{badVersion}' is not a valid package version.");
@@ -158,20 +151,25 @@ public class PackageCommand
         {
             resolution = await PackageResolverService.ResolvePackageAsync(
                 isLocalFile ? packageArgs[0] : packageName,
-                isLocalFile ? null : version,
+                isLocalFile ? null : (version.Length > 0 ? version : null),
                 logger.Log,
-                client);
+                client,
+                options.SourceOptions);
 
             if (resolution == null)
             {
                 if (isLocalFile)
                     Console.Error.WriteLine($"Error: File not found: {packageArgs[0]}");
-                else
+                else if (version.Length > 0)
                     Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found or download failed.");
+                else
+                    Console.Error.WriteLine($"Error: Package '{packageName}' not found.");
                 return 1;
             }
 
             extractPath = resolution.ExtractPath;
+            // Update version from resolution (may have been auto-discovered)
+            version = resolution.Version;
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
