@@ -14,12 +14,14 @@ namespace DotnetInspector.Packages;
 /// <param name="PackageName">Package name</param>
 /// <param name="Version">Package version (may be null for local files)</param>
 /// <param name="NupkgPath">Path to the .nupkg file for signature verification (null if not available)</param>
+/// <param name="FromCache">Whether the package was served from the local cache</param>
 public record PackageExtractionResult(
     string ExtractPath,
     string? TempDir,
     string? PackageName,
     string? Version,
-    string? NupkgPath = null);
+    string? NupkgPath = null,
+    bool FromCache = false);
 
 /// <summary>
 /// Shared utility for extracting NuGet packages from local files or NuGet feeds.
@@ -34,13 +36,15 @@ public static class PackageExtractor
     /// <param name="log">Optional logging callback</param>
     /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
     /// <param name="sourceOptions">NuGet source configuration (defaults to nuget.org)</param>
+    /// <param name="version">Explicit version (overrides any version embedded in packageSource)</param>
     /// <returns>Extraction result or null if failed</returns>
     public static async Task<PackageExtractionResult?> ExtractPackageAsync(
         HttpClient client,
         string packageSource,
         Action<string>? log = null,
         string tempDirPrefix = "inspect-pkg",
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        string? version = null)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
@@ -49,7 +53,7 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions);
+        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version);
     }
 
     private static PackageExtractionResult? ExtractLocalPackage(
@@ -78,12 +82,25 @@ public static class PackageExtractor
         string packageSource,
         Action<string>? log,
         string tempDirPrefix,
-        NuGetSourceOptions? sourceOptions)
+        NuGetSourceOptions? sourceOptions,
+        string? explicitVersion = null)
     {
-        var (packageName, version) = ParsePackageReference(packageSource);
+        var (packageName, parsedVersion) = ParsePackageReference(packageSource);
+        var version = explicitVersion ?? parsedVersion;
 
         // Resolve NuGet sources
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+
+        // Resolve wildcard version patterns (e.g., 11.0.0-preview*)
+        if (version != null && version.Contains('*'))
+        {
+            version = await ResolveVersionPatternAsync(client, packageName, version, sources, log);
+            if (version == null)
+            {
+                Console.Error.WriteLine($"Error: No version matching pattern found for '{packageName}'.");
+                return null;
+            }
+        }
 
         // Get version if not specified
         if (version == null)
@@ -107,7 +124,7 @@ public static class PackageExtractor
             log?.Invoke($"Using cached package: {cachedPath}");
             // Try to find .nupkg in cache directory
             var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
-            return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg);
+            return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg, FromCache: true);
         }
 
         string tempDir = Path.Combine(Path.GetTempPath(), $"{tempDirPrefix}-{Guid.NewGuid():N}");
@@ -282,16 +299,16 @@ public static class PackageExtractor
         {
             string fileName = Path.GetFileNameWithoutExtension(packageSource);
             // Try to parse name.version pattern (e.g., "System.Text.Json.8.0.0")
-            int lastDotIndex = fileName.LastIndexOf('.');
-            while (lastDotIndex > 0)
+            // Scan left-to-right: the first segment starting with a digit begins the version
+            var parts = fileName.Split('.');
+            for (int i = 0; i < parts.Length; i++)
             {
-                string potentialVersion = fileName[(lastDotIndex + 1)..];
-                if (char.IsDigit(potentialVersion.FirstOrDefault()))
+                if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
                 {
-                    // Found version start
-                    return (fileName[..lastDotIndex], fileName[(lastDotIndex + 1)..]);
+                    var name = string.Join(".", parts.Take(i));
+                    var version = string.Join(".", parts.Skip(i));
+                    return (name, version);
                 }
-                lastDotIndex = fileName.LastIndexOf('.', lastDotIndex - 1);
             }
             return (fileName, null);
         }
@@ -560,6 +577,72 @@ public static class PackageExtractor
         catch (System.Text.Json.JsonException)
         {
             return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lists available versions of a package from NuGet, newest first.
+    /// </summary>
+    public static async Task<List<string>?> GetVersionsAsync(
+        HttpClient client, string packageName, bool includePrerelease,
+        int? limit, Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+
+        List<string>? allVersions = null;
+        foreach (var source in sources)
+        {
+            allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log);
+            if (allVersions != null)
+                break;
+        }
+
+        if (allVersions == null)
+            return null;
+
+        var filtered = includePrerelease
+            ? allVersions
+            : allVersions.Where(v => !v.Contains('-')).ToList();
+
+        // Newest first, with optional limit
+        List<string> result = [];
+        for (int i = filtered.Count - 1; i >= 0; i--)
+        {
+            result.Add(filtered[i]);
+            if (limit.HasValue && result.Count >= limit.Value)
+                break;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts version from a cached package path.
+    /// Path format: .../packages/packagename/version/lib/tfm/assembly.dll
+    /// </summary>
+    public static string? ExtractVersionFromPath(string dllPath, string packageName)
+    {
+        var normalizedPath = dllPath.Replace('\\', '/');
+        var normalizedPackageName = packageName.ToLowerInvariant();
+
+        var searchPattern = $"/{normalizedPackageName}/";
+        var index = normalizedPath.ToLowerInvariant().IndexOf(searchPattern, StringComparison.Ordinal);
+        if (index < 0)
+            return null;
+
+        var afterPackage = normalizedPath[(index + searchPattern.Length)..];
+        var nextSlash = afterPackage.IndexOf('/');
+        if (nextSlash > 0)
+        {
+            var possibleVersion = afterPackage[..nextSlash];
+            if (possibleVersion.Length > 0 && char.IsDigit(possibleVersion[0]))
+            {
+                return possibleVersion;
+            }
         }
 
         return null;

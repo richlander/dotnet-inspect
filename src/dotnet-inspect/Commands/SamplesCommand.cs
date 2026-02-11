@@ -27,7 +27,7 @@ public class SamplesCommand
             string? packageVersion = null;
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+                (packageName, packageVersion) = PackageExtractor.ParsePackageReference(options.PackagePath);
             }
 
             // If type name is specified, get samples for that type only

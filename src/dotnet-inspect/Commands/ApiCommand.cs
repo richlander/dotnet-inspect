@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -213,7 +214,7 @@ public class ApiCommand
 
                 if (!string.IsNullOrEmpty(options.PackagePath))
                 {
-                    var (pkgName, _) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+                    var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
                     api.Name = pkgName;
                 }
                 else if (apiDllPath != null)
@@ -503,7 +504,7 @@ public class ApiCommand
                         // Glob matched multiple types — show types view with filter
                         if (!string.IsNullOrEmpty(options.PackagePath))
                         {
-                            var (pkgName, _) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+                            var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
                             api.Name = pkgName;
                         }
                         else if (apiDllPath != null)
@@ -625,7 +626,7 @@ public class ApiCommand
             if (context.NeedsPdb)
             {
                 var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
-                    ? PackageReferenceParser.ParsePackageReference(options.PackagePath)
+                    ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
 
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,

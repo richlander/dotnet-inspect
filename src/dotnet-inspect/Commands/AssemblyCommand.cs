@@ -82,7 +82,7 @@ public class AssemblyCommand
             string? packageVersion = null;
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+                (packageName, packageVersion) = PackageExtractor.ParsePackageReference(options.PackagePath);
             }
 
             if (!string.IsNullOrEmpty(options.PlatformAssembly))
@@ -261,7 +261,7 @@ public class AssemblyCommand
 
         foreach (var targetPath in assemblyPaths)
         {
-            var version = packageVersion ?? (packageName != null ? ExtractVersionFromPath(targetPath, packageName) : null);
+            var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
             var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry);
             if (inspection == null)
@@ -290,14 +290,10 @@ public class AssemblyCommand
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
     {
-        var resolution = await PackageResolverService.ResolvePackageAsync(packageSource, null, logger.Log, httpClient);
+        var resolution = await PackageExtractor.ExtractPackageAsync(httpClient, packageSource, logger.Log);
         if (resolution == null)
         {
-            bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
-            if (isLocalFile)
-                Console.Error.WriteLine($"Error: Package not found: {packageSource}");
-            else
-                Console.Error.WriteLine($"Error: Package '{packageSource}' not found on nuget.org");
+            // ExtractPackageAsync already prints error messages
             return null;
         }
 
@@ -412,35 +408,4 @@ public class AssemblyCommand
         return ([matchingFiles[0]], extractPath, tempDir, nupkgPath);
     }
 
-
-    /// <summary>
-    /// Extracts version from a cached package path.
-    /// Path format: .../packages/packagename/version/lib/tfm/assembly.dll
-    /// </summary>
-    private static string? ExtractVersionFromPath(string dllPath, string packageName)
-    {
-        var normalizedPath = dllPath.Replace('\\', '/');
-        var normalizedPackageName = packageName.ToLowerInvariant();
-
-        // Look for pattern: /packagename/version/
-        var searchPattern = $"/{normalizedPackageName}/";
-        var index = normalizedPath.ToLowerInvariant().IndexOf(searchPattern, StringComparison.Ordinal);
-        if (index < 0)
-            return null;
-
-        // Extract what comes after the package name
-        var afterPackage = normalizedPath[(index + searchPattern.Length)..];
-        var nextSlash = afterPackage.IndexOf('/');
-        if (nextSlash > 0)
-        {
-            var possibleVersion = afterPackage[..nextSlash];
-            // Verify it looks like a version (starts with digit)
-            if (possibleVersion.Length > 0 && char.IsDigit(possibleVersion[0]))
-            {
-                return possibleVersion;
-            }
-        }
-
-        return null;
-    }
 }
