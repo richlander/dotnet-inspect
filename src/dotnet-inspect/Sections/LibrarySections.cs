@@ -27,7 +27,7 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
             .Add<Symbols>()
-            .Add<SourceCoverage>()
+            .Add<SourceLinkAuditSection>()
             .Add<LibraryReferences>()
             .Add<LibraryReferencesTransitive>()
             .Add<Dependencies>()
@@ -37,8 +37,7 @@ public static class LibrarySections
             .Add<Resources>()
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
-            .Add<NonNormalizedPaths>()
-            .Add<MissingSources>();
+            .Add<NonNormalizedPaths>();
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>
@@ -75,11 +74,11 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
-    // ===== Source-link audit sections =====
+    // ===== Source-link audit section =====
 
-    public sealed class SourceCoverage : ISectionDescriptor<LibraryInspection>
+    public sealed class SourceLinkAuditSection : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Source Coverage";
+        public static string Name => "Source Link Audit";
         public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => ScannerSourceLinkAudit;
         public static bool CanRender(LibraryInspection model) => model.TotalSourceFiles > 0;
@@ -173,8 +172,6 @@ public static class LibrarySections
             => model.TypeForwarders is { Count: > 0 } || model.HasExportedTypeForwarders;
     }
 
-    // ===== Source-link audit detail sections =====
-
     public sealed class NonNormalizedPaths : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => "Non-normalized Paths";
@@ -183,11 +180,4 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
     }
 
-    public sealed class MissingSources : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => "Missing Sources";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
-        public static string? ScannerKey => ScannerSourceLinkAudit;
-        public static bool CanRender(LibraryInspection model) => model.MissingSourceFiles is { Count: > 0 };
-    }
 }

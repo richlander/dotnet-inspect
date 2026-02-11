@@ -138,15 +138,14 @@ public static class OutputFormatter
         if (options.IncludeSections != null)
             return null;
 
-        HashSet<string> excluded = ["Source Coverage", "Missing Sources"];
+        HashSet<string> excluded = ["Source Link Audit"];
 
         if (options.Verbosity != Verbosity.Detailed)
             excluded.Add("Symbols");
 
         if (options.IncludeSourcelinkAudit)
         {
-            excluded.Remove("Source Coverage");
-            excluded.Remove("Missing Sources");
+            excluded.Remove("Source Link Audit");
         }
 
         return excluded.Count > 0 ? excluded : null;

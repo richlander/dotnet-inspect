@@ -142,8 +142,8 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "Symbols")]
     public List<MarkoutField> SymbolsSection => GetSymbolsFields();
 
-    [MarkoutSection(Name = "Source Coverage")]
-    public List<MarkoutField> SourceCoverageSection => GetSourceCoverageFields();
+    [MarkoutSection(Name = "Source Link Audit")]
+    public List<MarkoutField> SourceLinkAuditSection => GetSourceLinkAuditFields();
 
     [MarkoutIgnore]
     public bool UseDependenciesView => _data.UseDependenciesView;
@@ -216,14 +216,6 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = "Non-normalized Paths", ShowWhenProperty = nameof(HasNonNormalizedPaths))]
     public List<string>? NonNormalizedPathsSection => _data.NonNormalizedPaths;
-
-    [MarkoutIgnore]
-    public bool HasMissingSources => _data.MissingSourceFiles is { Count: > 0 };
-
-    [MarkoutSection(Name = "Missing Sources", ShowWhenProperty = nameof(HasMissingSources))]
-    [MarkoutMaxItems(10)]
-    public List<string>? MissingSourcesSection =>
-        _data.MissingSourceFiles?.Select(f => $"`{f}`").ToList();
 
     /// <summary>
     /// Resolves the display version using priority: PlatformVersion, InformationalVersion (prefix), AssemblyVersion, FileVersion.
@@ -365,7 +357,7 @@ public class LibraryInspectionView
         return fields;
     }
 
-    private List<MarkoutField> GetSourceCoverageFields()
+    private List<MarkoutField> GetSourceLinkAuditFields()
     {
         List<MarkoutField> fields = [];
         if (_data.TotalSourceFiles <= 0) return fields;
@@ -376,6 +368,12 @@ public class LibraryInspectionView
 
         if (_data.EmbeddedSourceFiles > 0)
             fields.Add(new("Embedded", $"{_data.EmbeddedSourceFiles} files"));
+
+        if (_data.MissingSourceFiles is { Count: > 0 })
+        {
+            foreach (var file in _data.MissingSourceFiles.Take(10))
+                fields.Add(new("Missing", $"`{file}`"));
+        }
 
         return fields;
     }

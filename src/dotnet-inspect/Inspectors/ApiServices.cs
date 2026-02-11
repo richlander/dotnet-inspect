@@ -53,11 +53,11 @@ internal static class ApiServices
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
-                var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(
+                var (assemblyPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
                     options.PlatformAssembly,
-                    options.PlatformFramework,
-                    packsDirectory: null,
-                    useRuntimeAssemblies: false);
+                    httpClient,
+                    logger.Log,
+                    options.PlatformFramework);
 
                 if (error != null)
                 {
