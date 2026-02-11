@@ -360,26 +360,35 @@ public static class ILAstBuilder
 
             // Field access
             case ILOpCode.Ldfld:
+            case ILOpCode.Ldflda:
             {
                 int token = reader.ReadILToken();
                 var obj = TryPop(stack);
                 var (fieldName, fieldType) = ResolveField(context.Reader, token);
+                // ldflda returns a managed pointer to the field
+                var resultType = opcode == ILOpCode.Ldflda
+                    ? StackValue.CreatePrimitive(StackValueKind.ByRef)
+                    : fieldType;
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = fieldName,
-                    Arguments = { obj }, ResultType = fieldType,
+                    Arguments = { obj }, ResultType = resultType,
                     Offset = offset
                 };
             }
 
             case ILOpCode.Ldsfld:
+            case ILOpCode.Ldsflda:
             {
                 int token = reader.ReadILToken();
                 var (fieldName, fieldType) = ResolveField(context.Reader, token);
+                var resultType = opcode == ILOpCode.Ldsflda
+                    ? StackValue.CreatePrimitive(StackValueKind.ByRef)
+                    : fieldType;
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = fieldName,
-                    ResultType = fieldType, Offset = offset
+                    ResultType = resultType, Offset = offset
                 };
             }
 

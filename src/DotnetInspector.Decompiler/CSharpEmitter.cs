@@ -107,7 +107,8 @@ public static class CSharpEmitter
                 or ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bgt or ILOpCode.Bgt_s
                 or ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s
                 or ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s
-                or ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s)
+                or ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s
+                or ILOpCode.Leave or ILOpCode.Leave_s)
             {
                 if (expr.Operand is string target)
                     targets.Add(target);
@@ -606,7 +607,12 @@ public static class CSharpEmitter
                     break;
 
                 case ILOpCode.Leave or ILOpCode.Leave_s:
-                    // leave becomes implicit control flow in C#
+                    // leave exits a try/catch block — emit goto if target is a labeled block
+                    if (expr.Operand is string leaveTarget && _gotoTargets.Contains(leaveTarget))
+                    {
+                        WriteIndent(indent);
+                        _sb.AppendLine($"goto {leaveTarget};");
+                    }
                     break;
 
                 case ILOpCode.Endfinally:
@@ -842,10 +848,9 @@ public static class CSharpEmitter
                     _sb.Append($"ref {RemapArg(expr.Operand, expr.OpCode)}");
                     break;
                 case ILOpCode.Ldloca_s or ILOpCode.Ldloca:
-                    _sb.Append($"ref {expr.Operand}");
+                    _sb.Append($"{expr.Operand}");
                     break;
                 case ILOpCode.Ldflda:
-                    _sb.Append("ref ");
                     if (expr.Arguments.Count > 0)
                     {
                         EmitExpression(expr.Arguments[0]);
@@ -1181,6 +1186,13 @@ public static class CSharpEmitter
                 or ILOpCode.Ldlen)
                 return true;
 
+            // Local/arg loads of Int32 are numeric when the source is known numeric
+            if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                or ILOpCode.Ldarg or ILOpCode.Ldarg_s
+                or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3)
+                return true;
+
             // Properties named Count, Length, Size — known numeric
             if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt && expr.Operand is string opName)
             {
@@ -1196,13 +1208,9 @@ public static class CSharpEmitter
                 }
             }
 
-            // Field access to Length (arrays)
-            if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld && expr.Operand is string fieldName)
-            {
-                if (fieldName.EndsWith("::Length", StringComparison.Ordinal)
-                    || fieldName.EndsWith("::Count", StringComparison.Ordinal))
-                    return true;
-            }
+            // Field loads of Int32 are numeric (e.g., state machine <>1__state)
+            if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld)
+                return true;
 
             // Default: assume boolean (conservative — avoids false != 0)
             return false;
