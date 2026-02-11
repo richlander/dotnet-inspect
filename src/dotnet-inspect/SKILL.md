@@ -95,6 +95,21 @@ dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFacto
 
 **Generic types:** Use quotes: `'Option<T>'`, `'IEnumerable<T>'`
 
+## Syntax Rules
+
+**`api` uses positional arguments** — not flags — for library, type, and member:
+
+```bash
+dnx dotnet-inspect -y -- api System.Text.Json JsonSerializer Serialize   # library type member
+dnx dotnet-inspect -y -- api Newtonsoft.Json JsonConvert -m SerializeObject  # -m for member filter
+```
+
+**Do NOT use `-t` for type selection** — type is always a positional argument.
+
+**`--platform` vs `--package`**: `--platform` is only for SDK libraries (System.\*, Microsoft.AspNetCore.\*). Use `--package` for NuGet packages. Use `--dotnet` when unsure.
+
+**`diff` uses `..` range**: `diff System.Text.Json@8.0.0..9.0.0` (not two separate args).
+
 ## Command Reference
 
 | Command | Purpose |

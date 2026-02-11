@@ -397,6 +397,52 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 
 ## LLM Usage Guide
 
+### Important: Positional Argument Syntax
+
+The `api` command uses **positional arguments**, not flags, for library/type/member:
+
+```bash
+# CORRECT — positional arguments
+dotnet-inspect api System.Text.Json                          # library
+dotnet-inspect api System.Text.Json JsonSerializer           # library type
+dotnet-inspect api System.Text.Json JsonSerializer Serialize # library type member
+
+# WRONG — do not use -t for types
+dotnet-inspect api System.Text.Json -t JsonSerializer        # ✗ -t is not a type flag
+```
+
+### Common Mistakes to Avoid
+
+```bash
+# WRONG: Using --platform for NuGet packages
+dotnet-inspect find "IHost*" --platform Microsoft.Extensions.Hosting   # ✗
+# CORRECT: Use --package for NuGet packages, --platform for SDK libraries
+dotnet-inspect find "IHost*" --package Microsoft.Extensions.Hosting    # ✓
+dotnet-inspect find "IHost*" --dotnet                                  # ✓ (includes both)
+
+# WRONG: Two separate version args for diff
+dotnet-inspect diff System.Text.Json@8.0.0 System.Text.Json@9.0.0     # ✗
+# CORRECT: Single arg with .. range separator
+dotnet-inspect diff System.Text.Json@8.0.0..9.0.0                     # ✓
+
+# WRONG: Running --help to learn syntax (wastes tokens)
+dotnet-inspect api --help                                              # ✗
+# CORRECT: Use llmstxt for complete syntax reference
+dotnet-inspect llmstxt                                                 # ✓
+
+# WRONG: Using -m without the type positional arg
+dotnet-inspect api --package Newtonsoft.Json -m SerializeObject         # ✗
+# CORRECT: Type is a positional argument before -m
+dotnet-inspect api Newtonsoft.Json JsonConvert -m SerializeObject       # ✓
+```
+
+### Platform vs Package — When to Use Each
+
+- **`--platform`**: Only for libraries shipped in the .NET SDK (System.*, Microsoft.AspNetCore.*). Resolves from local SDK packs.
+- **`--package`**: For NuGet packages (including Microsoft.Extensions.*, Newtonsoft.Json, etc.). Downloads from NuGet.
+- **`--dotnet`**: Convenience scope — both frameworks + curated Microsoft packages. Use when unsure.
+- **Bare names**: The tool auto-routes. `System.Text.Json` → platform; `Newtonsoft.Json` → package.
+
 ### Generic Type Syntax
 
 Use C# generic syntax — the tool auto-converts to metadata format:
