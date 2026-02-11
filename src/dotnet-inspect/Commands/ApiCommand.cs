@@ -98,6 +98,12 @@ public class ApiCommand
                 else if (!string.IsNullOrEmpty(options.AssemblyPath))
                 {
                     var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
+                    // If it's a bare filename, search for it within the package
+                    if (!File.Exists(targetPath) && !options.AssemblyPath.Contains('/') && !options.AssemblyPath.Contains('\\'))
+                    {
+                        var found = Directory.EnumerateFiles(searchPath, options.AssemblyPath, SearchOption.AllDirectories).FirstOrDefault();
+                        if (found != null) targetPath = found;
+                    }
                     if (!File.Exists(targetPath))
                     {
                         Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
