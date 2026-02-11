@@ -29,6 +29,14 @@ public static class CommandLineBuilder
     {
         if (args.Length > 0 && !args[0].StartsWith('-') && !KnownCommands.Contains(args[0]))
         {
+            // Route .dll files directly to the library command
+            if (args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                return ["library", .. args];
+
+            // Route .nupkg files directly to the package command
+            if (args[0].EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+                return ["package", .. args];
+
             // Route bare names through the router command (platform-preferred, NuGet fallback)
             return ["router", .. args];
         }
