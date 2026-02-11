@@ -1,5 +1,4 @@
 using DotnetInspector.Packages;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -112,10 +111,7 @@ public class ImplementsCommand
 
     private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
     {
-        var typeInfo = compact
-            ? ImplementsCompactJsonContext.Default.ListImplementerResult
-            : ImplementsJsonContext.Default.ListImplementerResult;
-        Console.WriteLine(JsonSerializer.Serialize(results, typeInfo));
+        JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results)
@@ -151,10 +147,3 @@ public record class ImplementerResult
     public string? SourceVersion { get; set; }
 }
 
-[JsonSerializable(typeof(List<ImplementerResult>))]
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class ImplementsJsonContext : JsonSerializerContext { }
-
-[JsonSerializable(typeof(List<ImplementerResult>))]
-[JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }

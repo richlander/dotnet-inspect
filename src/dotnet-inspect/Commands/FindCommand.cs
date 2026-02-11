@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -131,10 +130,7 @@ public class FindCommand
 
     private static void WriteJsonOutput(List<TypeSearchResult> results, bool compact)
     {
-        var typeInfo = compact
-            ? FindCompactJsonContext.Default.ListTypeSearchResult
-            : FindJsonContext.Default.ListTypeSearchResult;
-        Console.WriteLine(JsonSerializer.Serialize(results, typeInfo));
+        JsonOutputHelper.Write(results, FindJsonContext.Default.ListTypeSearchResult, FindCompactJsonContext.Default.ListTypeSearchResult, compact);
     }
 }
 
@@ -165,10 +161,3 @@ public record class TypeSearchResult
     public string? SourceVersion { get; set; }
 }
 
-[JsonSerializable(typeof(List<TypeSearchResult>))]
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-internal partial class FindJsonContext : JsonSerializerContext { }
-
-[JsonSerializable(typeof(List<TypeSearchResult>))]
-[JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-internal partial class FindCompactJsonContext : JsonSerializerContext { }
