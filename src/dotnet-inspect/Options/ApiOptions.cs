@@ -43,6 +43,7 @@ public record ApiOptions
     public int? OverloadIndex { get; init; }
     public string[]? ParamTypes { get; init; }
     public string? FirstParamType { get; init; }
+    public bool ShowSelect { get; init; }
     public string? DllPath { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
     public HashSet<string>? IncludeSections { get; init; }

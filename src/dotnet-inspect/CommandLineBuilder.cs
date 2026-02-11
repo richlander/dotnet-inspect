@@ -1344,6 +1344,7 @@ public static class CommandLineBuilder
         var indexOption = new Option<int?>("--index") { Description = "Select a specific overload by 1-based index (use with -m)" };
         var paramsOption = new Option<string>("--params") { Description = "Select overload by comma-separated simple parameter type names (use with -m)" };
         var ofOption = new Option<string>("-of") { Description = "Select overload by first parameter simple type name (use with -m)" };
+        var selectOption = new Option<bool>("--select") { Description = "Add a column showing -m/--params values to target each member" };
 
         apiCommand.Arguments.Add(argsArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -1369,6 +1370,7 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(indexOption);
         apiCommand.Options.Add(paramsOption);
         apiCommand.Options.Add(ofOption);
+        apiCommand.Options.Add(selectOption);
         apiCommand.Options.Add(includeSectionsOption);
         apiCommand.Options.Add(excludeSectionsOption);
         apiCommand.Options.Add(markoutOption);
@@ -1479,6 +1481,7 @@ public static class CommandLineBuilder
                 OverloadIndex = parseResult.GetValue(indexOption),
                 ParamTypes = parseResult.GetValue(paramsOption)?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
                 FirstParamType = parseResult.GetValue(ofOption),
+                ShowSelect = parseResult.GetValue(selectOption),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 Verbose = parseResult.GetValue(verboseOption),

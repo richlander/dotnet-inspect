@@ -484,8 +484,8 @@ public static class ApiOutputFormatter
 
             writer.WriteHeading(2, sectionName);
             writer.WriteTable(
-                formatter.GetHeaders(kind, members, hasDocs),
-                formatter.FormatRows(kind, members, hasDocs));
+                formatter.GetHeaders(kind, members, hasDocs, options.ShowSelect),
+                formatter.FormatRows(kind, members, hasDocs, options.ShowSelect));
         }
 
         // C# source (when --index selects a single member and source is available)
