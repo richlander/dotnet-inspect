@@ -420,10 +420,25 @@ public static class PlatformResolver
                 ? frameworkSpec[..frameworkSpec.LastIndexOf('@')] 
                 : frameworkSpec;
 
+            // For unversioned specs, prefer runtime when it has an equal or newer version
+            if (!frameworkSpec.Contains('@'))
+            {
+                var rt = ResolveRuntimeAssembly(assemblyName, frameworkName);
+                if (rt.AssemblyPath != null && rt.Version != null)
+                {
+                    var rtVer = ParseVersion(rt.Version);
+                    var refVer = ParseVersion(version!);
+                    if (rtVer >= refVer)
+                        return (rt.AssemblyPath, rt.Framework, rt.Version, null);
+                }
+            }
+
             return (assemblyPath, frameworkName, version, null);
         }
 
-        // Search all frameworks across all packs dirs, prefer runtime
+        // Search all frameworks across all packs dirs and runtime,
+        // returning the assembly from whichever source has the newest version.
+        // When versions are equal, runtime wins (has debug info for SourceLink).
         var frameworks = GetInstalledFrameworks(packsDirectory);
         var searchOrder = new[] { "runtime", "aspnetcore", "netstandard" };
 
@@ -438,10 +453,20 @@ public static class PlatformResolver
                 continue;
 
             var assemblyPath = Path.Combine(refPath, assemblyName);
-            if (File.Exists(assemblyPath))
+            if (!File.Exists(assemblyPath))
+                continue;
+
+            // Check if the runtime has a newer (or equal) version
+            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            if (rt.AssemblyPath != null && rt.Version != null)
             {
-                return (assemblyPath, framework.ShortName, framework.LatestVersion, null);
+                var rtVer = ParseVersion(rt.Version);
+                var refVer = ParseVersion(framework.LatestVersion);
+                if (rtVer >= refVer)
+                    return (rt.AssemblyPath, rt.Framework, rt.Version, null);
             }
+
+            return (assemblyPath, framework.ShortName, framework.LatestVersion, null);
         }
 
         return (null, null, null, $"Library '{assemblyName}' not found in any installed framework");
