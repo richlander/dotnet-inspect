@@ -113,6 +113,10 @@ public static class ApiOutputFormatter
         // Serialize title + description + identity fields + enum values + type params + interfaces + baseclass
         new MarkoutContext().Serialize(view, writer);
 
+        // Quiet: just title + stats line, no member tables
+        if (options.Verbosity == Verbosity.Quiet)
+            return writer.ToString().TrimEnd();
+
         // Imperative rendering for member tables and source info
         int truncatedCount = 0;
         string truncatedNoun = "";
@@ -296,11 +300,19 @@ public static class ApiOutputFormatter
             Source = apiSource,
             Tfm = selectedTfm,
             SamplesInfo = samplesInfo,
+            // Member stats for quiet verbosity
+            Constructors = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Fields = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
+            Properties = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
+            Methods = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Events = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
             SourceRows = sourceRows
         };
+
+        static int? NullIfZero(int count) => count > 0 ? count : null;
     }
 
     internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)

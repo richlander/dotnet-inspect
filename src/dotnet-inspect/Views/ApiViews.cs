@@ -49,6 +49,13 @@ public class ApiTypeView
     [MarkoutPropertyName("Samples")]
     public string? SamplesInfo { get; set; }
 
+    // Member stats (quiet verbosity only)
+    [MarkoutSkipNull] public int? Constructors { get; set; }
+    [MarkoutSkipNull] public int? Fields { get; set; }
+    [MarkoutSkipNull] public int? Properties { get; set; }
+    [MarkoutSkipNull] public int? Methods { get; set; }
+    [MarkoutSkipNull] public int? Events { get; set; }
+
     /// <summary>
     /// Enum values without Description column (default).
     /// </summary>
