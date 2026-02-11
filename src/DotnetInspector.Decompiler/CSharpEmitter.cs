@@ -1,0 +1,1655 @@
+using System.Reflection.Metadata;
+using System.Text;
+
+namespace DotnetInspector.Decompiler;
+
+/// <summary>
+/// Emits C# source code from the ILAst representation. Maps IL opcodes to
+/// C# operators, method calls, field access, casts, and control flow constructs.
+/// </summary>
+public static class CSharpEmitter
+{
+    /// <summary>
+    /// Emit C# source for a method.
+    /// </summary>
+    public static string Emit(MethodBodyContext context)
+    {
+        var cfg = ControlFlowGraph.Create(context);
+        var simResult = StackSimulator.Simulate(context, cfg);
+        var ast = ILAstBuilder.Build(context, cfg, simResult);
+        var structure = StructuredControlFlow.Analyze(context, cfg);
+        return Emit(ast, structure, context.Reader, context.HasThis);
+    }
+
+    /// <summary>
+    /// Emit C# source from pre-computed ILAst and control flow structure.
+    /// </summary>
+    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false)
+    {
+        var sb = new StringBuilder();
+        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis);
+        emitter.EmitMethod();
+        return sb.ToString();
+    }
+
+    sealed class EmitterContext
+    {
+        readonly ILAstMethod _ast;
+        readonly StructuredControlFlow _structure;
+        readonly StringBuilder _sb;
+        readonly MetadataReader? _reader;
+        readonly bool _hasThis;
+
+        // Map block index → ILAstBlock for quick lookup
+        readonly Dictionary<int, ILAstBlock> _blockMap;
+
+        // Blocks consumed by structured constructs (don't emit separately)
+        readonly HashSet<int> _consumedBlocks;
+
+        // Current block nodes being emitted (for dup resolution)
+        List<ILAstNode>? _currentBlockNodes;
+
+        // When emitting inside a null-conditional pattern, the receiver expression string
+        string? _nullConditionalReceiver;
+
+        // Set of IL offsets that are goto targets — blocks at these offsets need labels
+        readonly HashSet<string> _gotoTargets;
+
+        // Labels already emitted (avoid duplicates for shared blocks)
+        readonly HashSet<string> _emittedLabels;
+
+        // Catch handler statements to suppress (blockIndex, nodeIndex) — already emitted in catch clause
+        readonly HashSet<(int blockIndex, int nodeIndex)> _catchVariableStatements;
+
+        // Map block index → IL start offset (for emitting labels)
+        readonly Dictionary<int, int> _blockStartOffset;
+
+        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false)
+        {
+            _ast = ast;
+            _structure = structure;
+            _sb = sb;
+            _reader = reader;
+            _hasThis = hasThis;
+
+            _blockMap = [];
+            for (int i = 0; i < ast.Blocks.Count; i++)
+                _blockMap[i] = ast.Blocks[i];
+
+            _consumedBlocks = [];
+
+            // Build block start offset map from block's IL offset
+            _blockStartOffset = [];
+            for (int i = 0; i < ast.Blocks.Count; i++)
+                _blockStartOffset[i] = ast.Blocks[i].Offset;
+
+            // Collect all goto targets from branch operands
+            _gotoTargets = CollectGotoTargets(ast);
+            _emittedLabels = [];
+            _catchVariableStatements = [];
+        }
+
+        static HashSet<string> CollectGotoTargets(ILAstMethod ast)
+        {
+            HashSet<string> targets = [];
+            foreach (var block in ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (node is ILAstStatement { Expression: var expr })
+                        CollectTargetsFromExpr(expr, targets);
+                }
+            }
+            return targets;
+        }
+
+        static void CollectTargetsFromExpr(ILAstExpression expr, HashSet<string> targets)
+        {
+            if (expr.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                or ILOpCode.Beq or ILOpCode.Beq_s or ILOpCode.Bne_un or ILOpCode.Bne_un_s
+                or ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bgt or ILOpCode.Bgt_s
+                or ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s
+                or ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s
+                or ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s
+                or ILOpCode.Leave or ILOpCode.Leave_s)
+            {
+                if (expr.Operand is string target)
+                    targets.Add(target);
+            }
+        }
+
+        public void EmitMethod()
+        {
+            // Emit local variable declarations
+            if (_ast.Locals.Count > 0)
+            {
+                foreach (var local in _ast.Locals)
+                {
+                    string typeName = SimplifyTypeName(local.TypeName ?? "var");
+                    _sb.AppendLine($"{typeName} {local.Name};");
+                }
+                _sb.AppendLine();
+            }
+
+            // Emit the structured body
+            EmitStructuredBlock(_structure.Root, 0);
+
+            // Ensure the method ends with a return if the last block has one.
+            // Shared return blocks may be consumed by an IfThenElse else branch
+            // but still need to appear at method end for other paths.
+            EnsureTrailingReturn();
+        }
+
+        void EnsureTrailingReturn()
+        {
+            int lastBlockIdx = _ast.Blocks.Count - 1;
+            if (lastBlockIdx < 0 || !_blockMap.TryGetValue(lastBlockIdx, out var lastBlock))
+                return;
+
+            // Only applies if the block has a return statement
+            bool hasReturn = lastBlock.Nodes.Any(n =>
+                n is ILAstStatement { Expression.OpCode: ILOpCode.Ret });
+            if (!hasReturn) return;
+
+            // Check if the last emitted line already ends with a return
+            string output = _sb.ToString().TrimEnd();
+            if (output.EndsWith("return;") || output.EndsWith(';') &&
+                output.LastIndexOf('\n') is int nl && nl >= 0 &&
+                output[(nl + 1)..].TrimStart().StartsWith("return "))
+                return;
+
+            // Emit the return block — it may have been consumed by an IfThenElse
+            // but is also needed at method end for other paths (shared return blocks)
+            EmitBasicBlock(lastBlockIdx, 0);
+        }
+
+        void EmitStructuredBlock(StructuredBlock block, int indent)
+        {
+            switch (block.Kind)
+            {
+                case StructuredBlockKind.Sequence:
+                    foreach (var child in block.Children)
+                        EmitStructuredBlock(child, indent);
+                    break;
+
+                case StructuredBlockKind.BasicBlock:
+                    EmitBasicBlock(block.BlockIndex, indent);
+                    break;
+
+                case StructuredBlockKind.IfThenElse:
+                    EmitIfThenElse(block, indent);
+                    break;
+
+                case StructuredBlockKind.Loop:
+                    EmitLoop(block, indent);
+                    break;
+
+                case StructuredBlockKind.TryCatchFinally:
+                    EmitTryCatchFinally(block, indent);
+                    break;
+
+                case StructuredBlockKind.Switch:
+                    EmitSwitch(block, indent);
+                    break;
+            }
+        }
+
+        void EmitBasicBlock(int blockIndex, int indent)
+        {
+            if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
+                return;
+
+            _consumedBlocks.Add(blockIndex);
+            _currentBlockNodes = astBlock.Nodes;
+
+            // Emit IL offset label if this block is a goto target
+            TryEmitLabel(blockIndex);
+
+            for (int nodeIdx = 0; nodeIdx < astBlock.Nodes.Count; nodeIdx++)
+            {
+                if (_catchVariableStatements.Contains((blockIndex, nodeIdx)))
+                    continue;
+
+                var node = astBlock.Nodes[nodeIdx];
+                switch (node)
+                {
+                    case ILAstAssignment assign:
+                        WriteIndent(indent);
+                        string assignType = SimplifyTypeName(assign.Variable.TypeName ?? "var");
+                        _sb.Append($"{assign.Variable.Name} = ");
+                        EmitExpression(assign.Value);
+                        _sb.AppendLine(";");
+                        break;
+
+                    case ILAstStatement stmt:
+                        EmitStatement(stmt.Expression, indent);
+                        break;
+                }
+            }
+
+            _currentBlockNodes = null;
+        }
+
+        void EmitIfThenElse(StructuredBlock block, int indent)
+        {
+            // The condition block's last expression is the branch condition
+            string condition = "/* condition */";
+            ILAstExpression? branchExpression = null;
+            if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
+            {
+                _currentBlockNodes = condBlock.Nodes;
+
+                // Emit IL label if this condition block is a goto target
+                TryEmitLabel(block.ConditionBlockIndex);
+
+                // Emit any statements before the branch
+                for (int i = 0; i < condBlock.Nodes.Count - 1; i++)
+                {
+                    if (condBlock.Nodes[i] is ILAstStatement stmt)
+                        EmitStatement(stmt.Expression, indent);
+                    else if (condBlock.Nodes[i] is ILAstAssignment assign)
+                    {
+                        WriteIndent(indent);
+                        _sb.Append($"{assign.Variable.Name} = ");
+                        EmitExpression(assign.Value);
+                        _sb.AppendLine(";");
+                    }
+                }
+
+                // Extract condition from the last node (branch)
+                var lastNode = condBlock.Nodes.LastOrDefault();
+                if (lastNode is ILAstStatement branchStmt)
+                {
+                    branchExpression = branchStmt.Expression;
+                    condition = ExpressionToString(ExtractCondition(branchExpression));
+                }
+            }
+
+            // Detect null-conditional pattern: brtrue with dup + trivial else (pop + br.s)
+            if (branchExpression is not null && IsNullConditionalPattern(branchExpression, block))
+            {
+                EmitNullConditional(branchExpression, block, indent);
+                return;
+            }
+
+            // Apply negation if the conditional detector swapped then/else
+            if (block.NegateCondition)
+                condition = NegateConditionString(condition);
+
+            WriteIndent(indent);
+            _sb.AppendLine($"if ({condition})");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+            if (block.ThenBlock is not null)
+                EmitStructuredBlock(block.ThenBlock, indent + 1);
+            WriteIndent(indent);
+            _sb.AppendLine("}");
+
+            if (block.ElseBlock is not null)
+            {
+                // If the then block ends with throw/return, skip the else wrapper
+                // (guard clause pattern — the else body just falls through)
+                if (BlockEndsWithNoFallthrough(block.ThenBlock))
+                {
+                    EmitStructuredBlock(block.ElseBlock, indent);
+                }
+                else
+                {
+                    WriteIndent(indent);
+                    _sb.AppendLine("else");
+                    WriteIndent(indent);
+                    _sb.AppendLine("{");
+                    EmitStructuredBlock(block.ElseBlock, indent + 1);
+                    WriteIndent(indent);
+                    _sb.AppendLine("}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Detect the null-conditional pattern: dup + brtrue where else is just pop + br.s.
+        /// Pattern: obj.field → dup → brtrue(then) / pop+br(else) → then: S_in_0.Method()
+        /// </summary>
+        bool IsNullConditionalPattern(ILAstExpression branchExpr, StructuredBlock block)
+        {
+            // Must be brtrue (non-null takes the branch)
+            if (branchExpr.OpCode is not (ILOpCode.Brtrue or ILOpCode.Brtrue_s))
+                return false;
+
+            // The branch argument must be a dup (or contain one)
+            if (branchExpr.Arguments.Count != 1)
+                return false;
+            var arg = branchExpr.Arguments[0];
+            if (arg.OpCode != ILOpCode.Dup)
+                return false;
+
+            // Else block must be trivial: pop (+ optional br.s)
+            if (block.ElseBlock is null)
+                return false;
+            int elseIdx = block.ElseBlock.Kind == StructuredBlockKind.BasicBlock
+                ? block.ElseBlock.BlockIndex
+                : -1;
+            if (elseIdx < 0 || !_blockMap.TryGetValue(elseIdx, out var elseAstBlock))
+                return false;
+
+            // Check the else block is just pop/br operations
+            foreach (var node in elseAstBlock.Nodes)
+            {
+                if (node is ILAstStatement stmt)
+                {
+                    var op = stmt.Expression.OpCode;
+                    if (op is not (ILOpCode.Pop or ILOpCode.Br or ILOpCode.Br_s))
+                        return false;
+                }
+                else return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Emit a null-conditional expression: receiver?.Method()
+        /// </summary>
+        void EmitNullConditional(ILAstExpression branchExpr, StructuredBlock block, int indent)
+        {
+            // Extract the receiver from the dup argument
+            var dupExpr = branchExpr.Arguments[0];
+            string receiver = dupExpr.Arguments.Count > 0
+                ? ExpressionToString(dupExpr.Arguments[0])
+                : "/* dup */";
+
+            // Set the null-conditional receiver so S_in_0 resolves to it
+            _nullConditionalReceiver = receiver;
+
+            // Emit the then block content (the non-null path)
+            if (block.ThenBlock is not null)
+                EmitStructuredBlock(block.ThenBlock, indent);
+
+            _nullConditionalReceiver = null;
+        }
+
+        void EmitLoop(StructuredBlock block, int indent)
+        {
+            // Emit loop body blocks sequentially with IL offset labels.
+            // The loop's back-edge is a conditional goto that naturally appears
+            // as "if (cond) goto IL_XXXX;" — no while(true) wrapper needed.
+            foreach (var child in block.Children)
+                EmitStructuredBlock(child, indent);
+        }
+
+        void EmitTryCatchFinally(StructuredBlock block, int indent)
+        {
+            if (block.ExceptionRegion is not { } region) return;
+
+            WriteIndent(indent);
+            _sb.AppendLine("try");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+
+            // Emit all try body blocks
+            if (block.TryChildren.Count > 0)
+            {
+                foreach (var child in block.TryChildren)
+                    EmitStructuredBlock(child, indent + 1);
+            }
+            else
+            {
+                EmitBasicBlock(block.BlockIndex, indent + 1);
+            }
+
+            WriteIndent(indent);
+            _sb.AppendLine("}");
+
+            if (region.Kind == ExceptionRegionKind.Catch)
+            {
+                string exType = "Exception";
+                if (!region.CatchType.IsNil && _reader is not null)
+                {
+                    var resolved = Metadata.TypeResolver.GetTypeName(
+                        _reader, region.CatchType);
+                    if (resolved is not null)
+                        exType = SimplifyTypeName(resolved);
+                }
+
+                // Check if the first handler statement stores the exception to a local (stloc = S_in_0)
+                string? catchVarName = TryExtractCatchVariable(block);
+
+                WriteIndent(indent);
+                // catch(System.Object) = bare catch in C#
+                if (exType is "object" or "System.Object")
+                    _sb.AppendLine("catch");
+                else if (catchVarName is not null)
+                    _sb.AppendLine($"catch ({exType} {catchVarName})");
+                else
+                    _sb.AppendLine($"catch ({exType})");
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+                if (block.HandlerChildren.Count > 0)
+                {
+                    foreach (var child in block.HandlerChildren)
+                        EmitStructuredBlock(child, indent + 1);
+                }
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+            else if (region.Kind == ExceptionRegionKind.Finally)
+            {
+                WriteIndent(indent);
+                _sb.AppendLine("finally");
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+                if (block.HandlerChildren.Count > 0)
+                {
+                    foreach (var child in block.HandlerChildren)
+                        EmitStructuredBlock(child, indent + 1);
+                }
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+        }
+
+        void EmitSwitch(StructuredBlock block, int indent)
+        {
+            WriteIndent(indent);
+            _sb.AppendLine("switch (/* value */)");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+            WriteIndent(indent + 1);
+            _sb.AppendLine("// cases");
+            WriteIndent(indent);
+            _sb.AppendLine("}");
+        }
+
+        // --- Expression emission ---
+
+        void EmitStatement(ILAstExpression expr, int indent)
+        {
+            switch (expr.OpCode)
+            {
+                case ILOpCode.Ret:
+                    WriteIndent(indent);
+                    if (expr.Arguments.Count > 0)
+                    {
+                        _sb.Append("return ");
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.AppendLine(";");
+                    }
+                    else
+                    {
+                        _sb.AppendLine("return;");
+                    }
+                    break;
+
+                case ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 or
+                     ILOpCode.Stloc_s or ILOpCode.Stloc:
+                {
+                    string varName = expr.Operand ?? GetLocalName(expr.OpCode);
+                    WriteIndent(indent);
+                    _sb.Append($"{varName} = ");
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    else
+                        _sb.Append("/* value */");
+                    _sb.AppendLine(";");
+                    break;
+                }
+
+                case ILOpCode.Stfld or ILOpCode.Stsfld:
+                {
+                    WriteIndent(indent);
+                    if (expr.OpCode == ILOpCode.Stfld && expr.Arguments.Count >= 2)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append($".{ExtractMemberName(expr.Operand)} = ");
+                        EmitExpression(expr.Arguments[1]);
+                    }
+                    else if (expr.OpCode == ILOpCode.Stsfld && expr.Arguments.Count >= 1)
+                    {
+                        _sb.Append($"{expr.Operand} = ");
+                        EmitExpression(expr.Arguments[0]);
+                    }
+                    else
+                    {
+                        _sb.Append($"{expr.Operand} = /* value */");
+                    }
+                    _sb.AppendLine(";");
+                    break;
+                }
+
+                // Array element store: array[index] = value;
+                case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
+                     ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
+                     ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref:
+                {
+                    WriteIndent(indent);
+                    if (expr.Arguments.Count >= 3)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append("] = ");
+                        EmitExpression(expr.Arguments[2]);
+                    }
+                    else
+                    {
+                        _sb.Append("/* stelem */");
+                    }
+                    _sb.AppendLine(";");
+                    break;
+                }
+
+                case ILOpCode.Call or ILOpCode.Callvirt:
+                    WriteIndent(indent);
+                    EmitCallExpression(expr);
+                    _sb.AppendLine(";");
+                    break;
+
+                case ILOpCode.Throw:
+                    WriteIndent(indent);
+                    _sb.Append("throw ");
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    _sb.AppendLine(";");
+                    break;
+
+                case ILOpCode.Rethrow:
+                    WriteIndent(indent);
+                    _sb.AppendLine("throw;");
+                    break;
+
+                case ILOpCode.Starg_s or ILOpCode.Starg:
+                    WriteIndent(indent);
+                    _sb.Append($"{RemapArg(expr.Operand, expr.OpCode)} = ");
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    _sb.AppendLine(";");
+                    break;
+
+                case ILOpCode.Initobj:
+                    WriteIndent(indent);
+                    if (expr.Arguments.Count > 0)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.AppendLine($" = default({SimplifyTypeName(expr.Operand ?? "?")});");
+                    }
+                    else
+                    {
+                        _sb.AppendLine($"/* initobj {SimplifyTypeName(expr.Operand ?? "?")} */");
+                    }
+                    break;
+
+                // Indirect stores: *addr = value
+                case ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2 or
+                     ILOpCode.Stind_i4 or ILOpCode.Stind_i8 or
+                     ILOpCode.Stind_r4 or ILOpCode.Stind_r8 or ILOpCode.Stind_ref or
+                     ILOpCode.Stobj:
+                    WriteIndent(indent);
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append(" = ");
+                        EmitExpression(expr.Arguments[1]);
+                    }
+                    _sb.AppendLine(";");
+                    break;
+
+                case ILOpCode.Pop:
+                    // Suppress pop of catch handler exception (S_in_0)
+                    if (expr.Arguments.Count > 0
+                        && expr.Arguments[0].Operand is string popOp
+                        && popOp.StartsWith("S_in_", StringComparison.Ordinal))
+                        break;
+                    // Typically a discarded expression — emit as expression statement
+                    if (expr.Arguments.Count > 0)
+                    {
+                        WriteIndent(indent);
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.AppendLine(";");
+                    }
+                    break;
+
+                // Branches become comments in the initial output
+                case ILOpCode.Br or ILOpCode.Br_s:
+                    WriteIndent(indent);
+                    _sb.AppendLine($"goto {expr.Operand};");
+                    break;
+
+                case ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s:
+                case ILOpCode.Beq or ILOpCode.Beq_s or ILOpCode.Bne_un or ILOpCode.Bne_un_s:
+                case ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bgt or ILOpCode.Bgt_s:
+                case ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s:
+                case ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
+                case ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                    // Conditional branches — when not consumed by structuring
+                    WriteIndent(indent);
+                    _sb.Append($"if (");
+                    EmitBranchCondition(expr);
+                    _sb.AppendLine($") goto {expr.Operand};");
+                    break;
+
+                case ILOpCode.Leave or ILOpCode.Leave_s:
+                    // leave exits a try/catch block — emit goto if target is a labeled block
+                    if (expr.Operand is string leaveTarget && _gotoTargets.Contains(leaveTarget))
+                    {
+                        WriteIndent(indent);
+                        _sb.AppendLine($"goto {leaveTarget};");
+                    }
+                    break;
+
+                case ILOpCode.Endfinally:
+                    break;
+
+                default:
+                    WriteIndent(indent);
+                    _sb.Append("/* ");
+                    expr.WriteTo(_sb, 0);
+                    _sb.AppendLine(" */");
+                    break;
+            }
+        }
+
+        void EmitExpression(ILAstExpression expr)
+        {
+            switch (expr.OpCode)
+            {
+                // Constants
+                case ILOpCode.Ldc_i4_m1: _sb.Append("-1"); break;
+                case ILOpCode.Ldc_i4_0: _sb.Append('0'); break;
+                case ILOpCode.Ldc_i4_1: _sb.Append('1'); break;
+                case ILOpCode.Ldc_i4_2: _sb.Append('2'); break;
+                case ILOpCode.Ldc_i4_3: _sb.Append('3'); break;
+                case ILOpCode.Ldc_i4_4: _sb.Append('4'); break;
+                case ILOpCode.Ldc_i4_5: _sb.Append('5'); break;
+                case ILOpCode.Ldc_i4_6: _sb.Append('6'); break;
+                case ILOpCode.Ldc_i4_7: _sb.Append('7'); break;
+                case ILOpCode.Ldc_i4_8: _sb.Append('8'); break;
+                case ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4:
+                    _sb.Append(expr.Operand ?? "0");
+                    break;
+                case ILOpCode.Ldc_i8:
+                    _sb.Append($"{expr.Operand ?? "0"}L");
+                    break;
+                case ILOpCode.Ldc_r4:
+                    _sb.Append($"{expr.Operand ?? "0"}f");
+                    break;
+                case ILOpCode.Ldc_r8:
+                    _sb.Append(expr.Operand ?? "0.0");
+                    break;
+                case ILOpCode.Ldnull:
+                    _sb.Append("null");
+                    break;
+                case ILOpCode.Ldstr:
+                    _sb.Append(expr.Operand ?? "\"\"");
+                    break;
+
+                // Argument/local loads
+                case ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3 or
+                     ILOpCode.Ldarg_s or ILOpCode.Ldarg:
+                    _sb.Append(RemapArg(expr.Operand, expr.OpCode));
+                    break;
+                case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3 or
+                     ILOpCode.Ldloc_s or ILOpCode.Ldloc:
+                    _sb.Append(expr.Operand ?? GetLocalName(expr.OpCode));
+                    break;
+
+                // Binary arithmetic/logic operators
+                case ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un:
+                    EmitBinary(expr, "+"); break;
+                case ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un:
+                    EmitBinary(expr, "-"); break;
+                case ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un:
+                    EmitBinary(expr, "*"); break;
+                case ILOpCode.Div or ILOpCode.Div_un:
+                    EmitBinary(expr, "/"); break;
+                case ILOpCode.Rem or ILOpCode.Rem_un:
+                    EmitBinary(expr, "%"); break;
+                case ILOpCode.And: EmitBinary(expr, "&"); break;
+                case ILOpCode.Or: EmitBinary(expr, "|"); break;
+                case ILOpCode.Xor: EmitBinary(expr, "^"); break;
+                case ILOpCode.Shl: EmitBinary(expr, "<<"); break;
+                case ILOpCode.Shr or ILOpCode.Shr_un:
+                    EmitBinary(expr, ">>"); break;
+
+                // Comparison operators
+                case ILOpCode.Ceq: EmitBinary(expr, expr.Operand ?? "=="); break;
+                case ILOpCode.Cgt or ILOpCode.Cgt_un: EmitBinary(expr, ">"); break;
+                case ILOpCode.Clt or ILOpCode.Clt_un: EmitBinary(expr, "<"); break;
+
+                // Unary operators
+                case ILOpCode.Neg:
+                    _sb.Append('-');
+                    EmitParenthesized(expr, 0);
+                    break;
+                case ILOpCode.Not:
+                    _sb.Append('~');
+                    EmitParenthesized(expr, 0);
+                    break;
+
+                // Conversions
+                case ILOpCode.Conv_i1 or ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i1_un:
+                    EmitCast(expr, "sbyte"); break;
+                case ILOpCode.Conv_u1 or ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u1_un:
+                    EmitCast(expr, "byte"); break;
+                case ILOpCode.Conv_i2 or ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i2_un:
+                    EmitCast(expr, "short"); break;
+                case ILOpCode.Conv_u2 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
+                    EmitCast(expr, "char"); break;
+                case ILOpCode.Conv_i4 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i4_un:
+                    EmitCast(expr, "int"); break;
+                case ILOpCode.Conv_u4 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u4_un:
+                    EmitCast(expr, "uint"); break;
+                case ILOpCode.Conv_i8 or ILOpCode.Conv_ovf_i8 or ILOpCode.Conv_ovf_i8_un:
+                    EmitCast(expr, "long"); break;
+                case ILOpCode.Conv_u8 or ILOpCode.Conv_ovf_u8 or ILOpCode.Conv_ovf_u8_un:
+                    EmitCast(expr, "ulong"); break;
+                case ILOpCode.Conv_r4: EmitCast(expr, "float"); break;
+                case ILOpCode.Conv_r8 or ILOpCode.Conv_r_un: EmitCast(expr, "double"); break;
+                case ILOpCode.Conv_i or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_i_un:
+                    EmitCast(expr, "nint"); break;
+                case ILOpCode.Conv_u or ILOpCode.Conv_ovf_u or ILOpCode.Conv_ovf_u_un:
+                    EmitCast(expr, "nuint"); break;
+
+                // Type casts
+                case ILOpCode.Castclass:
+                    _sb.Append($"({SimplifyTypeName(expr.Operand ?? "object")})");
+                    EmitParenthesized(expr, 0);
+                    break;
+                case ILOpCode.Isinst:
+                    EmitParenthesized(expr, 0);
+                    _sb.Append($" as {SimplifyTypeName(expr.Operand ?? "object")}");
+                    break;
+
+                // Object creation
+                case ILOpCode.Newobj:
+                {
+                    string typeName = ExtractTypeName(expr.Operand);
+                    _sb.Append($"new {SimplifyTypeName(typeName)}(");
+                    // Skip 'this' argument (first arg for instance constructor)
+                    for (int i = 0; i < expr.Arguments.Count; i++)
+                    {
+                        if (i > 0) _sb.Append(", ");
+                        EmitExpression(expr.Arguments[i]);
+                    }
+                    _sb.Append(')');
+                    break;
+                }
+
+                case ILOpCode.Newarr:
+                    _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[");
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    _sb.Append(']');
+                    break;
+
+                // Field access
+                case ILOpCode.Ldfld:
+                    if (expr.Arguments.Count > 0)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('.');
+                    }
+                    _sb.Append(ExtractMemberName(expr.Operand));
+                    break;
+                case ILOpCode.Ldsfld:
+                    _sb.Append(expr.Operand ?? "/* field */");
+                    break;
+
+                // Method calls
+                case ILOpCode.Call or ILOpCode.Callvirt:
+                    EmitCallExpression(expr);
+                    break;
+
+                // Indirect loads: *addr → value (pass through address expression)
+                case ILOpCode.Ldind_i or ILOpCode.Ldind_i1 or ILOpCode.Ldind_i2 or
+                     ILOpCode.Ldind_i4 or ILOpCode.Ldind_i8 or
+                     ILOpCode.Ldind_u1 or ILOpCode.Ldind_u2 or ILOpCode.Ldind_u4 or
+                     ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref or
+                     ILOpCode.Ldobj:
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    break;
+
+                // Boxing
+                case ILOpCode.Box:
+                    EmitParenthesized(expr, 0);
+                    _sb.Append($" /* box {SimplifyTypeName(expr.Operand ?? "?")} */");
+                    break;
+                case ILOpCode.Unbox_any:
+                    _sb.Append($"({SimplifyTypeName(expr.Operand ?? "object")})");
+                    EmitParenthesized(expr, 0);
+                    break;
+
+                // Array operations
+                case ILOpCode.Ldlen:
+                    EmitParenthesized(expr, 0);
+                    _sb.Append(".Length");
+                    break;
+                case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or
+                     ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or
+                     ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref or
+                     ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4:
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(']');
+                    }
+                    break;
+                case ILOpCode.Ldelema:
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        _sb.Append("ref ");
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(']');
+                    }
+                    break;
+
+                // Dup (pass through, or reconstruct from preceding expression in block)
+                case ILOpCode.Dup:
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    else if (_currentBlockNodes is not null)
+                    {
+                        // Find the preceding expression that produced the dup'd value
+                        var preceding = FindPrecedingValue(_currentBlockNodes, expr);
+                        if (preceding is not null)
+                            EmitExpression(preceding);
+                        else
+                            _sb.Append("/* dup */");
+                    }
+                    else
+                        _sb.Append("/* dup */");
+                    break;
+
+                // Address operations
+                case ILOpCode.Ldarga_s or ILOpCode.Ldarga:
+                    _sb.Append($"ref {RemapArg(expr.Operand, expr.OpCode)}");
+                    break;
+                case ILOpCode.Ldloca_s or ILOpCode.Ldloca:
+                    _sb.Append($"{expr.Operand}");
+                    break;
+                case ILOpCode.Ldflda:
+                    if (expr.Arguments.Count > 0)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('.');
+                    }
+                    _sb.Append(ExtractMemberName(expr.Operand));
+                    break;
+
+                case ILOpCode.Sizeof:
+                    _sb.Append($"sizeof({SimplifyTypeName(expr.Operand ?? "?")})");
+                    break;
+
+                case ILOpCode.Ldtoken:
+                    _sb.Append($"typeof({SimplifyTypeName(expr.Operand ?? "?")})");
+                    break;
+
+                // Function pointer (delegate creation pattern)
+                case ILOpCode.Ldftn:
+                    if (expr.Operand is not null)
+                    {
+                        int ci = expr.Operand.IndexOf("::", StringComparison.Ordinal);
+                        _sb.Append(ci >= 0 ? expr.Operand[(ci + 2)..] : expr.Operand);
+                    }
+                    break;
+                case ILOpCode.Ldvirtftn:
+                    if (expr.Arguments.Count > 0 && expr.Operand is not null)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        int ci = expr.Operand.IndexOf("::", StringComparison.Ordinal);
+                        _sb.Append($".{(ci >= 0 ? expr.Operand[(ci + 2)..] : expr.Operand)}");
+                    }
+                    break;
+
+                case ILOpCode.Localloc:
+                    _sb.Append("stackalloc byte[");
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
+                    _sb.Append(']');
+                    break;
+
+                // Block-entry stack values (synthetic ldloc for cross-block values)
+                case ILOpCode.Nop when expr.Operand is not null:
+                    if (_nullConditionalReceiver is not null
+                        && expr.Operand.StartsWith("S_in_", StringComparison.Ordinal))
+                        _sb.Append(_nullConditionalReceiver);
+                    else
+                        _sb.Append(expr.Operand);
+                    break;
+
+                default:
+                    _sb.Append("/* ");
+                    expr.WriteTo(_sb, 0);
+                    _sb.Append(" */");
+                    break;
+            }
+        }
+
+        void EmitCallArgument(ILAstExpression arg)
+        {
+            if (arg.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca
+                or ILOpCode.Ldarga_s or ILOpCode.Ldarga)
+                _sb.Append("ref ");
+            EmitExpression(arg);
+        }
+
+        void EmitCallExpression(ILAstExpression expr)
+        {
+            string? methodName = expr.Operand;
+            if (methodName is null)
+            {
+                _sb.Append("/* call */");
+                return;
+            }
+
+            // Parse "TypeName::MethodName()" format
+            string typePart = "";
+            string memberPart = methodName;
+            int colonIdx = methodName.IndexOf("::", StringComparison.Ordinal);
+            if (colonIdx >= 0)
+            {
+                typePart = methodName[..colonIdx];
+                memberPart = methodName[(colonIdx + 2)..].TrimEnd('(', ')');
+            }
+
+            // Base/chaining constructor call: this..ctor() → /* base..ctor() */
+            if (memberPart == ".ctor" && !expr.IsStaticCall && expr.Arguments.Count > 0
+                && expr.Arguments[0].OpCode is ILOpCode.Ldarg_0)
+            {
+                _sb.Append($"/* base({SimplifyTypeName(typePart)}) */");
+                return;
+            }
+
+            bool isStatic = expr.IsStaticCall;
+
+            if (isStatic && typePart.Length > 0)
+            {
+                // Static property getter sugar: Type.get_XXX() → Type.XXX
+                if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 0)
+                {
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]}");
+                }
+                // Static property setter sugar: Type.set_XXX(value) → Type.XXX = value
+                else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
+                {
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]} = ");
+                    EmitCallArgument(expr.Arguments[0]);
+                }
+                // Operator sugar: op_Equality → ==, op_Inequality → !=, etc.
+                else if (memberPart.StartsWith("op_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
+                {
+                    string? opSymbol = memberPart switch
+                    {
+                        "op_Equality" => "==",
+                        "op_Inequality" => "!=",
+                        "op_GreaterThan" => ">",
+                        "op_LessThan" => "<",
+                        "op_GreaterThanOrEqual" => ">=",
+                        "op_LessThanOrEqual" => "<=",
+                        "op_Addition" => "+",
+                        "op_Subtraction" => "-",
+                        "op_Multiply" => "*",
+                        "op_Division" => "/",
+                        "op_Modulus" => "%",
+                        "op_BitwiseAnd" => "&",
+                        "op_BitwiseOr" => "|",
+                        "op_ExclusiveOr" => "^",
+                        "op_LeftShift" => "<<",
+                        "op_RightShift" => ">>",
+                        _ => null
+                    };
+                    if (opSymbol is not null)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append($" {opSymbol} ");
+                        EmitExpression(expr.Arguments[1]);
+                    }
+                    else
+                    {
+                        _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}(");
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append(", ");
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(')');
+                    }
+                }
+                else
+                {
+                    // Static call: TypeName.Method(args)
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}(");
+                    for (int i = 0; i < expr.Arguments.Count; i++)
+                    {
+                        if (i > 0) _sb.Append(", ");
+                        EmitCallArgument(expr.Arguments[i]);
+                    }
+                    _sb.Append(')');
+                }
+            }
+            else if (!isStatic && expr.Arguments.Count > 0)
+            {
+                // Instance call: receiver.Method(args) or receiver?.Method(args)
+                bool isNullConditionalCall = _nullConditionalReceiver is not null
+                    && expr.Arguments[0] is { OpCode: ILOpCode.Nop, Operand: { } op }
+                    && op.StartsWith("S_in_", StringComparison.Ordinal);
+                string dot = isNullConditionalCall ? "?." : ".";
+
+                // Indexer getter: get_Item(key) → [key]
+                if (memberPart == "get_Item" && expr.Arguments.Count == 2)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append('[');
+                    EmitCallArgument(expr.Arguments[1]);
+                    _sb.Append(']');
+                }
+                // Indexer setter: set_Item(key, value) → [key] = value
+                else if (memberPart == "set_Item" && expr.Arguments.Count == 3)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append('[');
+                    EmitCallArgument(expr.Arguments[1]);
+                    _sb.Append("] = ");
+                    EmitCallArgument(expr.Arguments[2]);
+                }
+                // Property getter sugar: get_XXX() → .XXX
+                else if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append($"{dot}{memberPart[4..]}");
+                }
+                // Property setter sugar: set_XXX(value) → .XXX = value
+                else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append($"{dot}{memberPart[4..]} = ");
+                    EmitCallArgument(expr.Arguments[1]);
+                }
+                else
+                {
+                    EmitExpression(expr.Arguments[0]);
+                    _sb.Append($"{dot}{memberPart}(");
+                    for (int i = 1; i < expr.Arguments.Count; i++)
+                    {
+                        if (i > 1) _sb.Append(", ");
+                        EmitCallArgument(expr.Arguments[i]);
+                    }
+                    _sb.Append(')');
+                }
+            }
+            else
+            {
+                // Fallback: no receiver or args
+                if (memberPart.StartsWith("get_", StringComparison.Ordinal))
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]}");
+                else
+                    _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}()");
+            }
+        }
+
+        void EmitBranchCondition(ILAstExpression expr)
+        {
+            switch (expr.OpCode)
+            {
+                case ILOpCode.Brfalse or ILOpCode.Brfalse_s:
+                    if (expr.Arguments.Count > 0)
+                    {
+                        var arg = expr.Arguments[0];
+
+                        // If the argument is a comparison call (op_Equality, ceq, etc.),
+                        // negate the comparison operator instead of prepending !
+                        if (TryEmitNegatedComparison(arg))
+                            break;
+
+                        // For object references, emit "expr == null" instead of "!expr"
+                        if (arg.ResultType.Kind is StackValueKind.ObjRef)
+                        {
+                            EmitExpression(arg);
+                            _sb.Append(" == null");
+                        }
+                        else if (IsNonBooleanNumeric(arg))
+                        {
+                            EmitExpression(arg);
+                            _sb.Append(" == 0");
+                        }
+                        else
+                        {
+                            // Boolean result — negate directly
+                            _sb.Append('!');
+                            EmitParenthesized(expr, 0);
+                        }
+                    }
+                    break;
+                case ILOpCode.Brtrue or ILOpCode.Brtrue_s:
+                    if (expr.Arguments.Count > 0)
+                    {
+                        var btArg = expr.Arguments[0];
+                        if (btArg.ResultType.Kind is StackValueKind.ObjRef)
+                        {
+                            EmitExpression(btArg);
+                            _sb.Append(" != null");
+                        }
+                        else if (IsNonBooleanNumeric(btArg))
+                        {
+                            EmitExpression(btArg);
+                            _sb.Append(" != 0");
+                        }
+                        else
+                        {
+                            EmitExpression(btArg);
+                        }
+                    }
+                    break;
+                case ILOpCode.Beq or ILOpCode.Beq_s:
+                    EmitBinaryCondition(expr, "=="); break;
+                case ILOpCode.Bne_un or ILOpCode.Bne_un_s:
+                    EmitBinaryCondition(expr, "!="); break;
+                case ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s:
+                    EmitBinaryCondition(expr, ">="); break;
+                case ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
+                    EmitBinaryCondition(expr, ">"); break;
+                case ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s:
+                    EmitBinaryCondition(expr, "<="); break;
+                case ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                    EmitBinaryCondition(expr, "<"); break;
+                default:
+                    EmitExpression(expr);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// For brfalse, try to negate the argument's comparison instead of prepending !.
+        /// E.g., op_Equality → op_Inequality, ceq → emit !=.
+        /// Returns true if it emitted the negated form.
+        /// </summary>
+        bool TryEmitNegatedComparison(ILAstExpression arg)
+        {
+            // Handle call to op_Equality → emit as !=
+            if (arg.OpCode is ILOpCode.Call or ILOpCode.Callvirt && arg.Operand is string operand)
+            {
+                if (operand.Contains("::op_Equality"))
+                {
+                    // Emit as arg0 != arg1 using the sugar path
+                    if (arg.Arguments.Count >= 2)
+                    {
+                        EmitExpression(arg.Arguments[0]);
+                        _sb.Append(" != ");
+                        EmitExpression(arg.Arguments[1]);
+                        return true;
+                    }
+                }
+            }
+
+            // Handle ceq → emit as !=
+            if (arg.OpCode is ILOpCode.Ceq && arg.Arguments.Count >= 2)
+            {
+                EmitExpression(arg.Arguments[0]);
+                _sb.Append(" != ");
+                EmitExpression(arg.Arguments[1]);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true if the expression produces a numeric (non-boolean) Int32 value.
+        /// Conservative: only returns true for known numeric patterns (lengths, counts, arithmetic).
+        /// </summary>
+        static bool IsNonBooleanNumeric(ILAstExpression expr)
+        {
+            if (expr.ResultType.Kind is not (StackValueKind.Int32 or StackValueKind.NativeInt))
+                return false;
+
+            // Comparison instructions produce boolean results
+            if (expr.OpCode is ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Clt
+                or ILOpCode.Cgt_un or ILOpCode.Clt_un)
+                return false;
+
+            // Arithmetic and conversion produce numeric results
+            if (expr.OpCode is ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div
+                or ILOpCode.Rem or ILOpCode.Conv_i4 or ILOpCode.Conv_i or ILOpCode.Conv_u4
+                or ILOpCode.Ldlen)
+                return true;
+
+            // Local/arg loads of Int32 are numeric when the source is known numeric
+            if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                or ILOpCode.Ldarg or ILOpCode.Ldarg_s
+                or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3)
+                return true;
+
+            // Properties named Count, Length, Size — known numeric
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt && expr.Operand is string opName)
+            {
+                var member = opName;
+                int sep = member.LastIndexOf("::", StringComparison.Ordinal);
+                if (sep >= 0) member = member[(sep + 2)..];
+
+                if (member.StartsWith("get_", StringComparison.Ordinal))
+                {
+                    var prop = member[4..];
+                    if (prop is "Count" or "Length" or "Size" or "Rank" or "Capacity")
+                        return true;
+                }
+            }
+
+            // Field loads of Int32 are numeric (e.g., state machine <>1__state)
+            if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld)
+                return true;
+
+            // Default: assume boolean (conservative — avoids false != 0)
+            return false;
+        }
+
+        void EmitBinaryCondition(ILAstExpression expr, string op)
+        {
+            if (expr.Arguments.Count >= 2)
+            {
+                EmitExpression(expr.Arguments[0]);
+                _sb.Append($" {op} ");
+                EmitExpression(expr.Arguments[1]);
+            }
+        }
+
+        // --- Helpers ---
+
+        void EmitBinary(ILAstExpression expr, string op)
+        {
+            if (expr.Arguments.Count >= 2)
+            {
+                EmitParenthesized(expr, 0);
+                _sb.Append($" {op} ");
+                EmitParenthesized(expr, 1);
+            }
+            else
+            {
+                _sb.Append($"/* {op} */");
+            }
+        }
+
+        void EmitParenthesized(ILAstExpression parent, int argIndex)
+        {
+            if (argIndex >= parent.Arguments.Count) return;
+            var arg = parent.Arguments[argIndex];
+            bool needsParens = NeedsParentheses(arg);
+            if (needsParens) _sb.Append('(');
+            EmitExpression(arg);
+            if (needsParens) _sb.Append(')');
+        }
+
+        void EmitCast(ILAstExpression expr, string typeName)
+        {
+            _sb.Append($"({typeName})");
+            EmitParenthesized(expr, 0);
+        }
+
+        void WriteIndent(int indent)
+        {
+            for (int i = 0; i < indent; i++)
+                _sb.Append("    ");
+        }
+
+        /// <summary>
+        /// Emit an IL offset label if this block is a goto target.
+        /// Labels are unindented (column 0) like C labels.
+        /// </summary>
+        void TryEmitLabel(int blockIndex)
+        {
+            if (_blockStartOffset.TryGetValue(blockIndex, out int startOffset))
+            {
+                string label = $"IL_{startOffset:X4}";
+                if (_gotoTargets.Contains(label) && _emittedLabels.Add(label))
+                    _sb.AppendLine($"{label}:");
+            }
+        }
+
+        /// <summary>
+        /// Find the value expression that a dup instruction duplicated by looking
+        /// at the preceding node in the same block. Returns the load/field expression
+        /// if found, or null.
+        /// </summary>
+        static ILAstExpression? FindPrecedingValue(List<ILAstNode> nodes, ILAstExpression dupExpr)
+        {
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var expr = nodes[i] switch
+                {
+                    ILAstStatement s => s.Expression,
+                    ILAstAssignment a => a.Value,
+                    _ => null
+                };
+
+                if (expr is null) continue;
+
+                // Look for the dup inside this expression's argument tree
+                if (ContainsDup(expr, dupExpr))
+                {
+                    // The preceding node's stored value is what was dup'd
+                    if (i > 0)
+                    {
+                        return nodes[i - 1] switch
+                        {
+                            ILAstAssignment prevAssign => new ILAstExpression
+                            {
+                                OpCode = ILOpCode.Ldloc_0,
+                                Operand = prevAssign.Variable.Name,
+                                ResultType = prevAssign.Value.ResultType,
+                                Offset = dupExpr.Offset
+                            },
+                            ILAstStatement prevStmt when prevStmt.Expression.OpCode is
+                                ILOpCode.Ldfld or ILOpCode.Ldsfld or
+                                ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3 or
+                                ILOpCode.Ldloc_s or ILOpCode.Ldloc or
+                                ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3 or
+                                ILOpCode.Ldarg_s or ILOpCode.Ldarg
+                                => prevStmt.Expression,
+                            _ => null
+                        };
+                    }
+                }
+
+                // Also check if this expression IS a branch with a dup argument
+                if (expr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                {
+                    if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Dup && expr.Arguments[0] == dupExpr)
+                    {
+                        // The dup's source is whatever was loaded before in this block
+                        for (int j = i - 1; j >= 0; j--)
+                        {
+                            if (nodes[j] is ILAstAssignment a)
+                            {
+                                return new ILAstExpression
+                                {
+                                    OpCode = ILOpCode.Ldloc_0,
+                                    Operand = a.Variable.Name,
+                                    ResultType = a.Value.ResultType,
+                                    Offset = dupExpr.Offset
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        static bool ContainsDup(ILAstExpression expr, ILAstExpression target)
+        {
+            if (ReferenceEquals(expr, target)) return true;
+            foreach (var arg in expr.Arguments)
+            {
+                if (ContainsDup(arg, target)) return true;
+            }
+            return false;
+        }
+
+        string ExpressionToString(ILAstExpression expr)
+        {
+            var sb = new StringBuilder();
+            var saved = _sb;
+            // Use a temp context with the new StringBuilder
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
+            tempCtx.EmitExpression(expr);
+            return sb.ToString();
+        }
+
+        static string NegateConditionString(string condition)
+        {
+            // Flip comparison operators if present
+            if (condition.Contains(" != "))
+                return condition.Replace(" != ", " == ");
+            if (condition.Contains(" == "))
+                return condition.Replace(" == ", " != ");
+            if (condition.Contains(" > ") && !condition.Contains(" >= "))
+                return condition.Replace(" > ", " <= ");
+            if (condition.Contains(" < ") && !condition.Contains(" <= "))
+                return condition.Replace(" < ", " >= ");
+            if (condition.Contains(" >= "))
+                return condition.Replace(" >= ", " < ");
+            if (condition.Contains(" <= "))
+                return condition.Replace(" <= ", " > ");
+
+            // Simple negation
+            if (condition.StartsWith("!(") && condition.EndsWith(')'))
+                return condition[2..^1];
+            if (condition.StartsWith('!'))
+                return condition[1..];
+            return $"!{condition}";
+        }
+
+        static ILAstExpression ExtractCondition(ILAstExpression branchExpr)
+        {
+            // For conditional branches, the condition is the arguments
+            if (branchExpr.Arguments.Count == 1)
+            {
+                var arg = branchExpr.Arguments[0];
+
+                // For brfalse/brtrue on reference types, emit explicit null comparison
+                bool isRefType = arg.ResultType.Kind is StackValueKind.ObjRef
+                    || (arg.ResultType.TypeName is not null && !IsPrimitiveType(arg.ResultType.TypeName));
+
+                if (isRefType && branchExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                {
+                    // The ConditionalDetector assigns then/else based on branch semantics,
+                    // so always emit != null (then = non-null path for both brtrue and brfalse)
+                    return new ILAstExpression
+                    {
+                        OpCode = ILOpCode.Ceq,
+                        ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
+                        Operand = "!=",
+                        Arguments =
+                        {
+                            arg,
+                            new ILAstExpression
+                            {
+                                OpCode = ILOpCode.Ldnull,
+                                ResultType = StackValue.CreateObjRef(null),
+                                Offset = arg.Offset
+                            }
+                        }
+                    };
+                }
+
+                // For non-boolean numeric types, emit explicit != 0
+                // The ConditionalDetector maps then=true-path, so always use != 0
+                if (IsNonBooleanNumeric(arg) && branchExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                {
+                    return new ILAstExpression
+                    {
+                        OpCode = ILOpCode.Ceq,
+                        ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
+                        Operand = "!=",
+                        Arguments =
+                        {
+                            arg,
+                            new ILAstExpression
+                            {
+                                OpCode = ILOpCode.Ldc_i4_0,
+                                Operand = "0",
+                                ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
+                                Offset = arg.Offset
+                            }
+                        }
+                    };
+                }
+
+                return arg;
+            }
+            if (branchExpr.Arguments.Count == 2)
+            {
+                // Binary comparison branch — reconstruct as comparison expression
+                return new ILAstExpression
+                {
+                    OpCode = branchExpr.OpCode switch
+                    {
+                        ILOpCode.Beq or ILOpCode.Beq_s => ILOpCode.Ceq,
+                        ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => ILOpCode.Cgt,
+                        ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s => ILOpCode.Clt,
+                        _ => ILOpCode.Ceq
+                    },
+                    ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
+                    Arguments = { branchExpr.Arguments[0], branchExpr.Arguments[1] }
+                };
+            }
+            return branchExpr;
+        }
+
+        static bool IsPrimitiveType(string typeName) => typeName is
+            "System.Boolean" or "bool" or "System.Byte" or "byte" or
+            "System.SByte" or "sbyte" or "System.Int16" or "short" or
+            "System.UInt16" or "ushort" or "System.Int32" or "int" or "Int32" or
+            "System.UInt32" or "uint" or "System.Int64" or "long" or
+            "System.UInt64" or "ulong" or "System.Single" or "float" or
+            "System.Double" or "double" or "System.Char" or "char" or
+            "System.IntPtr" or "nint" or "System.UIntPtr" or "nuint";
+
+        /// <summary>
+        /// Check if a structured block ends with a throw or return (no fall-through).
+        /// Used to detect guard clauses and suppress unnecessary else wrappers.
+        /// </summary>
+        bool BlockEndsWithNoFallthrough(StructuredBlock? block)
+        {
+            if (block is null) return false;
+
+            int idx = block.BlockIndex;
+            if (idx >= 0 && _blockMap.TryGetValue(idx, out var astBlock))
+            {
+                var lastNode = astBlock.Nodes.LastOrDefault();
+                if (lastNode is ILAstStatement stmt)
+                {
+                    return stmt.Expression.OpCode is ILOpCode.Throw or ILOpCode.Rethrow
+                        or ILOpCode.Ret;
+                }
+            }
+
+            // Check children recursively (e.g., sequence ending with throw)
+            if (block.Children.Count > 0)
+                return BlockEndsWithNoFallthrough(block.Children[^1]);
+
+            return false;
+        }
+
+        static bool NeedsParentheses(ILAstExpression expr) => expr.OpCode switch
+        {
+            ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or
+            ILOpCode.Rem or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor or
+            ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Ceq or ILOpCode.Cgt or
+            ILOpCode.Clt => true,
+            _ => false
+        };
+
+        string RemapArg(string? operand, ILOpCode opcode)
+        {
+            if (_hasThis && operand is not null && operand.StartsWith("P_")
+                && int.TryParse(operand.AsSpan(2), out int idx))
+            {
+                if (idx == 0) return "this";
+                return $"P_{idx - 1}";
+            }
+            return operand ?? GetArgName(opcode, _hasThis);
+        }
+
+        static string GetArgName(ILOpCode opcode, bool hasThis = false)
+        {
+            int idx = opcode switch
+            {
+                ILOpCode.Ldarg_0 => 0,
+                ILOpCode.Ldarg_1 => 1,
+                ILOpCode.Ldarg_2 => 2,
+                ILOpCode.Ldarg_3 => 3,
+                _ => -1
+            };
+            if (hasThis)
+            {
+                if (idx == 0) return "this";
+                idx--;
+            }
+            return idx >= 0 ? $"P_{idx}" : "arg";
+        }
+
+        static string GetLocalName(ILOpCode opcode) => opcode switch
+        {
+            ILOpCode.Ldloc_0 or ILOpCode.Stloc_0 => "V_0",
+            ILOpCode.Ldloc_1 or ILOpCode.Stloc_1 => "V_1",
+            ILOpCode.Ldloc_2 or ILOpCode.Stloc_2 => "V_2",
+            ILOpCode.Ldloc_3 or ILOpCode.Stloc_3 => "V_3",
+            _ => "loc"
+        };
+
+        static string ExtractTypeName(string? qualifiedName)
+        {
+            if (qualifiedName is null) return "object";
+            int colonIdx = qualifiedName.IndexOf("::", StringComparison.Ordinal);
+            return colonIdx >= 0 ? qualifiedName[..colonIdx] : qualifiedName;
+        }
+
+        /// <summary>
+        /// If the first handler statement is <c>stloc V_X = S_in_0</c>, returns the variable name
+        /// and marks the statement for suppression. This allows <c>catch (ExType V_X)</c> syntax.
+        /// </summary>
+        string? TryExtractCatchVariable(StructuredBlock block)
+        {
+            if (block.HandlerChildren.Count == 0) return null;
+            var firstChild = block.HandlerChildren[0];
+            if (firstChild.BlockIndex < 0 || !_blockMap.TryGetValue(firstChild.BlockIndex, out var astBlock))
+                return null;
+            if (astBlock.Nodes.Count == 0) return null;
+
+            // Look for stloc.s/stloc with S_in_0 as the value
+            if (astBlock.Nodes[0] is ILAstStatement { Expression: var expr }
+                && expr.OpCode is ILOpCode.Stloc_s or ILOpCode.Stloc
+                    or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                && expr.Arguments.Count == 1
+                && expr.Arguments[0].Operand is string op && op.StartsWith("S_in_", StringComparison.Ordinal))
+            {
+                _catchVariableStatements.Add((firstChild.BlockIndex, 0));
+                return expr.Operand;
+            }
+
+            return null;
+        }
+
+        static string ExtractMemberName(string? qualifiedName)
+        {
+            if (qualifiedName is null) return "member";
+            int colonIdx = qualifiedName.IndexOf("::", StringComparison.Ordinal);
+            if (colonIdx >= 0)
+            {
+                string name = qualifiedName[(colonIdx + 2)..];
+                return name.TrimEnd('(', ')');
+            }
+            return qualifiedName;
+        }
+
+        static string SimplifyTypeName(string typeName) => typeName switch
+        {
+            "System.Void" or "void" => "void",
+            "System.Boolean" or "bool" => "bool",
+            "System.Byte" or "byte" => "byte",
+            "System.SByte" or "sbyte" => "sbyte",
+            "System.Int16" or "short" => "short",
+            "System.UInt16" or "ushort" => "ushort",
+            "System.Int32" or "int" => "int",
+            "System.UInt32" or "uint" => "uint",
+            "System.Int64" or "long" => "long",
+            "System.UInt64" or "ulong" => "ulong",
+            "System.Single" or "float" => "float",
+            "System.Double" or "double" => "double",
+            "System.Decimal" or "decimal" => "decimal",
+            "System.Char" or "char" => "char",
+            "System.String" or "string" => "string",
+            "System.Object" or "object" => "object",
+            "System.IntPtr" or "nint" => "nint",
+            "System.UIntPtr" or "nuint" => "nuint",
+            _ => typeName
+        };
+    }
+}
