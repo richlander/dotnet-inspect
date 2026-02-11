@@ -484,9 +484,10 @@ public class PackageCommand
 
         if (group.Dependencies.Count == 0)
         {
-            Console.WriteLine($"# {result.PackageName} ({result.Version})");
-            Console.WriteLine();
-            Console.WriteLine($"No additional dependencies for {tfm}.");
+            var writer = new MarkoutWriter();
+            writer.WriteHeading(1, $"{result.PackageName} ({result.Version})");
+            writer.WriteParagraph($"No additional dependencies for {tfm}.");
+            Console.WriteLine(writer.ToString().TrimEnd());
             return 0;
         }
 

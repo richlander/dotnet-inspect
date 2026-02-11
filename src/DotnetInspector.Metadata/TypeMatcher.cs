@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 namespace DotnetInspector.Metadata;
@@ -18,6 +19,8 @@ public record MemberLookupResult(IReadOnlyList<string> Matches, IReadOnlyList<st
 /// </summary>
 public static class TypeMatcher
 {
+    private static readonly ConcurrentDictionary<string, Regex> _globCache = new();
+
     /// <summary>
     /// Checks if a candidate type matches a target pattern.
     /// Supports partial names, namespace-qualified names, and generic types.
@@ -181,10 +184,14 @@ public static class TypeMatcher
     /// </summary>
     public static bool MatchesGlob(string text, string pattern)
     {
-        var regexPattern = "^" + Regex.Escape(pattern)
-            .Replace("\\*", ".*")
-            .Replace("\\?", ".") + "$";
-        return Regex.IsMatch(text, regexPattern, RegexOptions.IgnoreCase);
+        var regex = _globCache.GetOrAdd(pattern, p =>
+        {
+            var regexPattern = "^" + Regex.Escape(p)
+                .Replace("\\*", ".*")
+                .Replace("\\?", ".") + "$";
+            return new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        });
+        return regex.IsMatch(text);
     }
 
     /// <summary>

@@ -43,7 +43,7 @@ internal static class SourceEnricher
     {
         if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
         {
-            await EnrichFromXmlDocFileAsync(apiType, typeName, options, logger);
+            EnrichFromXmlDocFile(apiType, typeName, options, logger);
             return;
         }
 
@@ -68,7 +68,7 @@ internal static class SourceEnricher
                 if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
                 {
                     logger.Log("No PDB available, falling back to XML documentation from packs directory");
-                    await EnrichFromXmlDocFileAsync(apiType, typeName, options, logger);
+                    EnrichFromXmlDocFile(apiType, typeName, options, logger);
                     return;
                 }
 
@@ -196,7 +196,7 @@ internal static class SourceEnricher
 
                 if (allSourceContents.Count > 0)
                 {
-                    await MergePartialTypeDocumentation(apiType, allSourceContents, parser, options, logger);
+                    MergePartialTypeDocumentation(apiType, allSourceContents, parser, options, logger);
                 }
             }
         }
@@ -344,7 +344,7 @@ internal static class SourceEnricher
 
                 if (sourceContents.Count > 0)
                 {
-                    await MergePartialTypeDocumentation(apiType, sourceContents, parser, options, logger);
+                    MergePartialTypeDocumentation(apiType, sourceContents, parser, options, logger);
                 }
             }
         }
@@ -395,9 +395,36 @@ internal static class SourceEnricher
         var (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
         if (packageVersion == null && !string.IsNullOrEmpty(packageName))
         {
+            // Try extracting version from dllPath (works when path contains /packagename/version/)
             packageVersion = PackageReferenceParser.ExtractVersionFromPath(dllPath, packageName);
+
+            // Fallback: dllPath may be in a temp dir (e.g., /tmp/inspect-api-.../extracted/...)
+            // that doesn't encode the version. Check the cache directory instead.
+            if (packageVersion == null)
+            {
+                packageVersion = FindCachedPackageVersion(packageName);
+            }
         }
         return (packageName, packageVersion);
+    }
+
+    /// <summary>
+    /// Finds the latest cached version for a package by checking the cache directory.
+    /// </summary>
+    private static string? FindCachedPackageVersion(string packageName)
+    {
+        var cachePath = NuGetCache.GetAppCachePath();
+        var packageDir = Path.Combine(cachePath, packageName.ToLowerInvariant());
+        if (!Directory.Exists(packageDir))
+            return null;
+
+        // Return the highest version directory (using numeric ordering for correct semver-like sort)
+        var comparer = StringComparer.Create(System.Globalization.CultureInfo.InvariantCulture, System.Globalization.CompareOptions.NumericOrdering);
+        return Directory.GetDirectories(packageDir)
+            .Select(d => Path.GetFileName(d))
+            .Where(name => name.Length > 0 && char.IsDigit(name[0]))
+            .OrderByDescending(v => v, comparer)
+            .FirstOrDefault();
     }
 
     /// <summary>
@@ -475,10 +502,8 @@ internal static class SourceEnricher
         apiType.SourceResolution = "XmlDoc";
     }
 
-    private static async Task EnrichFromXmlDocFileAsync(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
+    private static void EnrichFromXmlDocFile(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
     {
-        await Task.CompletedTask;
-
         if (string.IsNullOrEmpty(options.PlatformAssembly))
         {
             logger.Log("XML doc fallback only available for platform libraries");
@@ -513,14 +538,13 @@ internal static class SourceEnricher
         EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
     }
 
-    private static async Task MergePartialTypeDocumentation(
+    private static void MergePartialTypeDocumentation(
         ApiType apiType,
         List<(string Content, string Url, string FilePath)> sourceContents,
         DocCommentParser parser,
         ApiOptions options,
         VerboseLogger logger)
     {
-        await Task.CompletedTask;
 
         DocComment? mergedTypeDoc = null;
         List<SampleReference> allSamples = [];
