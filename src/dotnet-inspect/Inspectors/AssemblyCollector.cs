@@ -70,22 +70,10 @@ public static class AssemblyCollector
             assemblyPaths.Add(new AssemblyInfo(asmPath, Path.GetFileName(asmPath), null));
         }
 
-        // 3. Platform assemblies (ensure ref packs are downloaded first)
-        if (options.PlatformAssemblies.Length > 0)
-        {
-            // Download packs for all requested platform assemblies
-            foreach (var platformAsm in options.PlatformAssemblies)
-            {
-                var requests = PlatformPackService.BuildPackRequests(platformAsm, null);
-                await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
-                {
-                }
-            }
-        }
-
+        // 3. Platform assemblies
         foreach (var platformAsm in options.PlatformAssemblies)
         {
-            var (assemblyPath, version, resolvedFramework, error) = PlatformResolver.ResolveAssembly(platformAsm);
+            var (assemblyPath, version, resolvedFramework, error) = await PlatformResolver.ResolveAssemblyAsync(platformAsm, httpClient, logger.Log);
             if (error != null)
             {
                 Console.Error.WriteLine($"Warning: {error}, skipping.");
