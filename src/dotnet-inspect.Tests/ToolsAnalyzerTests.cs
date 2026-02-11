@@ -272,4 +272,31 @@ public class ToolsAnalyzerTests : IDisposable
         Assert.False(result.IsFrameworkDependent);
         Assert.True(result.IsRidSpecificPointerPackage);
     }
+
+    [Fact]
+    public void AnalyzeToolsDirectory_RidSpecificBinaryPackage_DoesNotAddAnyAsTfm()
+    {
+        // RID-specific binary packages use tools/any/{rid}/ layout where "any" means
+        // framework-agnostic, not a TFM. It should not appear in TargetFrameworks.
+        var toolsDir = Path.Combine(_tempDir, "tools");
+        var ridDir = Path.Combine(toolsDir, "any", "linux-x64");
+        Directory.CreateDirectory(ridDir);
+
+        var settingsXml = """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="mytool" EntryPoint="mytool" Runner="executable" />
+              </Commands>
+            </DotNetCliTool>
+            """;
+        File.WriteAllText(Path.Combine(ridDir, "DotnetToolSettings.xml"), settingsXml);
+
+        var result = new InspectionResult();
+        ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, result);
+
+        Assert.True(result.TargetFrameworks is null or { Count: 0 });
+        Assert.NotNull(result.SupportedRids);
+        Assert.Contains("linux-x64", result.SupportedRids);
+        Assert.DoesNotContain("any", result.SupportedRids);
+    }
 }
