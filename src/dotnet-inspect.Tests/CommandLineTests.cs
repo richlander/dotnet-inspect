@@ -371,6 +371,43 @@ public class CommandLineTests
         Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));
     }
 
+    [Theory]
+    [InlineData(new[] { "platform", "runtime" }, new[] { "platform", "ls", "--framework", "runtime" })]
+    [InlineData(new[] { "platform", "runtime", "ls" }, new[] { "platform", "ls", "--framework", "runtime" })]
+    [InlineData(new[] { "platform", "runtime", "list" }, new[] { "platform", "ls", "--framework", "runtime" })]
+    [InlineData(new[] { "platform", "runtime@10.0.1" }, new[] { "platform", "ls", "--framework", "runtime@10.0.1" })]
+    [InlineData(new[] { "platform", "aspnetcore", "ls" }, new[] { "platform", "ls", "--framework", "aspnetcore" })]
+    [InlineData(new[] { "platform", "netstandard" }, new[] { "platform", "ls", "--framework", "netstandard" })]
+    [InlineData(new[] { "platform", "runtime", "ls", "--json" }, new[] { "platform", "ls", "--framework", "runtime", "--json" })]
+    [InlineData(new[] { "platform", "runtime@9.0.1", "--types" }, new[] { "platform", "ls", "--framework", "runtime@9.0.1", "--types" })]
+    [InlineData(new[] { "platform", "runtime", "9.0.12" }, new[] { "platform", "ls", "--framework", "runtime@9.0.12" })]
+    [InlineData(new[] { "platform", "runtime", "9.0.12", "ls" }, new[] { "platform", "ls", "--framework", "runtime@9.0.12" })]
+    [InlineData(new[] { "platform", "runtime", "9.0.12", "--json" }, new[] { "platform", "ls", "--framework", "runtime@9.0.12", "--json" })]
+    public void PreprocessArgs_PlatformFramework_RewritesToLsFramework(string[] args, string[] expected)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_PlatformLs_ReturnsUnchanged()
+    {
+        var args = new[] { "platform", "ls" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(args, result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_PlatformAssembly_ReturnsUnchanged()
+    {
+        var args = new[] { "platform", "System.Text.Json" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(args, result);
+    }
+
     [Fact]
     public void ParseVerbosity_WithNull_ReturnsMinimal()
     {
