@@ -2,6 +2,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
 
+using DotnetInspector.Metadata;
+
 namespace DotnetInspector.Decompiler;
 
 /// <summary>
@@ -452,7 +454,7 @@ public static class AnnotatedILEmitter
                  ILOpCode.Ldelem or ILOpCode.Stelem or ILOpCode.Constrained:
             {
                 int token = reader.ReadILToken();
-                return ResolveTypeToken(context.Reader, token);
+                return ResolveTypeToken(context.Reader, token, context.GenericContext);
             }
 
             case ILOpCode.Ldstr:
@@ -464,7 +466,7 @@ public static class AnnotatedILEmitter
             case ILOpCode.Ldtoken:
             {
                 int token = reader.ReadILToken();
-                return ResolveGenericToken(context.Reader, token);
+                return ResolveGenericToken(context.Reader, token, context.GenericContext);
             }
 
             case ILOpCode.Calli:
@@ -525,12 +527,12 @@ public static class AnnotatedILEmitter
         catch { return $"field:0x{token:X8}"; }
     }
 
-    static string ResolveTypeToken(MetadataReader reader, int token)
+    static string ResolveTypeToken(MetadataReader reader, int token, GenericContext? genericContext = null)
     {
         try
         {
             var handle = MetadataTokens.EntityHandle(token);
-            return Metadata.TypeResolver.GetTypeName(reader, handle) ?? $"type:0x{token:X8}";
+            return Metadata.TypeResolver.GetTypeName(reader, handle, genericContext) ?? $"type:0x{token:X8}";
         }
         catch { return $"type:0x{token:X8}"; }
     }
@@ -546,7 +548,7 @@ public static class AnnotatedILEmitter
         catch { return $"string:0x{token:X8}"; }
     }
 
-    static string ResolveGenericToken(MetadataReader reader, int token)
+    static string ResolveGenericToken(MetadataReader reader, int token, GenericContext? genericContext = null)
     {
         try
         {
@@ -554,7 +556,7 @@ public static class AnnotatedILEmitter
             return handle.Kind switch
             {
                 HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification =>
-                    Metadata.TypeResolver.GetTypeName(reader, handle) ?? $"token:0x{token:X8}",
+                    Metadata.TypeResolver.GetTypeName(reader, handle, genericContext) ?? $"token:0x{token:X8}",
                 HandleKind.FieldDefinition => FormatFieldDef(reader, (FieldDefinitionHandle)handle),
                 HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)handle),
                 HandleKind.MethodDefinition => FormatMethodDef(reader, (MethodDefinitionHandle)handle),
@@ -568,7 +570,7 @@ public static class AnnotatedILEmitter
     {
         try
         {
-            return Metadata.TypeResolver.GetTypeName(context.Reader, handle)
+            return Metadata.TypeResolver.GetTypeName(context.Reader, handle, context.GenericContext)
                 ?? $"type:0x{MetadataTokens.GetToken(handle):X8}";
         }
         catch { return $"type:0x{MetadataTokens.GetToken(handle):X8}"; }

@@ -567,7 +567,7 @@ public static class ILAstBuilder
             case ILOpCode.Ldtoken:
             {
                 int token = reader.ReadILToken();
-                string? name = ResolveTokenName(context.Reader, token);
+                string? name = ResolveTokenName(context.Reader, token, context.GenericContext);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = name,
@@ -979,7 +979,7 @@ public static class ILAstBuilder
         catch { return null; }
     }
 
-    static string? ResolveTokenName(MetadataReader reader, int token)
+    static string? ResolveTokenName(MetadataReader reader, int token, GenericContext? genericContext = null)
     {
         try
         {
@@ -989,8 +989,13 @@ public static class ILAstBuilder
             if (handle.Kind == HandleKind.TypeReference)
             {
                 var typeRef = reader.GetTypeReference((TypeReferenceHandle)handle);
-                return reader.GetString(typeRef.Name);
+                string ns = reader.GetString(typeRef.Namespace);
+                string name = reader.GetString(typeRef.Name);
+                return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
             }
+            if (handle.Kind == HandleKind.TypeSpecification)
+                return reader.GetTypeSpecification((TypeSpecificationHandle)handle)
+                    .DecodeSignature(SignatureDecoder.Instance, genericContext);
             if (handle.Kind == HandleKind.FieldDefinition)
             {
                 var fieldDef = reader.GetFieldDefinition((FieldDefinitionHandle)handle);
