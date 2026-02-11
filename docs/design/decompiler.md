@@ -134,6 +134,19 @@ Key adaptations from runtime to BCL types:
 - `MethodIL` → `MethodBodyContext`
 - `ThrowHelper` → standard exceptions
 
+**Simplification vs runtime.** The runtime's IL analysis code lives inside a
+full AOT compiler (`crossgen2`) and carries dependencies on `Internal.TypeSystem`
+(23K LOC), `ILProvider`, `MethodIL`, and the compilation pipeline's
+`MethodDesc`/`TypeDesc` hierarchy. We replaced all of that with BCL's
+`System.Reflection.Metadata` types — `PEReader`, `MetadataReader`,
+`MethodBodyBlock`, `ExceptionRegion`, and our existing `SignatureDecoder`.
+The algorithmic core of each ported component (CFG construction, stack height
+calculation, opcode classification) is preserved intact; only the type surface
+and API integration points changed. This took ~3,100 LOC of runtime code down
+to ~1,800 LOC while retaining the same correctness properties — verified by
+stress-testing against the same `System.Private.CoreLib` assembly the runtime
+tests against.
+
 Tests: 32 tests including platform assembly stress tests.
 
 ### Phase 2: Stack Type Analysis & Variable Introduction ✅
@@ -156,6 +169,13 @@ become named variables.
 Key design decisions:
 - `StackValue` wraps a string type name (from our `SignatureDecoder`) instead of
   runtime's `TypeDesc`. This avoids the 23K LOC `Internal.TypeSystem` dependency.
+  Trade-off: string-based type identity could cause incorrect merges at join
+  points when two differently-instantiated generics collapse to the same string
+  (e.g., `Span<byte>` and `Span<int>` both rendering as `Span<T>` when generic
+  context is unavailable). In practice this is rare — we resolve generic context
+  for `MemberReference` and `MethodSpecification` handles, and the merge logic
+  widens to `object` on type name mismatch rather than producing incorrect
+  results.
 - `StackState` is immutable (backed by `ImmutableArray`) for safe propagation
   across the worklist without aliasing bugs.
 - `MethodBodyContext` extended with `ParameterTypes` and `ReturnType` properties
@@ -217,6 +237,16 @@ The runtime's exception region metadata (`ExceptionRegion`) directly encodes
 try/catch/finally boundaries, making exception handling recovery more
 straightforward than loop/conditional recovery.
 
+**Simplification vs ILSpy.** Because we emit lowered C# rather than recovering
+sugar (`using`, `foreach`, `lock`), our Phase 4 requirements are lighter than
+ILSpy's. We need structuring for: (1) knowing where to emit `try`/`finally`/
+`catch` blocks in lowered C#, (2) recovering `if`/`else` to avoid `goto`-heavy
+output, and (3) block structure for annotated IL. We do NOT need ILSpy's
+~50 IL transforms for pattern matching, iterator reconstruction, or async state
+machine recovery. The `ConditionalDetector` does detect specific IL patterns
+like null-conditionals (`dup` + `brtrue` + trivial else), but these are
+pattern-specific optimizations in the emitter, not general sugar recovery.
+
 ### Phase 5: Annotated IL Emitter ✅
 
 **First output backend: structured IL with type annotations and CFG.**
@@ -273,15 +303,41 @@ What "lowered" means:
 
 **Handle compiler-generated code patterns.**
 
-| Pattern                | Complexity | Approach                                          |
-| ---------------------- | ---------- | ------------------------------------------------- |
-| Async/await            | High       | Recognize state machine, reconstruct awaits       |
-| Iterators              | High       | Recognize `IEnumerable<T>` state machine          |
-| Closures               | Medium     | Detect display classes, inline captured variables |
-| LINQ                   | Medium     | Recognize query pattern method chains             |
-| Pattern matching       | Medium     | Reconstruct from branch patterns                  |
-| String interpolation   | Low        | Detect `DefaultInterpolatedStringHandler`         |
-| Collection expressions | Low        | Detect known collection builder patterns          |
+Ordered by impact on LLM consumption — closures appear in virtually all
+LINQ-heavy code and are straightforward to detect, while async/await state
+machines are harder and their lowered form (fields + switch/goto) is still
+reasonably interpretable.
+
+| Pattern                | Priority | Complexity | Approach                                          |
+| ---------------------- | -------- | ---------- | ------------------------------------------------- |
+| Closures               | High     | Medium     | Detect `<>c__DisplayClass`, inline captured vars  |
+| LINQ                   | Medium   | Medium     | Recognize query pattern method chains             |
+| Pattern matching       | Medium   | Medium     | Reconstruct from branch patterns                  |
+| String interpolation   | Medium   | Low        | Detect `DefaultInterpolatedStringHandler`         |
+| Collection expressions | Medium   | Low        | Detect known collection builder patterns          |
+| Async/await            | Lower    | High       | Recognize state machine, reconstruct awaits       |
+| Iterators              | Lower    | High       | Recognize `IEnumerable<T>` state machine          |
+
+## Error recovery
+
+The pipeline is designed for graceful degradation. Each phase catches exceptions
+at the method level and falls back to shallower output:
+
+| Failure point          | Fallback                                            |
+| ---------------------- | --------------------------------------------------- |
+| CFG construction       | Emit flat IL (no block structure)                   |
+| Stack simulation       | Emit IL with CFG blocks but no type annotations     |
+| ILAst construction     | Emit annotated IL only (skip lowered C# section)    |
+| Control flow structuring | Emit flat ILAst as sequential statements + goto   |
+| C# emission            | Emit `/* unsupported: opcode */` comment inline     |
+| Individual expression  | Emit `/* opcode arg1 arg2 */` and continue          |
+
+In practice, the stress test against CoreLib's ~39K methods exercises the full
+pipeline with zero failures. NuGet packages in the wild are messier (obfuscated
+assemblies, invalid IL, unsupported patterns), so every pipeline stage wraps
+method-level processing in `try/catch` to ensure one bad method doesn't block
+the rest of a type's output. The `catch` blocks produce diagnostic comments
+in the output rather than propagating exceptions.
 
 ## Reference material
 
