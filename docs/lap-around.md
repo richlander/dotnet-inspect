@@ -460,7 +460,6 @@ JObject o = JObject.Parse(json);
 
 The `library` command enables querying library metdata (beyond API lists).
 
-
 ```bash=
 $ dotnet-inspect library System.Text.Json
 # System.Text.Json.dll
@@ -725,7 +724,7 @@ $ dotnet-inspect package System.Text.Json --versions | wc -l
 
 Package dependencies:
 
-```
+```bash
 $ dotnet-inspect package System.Text.Json --dependencies
 # System.Text.Json (10.0.3)
 
@@ -833,8 +832,7 @@ Matches: 17
 
 ## Extensions
 
-The `extensions` command loads assemblies at a specified scope for extensions targeting a given type name. 
-
+The `extensions` command loads assemblies at a specified scope for extensions targeting a given type name.
 
 ```bash
 dotnet-inspect extensions HttpClient                    # List all extensions targeting HttpClient
@@ -894,7 +892,6 @@ dotnet-inspect extensions IDistributedApplicationBuilder \
 ```
 
 Note: The first step isn't actually required if you know the popular types that are extended. The main thing is showing that you can search for extensions in two directions.
-
 
 This example shows some nice C/#14 extensions syntax.
 
