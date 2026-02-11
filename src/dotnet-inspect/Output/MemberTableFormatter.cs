@@ -10,8 +10,8 @@ namespace DotnetInspector.Output;
 /// </summary>
 internal abstract class MemberTableFormatter
 {
-    public abstract string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs);
-    public abstract IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs);
+    public abstract string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs, bool showSelect);
+    public abstract IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs, bool showSelect);
 
     public static MemberTableFormatter Create(Verbosity verbosity) => verbosity switch
     {
@@ -19,14 +19,52 @@ internal abstract class MemberTableFormatter
         Verbosity.Minimal => new MinimalMemberFormatter(),
         _ => new DetailedMemberFormatter()
     };
+
+    /// <summary>
+    /// Builds the -m/--params string needed to target a specific member.
+    /// When the member name is unique (no overloads), returns just "-m Name".
+    /// When overloads exist, appends "--params type1,type2" using simple type names.
+    /// </summary>
+    protected static string BuildSelectString(ApiMember member, bool hasOverloads)
+    {
+        var name = member.Name;
+        if (!hasOverloads || member.Kind is "property" or "field" or "event")
+            return $"-m {name}";
+
+        var paramTypes = SignatureParser.ExtractParamTypes(member.Signature);
+        if (paramTypes.Count == 0)
+            return $"-m {name} --params \"\"";
+
+        var simpleTypes = paramTypes.Select(SimplifyTypeName).ToList();
+        return $"-m {name} --params {string.Join(",", simpleTypes)}";
+    }
+
+    /// <summary>
+    /// Extracts the simple (unqualified) name from a fully-qualified type name.
+    /// "System.Text.Json.JsonDocument" → "JsonDocument". Preserves generic suffixes.
+    /// </summary>
+    private static string SimplifyTypeName(string fullTypeName)
+    {
+        int depth = 0;
+        int lastDot = -1;
+        for (int i = 0; i < fullTypeName.Length; i++)
+        {
+            if (fullTypeName[i] == '<') depth++;
+            else if (fullTypeName[i] == '>') depth--;
+            else if (fullTypeName[i] == '.' && depth == 0) lastDot = i;
+        }
+
+        return lastDot > 0 ? fullTypeName[(lastDot + 1)..] : fullTypeName;
+    }
 }
 
 /// <summary>
 /// Quiet: group by unique name within each kind, kind-specific columns.
+/// showSelect is ignored (rows are grouped, not per-overload).
 /// </summary>
 internal sealed class QuietMemberFormatter : MemberTableFormatter
 {
-    public override string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs)
+    public override string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
     {
         var byName = members.GroupBy(m => m.Name);
         bool hasOverloads = byName.Any(g => g.Count() > 1);
@@ -58,7 +96,7 @@ internal sealed class QuietMemberFormatter : MemberTableFormatter
         return headers.ToArray();
     }
 
-    public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs)
+    public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
     {
         var byName = members.GroupBy(m => m.Name).OrderBy(g => g.Key).ToList();
         bool hasOverloads = byName.Any(g => g.Count() > 1);
@@ -118,22 +156,28 @@ internal sealed class QuietMemberFormatter : MemberTableFormatter
 /// </summary>
 internal sealed class MinimalMemberFormatter : MemberTableFormatter
 {
-    public override string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs) =>
-        showDocs
-            ? ["Name", "Signature", "Description"]
-            : ["Name", "Signature"];
-
-    public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs)
+    public override string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
     {
+        List<string> headers = ["Name", "Signature"];
+        if (showSelect) headers.Add("Select");
+        if (showDocs) headers.Add("Description");
+        return headers.ToArray();
+    }
+
+    public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
+    {
+        var overloadCounts = members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count());
+
         return members
             .OrderBy(m => m.Name)
             .ThenBy(m => m.Signature)
             .Select(m =>
             {
                 var sig = SignatureParser.AbbreviateSignature(m.Signature ?? m.ReturnType ?? "");
-                return showDocs
-                    ? new[] { m.Name, $"`{sig}`", m.Documentation.Summary ?? "" }
-                    : new[] { m.Name, $"`{sig}`" };
+                List<string> row = [m.Name, $"`{sig}`"];
+                if (showSelect) row.Add($"`{BuildSelectString(m, overloadCounts[m.Name] > 1)}`");
+                if (showDocs) row.Add(m.Documentation.Summary ?? "");
+                return row.ToArray();
             });
     }
 }
@@ -143,22 +187,28 @@ internal sealed class MinimalMemberFormatter : MemberTableFormatter
 /// </summary>
 internal sealed class DetailedMemberFormatter : MemberTableFormatter
 {
-    public override string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs) =>
-        showDocs
-            ? ["Name", "Signature", "Description"]
-            : ["Name", "Signature"];
-
-    public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs)
+    public override string[] GetHeaders(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
     {
+        List<string> headers = ["Name", "Signature"];
+        if (showSelect) headers.Add("Select");
+        if (showDocs) headers.Add("Description");
+        return headers.ToArray();
+    }
+
+    public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
+    {
+        var overloadCounts = members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count());
+
         return members
             .OrderBy(m => m.Name)
             .ThenBy(m => m.Signature)
             .Select(m =>
             {
                 var sig = m.Signature ?? m.ReturnType ?? "";
-                return showDocs
-                    ? new[] { m.Name, $"`{sig}`", m.Documentation.Summary ?? "" }
-                    : new[] { m.Name, $"`{sig}`" };
+                List<string> row = [m.Name, $"`{sig}`"];
+                if (showSelect) row.Add($"`{BuildSelectString(m, overloadCounts[m.Name] > 1)}`");
+                if (showDocs) row.Add(m.Documentation.Summary ?? "");
+                return row.ToArray();
             });
     }
 }
