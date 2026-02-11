@@ -355,7 +355,7 @@ public static class ILAstBuilder
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
             {
                 int token = reader.ReadILToken();
-                return BuildCall(context.Reader, token, opcode, offset, stack);
+                return BuildCall(context.Reader, token, opcode, offset, stack, context.GenericContext);
             }
 
             // Field access
@@ -740,7 +740,7 @@ public static class ILAstBuilder
 
     static ILAstExpression BuildCall(
         MetadataReader reader, int token, ILOpCode opcode,
-        int offset, Stack<ILAstExpression> stack)
+        int offset, Stack<ILAstExpression> stack, GenericContext? callerGenericContext = null)
     {
         try
         {
@@ -755,7 +755,7 @@ public static class ILAstBuilder
                 case HandleKind.MethodDefinition:
                 {
                     var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                    var sig = methodDef.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+                    var sig = methodDef.DecodeSignature(SignatureDecoder.Instance, callerGenericContext);
                     paramCount = sig.ParameterTypes.Length;
                     isStatic = methodDef.Attributes.HasFlag(MethodAttributes.Static);
                     returnType = sig.ReturnType;
@@ -768,6 +768,16 @@ public static class ILAstBuilder
                 {
                     var memberRef = reader.GetMemberReference((MemberReferenceHandle)handle);
                     var genericCtx = StackSimulator.BuildGenericContextForMemberRef(reader, memberRef);
+                    // Merge caller's method params for !!N resolution in TypeSpec parents
+                    if (callerGenericContext?.MethodParameters.Count > 0 && genericCtx is not null
+                        && genericCtx.MethodParameters.Count == 0)
+                    {
+                        genericCtx = new GenericContext(genericCtx.TypeParameters, callerGenericContext.MethodParameters);
+                    }
+                    else if (callerGenericContext?.MethodParameters.Count > 0 && genericCtx is null)
+                    {
+                        genericCtx = callerGenericContext;
+                    }
                     var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericCtx);
                     paramCount = sig.ParameterTypes.Length;
                     isStatic = !sig.Header.IsInstance;
@@ -779,7 +789,7 @@ public static class ILAstBuilder
                 case HandleKind.MethodSpecification:
                 {
                     var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-                    return BuildCall(reader, MetadataTokens.GetToken(spec.Method), opcode, offset, stack);
+                    return BuildCall(reader, MetadataTokens.GetToken(spec.Method), opcode, offset, stack, callerGenericContext);
                 }
 
                 default:
