@@ -16,15 +16,19 @@ internal ref struct ILReaderLite
 {
     private int _currentOffset;
     private readonly ReadOnlySpan<byte> _ilBytes;
+    private readonly int _baseOffset;
 
     public readonly int Offset => _currentOffset;
+    /// <summary>Absolute offset in the full IL stream (baseOffset + currentOffset).</summary>
+    public readonly int AbsoluteOffset => _baseOffset + _currentOffset;
     public readonly int Size => _ilBytes.Length;
     public readonly bool HasNext => _currentOffset < _ilBytes.Length;
 
-    public ILReaderLite(ReadOnlySpan<byte> ilBytes, int currentOffset = 0)
+    public ILReaderLite(ReadOnlySpan<byte> ilBytes, int currentOffset = 0, int baseOffset = 0)
     {
         _ilBytes = ilBytes;
         _currentOffset = currentOffset;
+        _baseOffset = baseOffset;
     }
 
     public byte ReadILByte()
@@ -122,9 +126,9 @@ internal ref struct ILReaderLite
     public int ReadBranchDestination(ILOpCode opcode)
     {
         if ((opcode >= ILOpCode.Br_s && opcode <= ILOpCode.Blt_un_s) || opcode == ILOpCode.Leave_s)
-            return (sbyte)ReadILByte() + Offset;
+            return (sbyte)ReadILByte() + AbsoluteOffset;
 
         Debug.Assert((opcode >= ILOpCode.Br && opcode <= ILOpCode.Blt_un) || opcode == ILOpCode.Leave);
-        return (int)ReadILUInt32() + Offset;
+        return (int)ReadILUInt32() + AbsoluteOffset;
     }
 }

@@ -57,7 +57,7 @@ public static class ILAstBuilder
         ILAstBlock block)
     {
         var ilBytes = context.ILBytes.AsSpan(bb.Start, bb.Size);
-        var reader = new ILReaderLite(ilBytes);
+        var reader = new ILReaderLite(ilBytes, baseOffset: bb.Start);
         var stack = new Stack<ILAstExpression>();
 
         // Push entry stack values as synthetic ldloc-like expressions
