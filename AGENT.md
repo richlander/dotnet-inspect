@@ -31,6 +31,7 @@ Tests use **xunit v3** with `OutputType Exe`. Run them with `dotnet run`, not `d
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests -c Release
+dotnet run --project src/DotnetInspector.Decompiler.Tests -c Release
 dotnet run --project src/DotnetInspector.Services.Tests -c Release
 dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
 ```
