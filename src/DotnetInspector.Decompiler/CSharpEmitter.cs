@@ -416,7 +416,10 @@ public static class CSharpEmitter
                 string? catchVarName = TryExtractCatchVariable(block);
 
                 WriteIndent(indent);
-                if (catchVarName is not null)
+                // catch(System.Object) = bare catch in C#
+                if (exType is "object" or "System.Object")
+                    _sb.AppendLine("catch");
+                else if (catchVarName is not null)
                     _sb.AppendLine($"catch ({exType} {catchVarName})");
                 else
                     _sb.AppendLine($"catch ({exType})");
@@ -927,6 +930,14 @@ public static class CSharpEmitter
             }
         }
 
+        void EmitCallArgument(ILAstExpression arg)
+        {
+            if (arg.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca
+                or ILOpCode.Ldarga_s or ILOpCode.Ldarga)
+                _sb.Append("ref ");
+            EmitExpression(arg);
+        }
+
         void EmitCallExpression(ILAstExpression expr)
         {
             string? methodName = expr.Operand;
@@ -967,7 +978,7 @@ public static class CSharpEmitter
                 else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
                 {
                     _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart[4..]} = ");
-                    EmitExpression(expr.Arguments[0]);
+                    EmitCallArgument(expr.Arguments[0]);
                 }
                 // Operator sugar: op_Equality → ==, op_Inequality → !=, etc.
                 else if (memberPart.StartsWith("op_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
@@ -1014,7 +1025,7 @@ public static class CSharpEmitter
                     for (int i = 0; i < expr.Arguments.Count; i++)
                     {
                         if (i > 0) _sb.Append(", ");
-                        EmitExpression(expr.Arguments[i]);
+                        EmitCallArgument(expr.Arguments[i]);
                     }
                     _sb.Append(')');
                 }
@@ -1032,7 +1043,7 @@ public static class CSharpEmitter
                 {
                     EmitExpression(expr.Arguments[0]);
                     _sb.Append('[');
-                    EmitExpression(expr.Arguments[1]);
+                    EmitCallArgument(expr.Arguments[1]);
                     _sb.Append(']');
                 }
                 // Indexer setter: set_Item(key, value) → [key] = value
@@ -1040,9 +1051,9 @@ public static class CSharpEmitter
                 {
                     EmitExpression(expr.Arguments[0]);
                     _sb.Append('[');
-                    EmitExpression(expr.Arguments[1]);
+                    EmitCallArgument(expr.Arguments[1]);
                     _sb.Append("] = ");
-                    EmitExpression(expr.Arguments[2]);
+                    EmitCallArgument(expr.Arguments[2]);
                 }
                 // Property getter sugar: get_XXX() → .XXX
                 else if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
@@ -1055,7 +1066,7 @@ public static class CSharpEmitter
                 {
                     EmitExpression(expr.Arguments[0]);
                     _sb.Append($"{dot}{memberPart[4..]} = ");
-                    EmitExpression(expr.Arguments[1]);
+                    EmitCallArgument(expr.Arguments[1]);
                 }
                 else
                 {
@@ -1064,7 +1075,7 @@ public static class CSharpEmitter
                     for (int i = 1; i < expr.Arguments.Count; i++)
                     {
                         if (i > 1) _sb.Append(", ");
-                        EmitExpression(expr.Arguments[i]);
+                        EmitCallArgument(expr.Arguments[i]);
                     }
                     _sb.Append(')');
                 }
