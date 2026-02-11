@@ -228,13 +228,26 @@ public class PlatformResolverTests
             return; // No packs available to scan
         }
 
-        var dllFiles = Directory.GetFiles(packsDir, "*.dll", SearchOption.AllDirectories)
-            .Where(f => f.Contains(Path.Combine("ref", "net"))) // Only ref assemblies
-            .Select(f => Path.GetFileNameWithoutExtension(f))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        // Only scan the 3 known ref packs (runtime, aspnetcore, netstandard)
+        List<string> dllFiles = [];
+        foreach (var packName in PlatformResolver.FrameworkMappings.Values)
+        {
+            var packPath = Path.Combine(packsDir, packName);
+            if (!Directory.Exists(packPath))
+                continue;
 
-        Assert.NotEmpty(dllFiles);
+            var files = Directory.GetFiles(packPath, "*.dll", SearchOption.AllDirectories)
+                .Where(f => f.Contains(Path.Combine("ref", "net")))
+                .Select(f => Path.GetFileNameWithoutExtension(f));
+            dllFiles.AddRange(files);
+        }
+
+        dllFiles = dllFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        if (dllFiles.Count == 0)
+        {
+            return; // No ref assemblies found
+        }
 
         List<string> uncovered = [];
         foreach (var name in dllFiles)
@@ -252,6 +265,9 @@ public class PlatformResolverTests
 
     /// <summary>
     /// Finds any available ref packs directory (app cache or installed SDK).
+    /// Only returns directories for the 3 known ref packs (runtime, aspnetcore, netstandard)
+    /// to avoid picking up extra SDK packs (Android, WPF, etc.) that IsPlatformCandidate
+    /// is not intended to cover.
     /// </summary>
     private static string? FindAnyRefPacksDirectory()
     {
@@ -260,12 +276,25 @@ public class PlatformResolverTests
         if (appCache != null && Directory.Exists(appCache))
             return appCache;
 
-        // Fall back to installed SDK
-        string[] candidates = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+        // Fall back to installed SDK — but only scan known ref pack subdirectories
+        string[] roots = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? [@"C:\Program Files\dotnet\packs"]
             : ["/usr/lib/dotnet/packs", "/usr/share/dotnet/packs", "/usr/local/share/dotnet/packs"];
 
-        return candidates.FirstOrDefault(Directory.Exists);
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+                continue;
+
+            // Check that at least one known ref pack exists
+            foreach (var packName in PlatformResolver.FrameworkMappings.Values)
+            {
+                if (Directory.Exists(Path.Combine(root, packName)))
+                    return root;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
