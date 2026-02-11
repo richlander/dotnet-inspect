@@ -1092,26 +1092,52 @@ public static class CommandLineBuilder
             var name = packageArgs[0];
             bool hasExplicitVersion = name.Contains('@');
             var bareName = hasExplicitVersion ? name[..name.IndexOf('@')] : name;
+            var explicitVersion = hasExplicitVersion ? name[(name.IndexOf('@') + 1)..] : null;
 
-            // Platform candidate without explicit version: try platform resolution first
-            if (!hasExplicitVersion && PlatformResolver.IsPlatformCandidate(bareName))
+            // Platform candidate: download ref packs, then resolve
+            if (PlatformResolver.IsPlatformCandidate(bareName))
             {
-                var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(bareName);
+                bool verbose = parseResult.GetValue(verboseOption);
+                Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+                var client = HttpClientFactory.Shared;
 
-                if (error == null && assemblyPath != null)
+                // Build prioritized download list (biased pack first)
+                var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion);
+
+                // Download with overlapped I/O; check each result as it lands
+                await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
                 {
-                    var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-                    var assemblyOptions = new AssemblyOptions
+                    if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
                     {
-                        PlatformAssembly = bareName,
-                        JsonOutput = parseResult.GetValue(jsonOption),
-                        Verbose = parseResult.GetValue(verboseOption),
-                        Verbosity = verbosity,
-                        IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                        ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
-                    };
+                        // Found it — remaining downloads continue for cache warming
+                        string? frameworkSpec = null;
+                        var (assemblyPath, framework, version, error) =
+                            PlatformResolver.ResolveAssembly(bareName);
 
-                    return await AssemblyCommand.ExecuteAsync(assemblyOptions);
+                        if (assemblyPath != null && hasExplicitVersion)
+                        {
+                            frameworkSpec = $"{framework}@{explicitVersion}";
+                            (assemblyPath, framework, version, error) =
+                                PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
+                        }
+
+                        if (assemblyPath != null)
+                        {
+                            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+                            var assemblyOptions = new AssemblyOptions
+                            {
+                                PlatformAssembly = bareName,
+                                PlatformFramework = frameworkSpec,
+                                JsonOutput = parseResult.GetValue(jsonOption),
+                                Verbose = parseResult.GetValue(verboseOption),
+                                Verbosity = verbosity,
+                                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                            };
+
+                            return await AssemblyCommand.ExecuteAsync(assemblyOptions);
+                        }
+                    }
                 }
             }
 

@@ -8,11 +8,15 @@ namespace DotnetInspector.Services;
 public static class PlatformResolver
 {
     /// <summary>
-    /// Returns true if the name looks like a platform assembly (System.* or Microsoft.*).
+    /// Returns true if the name looks like a platform assembly.
     /// </summary>
     public static bool IsPlatformCandidate(string name)
         => name.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
-           name.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase);
+           name.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("mscorlib", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("netstandard", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("WindowsBase", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Framework short names mapped to ref pack directory names.
@@ -31,22 +35,30 @@ public static class PlatformResolver
         FrameworkMappings.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Discovers the .NET SDK packs directory.
+    /// Discovers the .NET SDK packs directory (first match).
     /// </summary>
     public static string? GetPacksDirectory()
     {
-        // Try common locations in order of preference
-        var candidates = GetPacksDirectoryCandidates();
-        
-        foreach (var candidate in candidates)
+        var dirs = GetAllPacksDirectories();
+        return dirs.Count > 0 ? dirs[0] : null;
+    }
+
+    /// <summary>
+    /// Returns all valid packs directories in priority order.
+    /// On Linux, the app cache is searched first (Microsoft packs preferred over distro builds).
+    /// On Windows/macOS, the app cache is searched last (local SDK preferred).
+    /// </summary>
+    public static List<string> GetAllPacksDirectories()
+    {
+        List<string> result = [];
+        foreach (var candidate in GetPacksDirectoryCandidates())
         {
-            if (Directory.Exists(candidate))
+            if (Directory.Exists(candidate) && !result.Contains(candidate))
             {
-                return candidate;
+                result.Add(candidate);
             }
         }
-
-        return null;
+        return result;
     }
 
     /// <summary>
@@ -135,100 +147,77 @@ public static class PlatformResolver
 
     private static IEnumerable<string> GetPacksDirectoryCandidates()
     {
-        // DOTNET_ROOT environment variable takes highest priority (works on all platforms)
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        if (!string.IsNullOrEmpty(dotnetRoot))
+        // Only use downloaded packs from the app cache
+        var appCachePacks = PlatformPackService.GetPacksCachePath();
+        if (appCachePacks != null)
         {
-            yield return Path.Combine(dotnetRoot, "packs");
-        }
-
-        // Check /etc/dotnet/install_location on non-Windows (distro-configured path)
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            var installLocation = ReadInstallLocation();
-            if (!string.IsNullOrEmpty(installLocation))
-            {
-                yield return Path.Combine(installLocation, "packs");
-            }
-        }
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            yield return @"C:\Program Files\dotnet\packs";
-            yield return @"C:\Program Files (x86)\dotnet\packs";
-            
-            var programFiles = Environment.GetEnvironmentVariable("ProgramFiles");
-            if (!string.IsNullOrEmpty(programFiles))
-            {
-                yield return Path.Combine(programFiles, "dotnet", "packs");
-            }
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            yield return "/usr/local/share/dotnet/packs";
-            yield return "/opt/homebrew/share/dotnet/packs";
-            
-            var home = Environment.GetEnvironmentVariable("HOME");
-            if (!string.IsNullOrEmpty(home))
-            {
-                yield return Path.Combine(home, ".dotnet", "packs");
-            }
-        }
-        else // Linux and others
-        {
-            yield return "/usr/lib/dotnet/packs";
-            yield return "/usr/share/dotnet/packs";
-            yield return "/usr/local/share/dotnet/packs";
-            yield return "/opt/dotnet/packs";
-            
-            var home = Environment.GetEnvironmentVariable("HOME");
-            if (!string.IsNullOrEmpty(home))
-            {
-                yield return Path.Combine(home, ".dotnet", "packs");
-                yield return Path.Combine(home, "dotnet", "packs");
-            }
+            yield return appCachePacks;
         }
     }
 
     /// <summary>
-    /// Discovers all installed frameworks with their versions.
+    /// Discovers all installed frameworks with their versions across all packs directories.
     /// </summary>
     public static List<FrameworkInfo> GetInstalledFrameworks(string? packsDirectory = null)
     {
-        packsDirectory ??= GetPacksDirectory();
-        if (packsDirectory == null || !Directory.Exists(packsDirectory))
+        List<string> packsDirs;
+        if (packsDirectory != null)
+        {
+            packsDirs = Directory.Exists(packsDirectory) ? [packsDirectory] : [];
+        }
+        else
+        {
+            packsDirs = GetAllPacksDirectories();
+        }
+
+        if (packsDirs.Count == 0)
         {
             return [];
         }
 
-        List<FrameworkInfo> frameworks = [];
+        // Merge frameworks across all packs directories
+        Dictionary<string, FrameworkInfo> frameworkMap = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (shortName, refPackName) in FrameworkMappings)
+        foreach (var dir in packsDirs)
         {
-            var refPackPath = Path.Combine(packsDirectory, refPackName);
-            if (!Directory.Exists(refPackPath))
-                continue;
-
-            var versions = GetInstalledVersions(refPackPath);
-            if (versions.Count == 0)
-                continue;
-
-            var latestVersion = versions[0]; // Already sorted descending
-            var latestRefPath = GetRefAssemblyPath(refPackPath, latestVersion);
-            var assemblyCount = latestRefPath != null ? CountAssemblies(latestRefPath) : 0;
-
-            frameworks.Add(new FrameworkInfo
+            foreach (var (shortName, refPackName) in FrameworkMappings)
             {
-                ShortName = shortName,
-                RefPackName = refPackName,
-                LatestVersion = latestVersion,
-                AllVersions = versions,
-                AssemblyCount = assemblyCount,
-                Path = refPackPath
-            });
+                var refPackPath = Path.Combine(dir, refPackName);
+                if (!Directory.Exists(refPackPath))
+                    continue;
+
+                var versions = GetInstalledVersions(refPackPath);
+                if (versions.Count == 0)
+                    continue;
+
+                if (frameworkMap.TryGetValue(shortName, out var existing))
+                {
+                    // Merge versions from additional packs directories
+                    var allVersions = existing.AllVersions.Union(versions).Distinct()
+                        .OrderByDescending(v => ParseVersion(v)).ToList();
+                    existing.AllVersions = allVersions;
+                    existing.LatestVersion = allVersions[0];
+                }
+                else
+                {
+                    var latestVersion = versions[0];
+                    var latestRefPath = GetRefAssemblyPath(refPackPath, latestVersion);
+                    var assemblyCount = latestRefPath != null ? CountAssemblies(latestRefPath) : 0;
+
+                    frameworkMap[shortName] = new FrameworkInfo
+                    {
+                        ShortName = shortName,
+                        RefPackName = refPackName,
+                        LatestVersion = latestVersion,
+                        AllVersions = versions,
+                        AssemblyCount = assemblyCount,
+                        Path = refPackPath
+                    };
+                }
+            }
         }
 
-        return frameworks;
+        return [.. frameworkMap.Values];
     }
 
     /// <summary>
@@ -296,12 +285,6 @@ public static class PlatformResolver
         string frameworkSpec, 
         string? packsDirectory = null)
     {
-        packsDirectory ??= GetPacksDirectory();
-        if (packsDirectory == null)
-        {
-            return (null, null, "Could not locate .NET SDK packs directory");
-        }
-
         // Parse framework@version syntax
         string frameworkName;
         string? requestedVersion = null;
@@ -323,37 +306,67 @@ public static class PlatformResolver
             return (null, null, $"Unknown framework '{frameworkName}'. Valid names: {string.Join(", ", FrameworkMappings.Keys)}");
         }
 
-        var refPackPath = Path.Combine(packsDirectory, refPackName);
-        if (!Directory.Exists(refPackPath))
+        // Search across all packs directories
+        List<string> packsDirs;
+        if (packsDirectory != null)
+        {
+            packsDirs = [packsDirectory];
+        }
+        else
+        {
+            packsDirs = GetAllPacksDirectories();
+        }
+
+        // Collect all versions across all directories, tracking which dir has each version
+        List<(string Version, string RefPackPath)> allVersions = [];
+
+        foreach (var dir in packsDirs)
+        {
+            var refPackPath = Path.Combine(dir, refPackName);
+            if (!Directory.Exists(refPackPath))
+                continue;
+
+            foreach (var v in GetInstalledVersions(refPackPath))
+            {
+                if (!allVersions.Any(x => x.Version == v))
+                {
+                    allVersions.Add((v, refPackPath));
+                }
+            }
+        }
+
+        if (allVersions.Count == 0)
         {
             return (null, null, $"Framework '{frameworkName}' is not installed");
         }
 
-        var versions = GetInstalledVersions(refPackPath);
-        if (versions.Count == 0)
-        {
-            return (null, null, $"No versions found for framework '{frameworkName}'");
-        }
+        // Sort by version descending
+        allVersions = allVersions.OrderByDescending(x => ParseVersion(x.Version)).ToList();
 
         string version;
+        string matchedRefPackPath;
+
         if (requestedVersion != null)
         {
-            // Find exact or closest match
-            version = versions.FirstOrDefault(v => v.StartsWith(requestedVersion, StringComparison.OrdinalIgnoreCase))
-                      ?? versions.FirstOrDefault(v => v.Contains(requestedVersion, StringComparison.OrdinalIgnoreCase))
-                      ?? "";
-            
-            if (string.IsNullOrEmpty(version))
+            var match = allVersions.FirstOrDefault(x => x.Version.StartsWith(requestedVersion, StringComparison.OrdinalIgnoreCase));
+            if (match == default)
+                match = allVersions.FirstOrDefault(x => x.Version.Contains(requestedVersion, StringComparison.OrdinalIgnoreCase));
+
+            if (match == default)
             {
-                return (null, null, $"Version '{requestedVersion}' not found for '{frameworkName}'. Available: {string.Join(", ", versions.Take(5))}");
+                return (null, null, $"Version '{requestedVersion}' not found for '{frameworkName}'. Available: {string.Join(", ", allVersions.Take(5).Select(x => x.Version))}");
             }
+
+            version = match.Version;
+            matchedRefPackPath = match.RefPackPath;
         }
         else
         {
-            version = versions[0]; // Latest
+            version = allVersions[0].Version;
+            matchedRefPackPath = allVersions[0].RefPackPath;
         }
 
-        var refPath = GetRefAssemblyPath(refPackPath, version);
+        var refPath = GetRefAssemblyPath(matchedRefPackPath, version);
         if (refPath == null)
         {
             return (null, null, $"Could not find ref libraries for '{frameworkName}' version {version}");
@@ -387,13 +400,7 @@ public static class PlatformResolver
             return ResolveRuntimeAssembly(assemblyName, frameworkSpec);
         }
 
-        packsDirectory ??= GetPacksDirectory();
-        if (packsDirectory == null)
-        {
-            return (null, null, null, "Could not locate .NET SDK packs directory");
-        }
-
-        // If framework specified, search only that framework
+        // If framework specified, search only that framework (across all packs dirs)
         if (!string.IsNullOrEmpty(frameworkSpec))
         {
             var (refPath, version, error) = ResolveFramework(frameworkSpec, packsDirectory);
@@ -416,7 +423,7 @@ public static class PlatformResolver
             return (assemblyPath, frameworkName, version, null);
         }
 
-        // Search all frameworks, prefer runtime
+        // Search all frameworks across all packs dirs, prefer runtime
         var frameworks = GetInstalledFrameworks(packsDirectory);
         var searchOrder = new[] { "runtime", "aspnetcore", "netstandard" };
 
