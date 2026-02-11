@@ -488,6 +488,14 @@ public static class ApiOutputFormatter
                 formatter.FormatRows(kind, members, hasDocs, options.ShowSelect));
         }
 
+        // Custom attributes (when --index selects a single member)
+        if (options.DllPath != null && options.OverloadIndex.HasValue)
+        {
+            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
+            if (methods.Count > 0)
+                RenderMethodAttributes(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+        }
+
         // C# source (when --index selects a single member and source is available)
         if (options.MethodSource != null)
         {
@@ -497,23 +505,15 @@ public static class ApiOutputFormatter
             writer.WriteCodeBlockEnd();
         }
 
-        // Custom attributes (when --index selects a single member)
-        if (options.DllPath != null && options.OverloadIndex.HasValue)
-        {
-            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
-            if (methods.Count > 0)
-                RenderMethodAttributes(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-        }
-
         // IL method body (when --index selects a single member)
         if (options.DllPath != null && options.OverloadIndex.HasValue)
         {
             var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
             if (methods.Count > 0)
             {
+                RenderLoweredCSharp(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
                 RenderILBodies(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
                 RenderAnnotatedIL(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-                RenderLoweredCSharp(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
             }
         }
 
