@@ -133,12 +133,12 @@ public class PackageCommand
                 version = "";
             }
 
-            // Validate version looks like a NuGet version
-            if (version.Length > 0 && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+            // Validate version looks like a NuGet version (allow wildcard patterns like 11.0.0-preview*)
+            if (version.Length > 0 && !version.Contains('*') && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
             {
                 string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
                 Console.Error.WriteLine($"Error: '{badVersion}' is not a valid package version.");
-                Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1");
+                Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
                 Console.Error.WriteLine($"To list available versions: dotnet-inspect package {packageName} --versions");
                 return 1;
             }
