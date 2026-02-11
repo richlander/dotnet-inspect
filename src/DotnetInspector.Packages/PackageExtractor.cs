@@ -343,6 +343,111 @@ public static class PackageExtractor
         return null;
     }
 
+    /// <summary>
+    /// Resolves a wildcard version pattern (e.g., "11.0.0-preview*") to the latest matching version.
+    /// </summary>
+    public static async Task<string?> ResolveVersionPatternAsync(
+        HttpClient client,
+        string packageName,
+        string pattern,
+        List<NuGetSource> sources,
+        Action<string>? log)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        string prefix = pattern.Replace("*", "");
+
+        log?.Invoke($"Resolving version pattern: {pattern}");
+
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestOriginal = null;
+
+        foreach (var source in sources)
+        {
+            var versions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log);
+            if (versions == null) continue;
+
+            foreach (var ver in versions)
+            {
+                if (ver.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed)
+                    && (best == null || parsed > best))
+                {
+                    best = parsed;
+                    bestOriginal = ver;
+                }
+            }
+        }
+
+        if (bestOriginal != null)
+        {
+            log?.Invoke($"Resolved pattern '{pattern}' to version: {bestOriginal}");
+        }
+
+        return bestOriginal;
+    }
+
+    /// <summary>
+    /// Fetches all version strings for a package from a single source.
+    /// </summary>
+    private static async Task<List<string>?> FetchAllVersionsFromSourceAsync(
+        HttpClient client,
+        string packageName,
+        NuGetSource source,
+        Action<string>? log)
+    {
+        // Try flat-container index first
+        var flatContainerUrl = source.GetFlatContainerUrl();
+        if (flatContainerUrl != null)
+        {
+            string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
+            var versions = await FetchVersionListAsync(client, indexUrl, log);
+            if (versions != null)
+                return versions;
+        }
+
+        // Fall back to V3 service index discovery
+        var baseAddress = await GetPackageBaseAddressAsync(client, source, log);
+        if (baseAddress != null)
+        {
+            if (!baseAddress.EndsWith('/'))
+                baseAddress += "/";
+
+            string indexUrl = $"{baseAddress}{packageName}/index.json";
+            var versions = await FetchVersionListAsync(client, indexUrl, log);
+            if (versions != null)
+                return versions;
+        }
+
+        return null;
+    }
+
+    private static async Task<List<string>?> FetchVersionListAsync(
+        HttpClient client, string indexUrl, Action<string>? log)
+    {
+        log?.Invoke($"Fetching versions from: {indexUrl}");
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
+        if (json == null) return null;
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("versions", out var versions))
+            {
+                return versions.EnumerateArray()
+                    .Select(v => v.GetString())
+                    .Where(v => v != null)
+                    .Cast<string>()
+                    .ToList();
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Ignore parse errors
+        }
+
+        return null;
+    }
+
     private static async Task<string?> GetLatestVersionFromSourceAsync(
         HttpClient client,
         string packageName,

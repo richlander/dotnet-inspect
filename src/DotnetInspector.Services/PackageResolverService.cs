@@ -56,8 +56,17 @@ public static class PackageResolverService
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         bool isDefaultSource = sources.Count == 1 && sources[0].IsNuGetOrg();
 
+        // Resolve wildcard version patterns (e.g., 11.0.0-preview*)
+        if (version != null && version.Contains('*'))
+        {
+            version = await PackageExtractor.ResolveVersionPatternAsync(httpClient, packageName, version, sources, log);
+            if (version == null)
+            {
+                return null;
+            }
+        }
         // Discover latest version if not specified
-        if (string.IsNullOrEmpty(version))
+        else if (string.IsNullOrEmpty(version))
         {
             if (isDefaultSource)
             {
