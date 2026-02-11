@@ -104,7 +104,7 @@ public class AssemblyCommand
 
                 if (discoverSections)
                 {
-                    ListEffectiveSections(pipeline, inspection);
+                    pipeline.ListEffectiveSections(inspection);
                     return 0;
                 }
 
@@ -148,7 +148,7 @@ public class AssemblyCommand
 
                 if (discoverSections)
                 {
-                    ListEffectiveSections(pipeline, inspections[0]);
+                    pipeline.ListEffectiveSections(inspections[0]);
                     return 0;
                 }
 
@@ -182,7 +182,7 @@ public class AssemblyCommand
 
                 if (discoverSections)
                 {
-                    ListEffectiveSections(pipeline, inspection);
+                    pipeline.ListEffectiveSections(inspection);
                     return 0;
                 }
 
@@ -432,12 +432,5 @@ public class AssemblyCommand
         }
 
         return null;
-    }
-
-    private static void ListEffectiveSections(SectionPipeline<LibraryInspection> pipeline, LibraryInspection inspection)
-    {
-        var effective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
-        foreach (var name in effective)
-            Console.WriteLine(name);
     }
 }

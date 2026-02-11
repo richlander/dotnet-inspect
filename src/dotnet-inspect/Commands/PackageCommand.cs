@@ -33,12 +33,15 @@ public class PackageCommand
         };
         if (includeError || excludeError) return 1;
 
-        // Bare -s: list available sections and exit
-        if (options.IncludeSections is { Count: 0 })
+        // Bare -s without input: list all potential sections and exit
+        if (options.IncludeSections is { Count: 0 } && packageArgs.Length < 1)
         {
             SectionRegistry.ListSections(sectionNames);
             return 0;
         }
+
+        // Bare -s with input: discover which sections have data (set flag for later)
+        bool discoverSections = options.IncludeSections is { Count: 0 };
 
         // Auto-promote verbosity when -s targets specific sections
         if (options.IncludeSections is { Count: > 0 })
@@ -222,6 +225,13 @@ public class PackageCommand
 
             // Filter output based on options
             FilterResultForOutput(result, options);
+
+            // Bare -s with input: list sections that have content and exit
+            if (discoverSections)
+            {
+                pipeline.ListEffectiveSections(result);
+                return 0;
+            }
 
             // Output results
             var output = OutputFormatter.FormatResult(result, options, pipeline);
