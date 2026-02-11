@@ -136,31 +136,23 @@ public class DiffCommand
         var framework = options.Framework ?? "runtime";
         logger.Log($"Comparing {assemblyName} in {framework} v{fromVersion} → v{toVersion}");
 
-        // Ensure ref packs are downloaded for both versions
-        var fromRequests = PlatformPackService.BuildPackRequests(assemblyName, fromVersion);
-        var toRequests = PlatformPackService.BuildPackRequests(assemblyName, toVersion);
-        var allRequests = fromRequests.Concat(toRequests).ToList();
-        await foreach (var _ in PlatformPackService.EnsurePacksAsync(allRequests, httpClient, logger.Log))
-        {
-        }
-
-        // Resolve assemblies for both versions
-        var (fromPath, _, _, fromError) = PlatformResolver.ResolveAssembly(
+        // Resolve assemblies for both versions (downloads ref packs as needed)
+        var (fromPath, _, _, fromError) = await PlatformResolver.ResolveAssemblyAsync(
             assemblyName,
-            $"{framework}@{fromVersion}",
-            packsDirectory: null,
-            useRuntimeAssemblies: false);
+            httpClient,
+            logger.Log,
+            $"{framework}@{fromVersion}");
 
         if (fromError != null)
         {
             return (null, null, null, null, null, $"Error resolving v{fromVersion}: {fromError}");
         }
 
-        var (toPath, _, _, toError) = PlatformResolver.ResolveAssembly(
+        var (toPath, _, _, toError) = await PlatformResolver.ResolveAssemblyAsync(
             assemblyName,
-            $"{framework}@{toVersion}",
-            packsDirectory: null,
-            useRuntimeAssemblies: false);
+            httpClient,
+            logger.Log,
+            $"{framework}@{toVersion}");
 
         if (toError != null)
         {

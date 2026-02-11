@@ -376,7 +376,35 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Downloads ref packs if needed, then resolves an assembly name to a full path.
+    /// Prefer this over <see cref="ResolveAssembly"/> to avoid cache-miss races.
+    /// </summary>
+    public static async Task<(string? AssemblyPath, string? Framework, string? Version, string? Error)> ResolveAssemblyAsync(
+        string assemblyName,
+        HttpClient httpClient,
+        Action<string>? log = null,
+        string? frameworkSpec = null,
+        bool useRuntimeAssemblies = false)
+    {
+        if (!useRuntimeAssemblies)
+        {
+            // Parse explicit version from frameworkSpec (e.g., "runtime@9.0.12")
+            string? explicitVersion = null;
+            if (!string.IsNullOrEmpty(frameworkSpec) && frameworkSpec.Contains('@'))
+                explicitVersion = frameworkSpec[(frameworkSpec.LastIndexOf('@') + 1)..];
+
+            var requests = PlatformPackService.BuildPackRequests(assemblyName, explicitVersion);
+            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log))
+            {
+            }
+        }
+
+        return ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies);
+    }
+
+    /// <summary>
     /// Resolves an assembly name to a full path within a framework.
+    /// Callers must ensure ref packs are already downloaded, or use <see cref="ResolveAssemblyAsync"/>.
     /// </summary>
     /// <param name="assemblyName">The assembly name (with or without .dll extension)</param>
     /// <param name="frameworkSpec">Optional framework specifier (e.g., "runtime", "runtime@9.0.12")</param>

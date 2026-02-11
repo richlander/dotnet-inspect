@@ -79,14 +79,10 @@ public class AssemblyCommand
 
             if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
-                // Ensure ref packs are downloaded before resolving
-                var packRequests = PlatformPackService.BuildPackRequests(options.PlatformAssembly, null);
-                await foreach (var _ in PlatformPackService.EnsurePacksAsync(packRequests, context.HttpClient, logger.Log))
-                {
-                }
-
-                var (resolvedPath, framework, version, error) = PlatformResolver.ResolveAssembly(
+                var (resolvedPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
                     options.PlatformAssembly,
+                    context.HttpClient,
+                    logger.Log,
                     options.PlatformFramework);
 
                 if (error != null)
