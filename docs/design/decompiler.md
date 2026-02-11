@@ -362,15 +362,37 @@ in the output rather than propagating exceptions.
   - Key components: ILReader 2.2K LOC, ExpressionBuilder 5K LOC,
     StatementBuilder 1.6K LOC
 
+- **dotnet/runtime IL interpreter** (`src/coreclr/interpreter/`)
+  - C++ interpreter that compiles IL to an intermediate representation with
+    typed variables — the same var-per-instruction pattern our ILAst uses.
+    The interpreter's `compiler.cpp` (11K LOC) builds basic blocks, tracks
+    stack types (`StackType` enum similar to our `StackValueKind`), and creates
+    `InterpVar` per stack operation. Memory profiling shows ~40% of allocation
+    goes to variables, confirming this is fundamental to IL analysis.
+  - Notable: the runtime is creating `src/coreclr/jitshared/` to share IL
+    analysis infrastructure between JIT and interpreter (PR #123830). Our
+    design follows the same principle — shared pipeline, multiple emitters.
+  - The interpreter distinguishes `StackTypeLocalVariableAddress` from
+    `StackTypeByRef` for `ldloca`/`ldarga` results. We may want this
+    distinction for more precise `ref` semantics in annotated IL.
+  - **Test suite** (`src/tests/JIT/interpreter/Interpreter.cs`, 3K LOC):
+    covers shared generics, `calli`, `ldftn`, delegates, static virtual
+    methods, constrained calls, nested exception handling, nullable boxing.
+    This is likely our most important test reference for Phase 7 — these
+    tests exercise the IL patterns that appear in real framework code
+    (the patterns our tool hits when inspecting NuGet packages), rather
+    than decompiler-centric sugar recovery patterns.
+
 ### Test sources
 
-| Source                  | License | Usage                                        |
-| ----------------------- | ------- | -------------------------------------------- |
-| ILSpy test suite        | MIT     | Test cases, expected output                  |
-| dotnet/runtime IL tests | MIT     | IL verification test corpus                  |
-| dnSpyEx                 | GPL     | Test inspiration only (never shipped)        |
-| Hand-written samples    | N/A     | `CfgSampleClass` in test project             |
-| Platform assemblies     | N/A     | Stress tests against System.Private.CoreLib  |
+| Source                     | License | Usage                                        |
+| -------------------------- | ------- | -------------------------------------------- |
+| ILSpy test suite           | MIT     | Test cases, expected output                  |
+| dotnet/runtime IL tests    | MIT     | IL verification test corpus                  |
+| dotnet/runtime interpreter | MIT     | IL pattern coverage (generics, delegates, constrained calls) |
+| dnSpyEx                    | GPL     | Test inspiration only (never shipped)        |
+| Hand-written samples       | N/A     | `CfgSampleClass` in test project             |
+| Platform assemblies        | N/A     | Stress tests against System.Private.CoreLib  |
 
 ## Attribution
 
