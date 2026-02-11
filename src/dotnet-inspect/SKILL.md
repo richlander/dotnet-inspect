@@ -63,6 +63,10 @@ dnx dotnet-inspect -y -- samples Markout MarkoutWriter --list
 
 # Get XML documentation for a type
 dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
+
+# Drill into a specific method — get source, decompiled C#, and IL
+dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory --select  # See Select column
+dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1  # Member doc
 ```
 
 ## Key Flags

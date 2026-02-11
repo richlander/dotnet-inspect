@@ -113,14 +113,33 @@ dotnet-inspect api 'Option<T>' --package System.CommandLine      # Generic types
 dotnet-inspect api Markout MarkoutWriter --samples -v:q          # Code samples
 ```
 
-Member selection and decompilation:
+Member selection and decompilation — use `--select` to see addressing hints, then drill in:
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select  # Show Select column
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1  # Member doc
+$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+## Constructors
+
+| Name | Signature | Select |
+| ---- | --------- | ------ |
+| .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ...)` | `-m .ctor --params IEnumerable<...>,IEnumerable<...> --index 1` |
+| .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ..., IEnumerable<IValidateOptions<TOptions>>)` | `-m .ctor --params IEnumerable<...>,IEnumerable<...>,IEnumerable<...> --index 2` |
+
+## Methods
+
+| Name | Signature | Select |
+| ---- | --------- | ------ |
+| Create | `TOptions Create(string)` | `-m Create --index 1` |
 ```
 
-Targeting a member with `--index` or `--params` produces four sections: **Source** (original C#), **Lowered C#** (decompiled), **IL** (disassembly), and **Annotated IL** (with stack state).
+Then target a member to get source, decompiled C#, and IL:
+
+```bash
+$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
+## Source                          # Original C# (via SourceLink)
+## Lowered C#                     # Decompiled C# faithful to IL semantics
+## IL                             # Raw IL disassembly with resolved tokens
+## IL (Annotated)                 # IL with pre-execution stack state at each instruction
+```
 
 ### diff
 
