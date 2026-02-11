@@ -382,3 +382,15 @@ Records are increasingly common and have different instantiation patterns than r
 ## Consider writing and integrating with a separate tool that is daemon-like (like the build server)
 
 Some of the commands we are considering (like find) night be expensive. We could potentially only support those with a persistent process to make them cheaper to execute and for caching.
+
+## Member Index Shorthand (`Deserialize:6`)
+
+Support `Name:N` syntax for selecting a specific overload by position, e.g.:
+
+```bash
+dotnet-inspect api System.Text.Json JsonSerializer Deserialize    # see all overloads
+dotnet-inspect api System.Text.Json JsonSerializer Deserialize:6  # member page for the 6th one
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory .ctor:2  # 2nd constructor
+```
+
+This replaces the current two-step `--select` → copy-paste `--params` workflow for getting to member pages. The member table already implicitly numbers overloads by row order — this just makes that addressable. Much more ergonomic for humans, especially for constructors where the `--params` values are enormous. The `--select` mode can remain for programmatic/LLM use where full `--params` addressing is more reliable.
