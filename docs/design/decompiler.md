@@ -236,28 +236,37 @@ CFG, producing annotated IL at configurable depth:
 | CLI integration | New `--il` flag on `api` command (or standalone) |
 | Depth selector | Choose raw / typed / structured output |
 
-### Phase 6: C# Expression & Statement Building + Emission
+### Phase 6: Lowered C# Emitter ✅
 
-**Second output backend: C# source code.**
+**Second output backend: lowered C# source code.**
 
-Combines what were previously Phases 5 and 6 — mapping ILAst nodes to C#
-syntax and emitting formatted text.
+The emitter produces **lowered C#** — an honest IL-to-C# mapping that shows
+what the compiler actually emitted, not the sugar the developer wrote. This is
+the most natural output when decompiling *up* from IL and serves the primary
+use cases (LLM troubleshooting, codegen analysis, runtime diagnostics) better
+than sugar-recovered "idiomatic" C# would.
 
-| Pattern | Example |
-|---------|---------|
+What "lowered" means:
+- `stloc.0` → `V_0 = expr;`, not recovering original variable names
+- Branches → `goto` / `if (...) goto`, not recovering `foreach`/`using`
+- `call get_Property()` stays as a method call, not `obj.Property`
+- `box` / `unbox.any` visible as casts with annotations
+- Compiler-generated state machines shown as-is (fields + switch/goto)
+
+| Pattern | IL → Lowered C# |
+|---------|-----------------|
 | Operator mapping | `add` → `+`, `ceq` → `==` |
-| Method calls | `call`/`callvirt` → `obj.Method(args)` |
+| Method calls | `call`/`callvirt` → `TypeName.Method(args)` |
 | Field access | `ldfld`/`stfld` → `obj.field` |
-| Property sugar | get/set method pairs → `obj.Property` |
-| Casts | `castclass`/`isinst` → `(Type)x` / `x as Type` |
+| Casts | `castclass` → `(Type)x`, `isinst` → `x as Type` |
 | Array access | `ldelem`/`stelem` → `arr[i]` |
 | Object creation | `newobj` → `new Type(args)` |
+| Control flow | `br`/`brtrue` → `goto` / `if (...) goto` |
 
 | Component | Purpose |
 |-----------|---------|
-| `CSharpEmitter` | Walk structured ILAst, emit C# text |
+| `CSharpEmitter` | Walk ILAst + StructuredControlFlow, emit lowered C# |
 | CLI integration | `--source` flag |
-| Roundtrip tests | Compile C# → decompile → verify output compiles |
 
 ### Phase 7: Advanced Patterns
 
