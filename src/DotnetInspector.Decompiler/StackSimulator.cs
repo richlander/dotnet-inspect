@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -696,16 +697,23 @@ public static class StackSimulator
                     break;
 
                 case HandleKind.MemberReference:
+                {
                     var memberRef = reader.GetMemberReference((MemberReferenceHandle)handle);
-                    var refSig = memberRef.DecodeMethodSignature(Metadata.SignatureDecoder.Instance, genericContext: null);
+                    var genericCtx = BuildGenericContextForMemberRef(reader, memberRef);
+                    var refSig = memberRef.DecodeMethodSignature(Metadata.SignatureDecoder.Instance, genericCtx);
                     paramCount = refSig.ParameterTypes.Length;
                     isStatic = !refSig.Header.IsInstance;
                     returnType = refSig.ReturnType;
                     break;
+                }
 
                 case HandleKind.MethodSpecification:
+                {
                     var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-                    return ApplyCall(reader, MetadataTokens.GetToken(spec.Method), opcode, state);
+                    var methodTypeArgs = spec.DecodeSignature(Metadata.SignatureDecoder.Instance, genericContext: null);
+                    var genericCtx = BuildGenericContextForMethodSpec(reader, spec.Method, methodTypeArgs);
+                    return ApplyCallWithContext(reader, spec.Method, opcode, state, genericCtx);
+                }
 
                 default:
                     return state;
@@ -742,6 +750,151 @@ public static class StackSimulator
         {
             return state;
         }
+    }
+
+    /// <summary>
+    /// Apply a call with an explicit generic context (used for MethodSpecification).
+    /// </summary>
+    static StackState ApplyCallWithContext(MetadataReader reader, EntityHandle methodHandle,
+        ILOpCode opcode, StackState state, Metadata.GenericContext? genericCtx)
+    {
+        try
+        {
+            int paramCount;
+            bool isStatic;
+            string returnType;
+
+            switch (methodHandle.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                    var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodHandle);
+                    var defSig = methodDef.DecodeSignature(Metadata.SignatureDecoder.Instance, genericCtx);
+                    paramCount = defSig.ParameterTypes.Length;
+                    isStatic = methodDef.Attributes.HasFlag(MethodAttributes.Static);
+                    returnType = defSig.ReturnType;
+                    break;
+
+                case HandleKind.MemberReference:
+                    var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodHandle);
+                    genericCtx ??= BuildGenericContextForMemberRef(reader, memberRef);
+                    var refSig = memberRef.DecodeMethodSignature(Metadata.SignatureDecoder.Instance, genericCtx);
+                    paramCount = refSig.ParameterTypes.Length;
+                    isStatic = !refSig.Header.IsInstance;
+                    returnType = refSig.ReturnType;
+                    break;
+
+                default:
+                    return state;
+            }
+
+            int popCount = paramCount;
+            if (opcode == ILOpCode.Newobj) { }
+            else if (!isStatic) popCount++;
+
+            state = state.Pop(popCount);
+
+            if (opcode == ILOpCode.Newobj)
+            {
+                var declaringType = ResolveDeclaringType(reader, methodHandle);
+                state = state.Push(StackValue.CreateObjRef(declaringType));
+            }
+            else if (returnType is not ("System.Void" or "void"))
+            {
+                state = state.Push(StackValue.FromTypeName(returnType));
+            }
+
+            return state;
+        }
+        catch
+        {
+            return state;
+        }
+    }
+
+    /// <summary>
+    /// Build a GenericContext from a MemberReference's parent type (if it's a generic instantiation).
+    /// </summary>
+    internal static Metadata.GenericContext? BuildGenericContextForMemberRef(MetadataReader reader, MemberReference memberRef)
+    {
+        try
+        {
+            if (memberRef.Parent.Kind == HandleKind.TypeSpecification)
+            {
+                var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
+                // Decode the parent type to get type arguments embedded in the name
+                var parentType = typeSpec.DecodeSignature(Metadata.SignatureDecoder.Instance, genericContext: null);
+                // Extract type arguments from the generic instantiation name like "Dict<string, Logger>"
+                var typeArgs = ExtractGenericArguments(parentType);
+                if (typeArgs.Count > 0)
+                    return new Metadata.GenericContext(typeArgs, []);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// Build a GenericContext for a MethodSpecification (generic method instantiation).
+    /// </summary>
+    static Metadata.GenericContext? BuildGenericContextForMethodSpec(
+        MetadataReader reader, EntityHandle baseMethod, ImmutableArray<string> methodTypeArgs)
+    {
+        try
+        {
+            IReadOnlyList<string> typeParams = [];
+
+            // Get type arguments from the declaring type if applicable
+            if (baseMethod.Kind == HandleKind.MemberReference)
+            {
+                var memberRef = reader.GetMemberReference((MemberReferenceHandle)baseMethod);
+                var parentCtx = BuildGenericContextForMemberRef(reader, memberRef);
+                if (parentCtx is not null)
+                    typeParams = parentCtx.TypeParameters;
+            }
+
+            return new Metadata.GenericContext(typeParams, [.. methodTypeArgs]);
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// Extract generic type arguments from a decoded type name like "Dict&lt;string, int&gt;".
+    /// </summary>
+    static IReadOnlyList<string> ExtractGenericArguments(string typeName)
+    {
+        int openAngle = typeName.IndexOf('<');
+        if (openAngle < 0) return [];
+
+        // Find matching closing angle bracket
+        int depth = 0;
+        List<string> args = [];
+        int argStart = openAngle + 1;
+
+        for (int i = openAngle; i < typeName.Length; i++)
+        {
+            switch (typeName[i])
+            {
+                case '<':
+                    depth++;
+                    break;
+                case '>':
+                    depth--;
+                    if (depth == 0)
+                    {
+                        var arg = typeName[argStart..i].Trim();
+                        if (arg.Length > 0) args.Add(arg);
+                        return args;
+                    }
+                    break;
+                case ',' when depth == 1:
+                    args.Add(typeName[argStart..i].Trim());
+                    argStart = i + 1;
+                    break;
+            }
+        }
+
+        return args;
     }
 
     static string? ResolveDeclaringType(MetadataReader reader, EntityHandle methodHandle)
@@ -782,7 +935,7 @@ public static class StackSimulator
         if (context.HasThis)
         {
             if (argIndex == 0)
-                return StackValue.CreateObjRef(); // 'this' (simplified)
+                return StackValue.CreateObjRef(context.DeclaringType);
             argIndex--;
         }
 
@@ -813,7 +966,8 @@ public static class StackSimulator
             if (handle.Kind == HandleKind.MemberReference)
             {
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)handle);
-                string typeName = memberRef.DecodeFieldSignature(Metadata.SignatureDecoder.Instance, genericContext: null);
+                var genericCtx = BuildGenericContextForMemberRef(reader, memberRef);
+                string typeName = memberRef.DecodeFieldSignature(Metadata.SignatureDecoder.Instance, genericCtx);
                 return StackValue.FromTypeName(typeName);
             }
         }

@@ -686,7 +686,8 @@ public static class ILAstBuilder
                 case HandleKind.MemberReference:
                 {
                     var memberRef = reader.GetMemberReference((MemberReferenceHandle)handle);
-                    var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericContext: null);
+                    var genericCtx = StackSimulator.BuildGenericContextForMemberRef(reader, memberRef);
+                    var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericCtx);
                     paramCount = sig.ParameterTypes.Length;
                     isStatic = !sig.Header.IsInstance;
                     returnType = sig.ReturnType;

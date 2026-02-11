@@ -46,6 +46,11 @@ public sealed class MethodBodyContext
     /// </summary>
     public string ReturnType { get; }
 
+    /// <summary>
+    /// The declaring type name (for 'this' resolution in instance methods).
+    /// </summary>
+    public string? DeclaringType { get; }
+
     MethodBodyContext(
         byte[] ilBytes,
         ImmutableArray<ExceptionRegion> exceptionRegions,
@@ -56,7 +61,8 @@ public sealed class MethodBodyContext
         bool hasThis,
         bool hasReturnValue,
         IReadOnlyList<string> parameterTypes,
-        string returnType)
+        string returnType,
+        string? declaringType = null)
     {
         ILBytes = ilBytes;
         ExceptionRegions = exceptionRegions;
@@ -68,6 +74,7 @@ public sealed class MethodBodyContext
         HasReturnValue = hasReturnValue;
         ParameterTypes = parameterTypes;
         ReturnType = returnType;
+        DeclaringType = declaringType;
     }
 
     /// <summary>
@@ -93,6 +100,19 @@ public sealed class MethodBodyContext
         var localTypes = DecodeLocalTypes(reader, body.LocalSignature);
         var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
 
+        // Resolve declaring type name for 'this' type resolution
+        string? declaringType = null;
+        try
+        {
+            var declTypeHandle = method.GetDeclaringType();
+            if (!declTypeHandle.IsNil)
+            {
+                var typeDef = reader.GetTypeDefinition(declTypeHandle);
+                declaringType = reader.GetFullTypeName(typeDef);
+            }
+        }
+        catch { }
+
         return new MethodBodyContext(
             ilBytes,
             body.ExceptionRegions,
@@ -103,7 +123,8 @@ public sealed class MethodBodyContext
             !method.Attributes.HasFlag(System.Reflection.MethodAttributes.Static),
             sig.ReturnType != "System.Void" && sig.ReturnType != "void",
             [.. sig.ParameterTypes],
-            sig.ReturnType);
+            sig.ReturnType,
+            declaringType);
     }
 
     /// <summary>

@@ -211,7 +211,8 @@ public static class AnnotatedILEmitter
         if (simResult.Parameters.Count > 0)
         {
             sb.Append("// Parameters: ");
-            sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p => $"{p.TypeName} {p.Name}")));
+            sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p =>
+                p.TypeName is not null ? $"{p.TypeName} {p.Name}" : p.Name)));
         }
 
         if (simResult.Locals.Count > 0)
@@ -233,7 +234,8 @@ public static class AnnotatedILEmitter
         if (simResult.Parameters.Count > 0)
         {
             sb.Append("//   Parameters: ");
-            sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p => $"{p.TypeName} {p.Name}")));
+            sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p =>
+                p.TypeName is not null ? $"{p.TypeName} {p.Name}" : p.Name)));
         }
 
         if (simResult.Locals.Count > 0)

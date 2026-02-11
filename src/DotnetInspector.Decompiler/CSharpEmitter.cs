@@ -49,6 +49,9 @@ public static class CSharpEmitter
         // Current block nodes being emitted (for dup resolution)
         List<ILAstNode>? _currentBlockNodes;
 
+        // When emitting inside a null-conditional pattern, the receiver expression string
+        string? _nullConditionalReceiver;
+
         public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false)
         {
             _ast = ast;
@@ -144,6 +147,7 @@ public static class CSharpEmitter
         {
             // The condition block's last expression is the branch condition
             string condition = "/* condition */";
+            ILAstExpression? branchExpression = null;
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
             {
                 _currentBlockNodes = condBlock.Nodes;
@@ -165,7 +169,17 @@ public static class CSharpEmitter
                 // Extract condition from the last node (branch)
                 var lastNode = condBlock.Nodes.LastOrDefault();
                 if (lastNode is ILAstStatement branchStmt)
-                    condition = ExpressionToString(ExtractCondition(branchStmt.Expression));
+                {
+                    branchExpression = branchStmt.Expression;
+                    condition = ExpressionToString(ExtractCondition(branchExpression));
+                }
+            }
+
+            // Detect null-conditional pattern: brtrue with dup + trivial else (pop + br.s)
+            if (branchExpression is not null && IsNullConditionalPattern(branchExpression, block))
+            {
+                EmitNullConditional(branchExpression, block, indent);
+                return;
             }
 
             // Apply negation if the conditional detector swapped then/else
@@ -200,6 +214,68 @@ public static class CSharpEmitter
                     _sb.AppendLine("}");
                 }
             }
+        }
+
+        /// <summary>
+        /// Detect the null-conditional pattern: dup + brtrue where else is just pop + br.s.
+        /// Pattern: obj.field → dup → brtrue(then) / pop+br(else) → then: S_in_0.Method()
+        /// </summary>
+        bool IsNullConditionalPattern(ILAstExpression branchExpr, StructuredBlock block)
+        {
+            // Must be brtrue (non-null takes the branch)
+            if (branchExpr.OpCode is not (ILOpCode.Brtrue or ILOpCode.Brtrue_s))
+                return false;
+
+            // The branch argument must be a dup (or contain one)
+            if (branchExpr.Arguments.Count != 1)
+                return false;
+            var arg = branchExpr.Arguments[0];
+            if (arg.OpCode != ILOpCode.Dup)
+                return false;
+
+            // Else block must be trivial: pop (+ optional br.s)
+            if (block.ElseBlock is null)
+                return false;
+            int elseIdx = block.ElseBlock.Kind == StructuredBlockKind.BasicBlock
+                ? block.ElseBlock.BlockIndex
+                : -1;
+            if (elseIdx < 0 || !_blockMap.TryGetValue(elseIdx, out var elseAstBlock))
+                return false;
+
+            // Check the else block is just pop/br operations
+            foreach (var node in elseAstBlock.Nodes)
+            {
+                if (node is ILAstStatement stmt)
+                {
+                    var op = stmt.Expression.OpCode;
+                    if (op is not (ILOpCode.Pop or ILOpCode.Br or ILOpCode.Br_s))
+                        return false;
+                }
+                else return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Emit a null-conditional expression: receiver?.Method()
+        /// </summary>
+        void EmitNullConditional(ILAstExpression branchExpr, StructuredBlock block, int indent)
+        {
+            // Extract the receiver from the dup argument
+            var dupExpr = branchExpr.Arguments[0];
+            string receiver = dupExpr.Arguments.Count > 0
+                ? ExpressionToString(dupExpr.Arguments[0])
+                : "/* dup */";
+
+            // Set the null-conditional receiver so S_in_0 resolves to it
+            _nullConditionalReceiver = receiver;
+
+            // Emit the then block content (the non-null path)
+            if (block.ThenBlock is not null)
+                EmitStructuredBlock(block.ThenBlock, indent);
+
+            _nullConditionalReceiver = null;
         }
 
         void EmitLoop(StructuredBlock block, int indent)
@@ -676,7 +752,11 @@ public static class CSharpEmitter
 
                 // Block-entry stack values (synthetic ldloc for cross-block values)
                 case ILOpCode.Nop when expr.Operand is not null:
-                    _sb.Append(expr.Operand);
+                    if (_nullConditionalReceiver is not null
+                        && expr.Operand.StartsWith("S_in_", StringComparison.Ordinal))
+                        _sb.Append(_nullConditionalReceiver);
+                    else
+                        _sb.Append(expr.Operand);
                     break;
 
                 default:
@@ -721,9 +801,12 @@ public static class CSharpEmitter
             }
             else if (!isStatic && expr.Arguments.Count > 0)
             {
-                // Instance call: receiver.Method(args)
+                // Instance call: receiver.Method(args) or receiver?.Method(args)
+                bool isNullConditionalCall = _nullConditionalReceiver is not null
+                    && expr.Arguments[0] is { OpCode: ILOpCode.Nop, Operand: { } op }
+                    && op.StartsWith("S_in_", StringComparison.Ordinal);
                 EmitExpression(expr.Arguments[0]);
-                _sb.Append($".{memberPart}(");
+                _sb.Append(isNullConditionalCall ? $"?.{memberPart}(" : $".{memberPart}(");
                 for (int i = 1; i < expr.Arguments.Count; i++)
                 {
                     if (i > 1) _sb.Append(", ");
