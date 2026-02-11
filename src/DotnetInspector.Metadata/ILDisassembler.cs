@@ -276,7 +276,8 @@ public static class ILDisassembler
         {
             if (memberRef.GetKind() == MemberReferenceKind.Method)
             {
-                var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericContext: null);
+                var genericCtx = BuildGenericContext(reader, memberRef);
+                var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericCtx);
                 return $"{baseName}({string.Join(", ", sig.ParameterTypes)})";
             }
         }
@@ -326,6 +327,59 @@ public static class ILDisassembler
             .Replace("\n", "\\n")
             .Replace("\r", "\\r")
             .Replace("\t", "\\t");
+    }
+
+    /// <summary>
+    /// Build a GenericContext from a MemberReference's parent type for accurate
+    /// parameter type rendering on generic type members.
+    /// </summary>
+    static GenericContext? BuildGenericContext(MetadataReader reader, MemberReference memberRef)
+    {
+        try
+        {
+            if (memberRef.Parent.Kind == HandleKind.TypeSpecification)
+            {
+                var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
+                var parentType = typeSpec.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+                var typeArgs = ExtractGenericArguments(parentType);
+                if (typeArgs.Count > 0)
+                    return new GenericContext(typeArgs, []);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    static IReadOnlyList<string> ExtractGenericArguments(string typeName)
+    {
+        int openAngle = typeName.IndexOf('<');
+        if (openAngle < 0) return [];
+
+        int depth = 0;
+        List<string> args = [];
+        int argStart = openAngle + 1;
+
+        for (int i = openAngle; i < typeName.Length; i++)
+        {
+            switch (typeName[i])
+            {
+                case '<': depth++; break;
+                case '>':
+                    depth--;
+                    if (depth == 0)
+                    {
+                        var arg = typeName[argStart..i].Trim();
+                        if (arg.Length > 0) args.Add(arg);
+                        return args;
+                    }
+                    break;
+                case ',' when depth == 1:
+                    args.Add(typeName[argStart..i].Trim());
+                    argStart = i + 1;
+                    break;
+            }
+        }
+        return args;
     }
 
     // Primitive readers
