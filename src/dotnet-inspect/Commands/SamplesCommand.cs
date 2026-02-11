@@ -20,22 +20,30 @@ public class SamplesCommand
         var logger = context.Logger;
         var typeName = options.TypeName;
 
-        // Get package info from options
-        string? packageName = null;
-        string? packageVersion = null;
-        if (!string.IsNullOrEmpty(options.PackagePath))
+        try
         {
-            (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
-        }
+            // Get package info from options
+            string? packageName = null;
+            string? packageVersion = null;
+            if (!string.IsNullOrEmpty(options.PackagePath))
+            {
+                (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+            }
 
-        // If type name is specified, get samples for that type only
-        if (!string.IsNullOrEmpty(typeName))
+            // If type name is specified, get samples for that type only
+            if (!string.IsNullOrEmpty(typeName))
+            {
+                return await ExecuteForTypeAsync(typeName, options, packageName, packageVersion, logger, context.HttpClient);
+            }
+
+            // No type specified - get samples for entire assembly
+            return await ExecuteForAssemblyAsync(options, packageName, packageVersion, logger, context.HttpClient);
+        }
+        catch (Exception ex)
         {
-            return await ExecuteForTypeAsync(typeName, options, packageName, packageVersion, logger, context.HttpClient);
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
         }
-
-        // No type specified - get samples for entire assembly
-        return await ExecuteForAssemblyAsync(options, packageName, packageVersion, logger, context.HttpClient);
     }
 
     private static async Task<int> ExecuteForTypeAsync(

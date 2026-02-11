@@ -44,6 +44,11 @@ public class FindCommand
             // Single pattern - use original logic
             return await ExecuteSinglePatternAsync(patterns[0], options, logger, tempDirs, context.HttpClient);
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
+        }
         finally
         {
             AssemblyCollector.CleanupTempDirs(tempDirs);
