@@ -55,6 +55,10 @@ dnx dotnet-inspect -y -- package System.Text.Json --versions
 
 # Get XML documentation for a type
 dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
+
+# Drill into a specific method — get source, decompiled C#, and IL
+dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory --select  # See Select column
+dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1  # Member doc
 ```
 
 ## Key Flags
@@ -64,6 +68,8 @@ dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
 | `-v:d` | Detailed output (full signatures, more info) | all commands |
 | `--docs` | Include XML documentation from source | `api` |
 | `-m Name` | Filter to specific member(s) | `api` |
+| `--select` | Show Select column for member addressing | `api` |
+| `--index N` | Target Nth overload for decompiled member doc | `api` |
 | `-t Name` | Filter to specific type(s), supports globs | `diff` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
 | `--terse` | Compact output (alias for --oneline --grouped) | `find` |
@@ -114,3 +120,4 @@ dnx dotnet-inspect -y -- llmstxt
 - Auditing libraries for SourceLink and determinism
 - Finding types matching a pattern (`--filter "Progress*"`)
 - Getting documentation from source (`--docs`)
+- Viewing decompiled source, IL, and annotated IL for methods

@@ -127,20 +127,40 @@ dotnet-inspect api System.Text.Json JsonSerializer -s                     # Head
 dotnet-inspect api System.Text.Json -s "Classes"                          # Type-level section filter
 ```
 
-Member selection and decompilation:
+Member selection and decompilation — use `--select` to see addressing hints, then drill in:
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select  # Show Select column
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1  # Member doc
+$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+## Constructors
+
+| Name | Signature | Select |
+| ---- | --------- | ------ |
+| .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ...)` | `-m .ctor --params IEnumerable<...>,IEnumerable<...> --index 1` |
+| .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ..., IEnumerable<IValidateOptions<TOptions>>)` | `-m .ctor --params IEnumerable<...>,IEnumerable<...>,IEnumerable<...> --index 2` |
+
+## Methods
+
+| Name | Signature | Select |
+| ---- | --------- | ------ |
+| Create | `TOptions Create(string)` | `-m Create --index 1` |
+```
+
+Then target a member to get source, decompiled C#, and IL:
+
+```bash
+$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
+## Source                          # Original C# (via SourceLink)
+## Lowered C#                     # Decompiled C# faithful to IL semantics
+## IL                             # Raw IL disassembly with resolved tokens
+## IL (Annotated)                 # IL with pre-execution stack state at each instruction
+```
+
+For constructors with overloads, use `--params` to disambiguate:
+
+```bash
 dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory \
   -m .ctor --params "IEnumerable<...>,IEnumerable<...>"                   # Overload by params
 ```
-
-When `--index` or `--params` targets a member, output includes four sections:
-- **Source** — original C# source (when PDB with SourceLink is available)
-- **Lowered C#** — decompiled C# faithful to IL semantics, goto-with-labels control flow
-- **IL** — raw IL disassembly with resolved tokens
-- **Annotated IL** — IL with pre-execution stack state at each instruction
 
 Multi-library packages:
 
