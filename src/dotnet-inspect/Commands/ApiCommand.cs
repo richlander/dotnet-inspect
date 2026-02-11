@@ -86,7 +86,7 @@ public class ApiCommand
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
-                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm);
+                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                     if (tfmAssembly == null)
                     {
                         Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}'.");
@@ -181,7 +181,7 @@ public class ApiCommand
                 var dlls = TfmSelector.GetPackageDlls(searchPath);
                 if (dlls.Count > 1)
                 {
-                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
+                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
                     if (selectedPath != null)
                     {
                         searchPath = selectedPath;

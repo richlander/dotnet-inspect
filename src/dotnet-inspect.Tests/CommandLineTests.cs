@@ -383,6 +383,24 @@ public class CommandLineTests
         Assert.Equal(args, result);
     }
 
+    [Theory]
+    [InlineData("Foo.dll", true, "Foo.dll", null)]
+    [InlineData("path/to/Bar.DLL", true, "path/to/Bar.DLL", null)]
+    [InlineData("Foo.1.0.0.nupkg", true, null, "Foo.1.0.0.nupkg")]
+    [InlineData("path/to/Bar.NUPKG", true, null, "path/to/Bar.NUPKG")]
+    [InlineData("System.Text.Json", false, null, null)]
+    [InlineData("Newtonsoft.Json@13.0.1", false, null, null)]
+    [InlineData(null, false, null, null)]
+    [InlineData("", false, null, null)]
+    public void TryClassifyAsFilePath_ReturnsExpected(string? positional, bool expectedResult, string? expectedLibrary, string? expectedPackage)
+    {
+        var result = CommandLineBuilder.TryClassifyAsFilePath(positional, out var library, out var package);
+
+        Assert.Equal(expectedResult, result);
+        Assert.Equal(expectedLibrary, library);
+        Assert.Equal(expectedPackage, package);
+    }
+
     [Fact]
     public void ParseVerbosity_WithNull_ReturnsMinimal()
     {

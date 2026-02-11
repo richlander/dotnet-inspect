@@ -29,13 +29,11 @@ public static class CommandLineBuilder
     {
         if (args.Length > 0 && !args[0].StartsWith('-') && !KnownCommands.Contains(args[0]))
         {
-            // Route .dll files directly to the library command
-            if (args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                return ["library", .. args];
-
-            // Route .nupkg files directly to the package command
-            if (args[0].EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-                return ["package", .. args];
+            if (TryClassifyAsFilePath(args[0], out var dllPath, out var nupkgPath))
+            {
+                if (dllPath != null) return ["library", .. args];
+                if (nupkgPath != null) return ["package", .. args];
+            }
 
             // Route bare names through the router command (platform-preferred, NuGet fallback)
             return ["router", .. args];
@@ -1098,6 +1096,27 @@ public static class CommandLineBuilder
             }
 
             var name = packageArgs[0];
+
+            // Route file paths to the appropriate command
+            if (TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
+            {
+                if (dllPath != null)
+                {
+                    var assemblyOptions = new AssemblyOptions
+                    {
+                        AssemblyName = dllPath,
+                        IncludeMetadata = true,
+                        JsonOutput = parseResult.GetValue(jsonOption),
+                        Verbose = parseResult.GetValue(verboseOption),
+                        Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                        IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                        ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                    };
+                    return await AssemblyCommand.ExecuteAsync(assemblyOptions);
+                }
+                // .nupkg falls through to package command below
+            }
+
             bool hasExplicitVersion = name.Contains('@');
             var bareName = hasExplicitVersion ? name[..name.IndexOf('@')] : name;
             var explicitVersion = hasExplicitVersion ? name[(name.IndexOf('@') + 1)..] : null;
@@ -1429,16 +1448,14 @@ public static class CommandLineBuilder
                 if (args.Length >= 2) typeName = args[1];
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
-                // Route .dll files to --library, .nupkg stays as package path
-                if (packagePath != null && packagePath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                // Route file paths (.dll → --library, .nupkg stays as package path)
+                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
                 {
-                    explicitAssembly = packagePath;
-                    packagePath = null;
-                    hasExplicitSource = true;
+                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
+                    else if (nupkgPath != null) { packagePath = nupkgPath; }
                 }
-
                 // Platform-preferred routing for System.*/Microsoft.* bare names
-                if (packagePath != null && PlatformResolver.IsPlatformCandidate(
+                else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
                     packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
                 {
                     var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
@@ -1552,4 +1569,31 @@ public static class CommandLineBuilder
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
         => OptionParsers.ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
+
+    /// <summary>
+    /// Classifies a positional argument by file extension.
+    /// Returns true if the positional was a file path (.dll or .nupkg) and sets the appropriate out parameter.
+    /// </summary>
+    internal static bool TryClassifyAsFilePath(string? positional, out string? libraryPath, out string? packagePath)
+    {
+        libraryPath = null;
+        packagePath = null;
+
+        if (string.IsNullOrEmpty(positional))
+            return false;
+
+        if (positional.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            libraryPath = positional;
+            return true;
+        }
+
+        if (positional.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+        {
+            packagePath = positional;
+            return true;
+        }
+
+        return false;
+    }
 }

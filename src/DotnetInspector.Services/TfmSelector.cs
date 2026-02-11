@@ -82,7 +82,7 @@ public static class TfmSelector
         return (directDll ?? assemblies[0], highestTfm);
     }
 
-    public static string? FindAssemblyByTfm(string extractPath, string tfm)
+    public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)
     {
         var libDir = Path.Combine(extractPath, "lib");
         var toolsDir = Path.Combine(extractPath, "tools");
@@ -94,7 +94,17 @@ public static class TfmSelector
             {
                 var dlls = Directory.GetFiles(tfmDir, "*.dll");
                 if (dlls.Length > 0)
+                {
+                    // Prefer assembly matching the package name
+                    if (packageName != null)
+                    {
+                        var match = dlls.FirstOrDefault(d =>
+                            Path.GetFileNameWithoutExtension(d).Equals(packageName, StringComparison.OrdinalIgnoreCase));
+                        if (match != null)
+                            return match;
+                    }
                     return dlls[0];
+                }
             }
         }
 
