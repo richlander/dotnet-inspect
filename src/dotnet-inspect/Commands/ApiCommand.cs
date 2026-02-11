@@ -603,6 +603,12 @@ public class ApiCommand
                     continue;
                 if (trimmed == "{")
                     continue;
+                // Stop at closing brace — that's the end of the previous member
+                if (trimmed.StartsWith("}"))
+                {
+                    sigStart = i + 2; // line after the brace (1-based)
+                    break;
+                }
 
                 sigStart = i + 1; // 0-based → 1-based
                 // Check if this line looks like a method signature (has access modifier or return type)
