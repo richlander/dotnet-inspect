@@ -80,8 +80,8 @@ internal static class TypeSearchService
             if (ReachedLimit()) break;
 
             var framework = options.PlatformFrameworks.Length > 0 ? options.PlatformFrameworks[0] : null;
-            var (assemblyPath, resolvedFramework, version, error) = PlatformResolver.ResolveAssembly(
-                platformAsm, framework, packsDirectory: null, useRuntimeAssemblies: false);
+            var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
+                platformAsm, httpClient, logger.Log, framework);
 
             if (error != null)
             {
