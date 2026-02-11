@@ -94,11 +94,8 @@ public static class NuspecParser
                     });
                 }
 
-                if (depGroup.Dependencies.Count > 0)
-                {
-                    result.DependencyGroups ??= [];
-                    result.DependencyGroups.Add(depGroup);
-                }
+                result.DependencyGroups ??= [];
+                result.DependencyGroups.Add(depGroup);
             }
 
             // Handle dependencies without groups

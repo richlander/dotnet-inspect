@@ -484,6 +484,14 @@ public class PackageCommand
             tfm = group.TargetFramework;
         }
 
+        if (group.Dependencies.Count == 0)
+        {
+            Console.WriteLine($"# {result.PackageName} ({result.Version})");
+            Console.WriteLine();
+            Console.WriteLine($"No additional dependencies for {tfm}.");
+            return 0;
+        }
+
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
