@@ -43,9 +43,20 @@ public static class CommandLineBuilder
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
     {
-        if (args.Length > 0 && !args[0].StartsWith('-') && !KnownCommands.Contains(args[0]))
+        // Find the first positional argument, skipping any leading options
+        int firstPositional = -1;
+        for (int i = 0; i < args.Length; i++)
         {
-            if (TryClassifyAsFilePath(args[0], out var dllPath, out var nupkgPath))
+            if (!args[i].StartsWith('-'))
+            {
+                firstPositional = i;
+                break;
+            }
+        }
+
+        if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
+        {
+            if (TryClassifyAsFilePath(args[firstPositional], out var dllPath, out var nupkgPath))
             {
                 if (dllPath != null) return ["library", .. args];
                 if (nupkgPath != null) return ["package", .. args];
