@@ -1,5 +1,4 @@
 using DotnetInspector.Packages;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -133,10 +132,7 @@ public class ExtensionsCommand
 
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
     {
-        var typeInfo = compact
-            ? ExtensionsCompactJsonContext.Default.ListExtensionMethodResult
-            : ExtensionsJsonContext.Default.ListExtensionMethodResult;
-        Console.WriteLine(JsonSerializer.Serialize(results, typeInfo));
+        JsonOutputHelper.Write(results, ExtensionsJsonContext.Default.ListExtensionMethodResult, ExtensionsCompactJsonContext.Default.ListExtensionMethodResult, compact);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity)
@@ -209,10 +205,3 @@ public record class ExtensionMethodResult
     public string? ReachableFromType { get; set; }
 }
 
-[JsonSerializable(typeof(List<ExtensionMethodResult>))]
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class ExtensionsJsonContext : JsonSerializerContext { }
-
-[JsonSerializable(typeof(List<ExtensionMethodResult>))]
-[JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class ExtensionsCompactJsonContext : JsonSerializerContext { }

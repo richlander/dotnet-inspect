@@ -1,7 +1,10 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.Commands;
+using DotnetInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Views;
-using System.Text.Json.Serialization;
-using DotnetInspector.Metadata;
 
 namespace DotnetInspector;
 
@@ -79,4 +82,58 @@ public partial class PlatformJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(List<PlatformAssembliesJson>))]
 public partial class PlatformCompactJsonContext : JsonSerializerContext
 {
+}
+
+// Find command JSON contexts
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<TypeSearchResult>))]
+internal partial class FindJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<TypeSearchResult>))]
+internal partial class FindCompactJsonContext : JsonSerializerContext { }
+
+// Extensions command JSON contexts
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<ExtensionMethodResult>))]
+internal partial class ExtensionsJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<ExtensionMethodResult>))]
+internal partial class ExtensionsCompactJsonContext : JsonSerializerContext { }
+
+// Implements command JSON contexts
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<ImplementerResult>))]
+internal partial class ImplementsJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<ImplementerResult>))]
+internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
+
+static class JsonOutputHelper
+{
+    public static void Write<T>(T data, JsonTypeInfo<T> indented, JsonTypeInfo<T> compact, bool useCompact)
+    {
+        var typeInfo = useCompact ? compact : indented;
+        Console.WriteLine(JsonSerializer.Serialize(data, typeInfo));
+    }
 }
