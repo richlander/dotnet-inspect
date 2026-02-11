@@ -82,6 +82,34 @@ public static class CSharpEmitter
 
             // Emit the structured body
             EmitStructuredBlock(_structure.Root, 0);
+
+            // Ensure the method ends with a return if the last block has one.
+            // Shared return blocks may be consumed by an IfThenElse else branch
+            // but still need to appear at method end for other paths.
+            EnsureTrailingReturn();
+        }
+
+        void EnsureTrailingReturn()
+        {
+            int lastBlockIdx = _ast.Blocks.Count - 1;
+            if (lastBlockIdx < 0 || !_blockMap.TryGetValue(lastBlockIdx, out var lastBlock))
+                return;
+
+            // Only applies if the block has a return statement
+            bool hasReturn = lastBlock.Nodes.Any(n =>
+                n is ILAstStatement { Expression.OpCode: ILOpCode.Ret });
+            if (!hasReturn) return;
+
+            // Check if the last emitted line already ends with a return
+            string output = _sb.ToString().TrimEnd();
+            if (output.EndsWith("return;") || output.EndsWith(';') &&
+                output.LastIndexOf('\n') is int nl && nl >= 0 &&
+                output[(nl + 1)..].TrimStart().StartsWith("return "))
+                return;
+
+            // Emit the return block — it may have been consumed by an IfThenElse
+            // but is also needed at method end for other paths (shared return blocks)
+            EmitBasicBlock(lastBlockIdx, 0);
         }
 
         void EmitStructuredBlock(StructuredBlock block, int indent)
@@ -120,6 +148,7 @@ public static class CSharpEmitter
             if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
                 return;
 
+            _consumedBlocks.Add(blockIndex);
             _currentBlockNodes = astBlock.Nodes;
 
             foreach (var node in astBlock.Nodes)
@@ -985,13 +1014,51 @@ public static class CSharpEmitter
                 case ILOpCode.Brfalse or ILOpCode.Brfalse_s:
                     if (expr.Arguments.Count > 0)
                     {
-                        _sb.Append('!');
-                        EmitParenthesized(expr, 0);
+                        var arg = expr.Arguments[0];
+
+                        // If the argument is a comparison call (op_Equality, ceq, etc.),
+                        // negate the comparison operator instead of prepending !
+                        if (TryEmitNegatedComparison(arg))
+                            break;
+
+                        // For object references, emit "expr == null" instead of "!expr"
+                        if (arg.ResultType.Kind is StackValueKind.ObjRef)
+                        {
+                            EmitExpression(arg);
+                            _sb.Append(" == null");
+                        }
+                        else if (IsNonBooleanNumeric(arg))
+                        {
+                            EmitExpression(arg);
+                            _sb.Append(" == 0");
+                        }
+                        else
+                        {
+                            // Boolean result — negate directly
+                            _sb.Append('!');
+                            EmitParenthesized(expr, 0);
+                        }
                     }
                     break;
                 case ILOpCode.Brtrue or ILOpCode.Brtrue_s:
                     if (expr.Arguments.Count > 0)
-                        EmitExpression(expr.Arguments[0]);
+                    {
+                        var btArg = expr.Arguments[0];
+                        if (btArg.ResultType.Kind is StackValueKind.ObjRef)
+                        {
+                            EmitExpression(btArg);
+                            _sb.Append(" != null");
+                        }
+                        else if (IsNonBooleanNumeric(btArg))
+                        {
+                            EmitExpression(btArg);
+                            _sb.Append(" != 0");
+                        }
+                        else
+                        {
+                            EmitExpression(btArg);
+                        }
+                    }
                     break;
                 case ILOpCode.Beq or ILOpCode.Beq_s:
                     EmitBinaryCondition(expr, "=="); break;
@@ -1009,6 +1076,88 @@ public static class CSharpEmitter
                     EmitExpression(expr);
                     break;
             }
+        }
+
+        /// <summary>
+        /// For brfalse, try to negate the argument's comparison instead of prepending !.
+        /// E.g., op_Equality → op_Inequality, ceq → emit !=.
+        /// Returns true if it emitted the negated form.
+        /// </summary>
+        bool TryEmitNegatedComparison(ILAstExpression arg)
+        {
+            // Handle call to op_Equality → emit as !=
+            if (arg.OpCode is ILOpCode.Call or ILOpCode.Callvirt && arg.Operand is string operand)
+            {
+                if (operand.Contains("::op_Equality"))
+                {
+                    // Emit as arg0 != arg1 using the sugar path
+                    if (arg.Arguments.Count >= 2)
+                    {
+                        EmitExpression(arg.Arguments[0]);
+                        _sb.Append(" != ");
+                        EmitExpression(arg.Arguments[1]);
+                        return true;
+                    }
+                }
+            }
+
+            // Handle ceq → emit as !=
+            if (arg.OpCode is ILOpCode.Ceq && arg.Arguments.Count >= 2)
+            {
+                EmitExpression(arg.Arguments[0]);
+                _sb.Append(" != ");
+                EmitExpression(arg.Arguments[1]);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true if the expression produces a numeric (non-boolean) Int32 value.
+        /// Conservative: only returns true for known numeric patterns (lengths, counts, arithmetic).
+        /// </summary>
+        static bool IsNonBooleanNumeric(ILAstExpression expr)
+        {
+            if (expr.ResultType.Kind is not (StackValueKind.Int32 or StackValueKind.NativeInt))
+                return false;
+
+            // Comparison instructions produce boolean results
+            if (expr.OpCode is ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Clt
+                or ILOpCode.Cgt_un or ILOpCode.Clt_un)
+                return false;
+
+            // Arithmetic and conversion produce numeric results
+            if (expr.OpCode is ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div
+                or ILOpCode.Rem or ILOpCode.Conv_i4 or ILOpCode.Conv_i or ILOpCode.Conv_u4
+                or ILOpCode.Ldlen)
+                return true;
+
+            // Properties named Count, Length, Size — known numeric
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt && expr.Operand is string opName)
+            {
+                var member = opName;
+                int sep = member.LastIndexOf("::", StringComparison.Ordinal);
+                if (sep >= 0) member = member[(sep + 2)..];
+
+                if (member.StartsWith("get_", StringComparison.Ordinal))
+                {
+                    var prop = member[4..];
+                    if (prop is "Count" or "Length" or "Size" or "Rank" or "Capacity")
+                        return true;
+                }
+            }
+
+            // Field access to Length (arrays)
+            if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld && expr.Operand is string fieldName)
+            {
+                if (fieldName.EndsWith("::Length", StringComparison.Ordinal)
+                    || fieldName.EndsWith("::Count", StringComparison.Ordinal))
+                    return true;
+            }
+
+            // Default: assume boolean (conservative — avoids false != 0)
+            return false;
         }
 
         void EmitBinaryCondition(ILAstExpression expr, string op)
@@ -1188,7 +1337,8 @@ public static class CSharpEmitter
                 if (isRefType && branchExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
                     or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
                 {
-                    // Produce a synthetic != null comparison using Ceq + Operand override
+                    // The ConditionalDetector assigns then/else based on branch semantics,
+                    // so always emit != null (then = non-null path for both brtrue and brfalse)
                     return new ILAstExpression
                     {
                         OpCode = ILOpCode.Ceq,
@@ -1201,6 +1351,30 @@ public static class CSharpEmitter
                             {
                                 OpCode = ILOpCode.Ldnull,
                                 ResultType = StackValue.CreateObjRef(null),
+                                Offset = arg.Offset
+                            }
+                        }
+                    };
+                }
+
+                // For non-boolean numeric types, emit explicit != 0
+                // The ConditionalDetector maps then=true-path, so always use != 0
+                if (IsNonBooleanNumeric(arg) && branchExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                {
+                    return new ILAstExpression
+                    {
+                        OpCode = ILOpCode.Ceq,
+                        ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
+                        Operand = "!=",
+                        Arguments =
+                        {
+                            arg,
+                            new ILAstExpression
+                            {
+                                OpCode = ILOpCode.Ldc_i4_0,
+                                Operand = "0",
+                                ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
                                 Offset = arg.Offset
                             }
                         }

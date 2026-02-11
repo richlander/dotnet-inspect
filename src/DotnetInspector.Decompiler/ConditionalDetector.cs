@@ -89,6 +89,11 @@ public static class ConditionalDetector
                 if (thenIdx < 0 || elseIdx < 0) continue;
             }
 
+            // Skip if this block IS a loop header — its branch is the loop condition,
+            // not a conditional pattern. It will be emitted as part of the loop structure.
+            if (loopHeaders.Contains(i))
+                continue;
+
             // Skip if this is a loop back-edge
             if (loopHeaders.Contains(thenIdx) || loopHeaders.Contains(elseIdx))
             {
