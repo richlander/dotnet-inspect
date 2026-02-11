@@ -460,8 +460,12 @@ public static class StackSimulator
 
             // Array operations
             case ILOpCode.Newarr:
-                reader.ReadILToken();
-                return state.Pop(1).Push(StackValue.CreateObjRef());
+            {
+                int token = reader.ReadILToken();
+                string? elementType = ResolveTypeName(context.Reader, token);
+                string arrayType = elementType is not null ? $"{elementType}[]" : "object[]";
+                return state.Pop(1).Push(StackValue.CreateObjRef(arrayType));
+            }
 
             case ILOpCode.Ldlen:
                 return state.Pop(1).Push(StackValue.CreatePrimitive(StackValueKind.NativeInt));
@@ -480,7 +484,17 @@ public static class StackSimulator
                 return state.Pop(2).Push(StackValue.CreatePrimitive(StackValueKind.NativeInt));
 
             case ILOpCode.Ldelem_ref:
-                return state.Pop(2).Push(StackValue.CreateObjRef());
+            {
+                // Infer element type from the array type on the stack
+                string? elementType = null;
+                if (state.Height >= 2)
+                {
+                    var arrayType = state.Peek(1); // array is below the index
+                    if (arrayType.TypeName is not null && arrayType.TypeName.EndsWith("[]"))
+                        elementType = arrayType.TypeName[..^2];
+                }
+                return state.Pop(2).Push(StackValue.CreateObjRef(elementType));
+            }
 
             case ILOpCode.Ldelem:
             {
@@ -560,8 +574,26 @@ public static class StackSimulator
 
             // Ldtoken
             case ILOpCode.Ldtoken:
-                reader.ReadILToken();
-                return state.Push(StackValue.CreateValueType("System.RuntimeHandle"));
+            {
+                int token = reader.ReadILToken();
+                // Determine the handle type from the token kind
+                var handle = MetadataTokens.EntityHandle(token);
+                string handleType = handle.Kind switch
+                {
+                    HandleKind.TypeDefinition or
+                    HandleKind.TypeReference or
+                    HandleKind.TypeSpecification
+                        => "System.RuntimeTypeHandle",
+                    HandleKind.FieldDefinition or
+                    HandleKind.MemberReference
+                        => "System.RuntimeFieldHandle",
+                    HandleKind.MethodDefinition or
+                    HandleKind.MethodSpecification
+                        => "System.RuntimeMethodHandle",
+                    _ => "System.RuntimeTypeHandle"
+                };
+                return state.Push(StackValue.CreateValueType(handleType));
+            }
 
             // Localloc
             case ILOpCode.Localloc:
