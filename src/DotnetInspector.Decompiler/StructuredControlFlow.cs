@@ -55,6 +55,9 @@ public class StructuredBlock
     /// <summary>Else branch (for IfThenElse, may be null).</summary>
     public StructuredBlock? ElseBlock { get; init; }
 
+    /// <summary>Whether the condition should be negated when emitting.</summary>
+    public bool NegateCondition { get; init; }
+
     /// <summary>Loop header block index (for Loop).</summary>
     public int LoopHeaderIndex { get; init; } = -1;
 
@@ -278,7 +281,8 @@ public sealed class StructuredControlFlow
                             Kind = StructuredBlockKind.IfThenElse,
                             ConditionBlockIndex = t,
                             ThenBlock = thenBlock,
-                            ElseBlock = elseBlock
+                            ElseBlock = elseBlock,
+                            NegateCondition = innerCond.NegateCondition
                         });
                     }
                     else
@@ -331,7 +335,8 @@ public sealed class StructuredControlFlow
                             Kind = StructuredBlockKind.IfThenElse,
                             ConditionBlockIndex = h,
                             ThenBlock = thenBlock,
-                            ElseBlock = elseBlock
+                            ElseBlock = elseBlock,
+                            NegateCondition = handlerCond.NegateCondition
                         });
                     }
                     else
@@ -407,7 +412,8 @@ public sealed class StructuredControlFlow
                     Kind = StructuredBlockKind.IfThenElse,
                     ConditionBlockIndex = i,
                     ThenBlock = thenBlock,
-                    ElseBlock = elseBlock
+                    ElseBlock = elseBlock,
+                    NegateCondition = cond.NegateCondition
                 });
                 continue;
             }

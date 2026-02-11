@@ -166,6 +166,10 @@ public static class CSharpEmitter
                     condition = ExpressionToString(ExtractCondition(branchStmt.Expression));
             }
 
+            // Apply negation if the conditional detector swapped then/else
+            if (block.NegateCondition)
+                condition = NegateConditionString(condition);
+
             WriteIndent(indent);
             _sb.AppendLine($"if ({condition})");
             WriteIndent(indent);
@@ -892,6 +896,30 @@ public static class CSharpEmitter
             var tempCtx = new EmitterContext(_ast, _structure, sb);
             tempCtx.EmitExpression(expr);
             return sb.ToString();
+        }
+
+        static string NegateConditionString(string condition)
+        {
+            // Flip comparison operators if present
+            if (condition.Contains(" != "))
+                return condition.Replace(" != ", " == ");
+            if (condition.Contains(" == "))
+                return condition.Replace(" == ", " != ");
+            if (condition.Contains(" > ") && !condition.Contains(" >= "))
+                return condition.Replace(" > ", " <= ");
+            if (condition.Contains(" < ") && !condition.Contains(" <= "))
+                return condition.Replace(" < ", " >= ");
+            if (condition.Contains(" >= "))
+                return condition.Replace(" >= ", " < ");
+            if (condition.Contains(" <= "))
+                return condition.Replace(" <= ", " > ");
+
+            // Simple negation
+            if (condition.StartsWith("!(") && condition.EndsWith(')'))
+                return condition[2..^1];
+            if (condition.StartsWith('!'))
+                return condition[1..];
+            return $"!{condition}";
         }
 
         static ILAstExpression ExtractCondition(ILAstExpression branchExpr)

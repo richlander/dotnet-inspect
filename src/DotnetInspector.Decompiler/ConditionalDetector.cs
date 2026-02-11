@@ -20,12 +20,16 @@ public sealed class ConditionalPattern
     /// <summary>Block index where both branches converge (-1 if unknown).</summary>
     public int FollowIndex { get; }
 
-    public ConditionalPattern(int conditionIndex, int thenIndex, int elseIndex, int followIndex)
+    /// <summary>Whether the condition should be negated when emitting (due to then/else swap).</summary>
+    public bool NegateCondition { get; }
+
+    public ConditionalPattern(int conditionIndex, int thenIndex, int elseIndex, int followIndex, bool negateCondition = false)
     {
         ConditionIndex = conditionIndex;
         ThenIndex = thenIndex;
         ElseIndex = elseIndex;
         FollowIndex = followIndex;
+        NegateCondition = negateCondition;
     }
 }
 
@@ -98,6 +102,7 @@ public static class ConditionalDetector
             int followIdx = FindFollowBlock(cfg, domTree, i, thenIdx, elseIdx);
 
             // Simple if (no else): one branch goes directly to the follow block
+            bool simpleIfSwapped = false;
             if (followIdx == -1)
             {
                 if (IsDirectPredecessor(cfg, thenIdx, elseIdx))
@@ -110,13 +115,45 @@ public static class ConditionalDetector
                     followIdx = thenIdx;
                     thenIdx = elseIdx;
                     elseIdx = -1;
+                    simpleIfSwapped = true;
                 }
             }
 
-            patterns.Add(new ConditionalPattern(i, thenIdx, elseIdx, followIdx));
+            // If the "then" block is trivial (just leave/br/endfinally) and the
+            // "else" block has substance, swap them and negate the condition.
+            // This produces more natural code: if (!cond) { body } instead of
+            // if (cond) { leave } else { body }
+            bool negate = simpleIfSwapped;
+            if (elseIdx >= 0 && IsTrivialBlock(cfg, thenIdx) && !IsTrivialBlock(cfg, elseIdx))
+            {
+                (thenIdx, elseIdx) = (elseIdx, thenIdx);
+                negate = true;
+                // If the swapped else is trivial, treat as simple-if (no else)
+                if (IsTrivialBlock(cfg, elseIdx))
+                {
+                    followIdx = elseIdx;
+                    elseIdx = -1;
+                }
+            }
+
+            patterns.Add(new ConditionalPattern(i, thenIdx, elseIdx, followIdx, negate));
         }
 
         return patterns;
+    }
+
+    /// <summary>
+    /// A block is "trivial" if it contains only control flow transfer
+    /// instructions with no meaningful computation (leave, br, endfinally, ret with no value).
+    /// </summary>
+    static bool IsTrivialBlock(ControlFlowGraph cfg, int blockIdx)
+    {
+        if (blockIdx < 0 || blockIdx >= cfg.BasicBlocks.Count)
+            return false;
+
+        var block = cfg.BasicBlocks[blockIdx];
+        // Blocks of 1-2 bytes are typically just leave.s, br.s, endfinally, ret
+        return block.Size <= 2;
     }
 
     static int FindFollowBlock(ControlFlowGraph cfg, DominatorTree domTree, int condIdx, int thenIdx, int elseIdx)
