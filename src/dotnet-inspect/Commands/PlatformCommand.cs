@@ -17,30 +17,38 @@ public class PlatformCommand
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
-        var packsDir = PlatformResolver.GetPacksDirectory();
-        if (packsDir == null)
+        try
         {
-            Console.Error.WriteLine("Error: Could not locate .NET SDK packs directory.");
-            Console.Error.WriteLine("Ensure .NET SDK is installed and DOTNET_ROOT is set if using a non-standard location.");
+            var packsDir = PlatformResolver.GetPacksDirectory();
+            if (packsDir == null)
+            {
+                Console.Error.WriteLine("Error: Could not locate .NET SDK packs directory.");
+                Console.Error.WriteLine("Ensure .NET SDK is installed and DOTNET_ROOT is set if using a non-standard location.");
+                return Task.FromResult(1);
+            }
+
+            logger.Log($"Using packs directory: {packsDir}");
+
+            // Handle --list-versions
+            if (options.ListVersions)
+            {
+                return Task.FromResult(ListVersions(packsDir, options));
+            }
+
+            // If --framework specified, list assemblies for that framework
+            if (!string.IsNullOrEmpty(options.Framework))
+            {
+                return Task.FromResult(ListAssemblies(packsDir, options, logger));
+            }
+
+            // Default: list frameworks (consistent with api/samples requiring explicit source)
+            return Task.FromResult(ListFrameworks(packsDir, options));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
             return Task.FromResult(1);
         }
-
-        logger.Log($"Using packs directory: {packsDir}");
-
-        // Handle --list-versions
-        if (options.ListVersions)
-        {
-            return Task.FromResult(ListVersions(packsDir, options));
-        }
-
-        // If --framework specified, list assemblies for that framework
-        if (!string.IsNullOrEmpty(options.Framework))
-        {
-            return Task.FromResult(ListAssemblies(packsDir, options, logger));
-        }
-
-        // Default: list frameworks (consistent with api/samples requiring explicit source)
-        return Task.FromResult(ListFrameworks(packsDir, options));
     }
 
     private static int ListFrameworks(string packsDir, PlatformOptions options)

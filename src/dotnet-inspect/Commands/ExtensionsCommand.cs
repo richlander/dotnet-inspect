@@ -90,6 +90,11 @@ public class ExtensionsCommand
 
             return 0;
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
+        }
         finally
         {
             AssemblyCollector.CleanupTempDirs(tempDirs);
