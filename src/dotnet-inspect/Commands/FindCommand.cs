@@ -28,11 +28,11 @@ public class FindCommand
                 return 1;
             }
 
-            // Default to runtime framework if no scope specified
+            // Safety fallback — CommandLineBuilder should have applied --dotnet scope
             if (!options.HasAnyScope)
             {
-                logger.Log("No scope specified, defaulting to --framework runtime");
-                options = options with { PlatformFrameworks = ["runtime"] };
+                logger.Log("No scope specified, defaulting to --dotnet scope");
+                options = options with { PlatformFrameworks = ["runtime", "aspnetcore"] };
             }
 
             // For oneline/name-only/multi-pattern mode, collect results per pattern
