@@ -650,8 +650,9 @@ public class ApiCommand
 
             return new MethodSourceContext(sourceCode, methodInfo.SourceUrl);
         }
-        catch
+        catch (Exception ex)
         {
+            logger.Log($"Warning: Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return null;
         }
     }

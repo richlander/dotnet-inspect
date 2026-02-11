@@ -126,8 +126,9 @@ internal static class LibraryMetadataService
 
             return inspection;
         }
-        catch
+        catch (Exception ex)
         {
+            logger.Log($"Warning: Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
             return null;
         }
     }
