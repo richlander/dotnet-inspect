@@ -1414,6 +1414,7 @@ public static class CommandLineBuilder
             string? packagePath = explicitPackage;
             string? typeName = null;
             List<string> positionalMembers = [];
+            string? apiFrameworkOverride = null;
 
             if (hasExplicitSource)
             {
@@ -1429,23 +1430,35 @@ public static class CommandLineBuilder
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
                 // Platform-preferred routing for System.*/Microsoft.* bare names
-                if (packagePath != null && !packagePath.Contains('@') &&
-                    PlatformResolver.IsPlatformCandidate(packagePath))
+                if (packagePath != null && PlatformResolver.IsPlatformCandidate(
+                    packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
                 {
+                    var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
+                    var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
+
                     // Ensure ref packs are downloaded before resolving
                     var client = HttpClientFactory.Shared;
                     bool verbose = parseResult.GetValue(verboseOption);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                    var requests = PlatformPackService.BuildPackRequests(packagePath, null);
+                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion);
                     await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
                     {
-                        if (PlatformPackService.ContainsAssembly(pack.PackDir, packagePath))
+                        if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
                         {
-                            var (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(packagePath);
+                            string? frameworkSpec = null;
+                            var (asmPath, framework, _, error) = PlatformResolver.ResolveAssembly(bareName);
+
+                            if (asmPath != null && explicitVersion != null)
+                            {
+                                frameworkSpec = $"{framework}@{explicitVersion}";
+                                (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
+                            }
+
                             if (error == null && asmPath != null)
                             {
-                                explicitPlatform = packagePath;
+                                explicitPlatform = bareName;
                                 packagePath = null;
+                                apiFrameworkOverride = frameworkSpec;
                                 break;
                             }
                         }
@@ -1480,7 +1493,7 @@ public static class CommandLineBuilder
                 PackagePath = packagePath,
                 AssemblyPath = explicitAssembly,
                 PlatformAssembly = explicitPlatform,
-                PlatformFramework = parseResult.GetValue(apiFrameworkOption),
+                PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(apiFrameworkOption),
                 Tfm = parseResult.GetValue(apiTfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 TypeFilter = parseResult.GetValue(typeFilterOption),
