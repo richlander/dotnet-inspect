@@ -1,0 +1,319 @@
+using System.Reflection.Metadata;
+using System.Text;
+
+namespace DotnetInspector.Decompiler;
+
+/// <summary>
+/// Kinds of structured control flow nodes.
+/// </summary>
+public enum StructuredBlockKind
+{
+    /// <summary>A sequential list of structured blocks.</summary>
+    Sequence,
+
+    /// <summary>A single basic block with its ILAst nodes.</summary>
+    BasicBlock,
+
+    /// <summary>An if/then/else conditional.</summary>
+    IfThenElse,
+
+    /// <summary>A natural loop (while/do-while/for).</summary>
+    Loop,
+
+    /// <summary>A try/catch/finally block.</summary>
+    TryCatchFinally,
+
+    /// <summary>A switch statement.</summary>
+    Switch
+}
+
+/// <summary>
+/// A structured control flow node representing recovered high-level structure.
+/// </summary>
+public class StructuredBlock
+{
+    public StructuredBlockKind Kind { get; init; }
+
+    /// <summary>Block index in the CFG (for BasicBlock kind).</summary>
+    public int BlockIndex { get; init; } = -1;
+
+    /// <summary>Child blocks (for Sequence, Loop body, etc.).</summary>
+    public List<StructuredBlock> Children { get; init; } = [];
+
+    /// <summary>Condition block index (for IfThenElse).</summary>
+    public int ConditionBlockIndex { get; init; } = -1;
+
+    /// <summary>Then branch (for IfThenElse).</summary>
+    public StructuredBlock? ThenBlock { get; init; }
+
+    /// <summary>Else branch (for IfThenElse, may be null).</summary>
+    public StructuredBlock? ElseBlock { get; init; }
+
+    /// <summary>Loop header block index (for Loop).</summary>
+    public int LoopHeaderIndex { get; init; } = -1;
+
+    /// <summary>Exception region (for TryCatchFinally).</summary>
+    public ExceptionRegion? ExceptionRegion { get; init; }
+
+    /// <summary>Label for the block.</summary>
+    public string? Label { get; init; }
+
+    public void WriteTo(StringBuilder sb, int indent = 0)
+    {
+        switch (Kind)
+        {
+            case StructuredBlockKind.Sequence:
+                foreach (var child in Children)
+                    child.WriteTo(sb, indent);
+                break;
+
+            case StructuredBlockKind.BasicBlock:
+                WriteIndent(sb, indent);
+                sb.AppendLine($"Block_{BlockIndex}:");
+                break;
+
+            case StructuredBlockKind.IfThenElse:
+                WriteIndent(sb, indent);
+                sb.AppendLine($"if (Block_{ConditionBlockIndex}) {{");
+                ThenBlock?.WriteTo(sb, indent + 1);
+                if (ElseBlock is not null)
+                {
+                    WriteIndent(sb, indent);
+                    sb.AppendLine("} else {");
+                    ElseBlock.WriteTo(sb, indent + 1);
+                }
+                WriteIndent(sb, indent);
+                sb.AppendLine("}");
+                break;
+
+            case StructuredBlockKind.Loop:
+                WriteIndent(sb, indent);
+                sb.AppendLine($"loop (header: Block_{LoopHeaderIndex}) {{");
+                foreach (var child in Children)
+                    child.WriteTo(sb, indent + 1);
+                WriteIndent(sb, indent);
+                sb.AppendLine("}");
+                break;
+
+            case StructuredBlockKind.TryCatchFinally:
+                WriteIndent(sb, indent);
+                if (ExceptionRegion?.Kind == ExceptionRegionKind.Finally)
+                    sb.AppendLine("try { ... } finally { ... }");
+                else
+                    sb.AppendLine("try { ... } catch { ... }");
+                break;
+
+            case StructuredBlockKind.Switch:
+                WriteIndent(sb, indent);
+                sb.AppendLine("switch { ... }");
+                break;
+        }
+    }
+
+    static void WriteIndent(StringBuilder sb, int indent)
+    {
+        for (int i = 0; i < indent; i++)
+            sb.Append("    ");
+    }
+
+    public override string ToString()
+    {
+        var sb = new StringBuilder();
+        WriteTo(sb);
+        return sb.ToString();
+    }
+}
+
+/// <summary>
+/// Result of control flow structuring analysis.
+/// </summary>
+public sealed class StructuredControlFlow
+{
+    /// <summary>The root structured block.</summary>
+    public StructuredBlock Root { get; }
+
+    /// <summary>The dominator tree used for analysis.</summary>
+    public DominatorTree DominatorTree { get; }
+
+    /// <summary>Detected natural loops.</summary>
+    public List<NaturalLoop> Loops { get; }
+
+    /// <summary>Detected conditional patterns.</summary>
+    public List<ConditionalPattern> Conditionals { get; }
+
+    /// <summary>Exception regions from metadata.</summary>
+    public List<ExceptionRegionInfo> ExceptionRegions { get; }
+
+    StructuredControlFlow(
+        StructuredBlock root,
+        DominatorTree domTree,
+        List<NaturalLoop> loops,
+        List<ConditionalPattern> conditionals,
+        List<ExceptionRegionInfo> exceptionRegions)
+    {
+        Root = root;
+        DominatorTree = domTree;
+        Loops = loops;
+        Conditionals = conditionals;
+        ExceptionRegions = exceptionRegions;
+    }
+
+    /// <summary>
+    /// Analyze a method's control flow and produce structured representation.
+    /// </summary>
+    public static StructuredControlFlow Analyze(MethodBodyContext context)
+    {
+        var cfg = ControlFlowGraph.Create(context);
+        return Analyze(context, cfg);
+    }
+
+    /// <summary>
+    /// Analyze control flow from a pre-computed CFG.
+    /// </summary>
+    public static StructuredControlFlow Analyze(MethodBodyContext context, ControlFlowGraph cfg)
+    {
+        var domTree = DominatorTree.Build(cfg);
+        var loops = LoopDetector.DetectLoops(cfg, domTree);
+        var conditionals = ConditionalDetector.DetectConditionals(cfg, domTree, loops);
+        var exRegions = MapExceptionRegions(context, cfg);
+
+        var root = BuildStructuredTree(cfg, domTree, loops, conditionals, exRegions);
+
+        return new StructuredControlFlow(root, domTree, loops, conditionals, exRegions);
+    }
+
+    static StructuredBlock BuildStructuredTree(
+        ControlFlowGraph cfg,
+        DominatorTree domTree,
+        List<NaturalLoop> loops,
+        List<ConditionalPattern> conditionals,
+        List<ExceptionRegionInfo> exRegions)
+    {
+        // Build lookup tables
+        var loopHeaders = new Dictionary<int, NaturalLoop>();
+        foreach (var loop in loops)
+            loopHeaders[loop.HeaderIndex] = loop;
+
+        var conditionBlocks = new Dictionary<int, ConditionalPattern>();
+        foreach (var cond in conditionals)
+            conditionBlocks[cond.ConditionIndex] = cond;
+
+        var exRegionsByBlock = new Dictionary<int, ExceptionRegionInfo>();
+        foreach (var region in exRegions)
+        {
+            if (region.TryStartBlockIndex >= 0)
+                exRegionsByBlock.TryAdd(region.TryStartBlockIndex, region);
+        }
+
+        // Build the tree by walking blocks in order
+        var processed = new HashSet<int>();
+        var children = new List<StructuredBlock>();
+
+        for (int i = 0; i < cfg.BasicBlocks.Count; i++)
+        {
+            if (processed.Contains(i)) continue;
+
+            if (loopHeaders.TryGetValue(i, out var loop))
+            {
+                var loopChildren = new List<StructuredBlock>();
+                foreach (int bodyIdx in loop.BodyIndices.OrderBy(x => x))
+                {
+                    processed.Add(bodyIdx);
+                    loopChildren.Add(new StructuredBlock
+                    {
+                        Kind = StructuredBlockKind.BasicBlock,
+                        BlockIndex = bodyIdx,
+                        Label = $"Block_{bodyIdx}"
+                    });
+                }
+
+                children.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.Loop,
+                    LoopHeaderIndex = i,
+                    Children = loopChildren
+                });
+                continue;
+            }
+
+            if (conditionBlocks.TryGetValue(i, out var cond))
+            {
+                var thenBlock = new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.BasicBlock,
+                    BlockIndex = cond.ThenIndex,
+                    Label = $"Block_{cond.ThenIndex}"
+                };
+                processed.Add(cond.ThenIndex);
+
+                StructuredBlock? elseBlock = null;
+                if (cond.ElseIndex >= 0)
+                {
+                    elseBlock = new StructuredBlock
+                    {
+                        Kind = StructuredBlockKind.BasicBlock,
+                        BlockIndex = cond.ElseIndex,
+                        Label = $"Block_{cond.ElseIndex}"
+                    };
+                    processed.Add(cond.ElseIndex);
+                }
+
+                processed.Add(i);
+                children.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.IfThenElse,
+                    ConditionBlockIndex = i,
+                    ThenBlock = thenBlock,
+                    ElseBlock = elseBlock
+                });
+                continue;
+            }
+
+            if (exRegionsByBlock.TryGetValue(i, out var exRegion))
+            {
+                processed.Add(i);
+                children.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.TryCatchFinally,
+                    BlockIndex = i,
+                    ExceptionRegion = exRegion.Region
+                });
+                continue;
+            }
+
+            processed.Add(i);
+            children.Add(new StructuredBlock
+            {
+                Kind = StructuredBlockKind.BasicBlock,
+                BlockIndex = i,
+                Label = $"Block_{i}"
+            });
+        }
+
+        return new StructuredBlock
+        {
+            Kind = StructuredBlockKind.Sequence,
+            Children = children
+        };
+    }
+
+    static List<ExceptionRegionInfo> MapExceptionRegions(MethodBodyContext context, ControlFlowGraph cfg)
+    {
+        List<ExceptionRegionInfo> result = [];
+        foreach (var region in context.ExceptionRegions)
+        {
+            int tryStart = cfg.LookupIndex(region.TryOffset);
+            int handlerStart = cfg.LookupIndex(region.HandlerOffset);
+            result.Add(new ExceptionRegionInfo(region, tryStart, handlerStart));
+        }
+        return result;
+    }
+}
+
+/// <summary>
+/// Maps an <see cref="ExceptionRegion"/> to its block indices in the CFG.
+/// </summary>
+public sealed record ExceptionRegionInfo(
+    ExceptionRegion Region,
+    int TryStartBlockIndex,
+    int HandlerStartBlockIndex);
