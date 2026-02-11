@@ -175,6 +175,31 @@ public static class StackSimulator
     }
 
     /// <summary>
+    /// Simulate a single basic block and record the stack state before each instruction.
+    /// Returns a dictionary mapping absolute IL offsets to their pre-instruction stack states.
+    /// </summary>
+    internal static Dictionary<int, StackState> SimulateBlockDetailed(
+        MethodBodyContext context, BasicBlock block, StackState entryState)
+    {
+        var result = new Dictionary<int, StackState>();
+        var ilBytes = context.ILBytes.AsSpan(block.Start, block.Size);
+        var reader = new ILReaderLite(ilBytes);
+        var state = entryState;
+
+        while (reader.HasNext)
+        {
+            int offsetInBlock = reader.Offset;
+            int absoluteOffset = block.Start + offsetInBlock;
+            result[absoluteOffset] = state;
+
+            var opcode = reader.ReadILOpcode();
+            state = ApplyOpcode(context, ref reader, opcode, state);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Apply a single opcode to the stack state, returning the new state.
     /// </summary>
     static StackState ApplyOpcode(MethodBodyContext context, ref ILReaderLite reader, ILOpCode opcode, StackState state)

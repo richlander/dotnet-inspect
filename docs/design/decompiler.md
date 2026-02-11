@@ -216,7 +216,7 @@ The runtime's exception region metadata (`ExceptionRegion`) directly encodes
 try/catch/finally boundaries, making exception handling recovery more
 straightforward than loop/conditional recovery.
 
-### Phase 5: Annotated IL Emitter + CLI Integration
+### Phase 5: Annotated IL Emitter ✅
 
 **First output backend: structured IL with type annotations and CFG.**
 
