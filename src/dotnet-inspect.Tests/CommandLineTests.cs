@@ -340,6 +340,24 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_WithDllFile_PrependsLibrary()
+    {
+        var args = new[] { "artifacts/bin/Foo/debug/Foo.dll", "--json" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(["library", "artifacts/bin/Foo/debug/Foo.dll", "--json"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_WithNupkgFile_PrependsPackage()
+    {
+        var args = new[] { "Foo.1.0.0.nupkg" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(["package", "Foo.1.0.0.nupkg"], result);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithHelpFlag_ReturnsUnchanged()
     {
         var args = new[] { "--help" };
