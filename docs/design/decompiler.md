@@ -26,7 +26,7 @@ C# intent: control flow, expressions, type information, and language sugar.
 
 ### Project structure
 
-```
+```text
 src/
   DotnetInspector.Decompiler/          # The decompiler library
   DotnetInspector.Decompiler.Tests/    # Test project (xunit v3)
@@ -34,7 +34,7 @@ src/
 
 ### Dependency chain
 
-```
+```text
 dotnet-inspect (CLI)
   → DotnetInspector.Decompiler         # NEW
   → DotnetInspector.Metadata           # Existing (SignatureDecoder, TypeResolver)
@@ -60,7 +60,7 @@ resolution. It does NOT modify any existing code — purely additive.
 The decompiler is a multi-stage pipeline with pluggable output backends.
 The same analysis infrastructure supports both annotated IL and C# emission:
 
-```
+```text
 IL bytes
   → Phase 1: Control Flow Graph + Stack Heights
   → Phase 2: Typed Stack Simulation + Variables
@@ -72,13 +72,13 @@ IL bytes
 
 The pipeline supports tapping in at different depths:
 
-| Depth | Output | Use case |
-|-------|--------|----------|
-| Phase 1 | Raw IL with CFG boundaries | Basic disassembly |
-| Phase 2 | IL with stack type annotations | Debugging stack issues, boxing |
-| Phase 4 | Structured IL (indented blocks) | Compiler output analysis |
-| Phase 5 | Full annotated IL | LLM troubleshooting, codegen diffing |
-| Phase 6 | C# source | Human-readable decompilation |
+| Depth   | Output                          | Use case                             |
+| ------- | ------------------------------- | ------------------------------------ |
+| Phase 1 | Raw IL with CFG boundaries      | Basic disassembly                    |
+| Phase 2 | IL with stack type annotations  | Debugging stack issues, boxing       |
+| Phase 4 | Structured IL (indented blocks) | Compiler output analysis             |
+| Phase 5 | Full annotated IL               | LLM troubleshooting, codegen diffing |
+| Phase 6 | C# source                       | Human-readable decompilation         |
 
 ### Why annotated IL matters
 
@@ -120,13 +120,13 @@ before later ones are complete.
 
 **Port foundational IL analysis algorithms from dotnet/runtime.**
 
-| Component | Runtime source | Purpose |
-|-----------|---------------|---------|
-| `ILOpcodeExtensions` | `ILOpcodeHelper.cs` | Opcode size, branch classification, validity |
-| `ILReaderLite` | `ILReader.cs` | `ref struct` IL byte reader |
-| `ControlFlowGraph` | `FlowGraph.cs` | Basic block detection + CFG edges |
-| `StackHeightCalculator` | `ILStackHelper.cs` | Max stack depth via simulation |
-| `MethodBodyContext` | New | Wraps `MethodBodyBlock` + `MetadataReader` |
+| Component                | Runtime source      | Purpose                                      |
+| ------------------------ | ------------------- | -------------------------------------------- |
+| `ILOpcodeExtensions`     | `ILOpcodeHelper.cs` | Opcode size, branch classification, validity |
+| `ILReaderLite`           | `ILReader.cs`       | `ref struct` IL byte reader                  |
+| `ControlFlowGraph`       | `FlowGraph.cs`      | Basic block detection + CFG edges            |
+| `StackHeightCalculator`  | `ILStackHelper.cs`  | Max stack depth via simulation               |
+| `MethodBodyContext`      | New                 | Wraps `MethodBodyBlock` + `MetadataReader`   |
 
 Key adaptations from runtime to BCL types:
 - `Internal.IL.ILOpcode` → `System.Reflection.Metadata.ILOpCode`
@@ -138,20 +138,20 @@ Tests: 32 tests including platform assembly stress tests.
 
 ### Phase 2: Stack Type Analysis & Variable Introduction ✅
 
-**Move from "how high is the stack" to "what types are on the stack."**
+#### Move from "how high is the stack" to "what types are on the stack"
 
 This phase introduces typed stack simulation — tracking not just stack height
 but the kind of value at each stack slot (int32, int64, float, object ref,
 by-ref, value type). At basic block boundaries and branch targets, stack slots
 become named variables.
 
-| Component | Reference | Purpose |
-|-----------|-----------|---------|
-| `StackValueKind` | Runtime `StackValueKind.cs` | 8-value enum for stack type categories |
-| `StackValue` | Runtime `StackValue.cs` | Struct with Kind + TypeName, merging per ECMA-335 |
-| `StackState` | New | Immutable typed stack with Push/Pop/Merge |
-| `ILVariable` | ILSpy `ILVariable.cs` | Named variable (Parameter/Local/StackSlot/ExceptionSlot) |
-| `StackSimulator` | Runtime `ILImporter` | Forward simulation with worklist, variable introduction |
+| Component        | Reference                   | Purpose                                                  |
+| ---------------- | --------------------------- | -------------------------------------------------------- |
+| `StackValueKind` | Runtime `StackValueKind.cs` | 8-value enum for stack type categories                   |
+| `StackValue`     | Runtime `StackValue.cs`     | Struct with Kind + TypeName, merging per ECMA-335        |
+| `StackState`     | New                         | Immutable typed stack with Push/Pop/Merge                |
+| `ILVariable`     | ILSpy `ILVariable.cs`       | Named variable (Parameter/Local/StackSlot/ExceptionSlot) |
+| `StackSimulator` | Runtime `ILImporter`        | Forward simulation with worklist, variable introduction  |
 
 Key design decisions:
 - `StackValue` wraps a string type name (from our `SignatureDecoder`) instead of
@@ -176,7 +176,8 @@ explicit variable reads/writes. Single-use variables are inlined to build
 expression trees.
 
 Example transformation:
-```
+
+```text
 // IL (stack-based)          →  // ILAst (variable-based)
 ldarg.0                          return this.name;
 ldfld string Name
@@ -191,11 +192,11 @@ ret v1
 ret ldfld(ldarg.0, Name)
 ```
 
-| Component | Reference | Purpose |
-|-----------|-----------|---------|
-| `ILAstNode` hierarchy | ILSpy `ILAst/` | Expression/Statement/Block nodes |
-| Stack-to-variable | ILSpy `ILReader` | Replace push/pop with assignments |
-| Variable inlining | ILSpy transforms | Build expression trees from single-use vars |
+| Component             | Reference        | Purpose                                     |
+| --------------------- | ---------------- | ------------------------------------------- |
+| `ILAstNode` hierarchy | ILSpy `ILAst/`   | Expression/Statement/Block nodes            |
+| Stack-to-variable     | ILSpy `ILReader` | Replace push/pop with assignments           |
+| Variable inlining     | ILSpy transforms | Build expression trees from single-use vars |
 
 ### Phase 4: Control Flow Structuring ✅
 
@@ -204,13 +205,13 @@ ret ldfld(ldarg.0, Name)
 This is the hardest phase. The compiler flattens structured control flow into
 branches and jumps; we must recover the original structure. Key algorithms:
 
-| Algorithm | Reference | Purpose |
-|-----------|-----------|---------|
-| Dominator tree | Standard (Lengauer-Tarjan) | Determine control dependencies |
-| Loop detection | ILSpy `LoopDetection` | Find natural loops via back edges |
-| If/else recovery | ILSpy `ConditionDetection` | Structured conditionals |
-| Switch recovery | ILSpy `SwitchDetection` | Reconstruct switch statements |
-| Exception regions | ECMA-335 spec | try/catch/finally/filter structuring |
+| Algorithm         | Reference                  | Purpose                               |
+| ----------------- | -------------------------- | ------------------------------------- |
+| Dominator tree    | Standard (Lengauer-Tarjan) | Determine control dependencies        |
+| Loop detection    | ILSpy `LoopDetection`      | Find natural loops via back edges     |
+| If/else recovery  | ILSpy `ConditionDetection` | Structured conditionals               |
+| Switch recovery   | ILSpy `SwitchDetection`    | Reconstruct switch statements         |
+| Exception regions | ECMA-335 spec              | try/catch/finally/filter structuring  |
 
 The runtime's exception region metadata (`ExceptionRegion`) directly encodes
 try/catch/finally boundaries, making exception handling recovery more
@@ -224,17 +225,17 @@ This is the first user-visible deliverable from the pipeline and replaces the
 existing standalone disassembler conceptually. The emitter walks the ILAst and
 CFG, producing annotated IL at configurable depth:
 
-| Depth | What it adds | Flag |
-|-------|-------------|------|
-| Raw | Flat instruction list (like today) | `--il` |
-| Typed | Stack type annotations per instruction | `--il --annotate` |
-| Structured | Indented blocks, branch target names | `--il --structured` |
+| Depth      | What it adds                           | Flag                |
+| ---------- | -------------------------------------- | ------------------- |
+| Raw        | Flat instruction list (like today)     | `--il`              |
+| Typed      | Stack type annotations per instruction | `--il --annotate`   |
+| Structured | Indented blocks, branch target names   | `--il --structured` |
 
-| Component | Purpose |
-|-----------|---------|
-| `AnnotatedILEmitter` | Walk ILAst + CFG, emit formatted IL text |
-| CLI integration | New `--il` flag on `api` command (or standalone) |
-| Depth selector | Choose raw / typed / structured output |
+| Component            | Purpose                                           |
+| -------------------- | ------------------------------------------------- |
+| `AnnotatedILEmitter` | Walk ILAst + CFG, emit formatted IL text          |
+| CLI integration      | New `--il` flag on `api` command (or standalone)  |
+| Depth selector       | Choose raw / typed / structured output            |
 
 ### Phase 6: Lowered C# Emitter ✅
 
@@ -253,34 +254,34 @@ What "lowered" means:
 - `box` / `unbox.any` visible as casts with annotations
 - Compiler-generated state machines shown as-is (fields + switch/goto)
 
-| Pattern | IL → Lowered C# |
-|---------|-----------------|
-| Operator mapping | `add` → `+`, `ceq` → `==` |
-| Method calls | `call`/`callvirt` → `TypeName.Method(args)` |
-| Field access | `ldfld`/`stfld` → `obj.field` |
-| Casts | `castclass` → `(Type)x`, `isinst` → `x as Type` |
-| Array access | `ldelem`/`stelem` → `arr[i]` |
-| Object creation | `newobj` → `new Type(args)` |
-| Control flow | `br`/`brtrue` → `goto` / `if (...) goto` |
+| Pattern          | IL → Lowered C#                                   |
+| ---------------- | ------------------------------------------------- |
+| Operator mapping | `add` → `+`, `ceq` → `==`                         |
+| Method calls     | `call`/`callvirt` → `TypeName.Method(args)`       |
+| Field access     | `ldfld`/`stfld` → `obj.field`                     |
+| Casts            | `castclass` → `(Type)x`, `isinst` → `x as Type`   |
+| Array access     | `ldelem`/`stelem` → `arr[i]`                      |
+| Object creation  | `newobj` → `new Type(args)`                       |
+| Control flow     | `br`/`brtrue` → `goto` / `if (...) goto`          |
 
-| Component | Purpose |
-|-----------|---------|
+| Component       | Purpose                                             |
+| --------------- | --------------------------------------------------- |
 | `CSharpEmitter` | Walk ILAst + StructuredControlFlow, emit lowered C# |
-| CLI integration | `--source` flag |
+| CLI integration | `--source` flag                                     |
 
 ### Phase 7: Advanced Patterns
 
 **Handle compiler-generated code patterns.**
 
-| Pattern | Complexity | Approach |
-|---------|-----------|----------|
-| Async/await | High | Recognize state machine, reconstruct awaits |
-| Iterators | High | Recognize `IEnumerable<T>` state machine |
-| Closures | Medium | Detect display classes, inline captured variables |
-| LINQ | Medium | Recognize query pattern method chains |
-| Pattern matching | Medium | Reconstruct from branch patterns |
-| String interpolation | Low | Detect `DefaultInterpolatedStringHandler` |
-| Collection expressions | Low | Detect known collection builder patterns |
+| Pattern                | Complexity | Approach                                          |
+| ---------------------- | ---------- | ------------------------------------------------- |
+| Async/await            | High       | Recognize state machine, reconstruct awaits       |
+| Iterators              | High       | Recognize `IEnumerable<T>` state machine          |
+| Closures               | Medium     | Detect display classes, inline captured variables |
+| LINQ                   | Medium     | Recognize query pattern method chains             |
+| Pattern matching       | Medium     | Reconstruct from branch patterns                  |
+| String interpolation   | Low        | Detect `DefaultInterpolatedStringHandler`         |
+| Collection expressions | Low        | Detect known collection builder patterns          |
 
 ## Reference material
 
@@ -307,13 +308,13 @@ What "lowered" means:
 
 ### Test sources
 
-| Source | License | Usage |
-|--------|---------|-------|
-| ILSpy test suite | MIT | Test cases, expected output |
-| dotnet/runtime IL tests | MIT | IL verification test corpus |
-| dnSpyEx | GPL | Test inspiration only (never shipped) |
-| Hand-written samples | N/A | `CfgSampleClass` in test project |
-| Platform assemblies | N/A | Stress tests against System.Private.CoreLib |
+| Source                  | License | Usage                                        |
+| ----------------------- | ------- | -------------------------------------------- |
+| ILSpy test suite        | MIT     | Test cases, expected output                  |
+| dotnet/runtime IL tests | MIT     | IL verification test corpus                  |
+| dnSpyEx                 | GPL     | Test inspiration only (never shipped)        |
+| Hand-written samples    | N/A     | `CfgSampleClass` in test project             |
+| Platform assemblies     | N/A     | Stress tests against System.Private.CoreLib  |
 
 ## Attribution
 

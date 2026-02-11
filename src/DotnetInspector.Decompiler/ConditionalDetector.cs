@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+
 namespace DotnetInspector.Decompiler;
 
 /// <summary>
@@ -50,23 +52,47 @@ public static class ConditionalDetector
             // Need exactly 2 successors (conditional branch)
             if (block.Targets.Count != 2) continue;
 
-            var targets = block.Targets.ToList();
-            int targetA = cfg.LookupIndex(targets[0].Start);
-            int targetB = cfg.LookupIndex(targets[1].Start);
-            if (targetA < 0 || targetB < 0) continue;
+            // Use the structured branch/fallthrough info when available
+            int branchIdx = block.BranchTarget is not null ? cfg.LookupIndex(block.BranchTarget.Start) : -1;
+            int fallthroughIdx = block.FallthroughTarget is not null ? cfg.LookupIndex(block.FallthroughTarget.Start) : -1;
+
+            int thenIdx, elseIdx;
+
+            if (branchIdx >= 0 && fallthroughIdx >= 0)
+            {
+                // For brfalse: branch is taken when false, fall-through when true
+                //   → then = fall-through (condition true path), else = branch target
+                // For brtrue: branch is taken when true, fall-through when false
+                //   → then = branch target (condition true path), else = fall-through
+                bool isBrfalse = block.TerminatingBranch is ILOpCode.Brfalse or ILOpCode.Brfalse_s;
+                if (isBrfalse)
+                {
+                    thenIdx = fallthroughIdx;
+                    elseIdx = branchIdx;
+                }
+                else
+                {
+                    thenIdx = branchIdx;
+                    elseIdx = fallthroughIdx;
+                }
+            }
+            else
+            {
+                // Fallback: use target ordering
+                var targets = block.Targets.ToList();
+                thenIdx = cfg.LookupIndex(targets[0].Start);
+                elseIdx = cfg.LookupIndex(targets[1].Start);
+                if (thenIdx < 0 || elseIdx < 0) continue;
+            }
 
             // Skip if this is a loop back-edge
-            if (loopHeaders.Contains(targetA) || loopHeaders.Contains(targetB))
+            if (loopHeaders.Contains(thenIdx) || loopHeaders.Contains(elseIdx))
             {
                 // One target might be the loop header (back-edge) — that's the loop condition
                 // Only skip if both targets are loop headers
-                if (loopHeaders.Contains(targetA) && loopHeaders.Contains(targetB))
+                if (loopHeaders.Contains(thenIdx) && loopHeaders.Contains(elseIdx))
                     continue;
             }
-
-            // Determine then/else: the fall-through target is typically then
-            int thenIdx = targetA;
-            int elseIdx = targetB;
 
             // Try to find a common follow block
             int followIdx = FindFollowBlock(cfg, domTree, i, thenIdx, elseIdx);

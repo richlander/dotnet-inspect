@@ -212,13 +212,17 @@ public static class ILAstBuilder
             // Dup
             case ILOpCode.Dup:
             {
-                var val = stack.Count > 0 ? stack.Peek() : null;
-                return new ILAstExpression
+                var val = TryPop(stack);
+                var dupExpr = new ILAstExpression
                 {
                     OpCode = opcode,
-                    ResultType = val?.ResultType ?? StackValue.CreateUnknown(),
-                    Offset = offset
+                    ResultType = val.ResultType,
+                    Offset = offset,
+                    Arguments = { val }
                 };
+                // Push the original value back plus the dup copy
+                stack.Push(val);
+                return dupExpr;
             }
 
             // Pop
@@ -725,7 +729,8 @@ public static class ILAstBuilder
             var expr = new ILAstExpression
             {
                 OpCode = opcode, Operand = methodName,
-                ResultType = resultType, Offset = offset
+                ResultType = resultType, Offset = offset,
+                IsStaticCall = isStatic
             };
             expr.Arguments.AddRange(args);
 

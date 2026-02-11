@@ -50,6 +50,12 @@ public sealed class ILAstExpression : ILAstNode
     /// </summary>
     public List<ILAstExpression> Arguments { get; } = [];
 
+    /// <summary>
+    /// For call/callvirt, whether the target is a static method.
+    /// Used by the emitter to distinguish static calls from instance calls.
+    /// </summary>
+    public bool IsStaticCall { get; init; }
+
     public override void WriteTo(StringBuilder sb, int indent)
     {
         sb.Append(FormatOpCode(OpCode));

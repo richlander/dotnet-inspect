@@ -45,6 +45,9 @@ public static class CSharpEmitter
         // Blocks consumed by structured constructs (don't emit separately)
         readonly HashSet<int> _consumedBlocks;
 
+        // Current block nodes being emitted (for dup resolution)
+        List<ILAstNode>? _currentBlockNodes;
+
         public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null)
         {
             _ast = ast;
@@ -112,6 +115,8 @@ public static class CSharpEmitter
             if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
                 return;
 
+            _currentBlockNodes = astBlock.Nodes;
+
             foreach (var node in astBlock.Nodes)
             {
                 switch (node)
@@ -129,6 +134,8 @@ public static class CSharpEmitter
                         break;
                 }
             }
+
+            _currentBlockNodes = null;
         }
 
         void EmitIfThenElse(StructuredBlock block, int indent)
@@ -137,6 +144,8 @@ public static class CSharpEmitter
             string condition = "/* condition */";
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
             {
+                _currentBlockNodes = condBlock.Nodes;
+
                 // Emit any statements before the branch
                 for (int i = 0; i < condBlock.Nodes.Count - 1; i++)
                 {
@@ -201,8 +210,16 @@ public static class CSharpEmitter
             WriteIndent(indent);
             _sb.AppendLine("{");
 
-            // Emit the try body blocks
-            EmitBasicBlock(block.BlockIndex, indent + 1);
+            // Emit all try body blocks
+            if (block.TryChildren.Count > 0)
+            {
+                foreach (var child in block.TryChildren)
+                    EmitStructuredBlock(child, indent + 1);
+            }
+            else
+            {
+                EmitBasicBlock(block.BlockIndex, indent + 1);
+            }
 
             WriteIndent(indent);
             _sb.AppendLine("}");
@@ -222,8 +239,11 @@ public static class CSharpEmitter
                 _sb.AppendLine($"catch ({exType})");
                 WriteIndent(indent);
                 _sb.AppendLine("{");
-                WriteIndent(indent + 1);
-                _sb.AppendLine("// handler");
+                if (block.HandlerChildren.Count > 0)
+                {
+                    foreach (var child in block.HandlerChildren)
+                        EmitStructuredBlock(child, indent + 1);
+                }
                 WriteIndent(indent);
                 _sb.AppendLine("}");
             }
@@ -233,8 +253,11 @@ public static class CSharpEmitter
                 _sb.AppendLine("finally");
                 WriteIndent(indent);
                 _sb.AppendLine("{");
-                WriteIndent(indent + 1);
-                _sb.AppendLine("// handler");
+                if (block.HandlerChildren.Count > 0)
+                {
+                    foreach (var child in block.HandlerChildren)
+                        EmitStructuredBlock(child, indent + 1);
+                }
                 WriteIndent(indent);
                 _sb.AppendLine("}");
             }
@@ -352,7 +375,15 @@ public static class CSharpEmitter
 
                 case ILOpCode.Initobj:
                     WriteIndent(indent);
-                    _sb.AppendLine($"/* initobj {expr.Operand} */");
+                    if (expr.Arguments.Count > 0)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.AppendLine($" = default({SimplifyTypeName(expr.Operand ?? "?")});");
+                    }
+                    else
+                    {
+                        _sb.AppendLine($"/* initobj {SimplifyTypeName(expr.Operand ?? "?")} */");
+                    }
                     break;
 
                 case ILOpCode.Pop:
@@ -463,7 +494,7 @@ public static class CSharpEmitter
                     EmitBinary(expr, ">>"); break;
 
                 // Comparison operators
-                case ILOpCode.Ceq: EmitBinary(expr, "=="); break;
+                case ILOpCode.Ceq: EmitBinary(expr, expr.Operand ?? "=="); break;
                 case ILOpCode.Cgt or ILOpCode.Cgt_un: EmitBinary(expr, ">"); break;
                 case ILOpCode.Clt or ILOpCode.Clt_un: EmitBinary(expr, "<"); break;
 
@@ -579,10 +610,19 @@ public static class CSharpEmitter
                     }
                     break;
 
-                // Dup (pass through)
+                // Dup (pass through, or reconstruct from preceding expression in block)
                 case ILOpCode.Dup:
                     if (expr.Arguments.Count > 0)
                         EmitExpression(expr.Arguments[0]);
+                    else if (_currentBlockNodes is not null)
+                    {
+                        // Find the preceding expression that produced the dup'd value
+                        var preceding = FindPrecedingValue(_currentBlockNodes, expr);
+                        if (preceding is not null)
+                            EmitExpression(preceding);
+                        else
+                            _sb.Append("/* dup */");
+                    }
                     else
                         _sb.Append("/* dup */");
                     break;
@@ -619,6 +659,11 @@ public static class CSharpEmitter
                     _sb.Append(']');
                     break;
 
+                // Block-entry stack values (synthetic ldloc for cross-block values)
+                case ILOpCode.Nop when expr.Operand is not null:
+                    _sb.Append(expr.Operand);
+                    break;
+
                 default:
                     _sb.Append("/* ");
                     expr.WriteTo(_sb, 0);
@@ -646,7 +691,7 @@ public static class CSharpEmitter
                 memberPart = methodName[(colonIdx + 2)..].TrimEnd('(', ')');
             }
 
-            bool isStatic = expr.OpCode == ILOpCode.Call;
+            bool isStatic = expr.IsStaticCall;
 
             if (isStatic && expr.Arguments.Count > 0 && typePart.Length > 0)
             {
@@ -758,6 +803,87 @@ public static class CSharpEmitter
                 _sb.Append("    ");
         }
 
+        /// <summary>
+        /// Find the value expression that a dup instruction duplicated by looking
+        /// at the preceding node in the same block. Returns the load/field expression
+        /// if found, or null.
+        /// </summary>
+        static ILAstExpression? FindPrecedingValue(List<ILAstNode> nodes, ILAstExpression dupExpr)
+        {
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var expr = nodes[i] switch
+                {
+                    ILAstStatement s => s.Expression,
+                    ILAstAssignment a => a.Value,
+                    _ => null
+                };
+
+                if (expr is null) continue;
+
+                // Look for the dup inside this expression's argument tree
+                if (ContainsDup(expr, dupExpr))
+                {
+                    // The preceding node's stored value is what was dup'd
+                    if (i > 0)
+                    {
+                        return nodes[i - 1] switch
+                        {
+                            ILAstAssignment prevAssign => new ILAstExpression
+                            {
+                                OpCode = ILOpCode.Ldloc_0,
+                                Operand = prevAssign.Variable.Name,
+                                ResultType = prevAssign.Value.ResultType,
+                                Offset = dupExpr.Offset
+                            },
+                            ILAstStatement prevStmt when prevStmt.Expression.OpCode is
+                                ILOpCode.Ldfld or ILOpCode.Ldsfld or
+                                ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3 or
+                                ILOpCode.Ldloc_s or ILOpCode.Ldloc or
+                                ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3 or
+                                ILOpCode.Ldarg_s or ILOpCode.Ldarg
+                                => prevStmt.Expression,
+                            _ => null
+                        };
+                    }
+                }
+
+                // Also check if this expression IS a branch with a dup argument
+                if (expr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                {
+                    if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Dup && expr.Arguments[0] == dupExpr)
+                    {
+                        // The dup's source is whatever was loaded before in this block
+                        for (int j = i - 1; j >= 0; j--)
+                        {
+                            if (nodes[j] is ILAstAssignment a)
+                            {
+                                return new ILAstExpression
+                                {
+                                    OpCode = ILOpCode.Ldloc_0,
+                                    Operand = a.Variable.Name,
+                                    ResultType = a.Value.ResultType,
+                                    Offset = dupExpr.Offset
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        static bool ContainsDup(ILAstExpression expr, ILAstExpression target)
+        {
+            if (ReferenceEquals(expr, target)) return true;
+            foreach (var arg in expr.Arguments)
+            {
+                if (ContainsDup(arg, target)) return true;
+            }
+            return false;
+        }
+
         string ExpressionToString(ILAstExpression expr)
         {
             var sb = new StringBuilder();
@@ -772,7 +898,37 @@ public static class CSharpEmitter
         {
             // For conditional branches, the condition is the arguments
             if (branchExpr.Arguments.Count == 1)
-                return branchExpr.Arguments[0];
+            {
+                var arg = branchExpr.Arguments[0];
+
+                // For brfalse/brtrue on reference types, emit explicit null comparison
+                bool isRefType = arg.ResultType.Kind is StackValueKind.ObjRef
+                    || (arg.ResultType.TypeName is not null && !IsPrimitiveType(arg.ResultType.TypeName));
+
+                if (isRefType && branchExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                {
+                    // Produce a synthetic != null comparison using Ceq + Operand override
+                    return new ILAstExpression
+                    {
+                        OpCode = ILOpCode.Ceq,
+                        ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
+                        Operand = "!=",
+                        Arguments =
+                        {
+                            arg,
+                            new ILAstExpression
+                            {
+                                OpCode = ILOpCode.Ldnull,
+                                ResultType = StackValue.CreateObjRef(null),
+                                Offset = arg.Offset
+                            }
+                        }
+                    };
+                }
+
+                return arg;
+            }
             if (branchExpr.Arguments.Count == 2)
             {
                 // Binary comparison branch — reconstruct as comparison expression
@@ -791,6 +947,15 @@ public static class CSharpEmitter
             }
             return branchExpr;
         }
+
+        static bool IsPrimitiveType(string typeName) => typeName is
+            "System.Boolean" or "bool" or "System.Byte" or "byte" or
+            "System.SByte" or "sbyte" or "System.Int16" or "short" or
+            "System.UInt16" or "ushort" or "System.Int32" or "int" or "Int32" or
+            "System.UInt32" or "uint" or "System.Int64" or "long" or
+            "System.UInt64" or "ulong" or "System.Single" or "float" or
+            "System.Double" or "double" or "System.Char" or "char" or
+            "System.IntPtr" or "nint" or "System.UIntPtr" or "nuint";
 
         static bool NeedsParentheses(ILAstExpression expr) => expr.OpCode switch
         {

@@ -510,7 +510,11 @@ public static class ApiOutputFormatter
         {
             var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
             if (methods.Count > 0)
+            {
                 RenderILBodies(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+                RenderAnnotatedIL(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+                RenderLoweredCSharp(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+            }
         }
 
         return (truncated, "members");
@@ -529,11 +533,76 @@ public static class ApiOutputFormatter
             if (instructions is null || instructions.Count == 0)
                 continue;
 
-            writer.WriteHeading(2, "IL Body");
+            writer.WriteHeading(2, "IL");
             var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
             writer.WriteCodeBlockStart("il");
             writer.WriteParagraph(ilText);
             writer.WriteCodeBlockEnd();
+        }
+    }
+
+    private static void RenderAnnotatedIL(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+
+        foreach (var method in methods)
+        {
+            try
+            {
+                var context = Decompiler.MethodBodyContext.Create(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+
+                if (context is null)
+                    continue;
+
+                var annotatedIL = Decompiler.AnnotatedILEmitter.Emit(
+                    context, Decompiler.ILAnnotationDepth.Structured);
+
+                if (string.IsNullOrWhiteSpace(annotatedIL))
+                    continue;
+
+                writer.WriteHeading(2, "IL (Annotated)");
+                writer.WriteCodeBlockStart("il");
+                writer.WriteParagraph(annotatedIL.TrimEnd());
+                writer.WriteCodeBlockEnd();
+            }
+            catch
+            {
+                // Decompiler may fail on some methods — skip silently
+            }
+        }
+    }
+
+    private static void RenderLoweredCSharp(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+
+        foreach (var method in methods)
+        {
+            try
+            {
+                var context = Decompiler.MethodBodyContext.Create(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+
+                if (context is null)
+                    continue;
+
+                var loweredCSharp = Decompiler.CSharpEmitter.Emit(context);
+
+                if (string.IsNullOrWhiteSpace(loweredCSharp))
+                    continue;
+
+                writer.WriteHeading(2, "Lowered C#");
+                writer.WriteCodeBlockStart("csharp");
+                writer.WriteParagraph(loweredCSharp.TrimEnd());
+                writer.WriteCodeBlockEnd();
+            }
+            catch
+            {
+                // Decompiler may fail on some methods — skip silently
+            }
         }
     }
 

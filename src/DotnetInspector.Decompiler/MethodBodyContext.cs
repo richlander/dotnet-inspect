@@ -109,7 +109,7 @@ public sealed class MethodBodyContext
     /// <summary>
     /// Convenience: find a method by type/name and create context.
     /// </summary>
-    public static MethodBodyContext? Create(PEReader peReader, string typeName, string methodName, int overloadIndex = 0)
+    public static MethodBodyContext? Create(PEReader peReader, string typeName, string methodName, int overloadIndex = 0, bool publicOnly = false)
     {
         var reader = peReader.GetMetadataReader();
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -123,6 +123,8 @@ public sealed class MethodBodyContext
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != methodName)
+                    continue;
+                if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
                     continue;
                 if (matchCount == overloadIndex)
                     return Create(peReader, reader, method);

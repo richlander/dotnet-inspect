@@ -27,6 +27,15 @@ public sealed class BasicBlock : IEquatable<BasicBlock>
     /// <summary>Basic blocks this block branches/falls-through to.</summary>
     public HashSet<BasicBlock> Targets { get; } = [];
 
+    /// <summary>The explicit branch target (operand of a conditional/unconditional branch), or null.</summary>
+    public BasicBlock? BranchTarget { get; set; }
+
+    /// <summary>The fall-through target (next sequential block after a conditional branch), or null.</summary>
+    public BasicBlock? FallthroughTarget { get; set; }
+
+    /// <summary>The opcode of the terminating branch instruction, if any.</summary>
+    public ILOpCode TerminatingBranch { get; set; }
+
     public override string ToString() => $"BB[IL_{Start:X4}..IL_{Start + Size:X4})";
     public override bool Equals(object? obj) => Equals(obj as BasicBlock);
     public bool Equals(BasicBlock? other) => other is not null && Start == other.Start;
@@ -140,12 +149,19 @@ public sealed class ControlFlowGraph
                     int target = reader.ReadBranchDestination(opc);
                     var targetBB = cfg.Lookup(target);
                     if (targetBB is not null)
+                    {
                         bb.Targets.Add(targetBB);
+                        bb.BranchTarget = targetBB;
+                    }
+                    bb.TerminatingBranch = opc;
                     if (!opc.IsUnconditionalBranch())
                     {
                         var fallthrough = cfg.Lookup(reader.Offset);
                         if (fallthrough is not null)
+                        {
                             bb.Targets.Add(fallthrough);
+                            bb.FallthroughTarget = fallthrough;
+                        }
                     }
                     break;
                 }
