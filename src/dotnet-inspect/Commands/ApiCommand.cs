@@ -118,6 +118,12 @@ public class ApiCommand
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
+                // Ensure ref packs are downloaded before resolving
+                var packRequests = PlatformPackService.BuildPackRequests(options.PlatformAssembly, null);
+                await foreach (var _ in PlatformPackService.EnsurePacksAsync(packRequests, context.HttpClient, logger.Log))
+                {
+                }
+
                 var (assemblyPath, framework, version, error) = PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
                     options.PlatformFramework,
