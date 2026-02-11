@@ -10,6 +10,10 @@ on:
         description: 'Type "publish" to confirm NuGet release'
         required: true
 
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -36,6 +40,12 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       
+      - name: NuGet login (OIDC → temp API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      
       # Publish RID-specific packages first, then any package, then pointer package last
       - name: Publish packages
         run: |
@@ -43,7 +53,7 @@ jobs:
           for pkg in packages/dotnet-inspect.win-*.nupkg packages/dotnet-inspect.linux-*.nupkg packages/dotnet-inspect.osx-*.nupkg; do
             if [[ -f "$pkg" ]]; then
               echo "Publishing $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+              dotnet nuget push "$pkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
             fi
           done
           
@@ -51,7 +61,7 @@ jobs:
           for pkg in packages/dotnet-inspect.any.*.nupkg; do
             if [[ -f "$pkg" ]]; then
               echo "Publishing any package: $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+              dotnet nuget push "$pkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
             fi
           done
           
@@ -59,7 +69,7 @@ jobs:
           for pkg in packages/dotnet-inspect.[0-9]*.nupkg; do
             if [[ -f "$pkg" ]]; then
               echo "Publishing pointer package: $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+              dotnet nuget push "$pkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
             fi
           done
         shell: bash
