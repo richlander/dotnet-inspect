@@ -74,7 +74,17 @@ public class PdbContext : IDisposable
     public static PdbContext Open(string assemblyPath, Action<string>? log = null)
     {
         var stream = File.OpenRead(assemblyPath);
-        var peReader = new PEReader(stream);
+        PEReader peReader;
+        try
+        {
+            peReader = new PEReader(stream);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+
         var context = new PdbContext(stream, peReader, assemblyPath, log);
 
         if (!peReader.HasMetadata)
