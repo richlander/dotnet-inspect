@@ -32,17 +32,17 @@ internal static class ApiServices
                 if (extracted == null)
                     return (null, null, null);
 
-                (searchPath, tempDir, _, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+                (searchPath, tempDir, var packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
-                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm);
+                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                     if (tfmAssembly != null)
                         searchPath = tfmAssembly;
                 }
                 else
                 {
-                    var (highestPath, _) = TfmSelector.SelectHighestTfmAssembly(TfmSelector.GetPackageDlls(searchPath), searchPath);
+                    var (highestPath, _) = TfmSelector.SelectHighestTfmAssembly(TfmSelector.GetPackageDlls(searchPath), searchPath, packageName);
                     if (highestPath != null)
                         searchPath = highestPath;
                 }
@@ -134,7 +134,7 @@ internal static class ApiServices
 
                 if (!string.IsNullOrEmpty(options.Tfm))
                 {
-                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm);
+                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                     if (tfmAssembly != null)
                         searchPath = tfmAssembly;
                 }

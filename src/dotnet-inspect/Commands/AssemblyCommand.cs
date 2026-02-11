@@ -320,7 +320,7 @@ public class AssemblyCommand
         // --tfm <specific>: find assembly by TFM
         if (!string.IsNullOrEmpty(tfm))
         {
-            var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm);
+            var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm, resolution.PackageName);
             if (tfmAssembly == null)
             {
                 Console.Error.WriteLine($"Error: No library found for TFM '{tfm}'.");
