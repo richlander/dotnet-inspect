@@ -366,6 +366,10 @@ public class CommandLineTests
     [InlineData("Markout", false)]
     [InlineData("system.runtime", true)] // case-insensitive
     [InlineData("MICROSOFT.EXTENSIONS", true)]
+    [InlineData("System", true)]         // bare System.dll
+    [InlineData("mscorlib", true)]       // legacy runtime assembly
+    [InlineData("netstandard", true)]    // netstandard facade
+    [InlineData("WindowsBase", true)]    // WPF foundation
     public void IsPlatformCandidate_ReturnsExpected(string name, bool expected)
     {
         Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));

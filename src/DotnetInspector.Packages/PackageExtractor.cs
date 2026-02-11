@@ -307,7 +307,7 @@ public static class PackageExtractor
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
     private const string VersionCacheCategory = "versions";
 
-    private static async Task<string?> GetLatestVersionAsync(
+    public static async Task<string?> GetLatestVersionAsync(
         HttpClient client,
         string packageName,
         List<NuGetSource> sources,

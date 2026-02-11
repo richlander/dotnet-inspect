@@ -198,41 +198,103 @@ public class PlatformResolverTests
     }
 
     /// <summary>
-    /// Verifies DOTNET_ROOT is checked FIRST in the candidate list, not last.
-    /// This was the Linux bug fix - DOTNET_ROOT was previously checked last,
-    /// so hardcoded paths that didn't exist would be tried first.
+    /// Verifies GetPacksDirectory returns the app cache packs path.
     /// </summary>
     [Fact]
-    public void GetPacksDirectory_WhenDotnetRootSet_ChecksItFirst()
+    public void GetPacksDirectory_ReturnsAppCachePath()
     {
-        // Create a temp directory structure that looks like a .NET install
-        var tempDotnetRoot = Path.Combine(Path.GetTempPath(), $"dotnet-root-test-{Guid.NewGuid():N}");
-        var packsDir = Path.Combine(tempDotnetRoot, "packs");
-        var runtimeRefDir = Path.Combine(packsDir, "Microsoft.NETCore.App.Ref", "9.0.0", "ref", "net9.0");
+        var result = PlatformResolver.GetPacksDirectory();
+        var expectedSuffix = Path.Combine("dotnet-inspect", "packs");
 
-        var originalDotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        try
+        // App cache packs dir is the only candidate; it exists if we've downloaded packs
+        if (result != null)
         {
-            // Create the directory structure
-            Directory.CreateDirectory(runtimeRefDir);
-            File.WriteAllText(Path.Combine(runtimeRefDir, "System.Runtime.dll"), "");
-
-            // Set DOTNET_ROOT to our temp directory
-            Environment.SetEnvironmentVariable("DOTNET_ROOT", tempDotnetRoot);
-
-            // GetPacksDirectory should return our temp packs directory (DOTNET_ROOT takes priority)
-            var result = PlatformResolver.GetPacksDirectory();
-
-            Assert.NotNull(result);
-            Assert.Equal(packsDir, result);
+            Assert.EndsWith(expectedSuffix, result);
         }
-        finally
+    }
+
+    /// <summary>
+    /// Scans all assemblies in installed ref packs and verifies every one passes IsPlatformCandidate.
+    /// If this test fails, a new platform assembly name needs to be added to the candidate check.
+    /// This caught WindowsBase, mscorlib, netstandard, and System (bare) as special cases.
+    /// </summary>
+    [Fact]
+    public void IsPlatformCandidate_CoversAllRefPackAssemblies()
+    {
+        // Check installed packs on disk
+        var packsDir = FindAnyRefPacksDirectory();
+        if (packsDir == null)
         {
-            // Restore original environment
-            Environment.SetEnvironmentVariable("DOTNET_ROOT", originalDotnetRoot);
-            if (Directory.Exists(tempDotnetRoot))
-                Directory.Delete(tempDotnetRoot, recursive: true);
+            return; // No packs available to scan
         }
+
+        // Only scan the 3 known ref packs (runtime, aspnetcore, netstandard)
+        List<string> dllFiles = [];
+        foreach (var packName in PlatformResolver.FrameworkMappings.Values)
+        {
+            var packPath = Path.Combine(packsDir, packName);
+            if (!Directory.Exists(packPath))
+                continue;
+
+            var files = Directory.GetFiles(packPath, "*.dll", SearchOption.AllDirectories)
+                .Where(f => f.Contains(Path.Combine("ref", "net")))
+                .Select(f => Path.GetFileNameWithoutExtension(f));
+            dllFiles.AddRange(files);
+        }
+
+        dllFiles = dllFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        if (dllFiles.Count == 0)
+        {
+            return; // No ref assemblies found
+        }
+
+        List<string> uncovered = [];
+        foreach (var name in dllFiles)
+        {
+            if (!PlatformResolver.IsPlatformCandidate(name))
+            {
+                uncovered.Add(name);
+            }
+        }
+
+        Assert.True(uncovered.Count == 0,
+            $"Platform assemblies not covered by IsPlatformCandidate: {string.Join(", ", uncovered)}. " +
+            $"Add these names to PlatformResolver.IsPlatformCandidate().");
+    }
+
+    /// <summary>
+    /// Finds any available ref packs directory (app cache or installed SDK).
+    /// Only returns directories for the 3 known ref packs (runtime, aspnetcore, netstandard)
+    /// to avoid picking up extra SDK packs (Android, WPF, etc.) that IsPlatformCandidate
+    /// is not intended to cover.
+    /// </summary>
+    private static string? FindAnyRefPacksDirectory()
+    {
+        // Try app cache first
+        var appCache = PlatformPackService.GetPacksCachePath();
+        if (appCache != null && Directory.Exists(appCache))
+            return appCache;
+
+        // Fall back to installed SDK — but only scan known ref pack subdirectories
+        string[] roots = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? [@"C:\Program Files\dotnet\packs"]
+            : ["/usr/lib/dotnet/packs", "/usr/share/dotnet/packs", "/usr/local/share/dotnet/packs"];
+
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+                continue;
+
+            // Check that at least one known ref pack exists
+            foreach (var packName in PlatformResolver.FrameworkMappings.Values)
+            {
+                if (Directory.Exists(Path.Combine(root, packName)))
+                    return root;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -356,5 +418,30 @@ public class PlatformResolverTests
             if (Directory.Exists(tempPacksDir))
                 Directory.Delete(tempPacksDir, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData("System.Text.Json", "runtime")]
+    [InlineData("System.Runtime", "runtime")]
+    [InlineData("Microsoft.CSharp", "runtime")]
+    [InlineData("Microsoft.Win32.Registry", "runtime")]
+    [InlineData("Microsoft.VisualBasic", "runtime")]
+    [InlineData("Microsoft.AspNetCore.Http", "aspnetcore")]
+    [InlineData("Microsoft.Extensions.Logging", "aspnetcore")]
+    [InlineData("Microsoft.JSInterop.Something", "aspnetcore")]
+    [InlineData("Microsoft.Net.Http.Headers", "aspnetcore")]
+    public void GetBiasedPack_ReturnsCorrectPack(string assemblyName, string expected)
+    {
+        Assert.Equal(expected, PlatformPackService.GetBiasedPack(assemblyName));
+    }
+
+    [Theory]
+    [InlineData("mscorlib")]
+    [InlineData("netstandard")]
+    [InlineData("WindowsBase")]
+    [InlineData("Newtonsoft.Json")]
+    public void GetBiasedPack_ReturnsNull_ForNonBiasedNames(string assemblyName)
+    {
+        Assert.Null(PlatformPackService.GetBiasedPack(assemblyName));
     }
 }

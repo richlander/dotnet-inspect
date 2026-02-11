@@ -79,12 +79,22 @@ public class AssemblyCommand
 
             if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
-                // Resolve platform assembly - use runtime assemblies for full debug info
+                // Try runtime assemblies first (has debug info for SourceLink)
                 var (resolvedPath, framework, version, error) = PlatformResolver.ResolveAssembly(
                     options.PlatformAssembly,
                     options.PlatformFramework,
                     packsDirectory: null,
-                    useRuntimeAssemblies: true);  // Use runtime for inspection (has debug info)
+                    useRuntimeAssemblies: true);
+
+                // Fall back to ref assemblies if runtime not available (e.g., downloaded packs)
+                if (error != null)
+                {
+                    (resolvedPath, framework, version, error) = PlatformResolver.ResolveAssembly(
+                        options.PlatformAssembly,
+                        options.PlatformFramework,
+                        packsDirectory: null,
+                        useRuntimeAssemblies: false);
+                }
 
                 if (error != null)
                 {
