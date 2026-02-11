@@ -89,7 +89,7 @@ public static class AnnotatedILEmitter
         StringBuilder sb)
     {
         // Emit locals header if present
-        EmitLocalsHeader(simResult, sb);
+        EmitLocalsHeader(context, simResult, sb);
 
         var reader = new ILReaderLite(context.ILBytes);
 
@@ -203,7 +203,7 @@ public static class AnnotatedILEmitter
 
     // --- Header emission ---
 
-    static void EmitLocalsHeader(StackSimulationResult simResult, StringBuilder sb)
+    static void EmitLocalsHeader(MethodBodyContext context, StackSimulationResult simResult, StringBuilder sb)
     {
         if (simResult.Locals.Count == 0 && simResult.Parameters.Count == 0)
             return;
@@ -212,7 +212,15 @@ public static class AnnotatedILEmitter
         {
             sb.Append("// Parameters: ");
             sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p =>
-                p.TypeName is not null ? $"{p.TypeName} {p.Name}" : p.Name)));
+            {
+                string name = p.Name;
+                if (context.HasThis)
+                {
+                    if (p.Index == 0) name = "this";
+                    else name = $"P_{p.Index - 1}";
+                }
+                return p.TypeName is not null ? $"{p.TypeName} {name}" : name;
+            })));
         }
 
         if (simResult.Locals.Count > 0)
@@ -235,7 +243,16 @@ public static class AnnotatedILEmitter
         {
             sb.Append("//   Parameters: ");
             sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p =>
-                p.TypeName is not null ? $"{p.TypeName} {p.Name}" : p.Name)));
+            {
+                string name = p.Name;
+                // Remap to match lowered C# naming: this + shifted indices
+                if (context.HasThis)
+                {
+                    if (p.Index == 0) name = "this";
+                    else name = $"P_{p.Index - 1}";
+                }
+                return p.TypeName is not null ? $"{p.TypeName} {name}" : name;
+            })));
         }
 
         if (simResult.Locals.Count > 0)
@@ -501,7 +518,7 @@ public static class AnnotatedILEmitter
             return handle.Kind switch
             {
                 HandleKind.FieldDefinition => FormatFieldDef(reader, (FieldDefinitionHandle)handle),
-                HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)handle),
+                HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)handle, isMethod: false),
                 _ => $"field:0x{token:X8}"
             };
         }
@@ -567,12 +584,12 @@ public static class AnnotatedILEmitter
         return $"{typeName}::{methodName}()";
     }
 
-    static string FormatMemberRef(MetadataReader reader, MemberReferenceHandle handle)
+    static string FormatMemberRef(MetadataReader reader, MemberReferenceHandle handle, bool isMethod = true)
     {
         var memberRef = reader.GetMemberReference(handle);
         string memberName = reader.GetString(memberRef.Name);
         string parentName = Metadata.TypeResolver.GetTypeName(reader, memberRef.Parent) ?? "?";
-        return $"{parentName}::{memberName}()";
+        return isMethod ? $"{parentName}::{memberName}()" : $"{parentName}::{memberName}";
     }
 
     static string FormatMethodSpec(MetadataReader reader, MethodSpecificationHandle handle)
