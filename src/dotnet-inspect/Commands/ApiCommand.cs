@@ -230,9 +230,16 @@ public class ApiCommand
                 if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && pdbLookupPath != null)
                 {
                     logger.Log("Enriching types with source info...");
-                    foreach (var type in api.Types)
+                    if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
                     {
-                        await SourceEnricher.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
+                        SourceEnricher.EnrichTypesFromXmlDoc(api.Types, options, logger);
+                    }
+                    else
+                    {
+                        foreach (var type in api.Types)
+                        {
+                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
+                        }
                     }
                 }
 

@@ -41,7 +41,7 @@ internal static class SourceEnricher
 
     internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
-        if (options.UseLocalDocs && !string.IsNullOrEmpty(options.PlatformAssembly))
+        if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
         {
             await EnrichFromXmlDocFileAsync(apiType, typeName, options, logger);
             return;
@@ -401,6 +401,81 @@ internal static class SourceEnricher
         return (packageName, packageVersion);
     }
 
+    /// <summary>
+    /// Enriches multiple types from a single XML doc file (loaded once).
+    /// </summary>
+    internal static void EnrichTypesFromXmlDoc(IEnumerable<ApiType> types, ApiOptions options, VerboseLogger logger)
+    {
+        if (string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            logger.Log("XML doc fallback only available for platform libraries");
+            return;
+        }
+
+        var (refPath, version, error) = PlatformResolver.ResolveFramework(
+            options.PlatformFramework ?? "runtime");
+
+        if (error != null || refPath == null)
+        {
+            logger.Log($"Could not resolve framework for XML docs: {error}");
+            return;
+        }
+
+        var xmlDocPath = Path.Combine(refPath, $"{options.PlatformAssembly}.xml");
+        if (!File.Exists(xmlDocPath))
+        {
+            logger.Log($"XML doc file not found: {xmlDocPath}");
+            return;
+        }
+
+        logger.Log($"Loading XML documentation from: {xmlDocPath}");
+
+        var xmlParser = new XmlDocFileParser();
+        if (!xmlParser.Load(xmlDocPath))
+        {
+            logger.Log("Failed to load XML documentation file");
+            return;
+        }
+
+        foreach (var apiType in types)
+        {
+            EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+        }
+    }
+
+    private static void EnrichTypeFromXmlDoc(ApiType apiType, XmlDocFileParser xmlParser, ApiOptions options, VerboseLogger logger)
+    {
+        var typeDoc = xmlParser.GetTypeDocumentation(apiType.FullName);
+        if (typeDoc != null)
+        {
+            apiType.Documentation = new DocComment
+            {
+                Summary = typeDoc.Summary,
+                Remarks = typeDoc.Remarks
+            };
+        }
+
+        if (options.ShowDocs)
+        {
+            foreach (var member in apiType.Members)
+            {
+                var memberDoc = xmlParser.GetMemberDocumentation(apiType.FullName, member.Name, member.Kind);
+                if (memberDoc != null)
+                {
+                    member.Documentation = new DocComment
+                    {
+                        Summary = memberDoc.Summary,
+                        Remarks = memberDoc.Remarks,
+                        Parameters = memberDoc.Parameters,
+                        Returns = memberDoc.Returns
+                    };
+                }
+            }
+        }
+
+        apiType.SourceResolution = "XmlDoc";
+    }
+
     private static async Task EnrichFromXmlDocFileAsync(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
     {
         await Task.CompletedTask;
@@ -436,37 +511,7 @@ internal static class SourceEnricher
             return;
         }
 
-        var typeDoc = xmlParser.GetTypeDocumentation(apiType.FullName);
-        if (typeDoc != null)
-        {
-            apiType.Documentation = new DocComment
-            {
-                Summary = typeDoc.Summary,
-                Remarks = typeDoc.Remarks
-            };
-            logger.Log($"Found type documentation for {apiType.FullName}");
-        }
-
-        if (options.ShowDocs)
-        {
-            foreach (var member in apiType.Members)
-            {
-                var memberDoc = xmlParser.GetMemberDocumentation(apiType.FullName, member.Name, member.Kind);
-                if (memberDoc != null)
-                {
-                    member.Documentation = new DocComment
-                    {
-                        Summary = memberDoc.Summary,
-                        Remarks = memberDoc.Remarks,
-                        Parameters = memberDoc.Parameters,
-                        Returns = memberDoc.Returns
-                    };
-                }
-            }
-            logger.Log($"Enriched {apiType.Members.Count} members with documentation");
-        }
-
-        apiType.SourceResolution = "XmlDoc";
+        EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
     }
 
     private static async Task MergePartialTypeDocumentation(
