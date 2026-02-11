@@ -23,7 +23,7 @@ public static class CommandLineBuilder
     };
 
     /// <summary>
-    /// Pre-processes args to handle implicit package command.
+    /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
     {
@@ -32,8 +32,50 @@ public static class CommandLineBuilder
             // Route bare names through the router command (platform-preferred, NuGet fallback)
             return ["router", .. args];
         }
+
+        // platform <framework>[@version] [version] [ls|list] [options...] → platform ls --framework <framework>[@version] [options...]
+        if (args.Length >= 2
+            && args[0].Equals("platform", StringComparison.OrdinalIgnoreCase)
+            && !args[1].StartsWith('-')
+            && IsFrameworkName(args[1]))
+        {
+            var framework = args[1];
+            int skip = 2;
+
+            // Absorb a bare version token after the framework name (e.g. `platform runtime 9.0.12`)
+            if (!framework.Contains('@') && args.Length > skip
+                && !args[skip].StartsWith('-') && IsVersionLike(args[skip]))
+            {
+                framework = $"{framework}@{args[skip]}";
+                skip++;
+            }
+
+            // Skip optional ls/list that follows the framework name
+            if (args.Length > skip && (args[skip].Equals("ls", StringComparison.OrdinalIgnoreCase)
+                                    || args[skip].Equals("list", StringComparison.OrdinalIgnoreCase)))
+            {
+                skip++;
+            }
+
+            return ["platform", "ls", "--framework", framework, .. args[skip..]];
+        }
+
         return args;
     }
+
+    /// <summary>
+    /// Returns true if the argument is a known framework name, optionally with @version suffix.
+    /// </summary>
+    private static bool IsFrameworkName(string arg)
+    {
+        var name = arg.Contains('@') ? arg[..arg.LastIndexOf('@')] : arg;
+        return PlatformResolver.FrameworkMappings.ContainsKey(name);
+    }
+
+    /// <summary>
+    /// Returns true if the argument looks like a version string (starts with a digit).
+    /// </summary>
+    private static bool IsVersionLike(string arg) => arg.Length > 0 && char.IsDigit(arg[0]);
 
     /// <summary>
     /// Creates the root command with all subcommands configured.
@@ -716,8 +758,13 @@ public static class CommandLineBuilder
         {
             Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)"
         };
+        var listVersionOption = new Option<string?>("--version")
+        {
+            Description = "Framework version (e.g., 9.0.12)"
+        };
         listCommand.Options.Add(listFrameworkOption);
         listCommand.Options.Add(listVersionsOption);
+        listCommand.Options.Add(listVersionOption);
         listCommand.Options.Add(includeTypesOption);
         listCommand.Options.Add(listJsonOption);
         listCommand.Options.Add(compactOption);
@@ -727,9 +774,18 @@ public static class CommandLineBuilder
 
         listCommand.SetAction(async (parseResult, ct) =>
         {
+            var framework = parseResult.GetValue(listFrameworkOption);
+            var version = parseResult.GetValue(listVersionOption);
+
+            // Merge --version into --framework spec (e.g. --framework runtime --version 9.0.12 → runtime@9.0.12)
+            if (!string.IsNullOrEmpty(version) && !string.IsNullOrEmpty(framework) && !framework.Contains('@'))
+            {
+                framework = $"{framework}@{version}";
+            }
+
             var options = new PlatformOptions
             {
-                Framework = parseResult.GetValue(listFrameworkOption),
+                Framework = framework,
                 ListVersions = parseResult.GetValue(listVersionsOption),
                 IncludeTypes = parseResult.GetValue(includeTypesOption),
                 Limit = parseResult.GetValue(listLimitOption),
