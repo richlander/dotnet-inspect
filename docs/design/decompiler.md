@@ -394,6 +394,69 @@ in the output rather than propagating exceptions.
 | Hand-written samples       | N/A     | `CfgSampleClass` in test project             |
 | Platform assemblies        | N/A     | Stress tests against System.Private.CoreLib  |
 
+## Usage workflow
+
+The decompiler integrates with the existing `api` command. The workflow is:
+browse type → select member → view decompiled output.
+
+### Step 1: Browse the type
+
+Start with `--select` to see available members and the flags to target each one.
+
+```sh
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+```
+
+This shows a methods table with a `Select` column containing the exact flags
+needed. For `OptionsFactory`, the table shows `-m Create` for the single
+`Create` method.
+
+### Step 2: Select a member
+
+Use the `-m` flag from the select column. For overloaded methods, use
+`--params` or `--index` to disambiguate.
+
+```sh
+# Single method — -m is enough
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
+
+# Overloaded method — use --params from the Select column
+dotnet-inspect api --package System.Linq Enumerable -m Where --params "IEnumerable<TSource>,Func<TSource, bool>" --index 1
+
+# Or use --index directly (1-based overload position)
+dotnet-inspect api --package System.Linq Enumerable -m Where --index 1
+```
+
+The `--index` flag activates the decompiler sections: Lowered C#, IL, and
+Annotated IL appear below the methods table.
+
+### Step 3: Read the output
+
+The output has four sections:
+
+| Section | What it shows |
+| ------- | ------------- |
+| **Source** | Original C# source (when PDB with source link is available) |
+| **Lowered C#** | Decompiled C# — faithful to IL semantics, goto-with-labels control flow |
+| **IL** | Raw IL disassembly with resolved tokens |
+| **Annotated IL** | IL with pre-execution stack state at each instruction |
+
+### Examples
+
+```sh
+# Options validation pattern — foreach loops, isinst type checks, throw
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
+
+# LINQ iterator dispatch — generic methods, isinst chains, newobj
+dotnet-inspect api --package System.Linq Enumerable -m Where --index 1
+
+# Logger cache with locking — ConcurrentDictionary, Monitor, try/finally
+dotnet-inspect api --package Microsoft.Extensions.Logging LoggerFactory -m CreateLogger --index 1
+
+# DI service resolution — dictionary lookup, null guards
+dotnet-inspect api --package Microsoft.Extensions.DependencyInjection ServiceProvider -m GetService --index 1
+```
+
 ## Attribution
 
 All ported code is attributed in `THIRD-PARTY-NOTICES.TXT` with MIT license
