@@ -413,17 +413,18 @@ needed. For `OptionsFactory`, the table shows `-m Create` for the single
 
 ### Step 2: Select a member
 
-Use the `-m` flag from the select column. For overloaded methods, use
-`--params` or `--index` to disambiguate.
+Use the `-m` flag from the Select column, then add `--index 1` to activate the
+decompiler. The `--select` output gives you the member targeting flags; `--index`
+is always needed separately to trigger IL analysis.
 
 ```sh
-# Single method — -m is enough
+# Single method — add --index 1 to the -m flag from --select
 dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
 
-# Overloaded method — use --params from the Select column
+# Overloaded method — use --params from the Select column, plus --index
 dotnet-inspect api --package System.Linq Enumerable -m Where --params "IEnumerable<TSource>,Func<TSource, bool>" --index 1
 
-# Or use --index directly (1-based overload position)
+# Or use --index alone to select by overload position (1-based)
 dotnet-inspect api --package System.Linq Enumerable -m Where --index 1
 ```
 
