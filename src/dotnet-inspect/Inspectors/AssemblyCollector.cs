@@ -70,7 +70,19 @@ public static class AssemblyCollector
             assemblyPaths.Add(new AssemblyInfo(asmPath, Path.GetFileName(asmPath), null));
         }
 
-        // 3. Platform assemblies
+        // 3. Platform assemblies (ensure ref packs are downloaded first)
+        if (options.PlatformAssemblies.Length > 0)
+        {
+            // Download packs for all requested platform assemblies
+            foreach (var platformAsm in options.PlatformAssemblies)
+            {
+                var requests = PlatformPackService.BuildPackRequests(platformAsm, null);
+                await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
+                {
+                }
+            }
+        }
+
         foreach (var platformAsm in options.PlatformAssemblies)
         {
             var (assemblyPath, version, resolvedFramework, error) = PlatformResolver.ResolveAssembly(platformAsm);
@@ -82,7 +94,23 @@ public static class AssemblyCollector
             assemblyPaths.Add(new AssemblyInfo(assemblyPath!, resolvedFramework ?? "platform", version));
         }
 
-        // 4. Platform frameworks
+        // 4. Platform frameworks (ensure ref packs are downloaded first)
+        if (options.PlatformFrameworks.Length > 0)
+        {
+            List<PlatformPackService.PackRequest> requests = [];
+            foreach (var fw in options.PlatformFrameworks)
+            {
+                var fwName = fw.Contains('@') ? fw[..fw.IndexOf('@')] : fw;
+                var fwVersion = fw.Contains('@') ? fw[(fw.IndexOf('@') + 1)..] : null;
+                if (PlatformResolver.FrameworkMappings.TryGetValue(fwName, out var packName))
+                    requests.Add(new PlatformPackService.PackRequest(packName, fwVersion));
+            }
+
+            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
+            {
+            }
+        }
+
         foreach (var framework in options.PlatformFrameworks)
         {
             var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
