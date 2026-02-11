@@ -17,7 +17,7 @@ public static class ImplementsOutputFormatter
         if (results.Count == 0)
         {
             writer.WriteParagraph("No implementing types found.");
-            return writer.ToString();
+            return writer.ToString().TrimEnd();
         }
 
         writer.WriteField("Matches", results.Count);
@@ -39,6 +39,6 @@ public static class ImplementsOutputFormatter
             writer.WriteTable(headers, rows);
         }
 
-        return writer.ToString();
+        return writer.ToString().TrimEnd();
     }
 }

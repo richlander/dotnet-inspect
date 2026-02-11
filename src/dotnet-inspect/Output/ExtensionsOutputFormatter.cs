@@ -25,7 +25,7 @@ public static class ExtensionsOutputFormatter
         if (verbosity == Verbosity.Quiet)
         {
             WriteCountsTable(writer, targetType, directExtensions, reachableExtensions);
-            return writer.ToString();
+            return writer.ToString().TrimEnd();
         }
 
         // Direct extensions (always shown)
@@ -43,7 +43,7 @@ public static class ExtensionsOutputFormatter
             WriteExtensionTable(writer, group.ToList());
         }
 
-        return writer.ToString();
+        return writer.ToString().TrimEnd();
     }
 
     private static void WriteCountsTable(MarkoutWriter writer,

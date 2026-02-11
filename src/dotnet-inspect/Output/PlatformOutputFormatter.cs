@@ -47,7 +47,7 @@ public static class PlatformOutputFormatter
         var rows = frameworks.Select(f => new[] { f.ShortName, f.LatestVersion, f.AssemblyCount.ToString() });
         writer.WriteTable(headers, rows);
 
-        return writer.ToString();
+        return writer.ToString().TrimEnd();
     }
 
     public static string FormatVersions(List<FrameworkInfo> frameworks, int? limit)
@@ -73,7 +73,7 @@ public static class PlatformOutputFormatter
             }
         }
 
-        return writer.ToString();
+        return writer.ToString().TrimEnd();
     }
 
     public static string FormatAssemblies(List<FrameworkAssemblyData> frameworkData, bool includeTypes,
@@ -116,6 +116,6 @@ public static class PlatformOutputFormatter
             }
         }
 
-        return writer.ToString();
+        return writer.ToString().TrimEnd();
     }
 }
