@@ -438,7 +438,7 @@ public static class StackSimulator
             {
                 int token = reader.ReadILToken();
                 state = state.Pop(1);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return state.Push(StackValue.CreateObjRef(typeName));
             }
 
@@ -454,7 +454,7 @@ public static class StackSimulator
             {
                 int token = reader.ReadILToken();
                 state = state.Pop(1);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return state.Push(StackValue.FromTypeName(typeName ?? "object"));
             }
 
@@ -462,7 +462,7 @@ public static class StackSimulator
             case ILOpCode.Newarr:
             {
                 int token = reader.ReadILToken();
-                string? elementType = ResolveTypeName(context.Reader, token);
+                string? elementType = ResolveTypeName(context.Reader, token, context.GenericContext);
                 string arrayType = elementType is not null ? $"{elementType}[]" : "object[]";
                 return state.Pop(1).Push(StackValue.CreateObjRef(arrayType));
             }
@@ -500,7 +500,7 @@ public static class StackSimulator
             {
                 int token = reader.ReadILToken();
                 state = state.Pop(2);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return state.Push(StackValue.FromTypeName(typeName ?? "object"));
             }
 
@@ -545,7 +545,7 @@ public static class StackSimulator
             {
                 int token = reader.ReadILToken();
                 state = state.Pop(1);
-                string? typeName = ResolveTypeName(context.Reader, token);
+                string? typeName = ResolveTypeName(context.Reader, token, context.GenericContext);
                 return state.Push(StackValue.FromTypeName(typeName ?? "object"));
             }
 
@@ -955,6 +955,17 @@ public static class StackSimulator
                     var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)parent);
                     return reader.GetFullTypeName(typeDef);
                 }
+                if (parent.Kind == HandleKind.TypeSpecification)
+                {
+                    var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)parent);
+                    var genericCtx = BuildGenericContextForMemberRef(reader, memberRef);
+                    return typeSpec.DecodeSignature(SignatureDecoder.Instance, genericCtx);
+                }
+            }
+            if (methodHandle.Kind == HandleKind.MethodSpecification)
+            {
+                var spec = reader.GetMethodSpecification((MethodSpecificationHandle)methodHandle);
+                return ResolveDeclaringType(reader, spec.Method);
             }
         }
         catch { }
@@ -1008,6 +1019,9 @@ public static class StackSimulator
     }
 
     static string? ResolveTypeName(MetadataReader reader, int token)
+        => ResolveTypeName(reader, token, genericContext: null);
+
+    static string? ResolveTypeName(MetadataReader reader, int token, GenericContext? genericContext)
     {
         try
         {
@@ -1027,7 +1041,7 @@ public static class StackSimulator
             if (handle.Kind == HandleKind.TypeSpecification)
             {
                 var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)handle);
-                return typeSpec.DecodeSignature(Metadata.SignatureDecoder.Instance, genericContext: null);
+                return typeSpec.DecodeSignature(Metadata.SignatureDecoder.Instance, genericContext);
             }
         }
         catch { }
