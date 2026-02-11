@@ -1429,6 +1429,14 @@ public static class CommandLineBuilder
                 if (args.Length >= 2) typeName = args[1];
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
+                // Route .dll files to --library, .nupkg stays as package path
+                if (packagePath != null && packagePath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                {
+                    explicitAssembly = packagePath;
+                    packagePath = null;
+                    hasExplicitSource = true;
+                }
+
                 // Platform-preferred routing for System.*/Microsoft.* bare names
                 if (packagePath != null && PlatformResolver.IsPlatformCandidate(
                     packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
