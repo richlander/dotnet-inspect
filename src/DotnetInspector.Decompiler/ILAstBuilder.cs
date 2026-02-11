@@ -145,25 +145,25 @@ public static class ILAstBuilder
             case ILOpCode.Ldloca_s:
             {
                 int index = reader.ReadILByte();
-                return MakeLoad(opcode, $"&V_{index}", StackValue.CreateByRef(), offset);
+                return MakeLoad(opcode, $"V_{index}", StackValue.CreateByRef(), offset);
             }
 
             case ILOpCode.Ldloca:
             {
                 int index = reader.ReadILUInt16();
-                return MakeLoad(opcode, $"&V_{index}", StackValue.CreateByRef(), offset);
+                return MakeLoad(opcode, $"V_{index}", StackValue.CreateByRef(), offset);
             }
 
             case ILOpCode.Ldarga_s:
             {
                 int index = reader.ReadILByte();
-                return MakeLoad(opcode, $"&P_{index}", StackValue.CreateByRef(), offset);
+                return MakeLoad(opcode, $"P_{index}", StackValue.CreateByRef(), offset);
             }
 
             case ILOpCode.Ldarga:
             {
                 int index = reader.ReadILUInt16();
-                return MakeLoad(opcode, $"&P_{index}", StackValue.CreateByRef(), offset);
+                return MakeLoad(opcode, $"P_{index}", StackValue.CreateByRef(), offset);
             }
 
             // Constants

@@ -638,6 +638,10 @@ public class ApiCommand
             if (from < 0) from = 0;
             if (to > lines.Length) to = lines.Length;
 
+            // Skip leading blank lines
+            while (from < to && lines[from].TrimStart().Length == 0)
+                from++;
+
             var methodLines = lines[from..to];
 
             // Dedent: find minimum indentation and remove it

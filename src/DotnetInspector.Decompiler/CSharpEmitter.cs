@@ -18,16 +18,16 @@ public static class CSharpEmitter
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
         var structure = StructuredControlFlow.Analyze(context, cfg);
-        return Emit(ast, structure, context.Reader);
+        return Emit(ast, structure, context.Reader, context.HasThis);
     }
 
     /// <summary>
     /// Emit C# source from pre-computed ILAst and control flow structure.
     /// </summary>
-    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null)
+    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false)
     {
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, reader);
+        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis);
         emitter.EmitMethod();
         return sb.ToString();
     }
@@ -38,6 +38,7 @@ public static class CSharpEmitter
         readonly StructuredControlFlow _structure;
         readonly StringBuilder _sb;
         readonly MetadataReader? _reader;
+        readonly bool _hasThis;
 
         // Map block index → ILAstBlock for quick lookup
         readonly Dictionary<int, ILAstBlock> _blockMap;
@@ -48,12 +49,13 @@ public static class CSharpEmitter
         // Current block nodes being emitted (for dup resolution)
         List<ILAstNode>? _currentBlockNodes;
 
-        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null)
+        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false)
         {
             _ast = ast;
             _structure = structure;
             _sb = sb;
             _reader = reader;
+            _hasThis = hasThis;
 
             _blockMap = [];
             for (int i = 0; i < ast.Blocks.Count; i++)
@@ -181,13 +183,22 @@ public static class CSharpEmitter
 
             if (block.ElseBlock is not null)
             {
-                WriteIndent(indent);
-                _sb.AppendLine("else");
-                WriteIndent(indent);
-                _sb.AppendLine("{");
-                EmitStructuredBlock(block.ElseBlock, indent + 1);
-                WriteIndent(indent);
-                _sb.AppendLine("}");
+                // If the then block ends with throw/return, skip the else wrapper
+                // (guard clause pattern — the else body just falls through)
+                if (BlockEndsWithNoFallthrough(block.ThenBlock))
+                {
+                    EmitStructuredBlock(block.ElseBlock, indent);
+                }
+                else
+                {
+                    WriteIndent(indent);
+                    _sb.AppendLine("else");
+                    WriteIndent(indent);
+                    _sb.AppendLine("{");
+                    EmitStructuredBlock(block.ElseBlock, indent + 1);
+                    WriteIndent(indent);
+                    _sb.AppendLine("}");
+                }
             }
         }
 
@@ -356,7 +367,7 @@ public static class CSharpEmitter
 
                 case ILOpCode.Starg_s or ILOpCode.Starg:
                     WriteIndent(indent);
-                    _sb.Append($"{expr.Operand} = ");
+                    _sb.Append($"{RemapArg(expr.Operand, expr.OpCode)} = ");
                     if (expr.Arguments.Count > 0)
                         EmitExpression(expr.Arguments[0]);
                     _sb.AppendLine(";");
@@ -472,7 +483,7 @@ public static class CSharpEmitter
                 // Argument/local loads
                 case ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3 or
                      ILOpCode.Ldarg_s or ILOpCode.Ldarg:
-                    _sb.Append(expr.Operand ?? GetArgName(expr.OpCode));
+                    _sb.Append(RemapArg(expr.Operand, expr.OpCode));
                     break;
                 case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3 or
                      ILOpCode.Ldloc_s or ILOpCode.Ldloc:
@@ -633,7 +644,7 @@ public static class CSharpEmitter
 
                 // Address operations
                 case ILOpCode.Ldarga_s or ILOpCode.Ldarga:
-                    _sb.Append($"ref {expr.Operand}");
+                    _sb.Append($"ref {RemapArg(expr.Operand, expr.OpCode)}");
                     break;
                 case ILOpCode.Ldloca_s or ILOpCode.Ldloca:
                     _sb.Append($"ref {expr.Operand}");
@@ -893,7 +904,7 @@ public static class CSharpEmitter
             var sb = new StringBuilder();
             var saved = _sb;
             // Use a temp context with the new StringBuilder
-            var tempCtx = new EmitterContext(_ast, _structure, sb);
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
             tempCtx.EmitExpression(expr);
             return sb.ToString();
         }
@@ -985,6 +996,32 @@ public static class CSharpEmitter
             "System.Double" or "double" or "System.Char" or "char" or
             "System.IntPtr" or "nint" or "System.UIntPtr" or "nuint";
 
+        /// <summary>
+        /// Check if a structured block ends with a throw or return (no fall-through).
+        /// Used to detect guard clauses and suppress unnecessary else wrappers.
+        /// </summary>
+        bool BlockEndsWithNoFallthrough(StructuredBlock? block)
+        {
+            if (block is null) return false;
+
+            int idx = block.BlockIndex;
+            if (idx >= 0 && _blockMap.TryGetValue(idx, out var astBlock))
+            {
+                var lastNode = astBlock.Nodes.LastOrDefault();
+                if (lastNode is ILAstStatement stmt)
+                {
+                    return stmt.Expression.OpCode is ILOpCode.Throw or ILOpCode.Rethrow
+                        or ILOpCode.Ret;
+                }
+            }
+
+            // Check children recursively (e.g., sequence ending with throw)
+            if (block.Children.Count > 0)
+                return BlockEndsWithNoFallthrough(block.Children[^1]);
+
+            return false;
+        }
+
         static bool NeedsParentheses(ILAstExpression expr) => expr.OpCode switch
         {
             ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or
@@ -994,14 +1031,34 @@ public static class CSharpEmitter
             _ => false
         };
 
-        static string GetArgName(ILOpCode opcode) => opcode switch
+        string RemapArg(string? operand, ILOpCode opcode)
         {
-            ILOpCode.Ldarg_0 => "P_0",
-            ILOpCode.Ldarg_1 => "P_1",
-            ILOpCode.Ldarg_2 => "P_2",
-            ILOpCode.Ldarg_3 => "P_3",
-            _ => "arg"
-        };
+            if (_hasThis && operand is not null && operand.StartsWith("P_")
+                && int.TryParse(operand.AsSpan(2), out int idx))
+            {
+                if (idx == 0) return "this";
+                return $"P_{idx - 1}";
+            }
+            return operand ?? GetArgName(opcode, _hasThis);
+        }
+
+        static string GetArgName(ILOpCode opcode, bool hasThis = false)
+        {
+            int idx = opcode switch
+            {
+                ILOpCode.Ldarg_0 => 0,
+                ILOpCode.Ldarg_1 => 1,
+                ILOpCode.Ldarg_2 => 2,
+                ILOpCode.Ldarg_3 => 3,
+                _ => -1
+            };
+            if (hasThis)
+            {
+                if (idx == 0) return "this";
+                idx--;
+            }
+            return idx >= 0 ? $"P_{idx}" : "arg";
+        }
 
         static string GetLocalName(ILOpCode opcode) => opcode switch
         {
