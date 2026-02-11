@@ -5,7 +5,7 @@ description: Inspect .NET libraries and NuGet packages. Use when you need to und
 
 # dotnet-inspect
 
-A CLI tool for inspecting .NET libraries and NuGet packages.
+A CLI tool for inspecting .NET libraries and NuGet packages. It operates on platform libraries (e.g., `System.Collections`), NuGet packages (e.g., `Microsoft.Extensions.AI`), and local files.
 
 ## Requirements
 
@@ -30,28 +30,35 @@ Start with these common workflows:
 
 ```bash
 # Understand a type's API shape (start here - most useful for learning APIs)
-dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json --shape
+dnx dotnet-inspect -y -- api 'HashSet<T>' --platform System.Collections --shape
+
+# Bare names — routes automatically (platform for System.*/Microsoft.*, NuGet for others)
+dnx dotnet-inspect -y -- Microsoft.Extensions.AI
 
 # Compare API changes between versions (essential for migrations)
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
-dnx dotnet-inspect -y -- diff Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
+dnx dotnet-inspect -y -- diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3
 dnx dotnet-inspect -y -- diff "*Json*" --package System.Text.Json@9.0.0..10.0.0
 
 # Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --terse
+dnx dotnet-inspect -y -- find "Chat*,Diction*" --framework runtime --package Microsoft.Extensions.AI
 
-# Find extension methods for a type
-dnx dotnet-inspect -y -- extensions HttpClient --framework runtime
+# Find extension methods for a type (detects C# 14 extension properties too)
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
 
 # Find types implementing an interface or extending a class
-dnx dotnet-inspect -y -- implements IDisposable --framework runtime
-dnx dotnet-inspect -y -- implements Stream --framework runtime
+dnx dotnet-inspect -y -- implements Stream --framework runtime --framework aspnetcore
 
 # Package metadata and versions
-dnx dotnet-inspect -y -- package System.Text.Json
+dnx dotnet-inspect -y -- package System.Text.Json -v:d
 dnx dotnet-inspect -y -- package System.Text.Json --versions
+
+# Library metadata, SourceLink audit, dependency tree
+dnx dotnet-inspect -y -- library --package System.Text.Json --source-link-audit
+dnx dotnet-inspect -y -- library Microsoft.Extensions.AI.OpenAI --dependencies
+
+# Code samples
+dnx dotnet-inspect -y -- samples Markout MarkoutWriter --list
 
 # Get XML documentation for a type
 dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
@@ -61,39 +68,41 @@ dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
 
 | Flag | Purpose | Commands |
 | ---- | ------- | -------- |
-| `-v:d` | Detailed output (full signatures, more info) | all commands |
-| `--docs` | Include XML documentation from source | `api` |
-| `-m Name` | Filter to specific member(s) | `api` |
-| `-t Name` | Filter to specific type(s), supports globs | `diff` |
+| `-v:d` | Detailed output (full signatures, all sections) | all |
+| `--shape` | Type shape diagram (hierarchy + members) | `api` |
+| `--docs` | Include XML documentation | `api` |
+| `-m Name` | Filter to specific member(s), supports globs | `api` |
+| `--select` | Show Select column for member addressing | `api` |
+| `--index N` | Target Nth overload for decompiled member doc | `api` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
 | `--terse` | Compact output (alias for --oneline --grouped) | `find` |
-| `--oneline` | Space-separated type names on one line | `find` |
-| `--name-only` | Show only names, one per line | `find`, `diff` |
-| `--stat` | Show only statistics (no member details) | `diff` |
-| `--breaking` | Show only breaking changes | `diff` |
-| `--additive` | Show only additive changes | `diff` |
-| `--grouped` | Group results by pattern (with --oneline) | `find` |
 | `--reachable` | Include extensions on reachable types | `extensions` |
+| `--dependencies` | Dependency tree (visual) | `library`, `package` |
+| `--source-link-audit` | SourceLink/determinism audit | `library` |
+| `--stat` | Statistics only (no member details) | `diff` |
+| `--breaking` | Breaking changes only | `diff` |
 | `--prerelease` | Include prerelease versions | `package --versions` |
+| `--json` | JSON output | all |
+| `-s Name` | Include section (glob-capable) | all |
 
-**Signatures include `params` and default values** — you can determine calling conventions directly from output:
-`void .ctor(string name, params string[] aliases)`, `Parse(args, configuration = null)`
+**Signatures include `params` and default values** — you can determine calling conventions directly from output.
 
-**Generic types:** Use quotes around generic types: `'Option<T>'`, `'IEnumerable<T>'`
-
-**Diff supports globs and whole-package comparison:** Omit the type name to see all changes across a package version range. Use glob patterns like `"*Writer*"` to filter.
+**Generic types:** Use quotes: `'Option<T>'`, `'IEnumerable<T>'`
 
 ## Command Reference
 
 | Command | Purpose |
 | ------- | ------- |
 | `api <type>` | **Start here.** Public API surface (table format, or `--shape` for hierarchy) |
-| `diff` | Compare API surfaces between package versions (whole-package or filtered) |
+| `diff` | Compare API surfaces between package versions |
 | `find <pattern>` | Search for types across packages, libraries, or frameworks |
-| `extensions <type>` | Find extension methods for a type |
+| `extensions <type>` | Find extension methods/properties for a type |
 | `implements <type>` | Find types implementing an interface or extending a class |
 | `package <name>` | Package metadata, files, versions, dependencies |
-| `library <path>` | Library info, SourceLink/determinism audit |
+| `library <name>` | Library info, symbols, dependencies, SourceLink audit |
+| `samples <pkg> <type>` | Fetch and display code samples |
+| `platform` | List installed frameworks |
+| `cli` | CLI args explorer |
 | `llmstxt` | Complete usage examples for all commands |
 
 ## Full Documentation
@@ -107,10 +116,11 @@ dnx dotnet-inspect -y -- llmstxt
 ## When to Use This Skill
 
 - Exploring what types/APIs a NuGet package provides
+- Understanding method signatures, overloads, and type shape
 - Searching for types by pattern across packages or frameworks
 - Finding types that implement an interface or extend a base class
-- Understanding method signatures and overloads
 - Comparing API changes between package versions
+- Viewing library dependency trees
 - Auditing libraries for SourceLink and determinism
-- Finding types matching a pattern (`--filter "Progress*"`)
 - Getting documentation from source (`--docs`)
+- Viewing decompiled source, IL, and annotated IL for methods

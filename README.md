@@ -1,6 +1,6 @@
 # dotnet-inspect
 
-CLI tool for inspecting .NET libraries and NuGet packages. View metadata, APIs, vulnerabilities, audit provenance, and compare versions.
+CLI tool for inspecting .NET libraries and NuGet packages. It is for .NET what `docker inspect` and `kubectl describe` are for container land — view metadata, APIs, vulnerabilities, provenance, and compare versions.
 
 ## Installation
 
@@ -8,87 +8,90 @@ CLI tool for inspecting .NET libraries and NuGet packages. View metadata, APIs, 
 dotnet tool install -g dotnet-inspect
 ```
 
+Or run without installing (like `npx`):
+
+```bash
+dnx dotnet-inspect -y -- <command>
+```
+
 ## Quick Reference
 
 | Command | Purpose |
 |---------|---------|
-| `package X` | Package metadata, dependencies, files |
-| `platform X` | Inspect SDK/runtime library |
-| `library ./path` | Inspect local file |
+| `package X` | Package metadata, dependencies, files, versions |
+| `library X` | Library metadata, symbols, SourceLink audit, dependency tree |
 | `api X` | Public API surface (table format, or `--shape` for hierarchy) |
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |
-| `find X` | Search for types |
+| `find X` | Search for types across packages, frameworks, and local assets |
+| `samples X` | Fetch and display code samples |
+| `platform` | List installed frameworks |
+| `cli` | CLI args explorer (tree view) |
+
+### Bare Names
+
+A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the best source. Platform libraries (`System.*`, `Microsoft.AspNetCore`) resolve to the installed SDK by default. Other names resolve to NuGet packages. Use explicit `package` or `library --package` to override.
 
 ### Common Flags
 
 | Flag | Description |
 |------|-------------|
-| `--source-link-audit` | Full provenance verification (parallel HTTP HEAD) |
+| `-v:q/m/n/d` | Verbosity: quiet, minimal (default), normal, detailed |
 | `--json` | JSON output |
-| `-v:q/m/n/d` | Verbosity: quiet, minimal, normal, detailed |
+| `-s Name` | Include section (glob-capable: `-s Ext*`) |
+| `-x Name` | Exclude section |
+| `--shape` | Type shape diagram (hierarchy + members) |
+| `--source-link-audit` | SourceLink/determinism audit |
+| `-T:q/d` | Tips verbosity (contextual hints on stderr) |
 
 ## Commands
 
 ### package
 
-Inspect NuGet packages. This is the default command.
+Inspect NuGet packages. This is the default command for bare names that don't match platform libraries.
 
 ```bash
-dotnet-inspect System.Text.Json                    # Metadata (latest version)
-dotnet-inspect System.Text.Json@8.0.4 -v:d         # Detailed (shows vulnerability)
-dotnet-inspect System.Text.Json --versions         # List available versions
-dotnet-inspect System.Text.Json --source-link-audit  # Provenance verification
-dotnet-inspect System.Text.Json --layout --all      # File structure
+dotnet-inspect package System.Text.Json                     # Metadata (latest version)
+dotnet-inspect package System.Text.Json@8.0.0 -v:d          # Detailed (shows vulnerabilities)
+dotnet-inspect package System.Text.Json --versions          # List available versions
+dotnet-inspect package System.Text.Json --version 11.0.0-preview*  # Wildcard version
+dotnet-inspect package System.Text.Json --layout --lib      # File tree (lib/ only)
+dotnet-inspect package System.Text.Json --dependencies      # Package dependency tree
+dotnet-inspect package System.Text.Json --tfms              # List target frameworks
 ```
 
 #### Multi-library packages
 
-Some packages bundle multiple libraries per TFM (e.g., `Microsoft.Azure.SignalR` ships both `Microsoft.Azure.SignalR.dll` and `Microsoft.Azure.SignalR.Common.dll`). The `Libraries` field shows when a package contains more than one library.
+Some packages bundle multiple libraries per TFM (e.g., `Microsoft.Azure.SignalR`).
 
 ```bash
-dotnet-inspect Microsoft.Azure.SignalR                # Shows Libraries: 2
-dotnet-inspect Microsoft.Azure.SignalR --files        # List libraries per TFM
-dotnet-inspect Microsoft.Azure.SignalR --files --tfm net8.0  # Files for specific TFM
-dotnet-inspect Microsoft.Azure.SignalR --layout       # Show file tree
-dotnet-inspect Microsoft.Azure.SignalR --tfms         # List target frameworks
+dotnet-inspect package Microsoft.Azure.SignalR              # Shows Libraries: 2
+dotnet-inspect package Microsoft.Azure.SignalR --layout     # File tree
+dotnet-inspect api Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll  # Secondary library
 ```
 
-```text
-| Target Frameworks | 2 |
-| Libraries | 2 |
-```
-
-Use `--layout` to see the full tree:
-
-```text
-└─ lib
-   ├─ net8.0
-   │  ├─ Microsoft.Azure.SignalR.Common.dll
-   │  └─ Microsoft.Azure.SignalR.dll
-   └─ netstandard2.0
-      ├─ Microsoft.Azure.SignalR.Common.dll
-      └─ Microsoft.Azure.SignalR.dll
-```
-
-Inspect or compare individual libraries using `library`:
+#### Custom NuGet sources
 
 ```bash
-dotnet-inspect library Microsoft.Azure.SignalR                   # Primary library (highest TFM)
-dotnet-inspect library Microsoft.Azure.SignalR --tfm net8.0      # Specific TFM
-dotnet-inspect api Microsoft.Azure.SignalR                       # API surface (all libraries)
+dotnet-inspect package MyPackage --source https://my-feed/v3/index.json
+dotnet-inspect package MyPackage --add-source https://dev-feed/v3/index.json --prerelease
+dotnet-inspect package MyPackage --nugetconfig ./nuget.config
 ```
 
-### platform
+### library
 
-List frameworks or inspect platform libraries.
+Inspect a library — from platform, NuGet package, or local file.
 
 ```bash
-dotnet-inspect platform                            # List frameworks
-dotnet-inspect platform --framework runtime        # List runtime libraries
-dotnet-inspect platform System.Text.Json           # Inspect library
-dotnet-inspect platform System.Text.Json --source-link-audit  # Audit platform library
+dotnet-inspect library System.Text.Json                     # Platform library (runtime)
+dotnet-inspect library --package System.Text.Json            # Library from NuGet package
+dotnet-inspect library ./bin/MyLib.dll                       # Local file
+dotnet-inspect library --package System.Text.Json -s         # List 13 available sections
+dotnet-inspect library --package System.Text.Json --source-link-audit  # SourceLink audit
+dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies   # Dependency tree (visual)
+dotnet-inspect library System.Text.Json --references -s Lib*           # Direct references
+dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 ```
 
 ### api
@@ -97,115 +100,107 @@ Extract public API surface with positional syntax and fuzzy matching.
 
 ```bash
 dotnet-inspect api System.Text.Json                              # All types in package
-dotnet-inspect api System.Text.Json JsonSerializer               # Specific type
+dotnet-inspect api System.Text.Json JsonSerializer               # Specific type — member lists
 dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to member(s)
-dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Interfaces only
-dotnet-inspect api System.Text.Json JsonSerializer -s:Methods    # Methods section only
-dotnet-inspect api System.Text.Json JsonSerializer -s            # Header only (no sections)
+dotnet-inspect api System.Text.Json JsonSerializer -m 'Deseri*'  # Glob member filter
+dotnet-inspect api 'HashSet<T>' --platform System.Collections --shape  # Type shape diagram
+dotnet-inspect api System.Text.Json JsonSerializer --docs        # With XML documentation
+dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Section filter
 dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform library
+dotnet-inspect api System.Text.Json@9.0.0 JsonSerializer        # Specific version
+dotnet-inspect api 'Option<T>' --package System.CommandLine      # Generic types (quote!)
+dotnet-inspect api Markout MarkoutWriter --samples -v:q          # Code samples
 ```
 
-Example: `dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass`
-
-```text
-# System.Text.Json.Nodes.JsonArray (System.Text.Json 10.0.2)
-
-Kind: class | Modifiers: sealed | Base: System.Text.Json.Nodes.JsonNode | Library: System.Text.Json | Package: System.Text.Json | Version: 10.0.2
-
-## Interfaces
-
-| Interface |
-| --------- |
-| System.Collections.Generic.ICollection<System.Text.Json.Nodes.JsonNode> |
-| System.Collections.Generic.IEnumerable<System.Text.Json.Nodes.JsonNode> |
-| System.Collections.Generic.IList<System.Text.Json.Nodes.JsonNode> |
-| System.Collections.IEnumerable |
-
-## Baseclass
-
-| Type |
-| ---- |
-| System.Text.Json.Nodes.JsonNode |
-```
-
-### extensions
-
-Find extension methods and properties for a type. Scopes control where to search.
+Member selection and decompilation:
 
 ```bash
-dotnet-inspect extensions string                                          # Runtime extensions (default scope)
-dotnet-inspect extensions 'IEnumerable<T>'                                # Generic types
-dotnet-inspect extensions string --library ./MyLib.dll                   # Search a local library
-dotnet-inspect extensions ChatClient --package Microsoft.Extensions.AI.OpenAI  # Cross-package extensions
-dotnet-inspect extensions IServiceCollection \
-  --package Microsoft.Extensions.DependencyInjection \
-  --package Microsoft.Extensions.Azure \
-  --package AWSSDK.Extensions.NETCore.Setup                                   # Multi-package scan
-dotnet-inspect extensions string --framework runtime --library ./MyLib.dll  # Multiple scopes
-dotnet-inspect extensions HttpClient --reachable                          # Include extensions on reachable types
-dotnet-inspect extensions HttpResponseMessage --reachable                  # Useful when the type itself has no extensions
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select  # Show Select column
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1  # Member doc
 ```
 
-Detects both classic extension methods and C# 14 extension properties.
-
-### library
-
-Inspect a specific library file.
-
-```bash
-dotnet-inspect library ./bin/MyLib.dll            # Local file
-dotnet-inspect library ./bin/MyLib.dll --source-link-audit  # With provenance check
-```
+Targeting a member with `--index` or `--params` produces four sections: **Source** (original C#), **Lowered C#** (decompiled), **IL** (disassembly), and **Annotated IL** (with stack state).
 
 ### diff
 
 Compare API surfaces between versions. Changes are classified as breaking, additive, or potentially breaking.
 
 ```bash
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2                # positional package
-dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.2      # explicit flag
-dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2    # platform library
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --stat         # compact summary
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking     # breaking changes only
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --additive     # additive changes only
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 JsonSerializer  # filter to type
+dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q  # Full package diff
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2  # Single type
+dotnet-inspect diff "*Writer*" --package Markout@0.1.8..0.2.0            # Glob filter
+dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2           # Platform versions
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --stat               # Stats only
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking           # Breaking only
+```
+
+### find
+
+Search for types across packages, frameworks, and local assets.
+
+```bash
+dotnet-inspect find HttpClient                           # Runtime (default scope)
+dotnet-inspect find "*Stream*" -n 10                     # Glob, limit results
+dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
+dotnet-inspect find "Chat*,Diction*" --framework runtime --package Microsoft.Extensions.AI  # Batch
+dotnet-inspect find ILogger --framework aspnetcore       # ASP.NET Core framework
+dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
+```
+
+### extensions
+
+Find extension methods and properties for a type. Detects both classic extension methods and C# 14 extension properties.
+
+```bash
+dotnet-inspect extensions HttpClient                         # Runtime (default)
+dotnet-inspect extensions HttpClient --reachable             # Include reachable types
+dotnet-inspect extensions IDistributedApplicationBuilder \
+  --package Aspire.Hosting --package Aspire.Hosting.Redis    # Multi-package scan
 ```
 
 ### implements
 
-Find types implementing an interface or extending a class.
+Find types implementing an interface or extending a base class.
 
 ```bash
+dotnet-inspect implements Stream --framework runtime --framework aspnetcore
 dotnet-inspect implements IDisposable --framework runtime
-dotnet-inspect implements Stream --framework runtime
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
+```
+
+### samples
+
+Fetch and display code samples from SourceLink-indexed sources.
+
+```bash
+dotnet-inspect samples Markout MarkoutWriter --list  # List available samples
+dotnet-inspect samples Markout MarkoutWriter         # Print all samples
+dotnet-inspect samples Newtonsoft.Json JObject        # Third-party examples
+```
+
+### platform
+
+List installed frameworks.
+
+```bash
+dotnet-inspect platform                             # List frameworks
+dotnet-inspect platform --framework runtime         # List runtime libraries
+dotnet-inspect platform --list-versions             # Installed SDK versions
 ```
 
 ### cache
 
-Manage the dotnet-inspect cache (downloaded packages, sources, symbols).
-
 ```bash
-dotnet-inspect cache                               # Show cache size breakdown
+dotnet-inspect cache                                # Show cache size breakdown
 dotnet-inspect cache --clean                        # Clear the cache
 ```
 
 ### cli
 
-Show CLI command structure as an API listing.
-
 ```bash
-dotnet-inspect cli                                  # All commands
-dotnet-inspect cli api                              # Single command with options
-dotnet-inspect cli -v:q                             # Command names only
-```
-
-## Custom NuGet Sources
-
-```bash
-dotnet-inspect package MyPackage --source https://my-feed/v3/index.json
-dotnet-inspect package MyPackage --add-source https://dev-feed/v3/index.json
-dotnet-inspect package MyPackage --nugetconfig ./nuget.config
+dotnet-inspect cli                                  # Tree view (single level)
+dotnet-inspect cli -v:d                             # Deep view (all levels)
+dotnet-inspect cli api                              # Specific command with options
 ```
 
 ## Output Control
@@ -215,16 +210,12 @@ dotnet-inspect package MyPackage --nugetconfig ./nuget.config
 Each level includes a **compact summary line** with key metadata:
 
 ```text
-Type: Library | TFM: net10.0 | Updated: 2026-01-13 | Vulnerabilities: 1
+Version: 8.0.0 | Type: Library | TFM: net8.0 | Updated: 2023-11-14 | Vulnerabilities: 2
 ```
 
-**Sections**: Use `-s:Name` to include or `-x:Name` to exclude sections by name. Bare `-s` shows header only.
+**Sections**: Use `-s Name` to include or `-x Name` to exclude sections by name. Bare `-s` lists available sections. Supports glob patterns (`-s Ext*`).
 
-```bash
-dotnet-inspect System.Text.Json -v:d -x:Statistics,Files   # Exclude by name
-dotnet-inspect api System.Text.Json JsonSerializer -s:Methods  # Include only Methods
-dotnet-inspect api System.Text.Json JsonSerializer -s      # Header only
-```
+**JSON**: `--json` for full JSON, `--json --compact` for minified.
 
 ## LLM Integration
 
