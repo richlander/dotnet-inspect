@@ -58,6 +58,9 @@ public static class CSharpEmitter
         // Labels already emitted (avoid duplicates for shared blocks)
         readonly HashSet<string> _emittedLabels;
 
+        // Catch handler statements to suppress (blockIndex, nodeIndex) — already emitted in catch clause
+        readonly HashSet<(int blockIndex, int nodeIndex)> _catchVariableStatements;
+
         // Map block index → IL start offset (for emitting labels)
         readonly Dictionary<int, int> _blockStartOffset;
 
@@ -83,6 +86,7 @@ public static class CSharpEmitter
             // Collect all goto targets from branch operands
             _gotoTargets = CollectGotoTargets(ast);
             _emittedLabels = [];
+            _catchVariableStatements = [];
         }
 
         static HashSet<string> CollectGotoTargets(ILAstMethod ast)
@@ -202,8 +206,12 @@ public static class CSharpEmitter
             // Emit IL offset label if this block is a goto target
             TryEmitLabel(blockIndex);
 
-            foreach (var node in astBlock.Nodes)
+            for (int nodeIdx = 0; nodeIdx < astBlock.Nodes.Count; nodeIdx++)
             {
+                if (_catchVariableStatements.Contains((blockIndex, nodeIdx)))
+                    continue;
+
+                var node = astBlock.Nodes[nodeIdx];
                 switch (node)
                 {
                     case ILAstAssignment assign:
@@ -404,8 +412,14 @@ public static class CSharpEmitter
                         exType = SimplifyTypeName(resolved);
                 }
 
+                // Check if the first handler statement stores the exception to a local (stloc = S_in_0)
+                string? catchVarName = TryExtractCatchVariable(block);
+
                 WriteIndent(indent);
-                _sb.AppendLine($"catch ({exType})");
+                if (catchVarName is not null)
+                    _sb.AppendLine($"catch ({exType} {catchVarName})");
+                else
+                    _sb.AppendLine($"catch ({exType})");
                 WriteIndent(indent);
                 _sb.AppendLine("{");
                 if (block.HandlerChildren.Count > 0)
@@ -578,6 +592,11 @@ public static class CSharpEmitter
                     break;
 
                 case ILOpCode.Pop:
+                    // Suppress pop of catch handler exception (S_in_0)
+                    if (expr.Arguments.Count > 0
+                        && expr.Arguments[0].Operand is string popOp
+                        && popOp.StartsWith("S_in_", StringComparison.Ordinal))
+                        break;
                     // Typically a discarded expression — emit as expression statement
                     if (expr.Arguments.Count > 0)
                     {
@@ -1559,6 +1578,32 @@ public static class CSharpEmitter
             if (qualifiedName is null) return "object";
             int colonIdx = qualifiedName.IndexOf("::", StringComparison.Ordinal);
             return colonIdx >= 0 ? qualifiedName[..colonIdx] : qualifiedName;
+        }
+
+        /// <summary>
+        /// If the first handler statement is <c>stloc V_X = S_in_0</c>, returns the variable name
+        /// and marks the statement for suppression. This allows <c>catch (ExType V_X)</c> syntax.
+        /// </summary>
+        string? TryExtractCatchVariable(StructuredBlock block)
+        {
+            if (block.HandlerChildren.Count == 0) return null;
+            var firstChild = block.HandlerChildren[0];
+            if (firstChild.BlockIndex < 0 || !_blockMap.TryGetValue(firstChild.BlockIndex, out var astBlock))
+                return null;
+            if (astBlock.Nodes.Count == 0) return null;
+
+            // Look for stloc.s/stloc with S_in_0 as the value
+            if (astBlock.Nodes[0] is ILAstStatement { Expression: var expr }
+                && expr.OpCode is ILOpCode.Stloc_s or ILOpCode.Stloc
+                    or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                && expr.Arguments.Count == 1
+                && expr.Arguments[0].Operand is string op && op.StartsWith("S_in_", StringComparison.Ordinal))
+            {
+                _catchVariableStatements.Add((firstChild.BlockIndex, 0));
+                return expr.Operand;
+            }
+
+            return null;
         }
 
         static string ExtractMemberName(string? qualifiedName)
