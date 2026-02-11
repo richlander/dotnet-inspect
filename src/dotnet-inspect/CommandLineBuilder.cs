@@ -122,9 +122,9 @@ public static class CommandLineBuilder
         var jsonOption = new Option<bool>("--json") { Description = "Output as JSON" };
         var markoutOption = new Option<bool>("--markout") { Description = "Output as Markout (default)" };
         var verboseOption = new Option<bool>("--verbose") { Description = "Show progress messages on stderr" };
-        var verbosityOption = new Option<string?>("-v") { Description = "Verbosity level: q(uiet), m(inimal), n(ormal), d(etailed)" };
-        var includeSectionsOption = new Option<string?>("-s") { Description = "Include only these sections (comma-separated, supports wildcards e.g. -s:Extension*).\nUse -s alone to list available sections.", Arity = ArgumentArity.ZeroOrOne };
-        var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude these sections by name (comma-separated, e.g., -x:Methods)" };
+        var verbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
+        var includeSectionsOption = new Option<string?>("-s") { Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.", Arity = ArgumentArity.ZeroOrOne };
+        var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)" };
         var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
         var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         tipsOption.Aliases.Add("-T");
@@ -137,7 +137,7 @@ public static class CommandLineBuilder
         };
         var addSourceOption = new Option<string[]>("--add-source")
         {
-            Description = "Additional NuGet source URL (can repeat)",
+            Description = "NuGet source URL to add (can repeat)",
             AllowMultipleArgumentsPerToken = true
         };
         var nugetConfigOption = new Option<string?>("--nugetconfig")
@@ -1430,34 +1430,34 @@ public static class CommandLineBuilder
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var apiPackageOption = new Option<string?>("--package") { Description = "Extract from package (file, name, or name@version)" };
-        var apiAssemblyOption = new Option<string?>("--library") { Description = "Library path (local file, or relative path within package)" };
-        var apiPlatformOption = new Option<string?>("--platform") { Description = "Extract from platform library (e.g., System.Text.Json)" };
-        var apiFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore, netstandard). Use @version for specific version" };
-        var apiTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
+        var apiPackageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
+        var apiAssemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var apiPlatformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
+        var apiFrameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
+        var apiTfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
-        var typeFilterOption = new Option<string?>("-t") { Description = "Filter to types by glob pattern (e.g., *Json*, Progress*)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var memberOption = new Option<string[]>("-m")
         {
-            Description = "Filter to specific member(s)",
+            Description = "Filter members by name (supports globs)",
             AllowMultipleArgumentsPerToken = true
         };
         memberOption.Aliases.Add("--member");
-        var docsOption = new Option<bool>("--docs") { Description = "Fetch and display XML doc comments from source" };
-        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Use XML doc files from packs directory (offline, implies --docs)" };
-        var samplesOption = new Option<bool>("--samples") { Description = "Fetch and display code samples from source" };
-        var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter to types with sourcelink resolution" };
-        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs (default is /raw/ for LLM consumption)" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output only method signatures (no table formatting)" };
-        var shapeOption = new Option<bool>("--shape") { Description = "View type shape (inheritance, interfaces, members)" };
-        var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter to methods with unsafe signatures (pointers)" };
-        var ctorOption = new Option<bool>("--ctor") { Description = "Show constructors only (shorthand for -m .ctor)" };
-        var indexOption = new Option<int?>("--index") { Description = "Select a specific overload by 1-based index (use with -m)" };
-        var paramsOption = new Option<string>("--params") { Description = "Select overload by comma-separated simple parameter type names (use with -m)" };
-        var ofOption = new Option<string>("-of") { Description = "Select overload by first parameter simple type name (use with -m)" };
-        var selectOption = new Option<bool>("--select") { Description = "Add a column showing -m/--params values to target each member" };
+        var docsOption = new Option<bool>("--docs") { Description = "Include XML doc comments from source" };
+        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Include XML docs from local packs directory (offline, implies --docs)" };
+        var samplesOption = new Option<bool>("--samples") { Description = "Include code samples from source" };
+        var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter types to those with SourceLink resolution" };
+        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output member signatures only (plain text, no table)" };
+        var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
+        var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
+        var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
+        var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
+        var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
+        var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
+        var selectOption = new Option<bool>("--select") { Description = "Show member overload index (Name:N) column" };
 
         apiCommand.Arguments.Add(argsArg);
         apiCommand.Options.Add(apiPackageOption);
@@ -1592,6 +1592,24 @@ public static class CommandLineBuilder
             var allMembers = members.Concat(positionalMembers).ToArray();
             var ctorOnly = parseResult.GetValue(ctorOption);
 
+            // Parse Name:N shorthand (e.g., "Deserialize:6")
+            // A bare member name without :N auto-selects overload 1 (detail page)
+            int? shorthandIndex = null;
+            bool hasExplicitIndex = false;
+            for (int i = 0; i < allMembers.Length; i++)
+            {
+                var colonIdx = allMembers[i].LastIndexOf(':');
+                if (colonIdx > 0 && int.TryParse(allMembers[i][(colonIdx + 1)..], out var idx))
+                {
+                    allMembers[i] = allMembers[i][..colonIdx];
+                    shorthandIndex = idx;
+                    hasExplicitIndex = true;
+                }
+            }
+
+            if (!hasExplicitIndex && allMembers.Length == 1)
+                shorthandIndex = 1;
+
             HashSet<string> memberFilter = [];
             if (ctorOnly)
             {
@@ -1626,7 +1644,7 @@ public static class CommandLineBuilder
                 ShapeOutput = parseResult.GetValue(shapeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
-                OverloadIndex = parseResult.GetValue(indexOption),
+                OverloadIndex = parseResult.GetValue(indexOption) ?? shorthandIndex,
                 ParamTypes = parseResult.GetValue(paramsOption)?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
                 FirstParamType = parseResult.GetValue(ofOption),
                 ShowSelect = parseResult.GetValue(selectOption),

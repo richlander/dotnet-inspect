@@ -65,8 +65,8 @@ dnx dotnet-inspect -y -- samples Markout MarkoutWriter --list
 dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
 
 # Drill into a specific method — get source, decompiled C#, and IL
-dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory --select  # See Select column
-dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1  # Member doc
+dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory --select  # See Name:N shorthand
+dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory Create:1  # Member doc
 ```
 
 ## Key Flags
@@ -77,8 +77,8 @@ dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFacto
 | `--shape` | Type shape diagram (hierarchy + members) | `api` |
 | `--docs` | Include XML documentation | `api` |
 | `-m Name` | Filter to specific member(s), supports globs | `api` |
-| `--select` | Show Select column for member addressing | `api` |
-| `--index N` | Target Nth overload for decompiled member doc | `api` |
+| `--select` | Show Select column with Name:N shorthand | `api` |
+| `--index N` | Target Nth overload (or use Name:N shorthand) | `api` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
 | `--dotnet` | runtime + aspnetcore + curated Microsoft packages | `find`, `extensions`, `implements` |
 | `--terse` | Compact output (alias for --oneline --grouped) | `find` |
