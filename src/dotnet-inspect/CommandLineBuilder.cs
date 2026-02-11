@@ -1432,11 +1432,23 @@ public static class CommandLineBuilder
                 if (packagePath != null && !packagePath.Contains('@') &&
                     PlatformResolver.IsPlatformCandidate(packagePath))
                 {
-                    var (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(packagePath);
-                    if (error == null && asmPath != null)
+                    // Ensure ref packs are downloaded before resolving
+                    var client = HttpClientFactory.Shared;
+                    bool verbose = parseResult.GetValue(verboseOption);
+                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+                    var requests = PlatformPackService.BuildPackRequests(packagePath, null);
+                    await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
                     {
-                        explicitPlatform = packagePath;
-                        packagePath = null;
+                        if (PlatformPackService.ContainsAssembly(pack.PackDir, packagePath))
+                        {
+                            var (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(packagePath);
+                            if (error == null && asmPath != null)
+                            {
+                                explicitPlatform = packagePath;
+                                packagePath = null;
+                                break;
+                            }
+                        }
                     }
                 }
             }
