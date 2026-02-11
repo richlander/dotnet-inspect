@@ -49,9 +49,17 @@ public static class AssemblyCollector
             var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, options.Tfm) 
                 ?? extracted.ExtractPath;
 
-            // Find all DLLs in the resolved path
-            var dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-                .Where(p => !p.Contains("/runtimes/") && !p.Contains("\\runtimes\\"));
+            // ResolvePackagePath may return a DLL path or a directory
+            IEnumerable<string> dlls;
+            if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                dlls = [searchPath];
+            }
+            else
+            {
+                dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
+                    .Where(p => !p.Contains("/runtimes/") && !p.Contains("\\runtimes\\"));
+            }
 
             foreach (var dll in dlls)
             {
