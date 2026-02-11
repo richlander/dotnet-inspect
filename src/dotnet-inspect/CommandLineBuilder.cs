@@ -1305,6 +1305,14 @@ public static class CommandLineBuilder
                     assemblyPath = source;
                 else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
                 {
+                    // Ensure ref packs are downloaded before resolving
+                    bool verbose = parseResult.GetValue(verboseOption);
+                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+                    var requests = PlatformPackService.BuildPackRequests(source, null);
+                    await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, HttpClientFactory.Shared, log))
+                    {
+                    }
+
                     // Platform-preferred routing for System.*/Microsoft.* bare names
                     var (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(source);
                     if (error == null && asmPath != null)
