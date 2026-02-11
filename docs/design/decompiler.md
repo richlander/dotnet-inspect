@@ -95,7 +95,7 @@ Key adaptations from runtime to BCL types:
 
 Tests: 32 tests including platform assembly stress tests.
 
-### Phase 2: Stack Type Analysis & Variable Introduction
+### Phase 2: Stack Type Analysis & Variable Introduction ✅
 
 **Move from "how high is the stack" to "what types are on the stack."**
 
@@ -106,14 +106,25 @@ become named variables.
 
 | Component | Reference | Purpose |
 |-----------|-----------|---------|
-| `StackValueKind` | Runtime `StackValue.cs` | Classify stack slot types |
-| `StackState` | Runtime `ILImporter` | Forward stack simulation with types |
-| `ILVariable` | ILSpy `ILVariable.cs` | Named variable for stack slots |
-| Type merging | Runtime `ILImporter` | Merge stack states at join points |
+| `StackValueKind` | Runtime `StackValueKind.cs` | 8-value enum for stack type categories |
+| `StackValue` | Runtime `StackValue.cs` | Struct with Kind + TypeName, merging per ECMA-335 |
+| `StackState` | New | Immutable typed stack with Push/Pop/Merge |
+| `ILVariable` | ILSpy `ILVariable.cs` | Named variable (Parameter/Local/StackSlot/ExceptionSlot) |
+| `StackSimulator` | Runtime `ILImporter` | Forward simulation with worklist, variable introduction |
 
-Key challenge: Call instructions require decoding method signatures to determine
-what types are pushed/popped. We already do this for stack *height* in Phase 1;
-Phase 2 extends it to track *types*.
+Key design decisions:
+- `StackValue` wraps a string type name (from our `SignatureDecoder`) instead of
+  runtime's `TypeDesc`. This avoids the 23K LOC `Internal.TypeSystem` dependency.
+- `StackState` is immutable (backed by `ImmutableArray`) for safe propagation
+  across the worklist without aliasing bugs.
+- `MethodBodyContext` extended with `ParameterTypes` and `ReturnType` properties
+  to support argument type resolution during simulation.
+- `leave`/`leave.s` propagates empty stack to target per ECMA-335 III.3.42.
+- Exception handler entries get their own stack state (exception object for
+  catch/filter, empty for finally/fault).
+
+Tests: 33 tests including stack value merging, stack state operations,
+per-method simulation verification, and platform assembly stress test.
 
 ### Phase 3: ILAst Construction
 

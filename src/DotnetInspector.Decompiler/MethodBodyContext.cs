@@ -36,6 +36,16 @@ public sealed class MethodBodyContext
     /// </summary>
     public bool HasReturnValue { get; }
 
+    /// <summary>
+    /// The decoded type names of the method parameters (excluding 'this').
+    /// </summary>
+    public IReadOnlyList<string> ParameterTypes { get; }
+
+    /// <summary>
+    /// The decoded return type name.
+    /// </summary>
+    public string ReturnType { get; }
+
     MethodBodyContext(
         byte[] ilBytes,
         ImmutableArray<ExceptionRegion> exceptionRegions,
@@ -44,7 +54,9 @@ public sealed class MethodBodyContext
         MetadataReader reader,
         int parameterCount,
         bool hasThis,
-        bool hasReturnValue)
+        bool hasReturnValue,
+        IReadOnlyList<string> parameterTypes,
+        string returnType)
     {
         ILBytes = ilBytes;
         ExceptionRegions = exceptionRegions;
@@ -54,6 +66,8 @@ public sealed class MethodBodyContext
         ParameterCount = parameterCount;
         HasThis = hasThis;
         HasReturnValue = hasReturnValue;
+        ParameterTypes = parameterTypes;
+        ReturnType = returnType;
     }
 
     /// <summary>
@@ -87,7 +101,9 @@ public sealed class MethodBodyContext
             reader,
             sig.ParameterTypes.Length,
             !method.Attributes.HasFlag(System.Reflection.MethodAttributes.Static),
-            sig.ReturnType != "System.Void" && sig.ReturnType != "void");
+            sig.ReturnType != "System.Void" && sig.ReturnType != "void",
+            [.. sig.ParameterTypes],
+            sig.ReturnType);
     }
 
     /// <summary>
