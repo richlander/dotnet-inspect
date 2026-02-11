@@ -52,6 +52,15 @@ public static class CSharpEmitter
         // When emitting inside a null-conditional pattern, the receiver expression string
         string? _nullConditionalReceiver;
 
+        // Set of IL offsets that are goto targets — blocks at these offsets need labels
+        readonly HashSet<string> _gotoTargets;
+
+        // Labels already emitted (avoid duplicates for shared blocks)
+        readonly HashSet<string> _emittedLabels;
+
+        // Map block index → IL start offset (for emitting labels)
+        readonly Dictionary<int, int> _blockStartOffset;
+
         public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false)
         {
             _ast = ast;
@@ -65,6 +74,44 @@ public static class CSharpEmitter
                 _blockMap[i] = ast.Blocks[i];
 
             _consumedBlocks = [];
+
+            // Build block start offset map from block's IL offset
+            _blockStartOffset = [];
+            for (int i = 0; i < ast.Blocks.Count; i++)
+                _blockStartOffset[i] = ast.Blocks[i].Offset;
+
+            // Collect all goto targets from branch operands
+            _gotoTargets = CollectGotoTargets(ast);
+            _emittedLabels = [];
+        }
+
+        static HashSet<string> CollectGotoTargets(ILAstMethod ast)
+        {
+            HashSet<string> targets = [];
+            foreach (var block in ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (node is ILAstStatement { Expression: var expr })
+                        CollectTargetsFromExpr(expr, targets);
+                }
+            }
+            return targets;
+        }
+
+        static void CollectTargetsFromExpr(ILAstExpression expr, HashSet<string> targets)
+        {
+            if (expr.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                or ILOpCode.Beq or ILOpCode.Beq_s or ILOpCode.Bne_un or ILOpCode.Bne_un_s
+                or ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bgt or ILOpCode.Bgt_s
+                or ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s
+                or ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s
+                or ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s)
+            {
+                if (expr.Operand is string target)
+                    targets.Add(target);
+            }
         }
 
         public void EmitMethod()
@@ -151,6 +198,9 @@ public static class CSharpEmitter
             _consumedBlocks.Add(blockIndex);
             _currentBlockNodes = astBlock.Nodes;
 
+            // Emit IL offset label if this block is a goto target
+            TryEmitLabel(blockIndex);
+
             foreach (var node in astBlock.Nodes)
             {
                 switch (node)
@@ -180,6 +230,9 @@ public static class CSharpEmitter
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
             {
                 _currentBlockNodes = condBlock.Nodes;
+
+                // Emit IL label if this condition block is a goto target
+                TryEmitLabel(block.ConditionBlockIndex);
 
                 // Emit any statements before the branch
                 for (int i = 0; i < condBlock.Nodes.Count - 1; i++)
@@ -309,16 +362,11 @@ public static class CSharpEmitter
 
         void EmitLoop(StructuredBlock block, int indent)
         {
-            WriteIndent(indent);
-            _sb.AppendLine("while (true)");
-            WriteIndent(indent);
-            _sb.AppendLine("{");
-
+            // Emit loop body blocks sequentially with IL offset labels.
+            // The loop's back-edge is a conditional goto that naturally appears
+            // as "if (cond) goto IL_XXXX;" — no while(true) wrapper needed.
             foreach (var child in block.Children)
-                EmitStructuredBlock(child, indent + 1);
-
-            WriteIndent(indent);
-            _sb.AppendLine("}");
+                EmitStructuredBlock(child, indent);
         }
 
         void EmitTryCatchFinally(StructuredBlock block, int indent)
@@ -1206,6 +1254,20 @@ public static class CSharpEmitter
         {
             for (int i = 0; i < indent; i++)
                 _sb.Append("    ");
+        }
+
+        /// <summary>
+        /// Emit an IL offset label if this block is a goto target.
+        /// Labels are unindented (column 0) like C labels.
+        /// </summary>
+        void TryEmitLabel(int blockIndex)
+        {
+            if (_blockStartOffset.TryGetValue(blockIndex, out int startOffset))
+            {
+                string label = $"IL_{startOffset:X4}";
+                if (_gotoTargets.Contains(label) && _emittedLabels.Add(label))
+                    _sb.AppendLine($"{label}:");
+            }
         }
 
         /// <summary>

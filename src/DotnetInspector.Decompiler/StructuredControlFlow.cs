@@ -375,62 +375,15 @@ public sealed class StructuredControlFlow
             if (blockToLoop.TryGetValue(i, out var loop))
             {
                 var loopChildren = new List<StructuredBlock>();
-                var loopProcessed = new HashSet<int>();
                 foreach (int bodyIdx in loop.BodyIndices.OrderBy(x => x))
                 {
-                    if (loopProcessed.Contains(bodyIdx)) continue;
                     processed.Add(bodyIdx);
-                    loopProcessed.Add(bodyIdx);
-
-                    // Recognize conditionals inside the loop body
-                    if (conditionBlocks.TryGetValue(bodyIdx, out var innerCond))
+                    loopChildren.Add(new StructuredBlock
                     {
-                        var thenBlock = new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.BasicBlock,
-                            BlockIndex = innerCond.ThenIndex,
-                            Label = $"Block_{innerCond.ThenIndex}"
-                        };
-                        if (loop.BodyIndices.Contains(innerCond.ThenIndex))
-                        {
-                            processed.Add(innerCond.ThenIndex);
-                            loopProcessed.Add(innerCond.ThenIndex);
-                        }
-
-                        StructuredBlock? elseBlock = null;
-                        if (innerCond.ElseIndex >= 0)
-                        {
-                            elseBlock = new StructuredBlock
-                            {
-                                Kind = StructuredBlockKind.BasicBlock,
-                                BlockIndex = innerCond.ElseIndex,
-                                Label = $"Block_{innerCond.ElseIndex}"
-                            };
-                            if (loop.BodyIndices.Contains(innerCond.ElseIndex))
-                            {
-                                processed.Add(innerCond.ElseIndex);
-                                loopProcessed.Add(innerCond.ElseIndex);
-                            }
-                        }
-
-                        loopChildren.Add(new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.IfThenElse,
-                            ConditionBlockIndex = bodyIdx,
-                            ThenBlock = thenBlock,
-                            ElseBlock = elseBlock,
-                            NegateCondition = innerCond.NegateCondition
-                        });
-                    }
-                    else
-                    {
-                        loopChildren.Add(new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.BasicBlock,
-                            BlockIndex = bodyIdx,
-                            Label = $"Block_{bodyIdx}"
-                        });
-                    }
+                        Kind = StructuredBlockKind.BasicBlock,
+                        BlockIndex = bodyIdx,
+                        Label = $"Block_{bodyIdx}"
+                    });
                 }
 
                 children.Add(new StructuredBlock
