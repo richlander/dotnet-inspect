@@ -282,18 +282,17 @@ internal static class SourceEnricher
         var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
         Dictionary<string, string?> contentCache = [];
 
-        logger.Log($"Phase 2: Fetching {urlList.Count} URLs in parallel");
-        var fetchTasks = urlList.Select(async url =>
-        {
-            var content = await fetcher.FetchSourceAsync(url);
-            return (Url: url, Content: content);
-        });
-
-        var results = await Task.WhenAll(fetchTasks);
-        foreach (var result in results)
-        {
-            contentCache[result.Url] = result.Content;
-        }
+        logger.Log($"Phase 2: Fetching {urlList.Count} URLs (max 16 concurrent)");
+        await Parallel.ForEachAsync(urlList,
+            new ParallelOptions { MaxDegreeOfParallelism = 16 },
+            async (url, ct) =>
+            {
+                var content = await fetcher.FetchSourceAsync(url);
+                lock (contentCache)
+                {
+                    contentCache[url] = content;
+                }
+            });
 
         logger.Log($"Phase 2: Fetched {contentCache.Count(kv => kv.Value != null)} of {contentCache.Count} URLs ({stopwatch.ElapsedMilliseconds}ms)");
 
