@@ -65,7 +65,7 @@ public class PackageCommand
         if (options.ListVersions)
         {
             string normalizedName = packageArgs[0].ToLowerInvariant();
-            var versions = await PackageResolverService.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log);
+            var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
                 Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
@@ -145,16 +145,16 @@ public class PackageCommand
         }
 
         string? extractPath = null;
-        PackageResolverService.PackageResolution? resolution = null;
+        PackageExtractionResult? resolution = null;
 
         try
         {
-            resolution = await PackageResolverService.ResolvePackageAsync(
-                isLocalFile ? packageArgs[0] : packageName,
-                isLocalFile ? null : (version.Length > 0 ? version : null),
-                logger.Log,
+            resolution = await PackageExtractor.ExtractPackageAsync(
                 client,
-                options.SourceOptions);
+                isLocalFile ? packageArgs[0] : packageName,
+                logger.Log,
+                sourceOptions: options.SourceOptions,
+                version: isLocalFile ? null : (version.Length > 0 ? version : null));
 
             if (resolution == null)
             {
@@ -169,7 +169,7 @@ public class PackageCommand
 
             extractPath = resolution.ExtractPath;
             // Update version from resolution (may have been auto-discovered)
-            version = resolution.Version;
+            version = resolution.Version ?? version;
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)

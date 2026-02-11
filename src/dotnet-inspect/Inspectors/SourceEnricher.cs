@@ -392,11 +392,11 @@ internal static class SourceEnricher
         if (string.IsNullOrEmpty(options.PackagePath))
             return (null, null);
 
-        var (packageName, packageVersion) = PackageReferenceParser.ParsePackageReference(options.PackagePath);
+        var (packageName, packageVersion) = PackageExtractor.ParsePackageReference(options.PackagePath);
         if (packageVersion == null && !string.IsNullOrEmpty(packageName))
         {
             // Try extracting version from dllPath (works when path contains /packagename/version/)
-            packageVersion = PackageReferenceParser.ExtractVersionFromPath(dllPath, packageName);
+            packageVersion = PackageExtractor.ExtractVersionFromPath(dllPath, packageName);
 
             // Fallback: dllPath may be in a temp dir (e.g., /tmp/inspect-api-.../extracted/...)
             // that doesn't encode the version. Check the cache directory instead.

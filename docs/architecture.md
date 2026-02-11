@@ -390,7 +390,6 @@ The codebase is organized into four layers, from bottom (domain-agnostic) to top
 ├─────────────────────────────────────────────────────────────┤
 │  DotnetInspector.Services (Shared services)                 │
 │                                                             │
-│  PackageResolverService    version discovery, download      │
 │  PackageMetadataService    NuGet metadata (downloads, etc)  │
 │  PackageCacheService       cache management                 │
 │  NuspecParser              nuspec → NuspecData DTO           │
