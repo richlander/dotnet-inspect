@@ -484,6 +484,21 @@ public static class CSharpEmitter
                     }
                     break;
 
+                // Indirect stores: *addr = value
+                case ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2 or
+                     ILOpCode.Stind_i4 or ILOpCode.Stind_i8 or
+                     ILOpCode.Stind_r4 or ILOpCode.Stind_r8 or ILOpCode.Stind_ref or
+                     ILOpCode.Stobj:
+                    WriteIndent(indent);
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append(" = ");
+                        EmitExpression(expr.Arguments[1]);
+                    }
+                    _sb.AppendLine(";");
+                    break;
+
                 case ILOpCode.Pop:
                     // Typically a discarded expression — emit as expression statement
                     if (expr.Arguments.Count > 0)
@@ -678,6 +693,16 @@ public static class CSharpEmitter
                 // Method calls
                 case ILOpCode.Call or ILOpCode.Callvirt:
                     EmitCallExpression(expr);
+                    break;
+
+                // Indirect loads: *addr → value (pass through address expression)
+                case ILOpCode.Ldind_i or ILOpCode.Ldind_i1 or ILOpCode.Ldind_i2 or
+                     ILOpCode.Ldind_i4 or ILOpCode.Ldind_i8 or
+                     ILOpCode.Ldind_u1 or ILOpCode.Ldind_u2 or ILOpCode.Ldind_u4 or
+                     ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref or
+                     ILOpCode.Ldobj:
+                    if (expr.Arguments.Count > 0)
+                        EmitExpression(expr.Arguments[0]);
                     break;
 
                 // Boxing
