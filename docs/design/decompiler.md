@@ -57,8 +57,8 @@ resolution. It does NOT modify any existing code — purely additive.
 
 ## Pipeline
 
-The decompiler is a multi-stage pipeline, each stage transforming the
-representation closer to C#:
+The decompiler is a multi-stage pipeline with pluggable output backends.
+The same analysis infrastructure supports both annotated IL and C# emission:
 
 ```
 IL bytes
@@ -66,12 +66,53 @@ IL bytes
   → Phase 2: Typed Stack Simulation + Variables
   → Phase 3: ILAst (tree of IL operations with variables)
   → Phase 4: Structured Control Flow (if/else, loops, switch, try/catch)
-  → Phase 5: C# Expressions & Statements
-  → Phase 6: C# Text Output
+  ├─→ Phase 5: Annotated IL Emitter   (structured IL with types + CFG)
+  └─→ Phase 6: C# Emitter            (expressions, statements, sugar)
 ```
 
-Each stage is independently testable. Early stages are useful even without
-later ones (e.g., CFG visualization, stack analysis diagnostics).
+The pipeline supports tapping in at different depths:
+
+| Depth | Output | Use case |
+|-------|--------|----------|
+| Phase 1 | Raw IL with CFG boundaries | Basic disassembly |
+| Phase 2 | IL with stack type annotations | Debugging stack issues, boxing |
+| Phase 4 | Structured IL (indented blocks) | Compiler output analysis |
+| Phase 5 | Full annotated IL | LLM troubleshooting, codegen diffing |
+| Phase 6 | C# source | Human-readable decompilation |
+
+### Why annotated IL matters
+
+Annotated IL is often a better troubleshooting aid than C# — especially for
+LLMs and for diagnosing compiler/runtime behavior. Raw IL is nearly opaque:
+offsets, tokens, and implicit stack state require mental simulation. Annotated
+IL makes the operations, types, and control flow immediately visible:
+
+```il
+// Block 0 (entry → Block 1, Block 3)
+IL_0000: ldarg.0              // stack: [this: MyService]
+IL_0001: ldfld _cache          // stack: [ICache]
+IL_0006: ldarg.1              // stack: [ICache, key: string]
+IL_0007: callvirt ICache::TryGet(string) → bool  // stack: [bool]
+IL_000C: brfalse.s Block 3    // if false → cache miss path
+
+// Block 1 (→ return)  [cache hit]
+IL_000E: ldarg.0              // stack: [this: MyService]
+...
+```
+
+This is valuable for:
+- **JIT/compiler bug diagnosis** — stack type mismatches visible at a glance
+- **Understanding generated code** — LibraryImport stubs, async state machines
+- **Performance analysis** — seeing exactly where boxing (`Int32` → `ObjRef`) occurs
+- **Compiler output diffing** — structured IL diffs cleanly across Roslyn versions
+- **LLM-assisted analysis** — token-efficient AND comprehensible by LLMs
+
+The annotated IL emitter replaces the existing standalone disassembler
+(`ILDisassembler`, 493 LOC) conceptually — it produces the same information
+but with structure, types, and resolved names from the shared analysis pipeline.
+
+Each stage is independently testable. Early stages produce useful output even
+before later ones are complete.
 
 ## Phases
 
@@ -175,9 +216,32 @@ The runtime's exception region metadata (`ExceptionRegion`) directly encodes
 try/catch/finally boundaries, making exception handling recovery more
 straightforward than loop/conditional recovery.
 
-### Phase 5: C# Expression & Statement Building
+### Phase 5: Annotated IL Emitter + CLI Integration
 
-**Map ILAst nodes to C# syntax.**
+**First output backend: structured IL with type annotations and CFG.**
+
+This is the first user-visible deliverable from the pipeline and replaces the
+existing standalone disassembler conceptually. The emitter walks the ILAst and
+CFG, producing annotated IL at configurable depth:
+
+| Depth | What it adds | Flag |
+|-------|-------------|------|
+| Raw | Flat instruction list (like today) | `--il` |
+| Typed | Stack type annotations per instruction | `--il --annotate` |
+| Structured | Indented blocks, branch target names | `--il --structured` |
+
+| Component | Purpose |
+|-----------|---------|
+| `AnnotatedILEmitter` | Walk ILAst + CFG, emit formatted IL text |
+| CLI integration | New `--il` flag on `api` command (or standalone) |
+| Depth selector | Choose raw / typed / structured output |
+
+### Phase 6: C# Expression & Statement Building + Emission
+
+**Second output backend: C# source code.**
+
+Combines what were previously Phases 5 and 6 — mapping ILAst nodes to C#
+syntax and emitting formatted text.
 
 | Pattern | Example |
 |---------|---------|
@@ -189,13 +253,11 @@ straightforward than loop/conditional recovery.
 | Array access | `ldelem`/`stelem` → `arr[i]` |
 | Object creation | `newobj` → `new Type(args)` |
 
-### Phase 6: C# Code Emission + CLI Integration
-
-**Produce formatted C# text and wire it into the CLI.**
-
-- `CSharpEmitter` — indented text output with proper formatting
-- CLI integration via new command or flag (e.g., `--decompile`, `--source`)
-- Roundtrip tests: compile C# → decompile → verify output compiles
+| Component | Purpose |
+|-----------|---------|
+| `CSharpEmitter` | Walk structured ILAst, emit C# text |
+| CLI integration | `--source` flag |
+| Roundtrip tests | Compile C# → decompile → verify output compiles |
 
 ### Phase 7: Advanced Patterns
 
