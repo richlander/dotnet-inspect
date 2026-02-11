@@ -127,35 +127,35 @@ dotnet-inspect api System.Text.Json JsonSerializer -s                     # Head
 dotnet-inspect api System.Text.Json -s "Classes"                          # Type-level section filter
 ```
 
-Member selection and decompilation — use `--select` to see addressing hints, then drill in:
+Member selection and decompilation — use `--select` to see `Name:N` addressing hints, then drill in:
 
 ```bash
 $ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
 ## Constructors
 
-| Name | Signature | Select |
-| ---- | --------- | ------ |
-| .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ...)` | `-m .ctor --params IEnumerable<...>,IEnumerable<...> --index 1` |
-| .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ..., IEnumerable<IValidateOptions<TOptions>>)` | `-m .ctor --params IEnumerable<...>,IEnumerable<...>,IEnumerable<...> --index 2` |
+| Select | Name | Signature |
+| ------ | ---- | --------- |
+| `.ctor:1` | .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ...)` |
+| `.ctor:2` | .ctor | `void .ctor(IEnumerable<IConfigureOptions<TOptions>>, ..., IEnumerable<IValidateOptions<TOptions>>)` |
 
 ## Methods
 
-| Name | Signature | Select |
-| ---- | --------- | ------ |
-| Create | `TOptions Create(string)` | `-m Create --index 1` |
+| Select | Name | Signature |
+| ------ | ---- | --------- |
+| `Create:1` | Create | `TOptions Create(string)` |
 ```
 
-Then target a member to get source, decompiled C#, and IL:
+Then target a member using the `Name:N` shorthand to get source, decompiled C#, and IL:
 
 ```bash
-$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m Create --index 1
+$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create:1
 ## Source                          # Original C# (via SourceLink)
 ## Lowered C#                     # Decompiled C# faithful to IL semantics
 ## IL                             # Raw IL disassembly with resolved tokens
 ## IL (Annotated)                 # IL with pre-execution stack state at each instruction
 ```
 
-For constructors with overloads, use `--params` to disambiguate:
+For constructors with overloads, `--params` can also disambiguate:
 
 ```bash
 dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory \
@@ -361,8 +361,8 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--tfm net8.0` | Select target framework | package, library, api, extensions |
 | `-m Name` | Filter to member (supports globs) | api |
 | `--shape` | Type shape diagram (hierarchy + members) | api |
-| `--select` | Show Select column for member addressing | api |
-| `--index N` | Target Nth overload for member doc | api |
+| `--select` | Show Select column with Name:N shorthand | api |
+| `--index N` | Target Nth overload (or use Name:N shorthand) | api |
 | `--params "..."` | Target overload by parameter types | api |
 | `--docs` | Include XML documentation | api |
 | `--samples` | Fetch code samples | api |
@@ -485,7 +485,7 @@ dotnet-inspect api JsonSerializer --platform System.Text.Json --shape
 dotnet-inspect api JsonSerializer --platform System.Text.Json -m Serialize -v:d
 
 # Step 4: View decompiled source for a specific overload
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize --index 1
+dotnet-inspect api JsonSerializer --package System.Text.Json Serialize:1
 ```
 
 ### Test Packages

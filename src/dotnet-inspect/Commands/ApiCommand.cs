@@ -250,6 +250,35 @@ public class ApiCommand
                 }
 
                 WriteFullApiOutput(api, options, selectedTfm);
+
+                if (!options.IsRawOutput)
+                {
+                    var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
+                        : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
+                        : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
+                        : "";
+
+                    // Pick a representative type: prefer the one with most members
+                    var exampleType = api.Types
+                        .Where(t => !options.SourceLinkOnly || !string.IsNullOrEmpty(t.SourceUrl))
+                        .OrderByDescending(t => t.Members.Count)
+                        .FirstOrDefault();
+
+                    if (exampleType != null)
+                    {
+                        var simpleName = exampleType.FullName.Contains('.')
+                            ? exampleType.FullName[(exampleType.FullName.LastIndexOf('.') + 1)..] : exampleType.FullName;
+
+                        List<Tip> tips =
+                        [
+                            new(ApiCommand.Name, $"{simpleName} {sourceFlag}", "view type members"),
+                            new(ApiCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"),
+                            new(ApiCommand.Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
+                        ];
+
+                        Hints.WriteTips(options.TipLevel, [.. tips]);
+                    }
+                }
             }
             else
             {
@@ -316,7 +345,7 @@ public class ApiCommand
                     {
                         if (options.MemberFilter.Count != 1)
                         {
-                            Console.Error.WriteLine("Error: --index requires exactly one member name via -m.");
+                            Console.Error.WriteLine("Error: --index/Name:N requires exactly one member name.");
                             return 1;
                         }
 
@@ -328,7 +357,7 @@ public class ApiCommand
                         int idx = options.OverloadIndex.Value;
                         if (idx < 1 || idx > overloads.Count)
                         {
-                            Console.Error.WriteLine($"Error: --index {idx} is out of range. {memberName} has {overloads.Count} overload(s).");
+                            Console.Error.WriteLine($"Error: {memberName}:{idx} is out of range. {memberName} has {overloads.Count} overload(s).");
                             return 1;
                         }
 
@@ -430,6 +459,41 @@ public class ApiCommand
                     }
 
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+
+                    if (!effectiveOptions.IsRawOutput && !effectiveOptions.OverloadIndex.HasValue)
+                    {
+                        var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
+                            : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
+                            : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
+                            : "";
+
+                        var simpleName = apiType.FullName.Contains('.')
+                            ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+
+                        // Pick a member with overloads for the Name:N example, or fall back to any method
+                        var overloadGroups = apiType.Members
+                            .Where(m => m.Kind is "method" or "constructor")
+                            .GroupBy(m => m.Name)
+                            .OrderByDescending(g => g.Count())
+                            .ToList();
+                        var exampleGroup = overloadGroups.FirstOrDefault();
+
+                        List<Tip> tips = [];
+
+                        if (exampleGroup != null)
+                        {
+                            var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
+                            tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
+                        }
+
+                        if (overloadGroups.Any(g => g.Count() > 1))
+                            tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} --select", "show Name:N overload index"));
+
+                        tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
+                        tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} --docs", "include XML documentation"));
+
+                        Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
+                    }
                 }
                 else if (lookupResult.Suggestions.Count > 0)
                 {
