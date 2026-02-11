@@ -67,14 +67,14 @@ $ dotnet-inspect artifacts/bin/DotnetInspector.Metadata/debug/DotnetInspector.Me
 # DotnetInspector.Metadata.dll
 
 Name: DotnetInspector.Metadata | Version: 1.0.0 | TFM: .NETCoreApp,Version=v10.0 | Arch: AnyCPU | Size: 183.0 KB | Source: File | Modified: 2026-02-11
-$ dotnet-inspect artifacts/packages/dotnet-inspect.0.2.0.nupkg -v:q
-# dotnet-inspect (0.2.0)
+$ dotnet-inspect artifacts/packages/dotnet-inspect.0.3.1.nupkg -v:q
+# dotnet-inspect (0.3.1)
 
-Version: 0.2.0 | Type: Tool v2 | TFM: net10.0
-$ dotnet-inspect artifacts/packages/dotnet-inspect.linux-x64.0.2.0.nupkg -v:q
-# dotnet-inspect.linux-x64 (0.2.0)
+Version: 0.3.1 | Type: Tool v2 | TFM: net10.0
+$ dotnet-inspect artifacts/packages/dotnet-inspect.linux-x64.0.3.1.nupkg -v:q
+# dotnet-inspect.linux-x64 (0.3.1)
 
-Version: 0.2.0 | Type: Tool v2
+Version: 0.3.1 | Type: Tool v2
 ```
 
 Note: The intent is that the quiet view always include high-value information. The quiet views are uniform across the tool, as much as possible.
@@ -148,7 +148,7 @@ dotnet-inspect cli -v:q                            # CLI args explorer -- onelin
 dotnet-inspect cli api                             # Explore args for a particular agument (this is full depth; does't go deeper)
 dotnet-inspect llmstxt                             # Prints llmstxt, intended for LLMs
 dotnet-inspect skill                               # Prints SKILL.md for anyone that wants it
-dontet-inspect cache                               # How to clean the cache
+dotnet-inspect cache                               # How to clean the cache
 ```
 
 ## Tips
@@ -273,7 +273,7 @@ Member lists:
 dotnet-inspect api System.Text.Json JsonSerializer               # Lists all public members 
 dotnet-inspect api System.Text.Json JsonSerializer Deserialize   # Lists all overloads for a name
 dotnet-inspect api System.Text.Json JsonSerializer Deserial*     # Lists all members matching glob
-dotnet-inspect api System.Text.Json JsonSerializer Deserial      # "Did you mean: ..."
+dotnet-inspect api System.Text.Json JsonSerializer Deserial      # "Did you mean: ..." (stderr)
 ```
 
 Packages with multiple libraries:
@@ -386,14 +386,14 @@ Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.
 
 | Name | Signature | Select |
 | ---- | --------- | ------ |
-| .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>)` | `-m .ctor --params IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>` |
-| .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>>)` | `-m .ctor --params IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>>` |
+| .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>)` | `-m .ctor --params IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>> --index 1` |
+| .ctor | `void .ctor(System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>, System.Collections.Generic.IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>>)` | `-m .ctor --params IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IValidateOptions<TOptions>> --index 2` |
 
 ## Methods
 
 | Name | Signature | Select |
 | ---- | --------- | ------ |
-| Create | `TOptions Create(string)` | `-m Create` |
+| Create | `TOptions Create(string)` | `-m Create --index 1` |
 ```
 
 For create method, there is just one, so we can use the member name and an index. It will print a member document.
@@ -618,15 +618,19 @@ Name: System.Text.Json | Version: 10.0.3 | TFM: .NETCoreApp,Version=v10.0 | Arch
 | PDB Path | /_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.pdb |
 | SourceLink | ✓ |
 | Builder | Microsoft |
-$ dotnet-inspect library --package System.Text.Json --source-link-audit -s Miss*
+$ dotnet-inspect library --package System.Text.Json --source-link-audit -s Source*
 # System.Text.Json.dll (net10.0)
 
 Name: System.Text.Json | Version: 10.0.3 | TFM: .NETCoreApp,Version=v10.0 | Arch: AnyCPU | Size: 634.3 KB | Source: NuGet | Modified: 2026-01-26
 
-## Missing Sources
+## Source Link Audit
 
-- `/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs`
-- `/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.AssemblyInfo.cs`
+| Property | Value |
+| -------- | ----- |
+| Status | ✗ 340/342 files accessible |
+| Embedded | 2 files |
+| Missing | `/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs` |
+| Missing | `/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.AssemblyInfo.cs` |
 ```
 
 Note: `--source-link audit doesn't work with most platform assemblies.`
@@ -846,6 +850,26 @@ The `extensions` command loads assemblies at a specified scope for extensions ta
 ```bash
 dotnet-inspect extensions HttpClient                    # List all extensions targeting HttpClient
 dotnet-inspect extensions HttpClient --reachable        # List all extensions one can use from HttpClient + one property away
+```
+
+The `--dotnet` flag searches runtime + aspnetcore frameworks and curated Microsoft packages in one shot, replacing the need to enumerate packages by hand:
+
+```bash=
+$ dotnet-inspect extensions IServiceCollection --dotnet | head -14
+# Extension Methods for IServiceCollection
+
+## IServiceCollection Extensions (121)
+
+| Name | Kind | Class | Library | Source |
+| ---- | ---- | ----- | ------- | ------ |
+| AddHostFiltering | method | Microsoft.AspNetCore.Builder.HostFilteringServicesExtensions | Microsoft.AspNetCore.HostFiltering | aspnetcore@10.0.3 |
+| AddHsts | method | Microsoft.AspNetCore.Builder.HstsServicesExtensions | Microsoft.AspNetCore.HttpsPolicy | aspnetcore@10.0.3 |
+| AddHttpsRedirection | method | Microsoft.AspNetCore.Builder.HttpsRedirectionServicesExtensions | Microsoft.AspNetCore.HttpsPolicy | aspnetcore@10.0.3 |
+| AddRateLimiter (2 overloads) | method | Microsoft.AspNetCore.Builder.RateLimiterServiceCollectionExtensions | Microsoft.AspNetCore.RateLimiting | aspnetcore@10.0.3 |
+| AddResponseCompression (2 overloads) | method | Microsoft.AspNetCore.Builder.ResponseCompressionServicesExtensions | Microsoft.AspNetCore.ResponseCompression | aspnetcore@10.0.3 |
+| AddSupplyValueFromFormProvider | method | Microsoft.AspNetCore.Components.Forms.Mapping.SupplyParameterFromFormServiceCollectionExtensions | Microsoft.AspNetCore.Components.Web | aspnetcore@10.0.3 |
+| AddSupplyValueFromPersistentComponentStateProvider | method | Microsoft.AspNetCore.Components.Infrastructure.PersistentStateProviderServiceCollectionExtensions | Microsoft.AspNetCore.Components | aspnetcore@10.0.3 |
+| AddSupplyValueFromQueryProvider | method | Microsoft.AspNetCore.Components.SupplyParameterFromQueryProviderServiceCollectionExtensions | Microsoft.AspNetCore.Components | aspnetcore@10.0.3 |
 ```
 
 These commands show a small workflow for finding extension methods:
