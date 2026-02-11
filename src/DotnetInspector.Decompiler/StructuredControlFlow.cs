@@ -260,6 +260,51 @@ public sealed class StructuredControlFlow
                 {
                     if (cfg.BasicBlocks[t].Start >= tryEnd) break;
                     if (processed.Contains(t)) continue;
+
+                    // Check for nested exception regions within the try body
+                    if (exRegionsByBlock.TryGetValue(t, out var nestedRegion) && nestedRegion != exRegion)
+                    {
+                        var nestedTryChildren = new List<StructuredBlock>();
+                        int nestedTryEnd = nestedRegion.Region.TryOffset + nestedRegion.Region.TryLength;
+                        for (int nt = t; nt < cfg.BasicBlocks.Count; nt++)
+                        {
+                            if (cfg.BasicBlocks[nt].Start >= nestedTryEnd) break;
+                            if (processed.Contains(nt)) continue;
+                            processed.Add(nt);
+                            nestedTryChildren.Add(new StructuredBlock
+                            {
+                                Kind = StructuredBlockKind.BasicBlock,
+                                BlockIndex = nt,
+                                Label = $"Block_{nt}"
+                            });
+                        }
+
+                        var nestedHandlerChildren = new List<StructuredBlock>();
+                        int nestedHandlerEnd = nestedRegion.Region.HandlerOffset + nestedRegion.Region.HandlerLength;
+                        for (int nh = nestedRegion.HandlerStartBlockIndex; nh >= 0 && nh < cfg.BasicBlocks.Count; nh++)
+                        {
+                            if (cfg.BasicBlocks[nh].Start >= nestedHandlerEnd) break;
+                            if (processed.Contains(nh)) continue;
+                            processed.Add(nh);
+                            nestedHandlerChildren.Add(new StructuredBlock
+                            {
+                                Kind = StructuredBlockKind.BasicBlock,
+                                BlockIndex = nh,
+                                Label = $"Block_{nh}"
+                            });
+                        }
+
+                        tryChildren.Add(new StructuredBlock
+                        {
+                            Kind = StructuredBlockKind.TryCatchFinally,
+                            BlockIndex = t,
+                            ExceptionRegion = nestedRegion.Region,
+                            TryChildren = nestedTryChildren,
+                            HandlerChildren = nestedHandlerChildren
+                        });
+                        continue;
+                    }
+
                     processed.Add(t);
 
                     // Check for conditionals within the try body
