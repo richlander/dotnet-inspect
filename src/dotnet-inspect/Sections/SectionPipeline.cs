@@ -60,6 +60,16 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Lists sections that have content at <see cref="Verbosity.Detailed"/>.
+    /// Used by bare <c>-s</c> with input to discover which sections have data.
+    /// </summary>
+    public void ListEffectiveSections(TModel model)
+    {
+        foreach (var name in GetEffectiveSections(model, Verbosity.Detailed))
+            Console.WriteLine(name);
+    }
+
+    /// <summary>
     /// Computes the <see cref="HashSet{String}"/> to pass as
     /// <c>MarkoutWriterOptions.IncludeSections</c>. Returns <c>null</c> when
     /// all sections should be rendered (no filtering needed).

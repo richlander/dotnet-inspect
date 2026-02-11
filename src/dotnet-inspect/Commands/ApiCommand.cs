@@ -39,12 +39,18 @@ public class ApiCommand
         };
         if (includeError || excludeError) return 1;
 
-        // Bare -s: list available sections and exit
-        if (options.IncludeSections is { Count: 0 })
+        // Bare -s without input: list all potential sections and exit
+        if (options.IncludeSections is { Count: 0 } &&
+            string.IsNullOrEmpty(options.PackagePath) &&
+            string.IsNullOrEmpty(options.AssemblyPath) &&
+            string.IsNullOrEmpty(options.PlatformAssembly))
         {
             SectionRegistry.ListSections(allApiSections);
             return 0;
         }
+
+        // Bare -s with input: discover which sections have data (set flag for later)
+        bool discoverSections = options.IncludeSections is { Count: 0 };
 
         // Auto-promote verbosity when -s targets specific sections
         if (options.IncludeSections is { Count: > 0 })
@@ -224,6 +230,12 @@ public class ApiCommand
                     }
                 }
 
+                if (discoverSections)
+                {
+                    typePipeline.ListEffectiveSections(api);
+                    return 0;
+                }
+
                 WriteFullApiOutput(api, options, selectedTfm);
             }
             else
@@ -398,6 +410,12 @@ public class ApiCommand
                             effectiveOptions = effectiveOptions with { MethodSource = methodSource };
                     }
 
+                    if (discoverSections)
+                    {
+                        memberPipeline.ListEffectiveSections(apiType);
+                        return 0;
+                    }
+
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
                 }
                 else if (lookupResult.Suggestions.Count > 0)
@@ -425,6 +443,12 @@ public class ApiCommand
                             TypeFilter = typeName,
                             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
                         };
+                        if (discoverSections)
+                        {
+                            typePipeline.ListEffectiveSections(api);
+                            return 0;
+                        }
+
                         WriteFullApiOutput(api, options, selectedTfm);
                     }
                     else
