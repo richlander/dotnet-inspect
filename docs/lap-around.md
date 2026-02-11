@@ -414,6 +414,15 @@ The constructors require more care:
 dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory -m .ctor --params "IEnumerable<Microsoft.Extensions.Options.IConfigureOptions<TOptions>>,IEnumerable<Microsoft.Extensions.Options.IPostConfigureOptions<TOptions>>"
 ```
 
+The output has four sections:
+
+| Section | What it shows |
+| ------- | ------------- |
+| **Source** | Original C# source (when PDB with source link is available) |
+| **Lowered C#** | Decompiled C# — faithful to IL semantics, goto-with-labels control flow |
+| **IL** | Raw IL disassembly with resolved tokens |
+| **Annotated IL** | IL with pre-execution stack state at each instruction |
+
 ## Samples
 
 We can look at the samples with the `samples` command.
