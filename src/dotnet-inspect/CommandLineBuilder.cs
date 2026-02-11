@@ -631,10 +631,10 @@ public static class CommandLineBuilder
     {
         var samplesCommand = new Command("samples", "Show sample code references for a type or library");
 
-        var typeNameArg = new Argument<string?>("type")
+        var argsArg = new Argument<string[]>("args")
         {
-            Description = "Type name to get samples for (omit for library-wide samples)",
-            Arity = ArgumentArity.ZeroOrOne
+            Description = "Package and type name. When no --package/--library/--platform is given, first arg is the package.",
+            Arity = ArgumentArity.ZeroOrMore
         };
 
         var packageOption = new Option<string?>("--package") { Description = "Extract from package (name or name@version)" };
@@ -646,7 +646,7 @@ public static class CommandLineBuilder
         var listOption = new Option<bool>("--list") { Description = "List samples only (don't fetch content)" };
         var printOption = new Option<int?>("--print") { Description = "Print specific sample by number (raw code, no markdown)", Arity = ArgumentArity.ExactlyOne };
 
-        samplesCommand.Arguments.Add(typeNameArg);
+        samplesCommand.Arguments.Add(argsArg);
         samplesCommand.Options.Add(packageOption);
         samplesCommand.Options.Add(assemblyOption);
         samplesCommand.Options.Add(platformOption);
@@ -664,14 +664,38 @@ public static class CommandLineBuilder
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
-            var typeName = parseResult.GetValue(typeNameArg);
-            
+            var args = parseResult.GetValue(argsArg) ?? [];
+            var explicitPackage = parseResult.GetValue(packageOption);
+            var explicitAssembly = parseResult.GetValue(assemblyOption);
+            var explicitPlatform = parseResult.GetValue(platformOption);
+            bool hasExplicitSource = explicitPackage != null || explicitAssembly != null || explicitPlatform != null;
+
+            string? packagePath = explicitPackage;
+            string? typeName = null;
+
+            if (hasExplicitSource)
+            {
+                if (args.Length >= 1) typeName = args[0];
+            }
+            else
+            {
+                if (args.Length >= 1) packagePath = args[0];
+                if (args.Length >= 2) typeName = args[1];
+
+                // Route file paths (.dll → --library, .nupkg stays as package path)
+                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
+                {
+                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
+                    else if (nupkgPath != null) { packagePath = nupkgPath; }
+                }
+            }
+
             var options = new SamplesOptions
             {
                 TypeName = typeName,
-                PackagePath = parseResult.GetValue(packageOption),
-                AssemblyPath = parseResult.GetValue(assemblyOption),
-                PlatformAssembly = parseResult.GetValue(platformOption),
+                PackagePath = packagePath,
+                AssemblyPath = explicitAssembly,
+                PlatformAssembly = explicitPlatform,
                 PlatformFramework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
