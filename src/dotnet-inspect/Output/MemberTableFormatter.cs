@@ -25,18 +25,18 @@ internal abstract class MemberTableFormatter
     /// When the member name is unique (no overloads), returns just "-m Name".
     /// When overloads exist, appends "--params type1,type2" using simple type names.
     /// </summary>
-    protected static string BuildSelectString(ApiMember member, bool hasOverloads)
+    protected static string BuildSelectString(ApiMember member, bool hasOverloads, int overloadIndex = 0)
     {
         var name = member.Name;
         if (!hasOverloads || member.Kind is "property" or "field" or "event")
-            return $"-m {name}";
+            return $"-m {name} --index {overloadIndex}";
 
         var paramTypes = SignatureParser.ExtractParamTypes(member.Signature);
         if (paramTypes.Count == 0)
-            return $"-m {name} --params \"\"";
+            return $"-m {name} --params \"\" --index {overloadIndex}";
 
         var simpleTypes = paramTypes.Select(SimplifyTypeName).ToList();
-        return $"-m {name} --params {string.Join(",", simpleTypes)}";
+        return $"-m {name} --params {string.Join(",", simpleTypes)} --index {overloadIndex}";
     }
 
     /// <summary>
@@ -167,15 +167,19 @@ internal sealed class MinimalMemberFormatter : MemberTableFormatter
     public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
     {
         var overloadCounts = members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count());
+        var overloadIndices = new Dictionary<string, int>();
 
         return members
             .OrderBy(m => m.Name)
             .ThenBy(m => m.Signature)
             .Select(m =>
             {
+                overloadIndices.TryGetValue(m.Name, out int idx);
+                idx++;
+                overloadIndices[m.Name] = idx;
                 var sig = SignatureParser.AbbreviateSignature(m.Signature ?? m.ReturnType ?? "");
                 List<string> row = [m.Name, $"`{sig}`"];
-                if (showSelect) row.Add($"`{BuildSelectString(m, overloadCounts[m.Name] > 1)}`");
+                if (showSelect) row.Add($"`{BuildSelectString(m, overloadCounts[m.Name] > 1, idx)}`");
                 if (showDocs) row.Add(m.Documentation.Summary ?? "");
                 return row.ToArray();
             });
@@ -198,15 +202,19 @@ internal sealed class DetailedMemberFormatter : MemberTableFormatter
     public override IEnumerable<string[]> FormatRows(string kind, List<ApiMember> members, bool showDocs, bool showSelect)
     {
         var overloadCounts = members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count());
+        var overloadIndices = new Dictionary<string, int>();
 
         return members
             .OrderBy(m => m.Name)
             .ThenBy(m => m.Signature)
             .Select(m =>
             {
+                overloadIndices.TryGetValue(m.Name, out int idx);
+                idx++;
+                overloadIndices[m.Name] = idx;
                 var sig = m.Signature ?? m.ReturnType ?? "";
                 List<string> row = [m.Name, $"`{sig}`"];
-                if (showSelect) row.Add($"`{BuildSelectString(m, overloadCounts[m.Name] > 1)}`");
+                if (showSelect) row.Add($"`{BuildSelectString(m, overloadCounts[m.Name] > 1, idx)}`");
                 if (showDocs) row.Add(m.Documentation.Summary ?? "");
                 return row.ToArray();
             });
