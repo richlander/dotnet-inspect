@@ -6,6 +6,5 @@
     "name": "Rich"
   },
   "license": "MIT",
-  "keywords": ["dotnet", "nuget", "package", "assembly", "api"],
-  "skills": "../skills/"
+  "keywords": ["dotnet", "nuget", "package", "library", "api"]
 }
