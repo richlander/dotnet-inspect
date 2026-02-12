@@ -100,6 +100,21 @@ internal partial class ImplementsJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<ImplementerResult>))]
 internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
 
+// Depends command JSON contexts
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<TypeDependencyNode>))]
+internal partial class DependsJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<TypeDependencyNode>))]
+internal partial class DependsCompactJsonContext : JsonSerializerContext { }
+
 static class JsonOutputHelper
 {
     public static void Write<T>(T data, JsonTypeInfo<T> indented, JsonTypeInfo<T> compact, bool useCompact)

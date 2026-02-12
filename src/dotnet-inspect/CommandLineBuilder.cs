@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "demo", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -165,6 +165,10 @@ public static class CommandLineBuilder
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(diffCommand);
+
+        // Depends command
+        var dependsCommand = CreateDependsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
+        rootCommand.Subcommands.Add(dependsCommand);
 
         // Extensions command
         var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -454,6 +458,122 @@ public static class CommandLineBuilder
         });
 
         return diffCommand;
+    }
+
+    private static Command CreateDependsCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string?> tipsOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
+    {
+        var dependsCommand = new Command("depends", "Walk dependency graphs upward (type hierarchy, library references, or package dependencies)");
+
+        var targetTypeArg = new Argument<string?>("type")
+        {
+            Description = "Type name to walk dependencies for (e.g., IFloatingPointIeee754, Int128)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description = "Search in package(s) (name or name@version). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var assemblyOption = new Option<string[]>("--library")
+        {
+            Description = "Search in library file(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        dependsCommand.Arguments.Add(targetTypeArg);
+        dependsCommand.Options.Add(packageOption);
+        dependsCommand.Options.Add(assemblyOption);
+        dependsCommand.Options.Add(platformOption);
+        dependsCommand.Options.Add(extensionsOption);
+        dependsCommand.Options.Add(aspnetcoreOption);
+        dependsCommand.Options.Add(curatedOption);
+        dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(jsonOption);
+        dependsCommand.Options.Add(compactOption);
+        dependsCommand.Options.Add(verboseOption);
+        dependsCommand.Options.Add(verbosityOption);
+        dependsCommand.Options.Add(sourceOption);
+        dependsCommand.Options.Add(addSourceOption);
+        dependsCommand.Options.Add(nugetConfigOption);
+        dependsCommand.Options.Add(tipsOption);
+
+        dependsCommand.SetAction(async (parseResult, ct) =>
+        {
+            var targetType = parseResult.GetValue(targetTypeArg);
+
+            if (string.IsNullOrEmpty(targetType))
+            {
+                new HelpAction().Invoke(parseResult);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Tips:");
+                Console.Error.WriteLine("  depends IFloatingPointIeee754 --platform   # type hierarchy");
+                Console.Error.WriteLine("  depends Int128 --platform                  # concrete type hierarchy");
+                Console.Error.WriteLine("  depends Stream --platform                  # class inheritance chain");
+                return 0;
+            }
+
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+
+            bool wantPlatform = parseResult.GetValue(platformOption);
+            bool wantExtensions = parseResult.GetValue(extensionsOption);
+            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
+            bool wantCurated = parseResult.GetValue(curatedOption);
+            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
+                || packages.Length > 0 || assemblies.Length > 0;
+
+            // Resolve scope
+            string[] frameworks = [];
+            if (!hasExplicitScope)
+            {
+                // Default scope: all platform frameworks + curated packages
+                frameworks = PlatformFrameworkNames;
+                packages = [.. packages, .. CuratedScopePackages];
+            }
+            else
+            {
+                if (wantPlatform) frameworks = PlatformFrameworkNames;
+                if (wantExtensions) packages = [.. packages, .. ExtensionsScopePackages];
+                if (wantAspnetcore) packages = [.. packages, .. AspNetCoreScopePackages];
+                if (wantCurated)
+                {
+                    frameworks = [.. frameworks, .. PlatformFrameworkNames];
+                    packages = [.. packages, .. CuratedScopePackages];
+                }
+            }
+
+            var options = new DependsOptions
+            {
+                TargetType = targetType,
+                Packages = packages,
+                Assemblies = assemblies,
+                PlatformAssemblies = [],
+                PlatformFrameworks = frameworks,
+                Tfm = parseResult.GetValue(tfmOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+            };
+
+            return await DependsCommand.ExecuteTypeDependsAsync(options);
+        });
+
+        return dependsCommand;
     }
 
     private static Command CreateExtensionsCommand(
