@@ -1,7 +1,7 @@
 # Demo Queries — Curated Picks
 
 `dotnet-inspect` exposes a lot of functionality across many commands. This document
-curates 14 high-impact invocations that exercise the breadth of the tool and produce
+curates 16 high-impact invocations that exercise the breadth of the tool and produce
 visually compelling output. Each entry explains **what** it shows and **why** it is
 interesting.
 
@@ -31,7 +31,18 @@ and implicit/explicit conversion operators. The interface list shows the full
 generic math hierarchy resolved with concrete types
 (`IShiftOperators<Int128, int, Int128>` — three different types in one interface).
 
-## 3. API: JsonSerializer members
+## 3. Shape: ValueTuple — Create staircase
+
+```bash
+dotnet-inspect api System.Runtime ValueTuple --shape
+```
+
+The `ValueTuple` factory class has 9 `Create` overloads that grow from zero to
+eight type parameters, producing a visual staircase in the `--shape` output.
+The 8-parameter version wraps into `ValueTuple<T1,...,T7,ValueTuple<T8>>` —
+showing how the runtime handles arbitrary-length tuples via nesting.
+
+## 4. API: JsonSerializer members
 
 ```bash
 dotnet-inspect api System.Text.Json JsonSerializer
@@ -41,7 +52,7 @@ Lists all public members of `JsonSerializer` — one of the most-used types in
 modern .NET. Shows overload grouping, return types, and parameter signatures.
 Good intro to the `api` command at member granularity.
 
-## 4. Code: OptionsFactory.Create — source, lowered C#, and IL
+## 5. Code: OptionsFactory.Create — source, lowered C#, and IL
 
 ```bash
 dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
@@ -54,7 +65,7 @@ goto-based control flow), raw IL disassembly, and annotated IL with
 pre-execution stack state at each instruction. A showcase of the tool's
 decompilation pipeline on a real, well-known method.
 
-## 5. Depends: IFloatingPointIeee754 interface hierarchy
+## 6. Depends: IFloatingPointIeee754 interface hierarchy
 
 ```bash
 dotnet-inspect depends "IFloatingPointIeee754<TSelf>"
@@ -67,7 +78,7 @@ function interfaces (`IExponentialFunctions`, `ITrigonometricFunctions`, etc.).
 The tree de-duplicates nodes at their shallowest introduction, revealing the
 diamond inheritance pattern in the generic math design.
 
-## 6. Diff: System.CommandLine breaking changes
+## 7. Diff: System.CommandLine breaking changes
 
 ```bash
 dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q
@@ -77,7 +88,18 @@ Shows 134 breaking changes, 81 additive changes across 83 types between the
 beta and the stable release of System.CommandLine. Dramatic API churn that
 makes a compelling case for the `diff` command during migrations.
 
-## 7. Extensions for IServiceCollection
+## 8. Diff: System.Text.Json evolution — diffstat view
+
+```bash
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 --stat
+```
+
+A git-style diffstat showing the evolution of System.Text.Json across two major
+versions. Each line shows a type with `+` for added, `~` for changed, and `✗`
+for breaking. The compact summary format makes it easy to scan large API diffs
+at a glance — 78 additive changes and 2 breaking across 23 types.
+
+## 9. Extensions for IServiceCollection
 
 ```bash
 dotnet-inspect extensions IServiceCollection
@@ -88,7 +110,7 @@ runtime platform and ASP.NET Core. This is the canonical "extension method
 explosion" in .NET — every middleware and service registration shows up here.
 Demonstrates cross-scope search with no explicit `--package` flag.
 
-## 8. Find: Chat\* types
+## 10. Find: Chat\* types
 
 ```bash
 dotnet-inspect find "Chat*"
@@ -98,19 +120,19 @@ Searches the default scope (platform + curated packages) for types matching
 `Chat*`. Finds AI-related types from `Microsoft.Extensions.AI` — a timely
 result that shows the tool keeps pace with the latest .NET ecosystem additions.
 
-## 9. Find: Chat\*/Converse\*/Message\* across OpenAI, Azure, AWS, Anthropic
+## 11. Find: Chat\*/Converse\*/Message\* across OpenAI, Azure, AWS, Anthropic
 
 ```bash
 dotnet-inspect find "Chat*,Converse*,Message*" --package OpenAI --package Azure.AI.OpenAI --package AWSSDK.BedrockRuntime --package Anthropic
 ```
 
-Pairs with demo #8 to show scope expansion. The default scope finds AI types
+Pairs with demo #10 to show scope expansion. The default scope finds AI types
 in curated packages; this demo adds four vendor SDK packages and searches
 across all of them. The multi-glob catches each vendor's naming convention
 (OpenAI/Azure use "Chat", AWS uses "Converse", Anthropic uses "Message").
 Results span 118 types across four packages.
 
-## 10. Find: Chat\* across Azure AI packages (prefix search)
+## 12. Find: Chat\* across Azure AI packages (prefix search)
 
 ```bash
 dotnet-inspect find "Chat*" --package-prefix Azure.AI
@@ -123,7 +145,7 @@ types matching `Chat*`. This is a powerful combo — prefix-based scoping
 removes the need to know exact package names when exploring a vendor's
 SDK ecosystem.
 
-## 11. Implements Stream
+## 13. Implements Stream
 
 ```bash
 dotnet-inspect implements Stream
@@ -134,7 +156,7 @@ Results include `FileStream`, `MemoryStream`, `CryptoStream`, `NetworkStream`,
 `QuicStream`, and ASP.NET Core buffered streams. A good showcase of the
 `implements` command's ability to search across multiple frameworks at once.
 
-## 12. Library: dependency tree
+## 14. Library: dependency tree
 
 ```bash
 dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies
@@ -145,7 +167,7 @@ transitive dependencies like `System.ClientModel`, `System.Text.Json`, and
 `System.Text.RegularExpressions`. The ASCII tree format makes it easy to
 understand the full dependency graph at a glance.
 
-## 13. Package: System.Text.Json@8.0.0 vulnerabilities
+## 15. Package: System.Text.Json@8.0.0 vulnerabilities
 
 ```bash
 dotnet-inspect package System.Text.Json@8.0.0 -s Vulnerabilities
@@ -155,7 +177,7 @@ Shows known security vulnerabilities for an older version of System.Text.Json.
 The `-s Vulnerabilities` section filter zeroes in on the security data. A
 practical demo of the tool's value for security auditing.
 
-## 14. Package search: Azure AI ecosystem
+## 16. Package search: Azure AI ecosystem
 
 ```bash
 dotnet-inspect package search "Azure.AI"
