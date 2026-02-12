@@ -70,9 +70,9 @@ public static class NuGetSearchService
         bool prerelease = false,
         Action<string>? log = null)
     {
-        // Use packageid: qualifier for prefix search
-        string query = $"packageid:{prefix}";
-        string url = $"{DefaultSearchUrl}?q={Uri.EscapeDataString(query)}&take={take}&prerelease={prerelease.ToString().ToLowerInvariant()}";
+        // Use plain keyword search — packageid: qualifier does exact match, not prefix.
+        // We filter client-side to packages whose ID starts with the prefix.
+        string url = $"{DefaultSearchUrl}?q={Uri.EscapeDataString(prefix)}&take={take}&prerelease={prerelease.ToString().ToLowerInvariant()}";
         log?.Invoke($"Searching NuGet by prefix: {url}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log);

@@ -27,40 +27,9 @@ tables and `--shape` tree), which uses a different code path.
 Visible in e.g. `dotnet-inspect api System.Runtime Int128 --shape` where `op_*`
 methods dominate the method list.
 
-## Unified `depends` command (types, libraries, packages)
+## Unified `depends` command — library and package modes
 
-A single `depends` command that walks dependency graphs upward across all
-three content kinds:
-
-### Type dependencies
-
-Walk the inheritance and interface implementation graph upward from a type.
-
-```text
-dotnet-inspect depends IFloatingPointIeee754 --platform
-
-├─ IFloatingPoint<TSelf>
-│  ├─ INumber<TSelf>
-│  │  ├─ INumberBase<TSelf>
-│  │  │  ├─ IAdditionOperators<TSelf, TSelf, TSelf>
-│  │  │  ├─ ISubtractionOperators<TSelf, TSelf, TSelf>
-│  │  │  ├─ IMultiplyOperators<TSelf, TSelf, TSelf>
-│  │  │  ├─ IDivisionOperators<TSelf, TSelf, TSelf>
-│  │  │  ...
-│  │  ├─ IComparable<TSelf>
-│  │  └─ IComparisonOperators<TSelf, TSelf, bool>
-│  └─ ISignedNumber<TSelf>
-├─ IExponentialFunctions<TSelf>
-├─ IHyperbolicFunctions<TSelf>
-├─ ILogarithmicFunctions<TSelf>
-├─ ITrigonometricFunctions<TSelf>
-└─ IRootFunctions<TSelf>
-```
-
-This is the inverse of `implements` (which walks *down* — "who implements X?").
-`depends` walks *up* — "what does X depend on?". The tree shows the full DAG,
-de-duplicating nodes at their shallowest introduction (same strategy as
-`library --dependencies`).
+Type dependency mode is implemented. The remaining modes are:
 
 ### Library dependencies
 
@@ -84,37 +53,4 @@ dotnet-inspect depends --package System.Text.Json --tfm net9.0
 - One command, auto-detected scope: bare name → type (default), `--library` →
   assembly references, `--package` → NuGet dependencies.
 - Same tree rendering as `library --dependencies` today.
-- For types: interfaces implement other interfaces; classes extend base classes
-  and implement interfaces. Concrete types like `Int128` would show the full
-  generic math interface hierarchy resolved with concrete type arguments.
-
-## Package search and prefix-based scoping
-
-Today `--package` requires exact package names. Two related features:
-
-### NuGet package search
-
-A `package search` (or `package find`) subcommand that searches NuGet for
-packages by keyword, similar to `dotnet package search` or the NuGet search
-API. This provides discoverability without leaving the tool.
-
-```text
-dotnet-inspect package search "Azure.AI"
-dotnet-inspect package search "AWSSDK" --take 20
-```
-
-### Prefix-based package scope (`--package-prefix`)
-
-A `--package-prefix` flag on `find`, `extensions`, and `implements` that
-searches all packages matching a NuGet prefix. This would use the NuGet
-search API to discover packages, then search across all of them.
-
-```text
-dotnet-inspect find "Chat*" --package-prefix Azure.AI
-dotnet-inspect find "Converse*" --package-prefix AWSSDK
-dotnet-inspect extensions IChatClient --package-prefix Microsoft.Extensions.AI
-```
-
-This removes the need to know exact package names when exploring a vendor's
-ecosystem. Neither Azure nor AWS ship metapackages that pull in service-level
-SDKs, so prefix search is the practical alternative.
+- Type mode is done; library and package modes are pending.

@@ -14,9 +14,18 @@ public static class Hints
 {
     public static void WriteTips(TipLevel level, params Tip[] tips)
     {
+        WriteTips(level, tips, randomize: false);
+    }
+
+    public static void WriteTips(TipLevel level, Tip[] tips, bool randomize)
+    {
         if (level == TipLevel.Quiet || tips.Length == 0) return;
         int max = level == TipLevel.Minimal ? 3 : 6;
-        var visible = tips.Take(max).ToList();
+
+        var visible = randomize
+            ? tips.OrderBy(_ => Random.Shared.Next()).Take(max).ToList()
+            : tips.Take(max).ToList();
+
         int commentColumn = visible.Max(t => t.CommandText.Length) + 3;
         Console.Out.Flush();
         Console.Error.WriteLine();

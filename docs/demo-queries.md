@@ -1,7 +1,7 @@
 # Demo Queries — Curated Picks
 
 `dotnet-inspect` exposes a lot of functionality across many commands. This document
-curates 12 high-impact invocations that exercise the breadth of the tool and produce
+curates 14 high-impact invocations that exercise the breadth of the tool and produce
 visually compelling output. Each entry explains **what** it shows and **why** it is
 interesting.
 
@@ -141,3 +141,29 @@ original C# source (via SourceLink), lowered C# (decompiled from IL with
 goto-based control flow), raw IL disassembly, and annotated IL with
 pre-execution stack state at each instruction. A showcase of the tool's
 decompilation pipeline on a real, well-known method.
+
+## 13. Package search: Azure AI ecosystem
+
+```bash
+dotnet-inspect package search "Azure.AI"
+```
+
+Searches NuGet for packages matching "Azure.AI" and displays them in a
+formatted table with version, download counts, and descriptions. Discovers
+14 Azure AI packages (OpenAI, FormRecognizer, DocumentIntelligence,
+Translation, Vision, ContentSafety, etc.) without needing to know their
+exact names. A showcase of the `package search` subcommand for NuGet
+package discovery.
+
+## 14. Find: Chat\* across Azure AI packages (prefix search)
+
+```bash
+dotnet-inspect find "Chat*" --package-prefix Azure.AI
+```
+
+Combines the `find` command with `--package-prefix` to search all packages
+whose NuGet ID starts with "Azure.AI". The prefix is resolved via the NuGet
+search API, discovering 14 packages and downloading each to search for
+types matching `Chat*`. This is a powerful combo — prefix-based scoping
+removes the need to know exact package names when exploring a vendor's
+SDK ecosystem.

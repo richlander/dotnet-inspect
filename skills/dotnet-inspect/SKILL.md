@@ -14,11 +14,13 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
 - **"What extends this type?"** — `extensions` finds extension methods/properties
 - **"What implements this interface?"** — `implements` finds concrete types
+- **"What does this type depend on?"** — `depends` walks the type hierarchy upward
 - **"What version/metadata does this have?"** — `package` and `library` inspect metadata
+- **"Show me something cool"** — `demo` runs curated showcase queries
 
 ## Search Scope
 
-Search commands (`find`, `extensions`, `implements`) work across all of .NET:
+Search commands (`find`, `extensions`, `implements`, `depends`) work across all of .NET:
 
 ```bash
 dnx dotnet-inspect -y -- find "Chat*"                    # default scope (platform + curated)
@@ -59,13 +61,22 @@ dnx dotnet-inspect -y -- diff --package System.Text.Json@9.0.0..10.0.0 --breakin
 dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 ```
 
-### Find extensions and implementors
+### Find extensions, implementors, and dependencies
 
 ```bash
 dnx dotnet-inspect -y -- extensions HttpClient                   # what extends HttpClient?
 dnx dotnet-inspect -y -- extensions IServiceCollection           # across default scope
 dnx dotnet-inspect -y -- implements Stream                       # what extends Stream?
 dnx dotnet-inspect -y -- implements IDisposable --platform       # across all platform frameworks
+dnx dotnet-inspect -y -- depends 'INumber<TSelf>'                # type dependency hierarchy
+```
+
+### Explore with demo
+
+```bash
+dnx dotnet-inspect -y -- demo list                               # list curated demos
+dnx dotnet-inspect -y -- demo 1                                # run a specific demo
+dnx dotnet-inspect -y -- demo --feeling-lucky                    # random pick
 ```
 
 ### Inspect packages and libraries
@@ -73,8 +84,16 @@ dnx dotnet-inspect -y -- implements IDisposable --platform       # across all pl
 ```bash
 dnx dotnet-inspect -y -- package System.Text.Json                # metadata, latest version
 dnx dotnet-inspect -y -- package System.Text.Json --versions     # available versions
+dnx dotnet-inspect -y -- package search "Azure.AI"               # search NuGet for packages
 dnx dotnet-inspect -y -- library System.Text.Json                # library metadata, symbols
 dnx dotnet-inspect -y -- library ./bin/MyLib.dll                 # local file
+```
+
+### Search with prefix scoping
+
+```bash
+dnx dotnet-inspect -y -- find "Chat*" --package-prefix Azure.AI  # search all Azure.AI.* packages
+dnx dotnet-inspect -y -- extensions IChatClient --package-prefix Microsoft.Extensions.AI
 ```
 
 ## Command Reference
@@ -86,8 +105,10 @@ dnx dotnet-inspect -y -- library ./bin/MyLib.dll                 # local file
 | `diff` | Compare API surfaces between versions — breaking/additive classification |
 | `extensions` | Find extension methods/properties for a type |
 | `implements` | Find types implementing an interface or extending a base class |
-| `package` | Package metadata, files, versions, dependencies |
+| `depends` | Walk the type dependency hierarchy upward (interfaces, base classes) |
+| `package` | Package metadata, files, versions, dependencies, `search` for NuGet discovery |
 | `library` | Library metadata, symbols, references, dependencies |
+| `demo` | Run curated showcase queries — list, invoke, or feeling-lucky |
 
 ## Key Syntax
 

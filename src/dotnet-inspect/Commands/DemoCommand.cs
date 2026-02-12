@@ -56,6 +56,12 @@ public class DemoCommand
 
         new("Code: OptionsFactory.Create — source, lowered C#, and IL", "api",
             ["api", "--package", "Microsoft.Extensions.Options", "OptionsFactory", "Create"]),
+
+        new("Package search: Azure AI ecosystem", "search",
+            ["package", "search", "Azure.AI"]),
+
+        new("Find: Chat* across Azure AI packages (prefix search)", "find",
+            ["find", "Chat*", "--package-prefix", "Azure.AI"]),
     ];
 
     public static async Task<int> ExecuteListAsync()
@@ -72,7 +78,7 @@ public class DemoCommand
 
         Console.WriteLine();
         Console.Error.WriteLine("Tips:");
-        Console.Error.WriteLine("demo invoke <index>     # run a specific demo");
+        Console.Error.WriteLine("demo <index>            # run a specific demo");
         Console.Error.WriteLine("demo --feeling-lucky    # pick one at random");
 
         return await Task.FromResult(0);

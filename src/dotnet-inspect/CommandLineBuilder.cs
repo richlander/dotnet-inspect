@@ -272,6 +272,13 @@ public static class CommandLineBuilder
         var feelingLuckyOption = new Option<bool>("--feeling-lucky") { Description = "Pick a random demo and run it" };
         demoCommand.Options.Add(feelingLuckyOption);
 
+        var indexArg = new Argument<int?>("index")
+        {
+            Description = "Demo index to run (from 'demo list')",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        demoCommand.Arguments.Add(indexArg);
+
         // Subcommand: list
         var listCommand = new Command("list", "List all available demos");
         listCommand.SetAction(async (parseResult, cancellationToken) =>
@@ -280,27 +287,26 @@ public static class CommandLineBuilder
         });
         demoCommand.Subcommands.Add(listCommand);
 
-        // Subcommand: invoke <index>
-        var invokeCommand = new Command("invoke", "Run a specific demo by index");
-        var indexArg = new Argument<int>("index") { Description = "Demo index (from 'demo list')" };
-        invokeCommand.Arguments.Add(indexArg);
-        invokeCommand.SetAction(async (parseResult, cancellationToken) =>
-        {
-            var index = parseResult.GetValue(indexArg);
-            return await DemoCommand.ExecuteInvokeAsync(index, rootCommand);
-        });
-        demoCommand.Subcommands.Add(invokeCommand);
-
-        // Default: --feeling-lucky or show list
+        // Default: index, --feeling-lucky, or show help
         demoCommand.SetAction(async (parseResult, cancellationToken) =>
         {
+            var index = parseResult.GetValue(indexArg);
+            if (index.HasValue)
+            {
+                return await DemoCommand.ExecuteInvokeAsync(index.Value, rootCommand);
+            }
+
             if (parseResult.GetValue(feelingLuckyOption))
             {
                 return await DemoCommand.ExecuteFeelingLuckyAsync(rootCommand);
             }
 
-            // Default with no subcommand and no flag: feeling lucky
-            return await DemoCommand.ExecuteFeelingLuckyAsync(rootCommand);
+            // No index and no flag: show help + random demo tips
+            new HelpAction().Invoke(parseResult);
+            var tips = DemoCommand.Demos.Select((d, i) =>
+                new Tip("demo", $"{i + 1}", d.Title)).ToArray();
+            Hints.WriteTips(TipLevel.Minimal, tips, randomize: true);
+            return 0;
         });
 
         return demoCommand;

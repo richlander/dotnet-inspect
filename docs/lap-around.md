@@ -843,6 +843,49 @@ Matches: 17
 | Microsoft.AspNetCore.WebUtilities.FileBufferingWriteStream | class | extends | Microsoft.AspNetCore.WebUtilities |
 ```
 
+## Depends
+
+The `depends` command walks the type dependency graph upward — the inverse of `implements`. It shows what interfaces a type implements or extends, recursively expanding each one into its own dependencies.
+
+```bash=
+$ dotnet-inspect depends "INumber<TSelf>"
+# INumber<TSelf>
+
+├─ System.IComparable
+├─ System.IComparable<TSelf>
+├─ System.Numerics.IComparisonOperators<TSelf, TSelf, bool>
+│  └─ System.Numerics.IEqualityOperators<TSelf, TOther, TResult>
+├─ System.Numerics.IModulusOperators<TSelf, TSelf, TSelf>
+└─ System.Numerics.INumberBase<TSelf>
+   ├─ System.IEquatable<TSelf>
+   ├─ System.ISpanFormattable
+   │  └─ System.IFormattable
+   ├─ System.ISpanParsable<TSelf>
+   │  └─ System.IParsable<TSelf>
+   ├─ System.IUtf8SpanFormattable
+   ├─ System.IUtf8SpanParsable<TSelf>
+   ├─ System.Numerics.IAdditionOperators<TSelf, TSelf, TSelf>
+   ├─ System.Numerics.IAdditiveIdentity<TSelf, TSelf>
+   ├─ System.Numerics.IDecrementOperators<TSelf>
+   ├─ System.Numerics.IDivisionOperators<TSelf, TSelf, TSelf>
+   ├─ System.Numerics.IEqualityOperators<TSelf, TSelf, bool>
+   ├─ System.Numerics.IIncrementOperators<TSelf>
+   ├─ System.Numerics.IMultiplicativeIdentity<TSelf, TSelf>
+   ├─ System.Numerics.IMultiplyOperators<TSelf, TSelf, TSelf>
+   ├─ System.Numerics.ISubtractionOperators<TSelf, TSelf, TSelf>
+   ├─ System.Numerics.IUnaryNegationOperators<TSelf, TSelf>
+   └─ System.Numerics.IUnaryPlusOperators<TSelf, TSelf>
+```
+
+The generic math hierarchy is particularly compelling here — `INumber<TSelf>` fans out into `INumberBase<TSelf>` and all the operator interfaces, showing the full diamond inheritance with de-duplication.
+
+For an even deeper tree:
+
+```bash
+dotnet-inspect depends "IFloatingPointIeee754<TSelf>"     # 7 top-level branches, deeply nested
+dotnet-inspect depends Int128                              # concrete type's full interface graph
+```
+
 ## Extensions
 
 The `extensions` command loads assemblies at a specified scope for extensions targeting a given type name.
@@ -944,3 +987,50 @@ Name: DotnetInspector.Metadata | Version: 1.0.0 | TFM: .NETCoreApp,Version=v10.0
 ```
 
 The `property` extension is the tell.
+
+## Demo
+
+The `demo` command provides pre-canned invocations that showcase the tool's capabilities. Great for demos and onboarding.
+
+```bash
+dotnet-inspect demo                     # Random pick ("I'm feeling lucky")
+dotnet-inspect demo list                # List all available demos
+dotnet-inspect demo 1                   # Run a specific demo by index
+dotnet-inspect demo --feeling-lucky     # Random pick (explicit flag)
+```
+
+Each demo prints the equivalent CLI invocation to stderr so you can repeat and modify it.
+
+```bash=
+$ dotnet-inspect demo list
+# Demo Queries
+
+   1. [api] Shape: INumber<TSelf> — generic math interface
+      dotnet-inspect api System.Runtime INumber<TSelf> --shape
+   2. [extensions] Extensions for IServiceCollection
+      dotnet-inspect extensions IServiceCollection
+   3. [implements] Implements Stream
+      dotnet-inspect implements Stream
+   4. [diff] Diff: System.CommandLine breaking changes (beta→stable)
+      dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q
+   5. [api] API: JsonSerializer members
+      dotnet-inspect api System.Text.Json JsonSerializer
+   6. [find] Find: Chat* types
+      dotnet-inspect find "Chat*"
+   7. [package] Package: System.Text.Json@8.0.0 vulnerabilities
+      dotnet-inspect package System.Text.Json@8.0.0 -s Vulnerabilities
+   8. [library] Library: Microsoft.Extensions.AI.OpenAI dependency tree
+      dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies
+   9. [api] Shape: Int128 — generic math concrete type
+      dotnet-inspect api System.Runtime Int128 --shape
+  10. [find] Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic
+      dotnet-inspect find "Chat*,Converse*,Message*" --package OpenAI --package Azure.AI.OpenAI --package AWSSDK.BedrockRuntime --package Anthropic
+  11. [depends] Depends: IFloatingPointIeee754 interface hierarchy
+      dotnet-inspect depends IFloatingPointIeee754<TSelf>
+  12. [api] Code: OptionsFactory.Create — source, lowered C#, and IL
+      dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
+  13. [search] Package search: Azure AI ecosystem
+      dotnet-inspect package search "Azure.AI"
+  14. [find] Find: Chat* across Azure AI packages (prefix search)
+      dotnet-inspect find "Chat*" --package-prefix Azure.AI
+```

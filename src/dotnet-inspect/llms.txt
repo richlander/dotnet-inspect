@@ -18,7 +18,9 @@ dotnet-inspect find "Chat*,Diction*"                # Search types across scopes
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2  # API version comparison
 dotnet-inspect extensions HttpClient                # Extension methods
 dotnet-inspect implements Stream                    # Interface implementers
+dotnet-inspect depends 'INumber<TSelf>'              # Type dependency hierarchy
 dotnet-inspect samples Markout MarkoutWriter        # Code samples
+dotnet-inspect demo list                            # Curated showcase queries
 dotnet-inspect cli                                  # CLI args explorer
 ```
 
@@ -66,6 +68,14 @@ dotnet-inspect package System.Text.Json --version 11.0.0-preview* \
   --add-source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --prerelease
 dotnet-inspect package MyPackage --source https://my-feed/v3/index.json
 dotnet-inspect package MyPackage --nugetconfig ./nuget.config
+```
+
+Package search (NuGet discovery):
+
+```bash
+dotnet-inspect package search "Azure.AI"               # Search NuGet by keyword
+dotnet-inspect package search "AWSSDK" --take 20       # Limit results
+dotnet-inspect package search "Aspire" --json          # JSON output
 ```
 
 ### library
@@ -207,6 +217,7 @@ dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --
 | `--extensions` | Curated Microsoft.Extensions.* packages |
 | `--aspnetcore` | Curated Microsoft.AspNetCore.* packages |
 | `--package` | NuGet package (name or name@version). Repeatable. |
+| `--package-prefix` | All packages matching a NuGet ID prefix (e.g., `Azure.AI`). Resolves via search. |
 | `--library` | Local library file |
 | `--project` | Project dependencies via project.assets.json |
 | `--bin` | All DLLs in output directory |
@@ -264,6 +275,28 @@ dotnet-inspect implements Stream                                     # Default s
 dotnet-inspect implements Stream --platform                          # All platform frameworks
 dotnet-inspect implements IDisposable --extensions                   # Microsoft.Extensions packages
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json  # In package
+```
+
+### depends
+
+Walk the type dependency hierarchy upward — the inverse of `implements`. Shows what interfaces a type implements or extends, recursively expanding each into its own dependencies.
+
+```bash
+dotnet-inspect depends 'INumber<TSelf>'                                  # Interface hierarchy
+dotnet-inspect depends 'IFloatingPointIeee754<TSelf>'                    # Deeper hierarchy
+dotnet-inspect depends Int128                                            # Concrete type's full graph
+dotnet-inspect depends Stream                                            # Base class hierarchy
+```
+
+### demo
+
+Run curated showcase queries that exercise the tool's capabilities. Each demo prints the equivalent CLI invocation so users can repeat and modify it.
+
+```bash
+dotnet-inspect demo                                  # Random pick ("I'm feeling lucky")
+dotnet-inspect demo list                             # List all available demos
+dotnet-inspect demo 1                                # Run a specific demo by index
+dotnet-inspect demo --feeling-lucky                  # Random pick (explicit flag)
 ```
 
 ### samples
@@ -346,10 +379,11 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 
 | Option | Description | Commands |
 |--------|-------------|----------|
-| `--package` | NuGet package source | api, library, find, extensions, implements, diff |
-| `--platform` | Platform library source (string) / all platform frameworks (bool) | api, library, diff (string) / find, extensions, implements (bool) |
-| `--extensions` | Curated Microsoft.Extensions.* packages | find, extensions, implements |
-| `--aspnetcore` | Curated Microsoft.AspNetCore.* packages | find, extensions, implements |
+| `--package` | NuGet package source | api, library, find, extensions, implements, depends, diff |
+| `--package-prefix` | All packages matching NuGet ID prefix | find, extensions, implements |
+| `--platform` | Platform library source (string) / all platform frameworks (bool) | api, library, diff (string) / find, extensions, implements, depends (bool) |
+| `--extensions` | Curated Microsoft.Extensions.* packages | find, extensions, implements, depends |
+| `--aspnetcore` | Curated Microsoft.AspNetCore.* packages | find, extensions, implements, depends |
 | `--library` | Local library file | api, find, extensions, implements |
 | `--tfm net8.0` | Select target framework | package, library, api, extensions |
 | `-m Name` | Filter to member (supports globs) | api |
@@ -429,7 +463,7 @@ dotnet-inspect api --package Newtonsoft.Json -m SerializeObject         # ✗
 dotnet-inspect api Newtonsoft.Json JsonConvert -m SerializeObject       # ✓
 ```
 
-### Scope Flags on Search Commands (find, extensions, implements)
+### Scope Flags on Search Commands (find, extensions, implements, depends)
 
 - **`--platform`** (bool): All platform frameworks (runtime, aspnetcore, netstandard ref packs).
 - **`--extensions`**: Curated Microsoft.Extensions.* packages (DI, Logging, Configuration, etc.).
@@ -499,12 +533,13 @@ dotnet-inspect api JsonSerializer --package System.Text.Json Serialize:1
 
 ### Flag Compatibility Matrix
 
-| Flag | api | find | extensions | implements | diff | library | package |
-|------|-----|------|------------|------------|------|---------|---------|
-| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| `--platform` | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
-| `--extensions` | — | ✓ | ✓ | ✓ | — | — | — |
-| `--aspnetcore` | — | ✓ | ✓ | ✓ | — | — | — |
-| `--library` | ✓ | ✓ | ✓ | ✓ | — | — | — |
-| `--framework` | ✓ | — | — | — | ✓ | ✓ | — |
-| `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Flag | api | find | extensions | implements | depends | diff | library | package |
+|------|-----|------|------------|------------|---------|------|---------|---------|
+| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| `--package-prefix` | — | ✓ | ✓ | ✓ | — | — | — | — |
+| `--platform` | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
+| `--extensions` | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--aspnetcore` | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--library` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--framework` | ✓ | — | — | — | — | ✓ | ✓ | — |
+| `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
