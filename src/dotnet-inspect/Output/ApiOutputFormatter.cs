@@ -288,7 +288,7 @@ public static class ApiOutputFormatter
 
         return new ApiTypeView
         {
-            Title = $"{type.FullName}{packageInfo}",
+            Title = $"{FormatGenericFullName(type)}{packageInfo}",
             Description = description,
             Kind = type.Kind,
             Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
@@ -379,7 +379,7 @@ public static class ApiOutputFormatter
 
         return new TypeShapeView
         {
-            FullName = $"{type.FullName}{packageInfo}",
+            FullName = $"{FormatGenericFullName(type)}{packageInfo}",
             Kind = type.Kind,
             Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
             Assembly = foundIn,
@@ -411,8 +411,7 @@ public static class ApiOutputFormatter
 
             var rows = group.Select(t =>
             {
-                var displayName = FormatGenericTypeName(t.Name, t.TypeParameters);
-                var fullName = string.IsNullOrEmpty(t.Namespace) ? displayName : $"{t.Namespace}.{displayName}";
+                var fullName = FormatGenericFullName(t);
                 var members = t.Members.Count.ToString();
 
                 if (showDocs)
@@ -704,6 +703,12 @@ public static class ApiOutputFormatter
         }
 
         return name;
+    }
+
+    internal static string FormatGenericFullName(ApiType type)
+    {
+        var displayName = FormatGenericTypeName(type.Name, type.TypeParameters);
+        return string.IsNullOrEmpty(type.Namespace) ? displayName : $"{type.Namespace}.{displayName}";
     }
 
     private static string PluralizeTypeKind(string kind) => kind switch
