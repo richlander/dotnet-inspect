@@ -53,7 +53,7 @@ Earlier iterations had a `--dotnet` flag meaning "search everything Microsoft sh
 
 When `find`, `extensions`, or `implements` are invoked with no arguments, show tips that teach the scoping system:
 
-```
+```text
 Tips:
 find Chat*                                # search default scope
 find Chat* --platform                     # platform libraries only
@@ -68,7 +68,7 @@ Same pattern for `extensions` and `implements`, with example types appropriate t
 ## Scope summary
 
 | Flag | What it searches |
-|------|-----------------|
+| ---- | --------------- |
 | *(no flags)* | platform + Microsoft.Extensions.AI |
 | `--platform` | runtime + aspnetcore + netstandard ref packs |
 | `--extensions` | curated Microsoft.Extensions.* NuGet packages |
