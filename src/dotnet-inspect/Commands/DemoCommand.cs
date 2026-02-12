@@ -22,59 +22,59 @@ public class DemoCommand
     public static readonly DemoEntry[] Demos =
     [
         // api (5)
-        new("Shape: INumber<TSelf> — generic math interface", "api",
+        new("What does the generic math interface hierarchy look like?", "insight",
             ["api", "System.Runtime", "INumber<TSelf>", "--shape"]),
 
-        new("Shape: Int128 — generic math concrete type", "api",
+        new("How many interfaces does a 128-bit integer implement?", "insight",
             ["api", "System.Runtime", "Int128", "--shape"]),
 
-        new("Shape: ValueTuple — Create staircase", "api",
+        new("How does the runtime build tuples of any length?", "insight",
             ["api", "System.Runtime", "ValueTuple", "--shape"]),
 
-        new("API: JsonSerializer members", "api",
+        new("What can JsonSerializer do?", "discovery",
             ["api", "System.Text.Json", "JsonSerializer"]),
 
-        new("Code: OptionsFactory.Create — source, lowered C#, and IL", "api",
+        new("What does the options pattern look like under the hood?", "insight",
             ["api", "--package", "Microsoft.Extensions.Options", "OptionsFactory", "Create"]),
 
         // depends (1)
-        new("Depends: IFloatingPointIeee754 interface hierarchy", "depends",
+        new("What does IFloatingPointIeee754 depend on?", "insight",
             ["depends", "IFloatingPointIeee754<TSelf>"]),
 
         // diff (2)
-        new("Diff: System.CommandLine breaking changes (beta→stable)", "diff",
+        new("What broke between System.CommandLine beta and stable?", "migration",
             ["diff", "System.CommandLine@2.0.0-beta4.22272.1..2.0.3", "-v:q"]),
 
-        new("Diff: System.Text.Json evolution — diffstat view", "diff",
+        new("How has System.Text.Json evolved across two major versions?", "migration",
             ["diff", "System.Text.Json@8.0.0..10.0.3", "--stat"]),
 
         // extensions (1)
-        new("Extensions for IServiceCollection", "extensions",
+        new("What can I register with dependency injection?", "discovery",
             ["extensions", "IServiceCollection"]),
 
         // find (3)
-        new("Find: Chat* types", "find",
+        new("Where are the AI chat types in .NET?", "discovery",
             ["find", "Chat*"]),
 
-        new("Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic", "find",
+        new("What are the entry points for OpenAI, Azure, AWS, and Anthropic SDKs?", "discovery",
             ["find", "Chat*,Converse*,Message*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime", "--package", "Anthropic"]),
 
-        new("Find: Chat* across Azure AI packages (prefix search)", "find",
+        new("What chat types exist across all Azure AI packages?", "discovery",
             ["find", "Chat*", "--package-prefix", "Azure.AI"]),
 
         // implements (1)
-        new("Implements Stream", "implements",
+        new("What types extend Stream?", "discovery",
             ["implements", "Stream"]),
 
         // library (1)
-        new("Library: Microsoft.Extensions.AI.OpenAI dependency tree", "library",
+        new("What does the OpenAI integration library depend on?", "insight",
             ["library", "Microsoft.Extensions.AI.OpenAI", "--dependencies"]),
 
         // package (2)
-        new("Package: System.Text.Json@8.0.0 vulnerabilities", "package",
+        new("Is my version of System.Text.Json vulnerable?", "security",
             ["package", "System.Text.Json@8.0.0", "-s", "Vulnerabilities"]),
 
-        new("Package search: Azure AI ecosystem", "search",
+        new("What Azure AI packages are available on NuGet?", "discovery",
             ["package", "search", "Azure.AI"]),
     ];
 
@@ -86,7 +86,8 @@ public class DemoCommand
         for (int i = 0; i < Demos.Length; i++)
         {
             var demo = Demos[i];
-            Console.WriteLine($"  {i + 1,2}. [{demo.Category}] {demo.Title}");
+            var label = char.ToUpper(demo.Category[0]) + demo.Category[1..];
+            Console.WriteLine($"  {i + 1,2}. **{label}** {demo.Title}");
             Console.WriteLine($"      dotnet-inspect {demo.CommandLine}");
         }
 
