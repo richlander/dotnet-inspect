@@ -4,6 +4,7 @@ using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
 using DotnetInspector.Models;
+using DotnetInspector.Packages;
 using DotnetInspector.Views;
 
 namespace DotnetInspector;
@@ -114,6 +115,21 @@ internal partial class DependsJsonContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(List<TypeDependencyNode>))]
 internal partial class DependsCompactJsonContext : JsonSerializerContext { }
+
+// Package search command JSON contexts
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<NuGetSearchResult>))]
+internal partial class PackageSearchJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<NuGetSearchResult>))]
+internal partial class PackageSearchCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {
