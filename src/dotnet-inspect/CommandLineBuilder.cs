@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "demo", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -158,6 +158,10 @@ public static class CommandLineBuilder
         var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption, tipsOption);
         rootCommand.Subcommands.Add(cacheCommand);
 
+        // Demo command
+        var demoCommand = CreateDemoCommand(rootCommand);
+        rootCommand.Subcommands.Add(demoCommand);
+
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(diffCommand);
@@ -255,6 +259,47 @@ public static class CommandLineBuilder
         });
 
         return cacheCommand;
+    }
+
+    private static Command CreateDemoCommand(RootCommand rootCommand)
+    {
+        var demoCommand = new Command("demo", "Run curated demo queries that showcase the tool");
+
+        var feelingLuckyOption = new Option<bool>("--feeling-lucky") { Description = "Pick a random demo and run it" };
+        demoCommand.Options.Add(feelingLuckyOption);
+
+        // Subcommand: list
+        var listCommand = new Command("list", "List all available demos");
+        listCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            return await DemoCommand.ExecuteListAsync();
+        });
+        demoCommand.Subcommands.Add(listCommand);
+
+        // Subcommand: invoke <index>
+        var invokeCommand = new Command("invoke", "Run a specific demo by index");
+        var indexArg = new Argument<int>("index") { Description = "Demo index (from 'demo list')" };
+        invokeCommand.Arguments.Add(indexArg);
+        invokeCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            var index = parseResult.GetValue(indexArg);
+            return await DemoCommand.ExecuteInvokeAsync(index, rootCommand);
+        });
+        demoCommand.Subcommands.Add(invokeCommand);
+
+        // Default: --feeling-lucky or show list
+        demoCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            if (parseResult.GetValue(feelingLuckyOption))
+            {
+                return await DemoCommand.ExecuteFeelingLuckyAsync(rootCommand);
+            }
+
+            // Default with no subcommand and no flag: feeling lucky
+            return await DemoCommand.ExecuteFeelingLuckyAsync(rootCommand);
+        });
+
+        return demoCommand;
     }
 
     private static Command CreateDiffCommand(
