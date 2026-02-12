@@ -21,12 +21,15 @@ public class DemoCommand
     /// </summary>
     public static readonly DemoEntry[] Demos =
     [
-        // api (4)
+        // api (5)
         new("Shape: INumber<TSelf> — generic math interface", "api",
             ["api", "System.Runtime", "INumber<TSelf>", "--shape"]),
 
         new("Shape: Int128 — generic math concrete type", "api",
             ["api", "System.Runtime", "Int128", "--shape"]),
+
+        new("Shape: ValueTuple — Create staircase", "api",
+            ["api", "System.Runtime", "ValueTuple", "--shape"]),
 
         new("API: JsonSerializer members", "api",
             ["api", "System.Text.Json", "JsonSerializer"]),
@@ -38,9 +41,12 @@ public class DemoCommand
         new("Depends: IFloatingPointIeee754 interface hierarchy", "depends",
             ["depends", "IFloatingPointIeee754<TSelf>"]),
 
-        // diff (1)
+        // diff (2)
         new("Diff: System.CommandLine breaking changes (beta→stable)", "diff",
             ["diff", "System.CommandLine@2.0.0-beta4.22272.1..2.0.3", "-v:q"]),
+
+        new("Diff: System.Text.Json evolution — diffstat view", "diff",
+            ["diff", "System.Text.Json@8.0.0..10.0.3", "--stat"]),
 
         // extensions (1)
         new("Extensions for IServiceCollection", "extensions",
