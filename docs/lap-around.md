@@ -1006,31 +1006,31 @@ $ dotnet-inspect demo list
 # Demo Queries
 
    1. [api] Shape: INumber<TSelf> — generic math interface
-      dotnet-inspect api System.Runtime INumber<TSelf> --shape
-   2. [extensions] Extensions for IServiceCollection
-      dotnet-inspect extensions IServiceCollection
-   3. [implements] Implements Stream
-      dotnet-inspect implements Stream
-   4. [diff] Diff: System.CommandLine breaking changes (beta→stable)
-      dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q
-   5. [api] API: JsonSerializer members
-      dotnet-inspect api System.Text.Json JsonSerializer
-   6. [find] Find: Chat* types
-      dotnet-inspect find "Chat*"
-   7. [package] Package: System.Text.Json@8.0.0 vulnerabilities
-      dotnet-inspect package System.Text.Json@8.0.0 -s Vulnerabilities
-   8. [library] Library: Microsoft.Extensions.AI.OpenAI dependency tree
-      dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies
-   9. [api] Shape: Int128 — generic math concrete type
+      dotnet-inspect api System.Runtime "INumber<TSelf>" --shape
+   2. [api] Shape: Int128 — generic math concrete type
       dotnet-inspect api System.Runtime Int128 --shape
-  10. [find] Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic
-      dotnet-inspect find "Chat*,Converse*,Message*" --package OpenAI --package Azure.AI.OpenAI --package AWSSDK.BedrockRuntime --package Anthropic
-  11. [depends] Depends: IFloatingPointIeee754 interface hierarchy
-      dotnet-inspect depends IFloatingPointIeee754<TSelf>
-  12. [api] Code: OptionsFactory.Create — source, lowered C#, and IL
+   3. [api] API: JsonSerializer members
+      dotnet-inspect api System.Text.Json JsonSerializer
+   4. [api] Code: OptionsFactory.Create — source, lowered C#, and IL
       dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
-  13. [search] Package search: Azure AI ecosystem
-      dotnet-inspect package search "Azure.AI"
-  14. [find] Find: Chat* across Azure AI packages (prefix search)
+   5. [depends] Depends: IFloatingPointIeee754 interface hierarchy
+      dotnet-inspect depends "IFloatingPointIeee754<TSelf>"
+   6. [diff] Diff: System.CommandLine breaking changes (beta→stable)
+      dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q
+   7. [extensions] Extensions for IServiceCollection
+      dotnet-inspect extensions IServiceCollection
+   8. [find] Find: Chat* types
+      dotnet-inspect find "Chat*"
+   9. [find] Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic
+      dotnet-inspect find "Chat*,Converse*,Message*" --package OpenAI --package Azure.AI.OpenAI --package AWSSDK.BedrockRuntime --package Anthropic
+  10. [find] Find: Chat* across Azure AI packages (prefix search)
       dotnet-inspect find "Chat*" --package-prefix Azure.AI
+  11. [implements] Implements Stream
+      dotnet-inspect implements Stream
+  12. [library] Library: Microsoft.Extensions.AI.OpenAI dependency tree
+      dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies
+  13. [package] Package: System.Text.Json@8.0.0 vulnerabilities
+      dotnet-inspect package System.Text.Json@8.0.0 -s Vulnerabilities
+  14. [search] Package search: Azure AI ecosystem
+      dotnet-inspect package search "Azure.AI"
 ```
