@@ -19,8 +19,8 @@ For example, `JsonSerializer` ships in both:
 The `find` command searches across both packages and platform libraries simultaneously:
 
 ```bash
-# Search for JsonSerializer in both platform and package
-dnx dotnet-inspect -y -- find JsonSerializer --framework runtime --package System.Text.Json
+# Search for JsonSerializer in platform and a specific package
+dnx dotnet-inspect -y -- find JsonSerializer --platform --package System.Text.Json
 ```
 
 Output:
@@ -128,7 +128,7 @@ You can compare what's in your installed SDK vs what's on nuget.org:
 
 ```bash
 # Check platform version
-dnx dotnet-inspect -y -- find JsonSerializer --framework runtime
+dnx dotnet-inspect -y -- find JsonSerializer --platform
 
 # Check latest package version
 dnx dotnet-inspect -y -- package System.Text.Json --versions -n 1
@@ -136,24 +136,23 @@ dnx dotnet-inspect -y -- package System.Text.Json --versions -n 1
 
 The versions may differ - the SDK ships with a specific version, while nuget.org may have newer releases.
 
-## Framework Selection
+## Scope Flags
 
-Platform libraries are organized by framework:
+Search commands support scope flags to control where to search:
 
-| Short Name | Framework Pack | Contents |
-| ---------- | -------------- | -------- |
-| `runtime` | Microsoft.NETCore.App.Ref | Core runtime (BCL) |
-| `aspnetcore` | Microsoft.AspNetCore.App.Ref | ASP.NET Core |
-| `netstandard` | NETStandard.Library.Ref | .NET Standard |
-
-Use `--framework` with `find` or specify the framework with `--platform`:
+| Flag | What it searches |
+| ---- | ---------------- |
+| *(no flags)* | Default scope (all platform frameworks + Microsoft.Extensions.AI) |
+| `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
+| `--extensions` | Curated Microsoft.Extensions.* NuGet packages |
+| `--aspnetcore` | Curated Microsoft.AspNetCore.* NuGet packages |
 
 ```bash
-# Search the runtime framework
-dnx dotnet-inspect -y -- find "*Logger*" --framework runtime
+# Search all platform frameworks
+dnx dotnet-inspect -y -- find "*Logger*" --platform
 
-# Search ASP.NET Core
-dnx dotnet-inspect -y -- find "*Controller*" --framework aspnetcore
+# Search ASP.NET Core packages
+dnx dotnet-inspect -y -- find "*Controller*" --aspnetcore
 ```
 
 ## When to Use Each

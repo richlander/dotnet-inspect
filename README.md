@@ -38,7 +38,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | Flag | Description |
 |------|-------------|
 | `-v:q/m/n/d` | Verbosity: quiet, minimal (default), normal, detailed |
-| `--dotnet` | Search runtime + aspnetcore + curated Microsoft packages (find, extensions, implements) |
+| `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |
 | `-s Name` | Include section (glob-capable: `-s Ext*`) |
 | `-x Name` | Exclude section |
@@ -162,8 +162,8 @@ Search for types across packages, frameworks, and local assets.
 dotnet-inspect find HttpClient                           # Runtime (default scope)
 dotnet-inspect find "*Stream*" -n 10                     # Glob, limit results
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
-dotnet-inspect find "ChatClient*" --dotnet --terse       # Search all .NET scopes
-dotnet-inspect find ILogger --framework aspnetcore       # ASP.NET Core framework
+dotnet-inspect find "ChatClient*" --terse                 # Compact output
+dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
 ```
 
@@ -174,7 +174,7 @@ Find extension methods and properties for a type. Detects both classic extension
 ```bash
 dotnet-inspect extensions HttpClient                         # Runtime (default)
 dotnet-inspect extensions HttpClient --reachable             # Include reachable types
-dotnet-inspect extensions DbContext --dotnet                  # Search all .NET scopes
+dotnet-inspect extensions DbContext                           # Default scope
 dotnet-inspect extensions IDistributedApplicationBuilder \
   --package Aspire.Hosting --package Aspire.Hosting.Redis    # Multi-package scan
 ```
@@ -184,8 +184,8 @@ dotnet-inspect extensions IDistributedApplicationBuilder \
 Find types implementing an interface or extending a base class.
 
 ```bash
-dotnet-inspect implements Stream --dotnet                    # Runtime + aspnetcore + packages
-dotnet-inspect implements IDisposable --framework runtime
+dotnet-inspect implements Stream                             # Default scope
+dotnet-inspect implements IDisposable --platform             # All platform frameworks
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 

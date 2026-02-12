@@ -41,14 +41,14 @@ dnx dotnet-inspect -y -- diff "*Json*" --package System.Text.Json@9.0.0..10.0.0
 
 # Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Chat*,Diction*" --dotnet --terse
+dnx dotnet-inspect -y -- find "Chat*,Diction*" --terse
 
 # Find extension methods for a type (detects C# 14 extension properties too)
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
-dnx dotnet-inspect -y -- extensions DbContext --dotnet
+dnx dotnet-inspect -y -- extensions DbContext
 
 # Find types implementing an interface or extending a class
-dnx dotnet-inspect -y -- implements Stream --dotnet
+dnx dotnet-inspect -y -- implements Stream
 
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json -v:d
@@ -80,7 +80,6 @@ dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFacto
 | `--select` | Show Select column with Name:N shorthand | `api` |
 | `--index N` | Target Nth overload (or use Name:N shorthand) | `api` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
-| `--dotnet` | runtime + aspnetcore + curated Microsoft packages | `find`, `extensions`, `implements` |
 | `--terse` | Compact output (alias for --oneline --grouped) | `find` |
 | `--reachable` | Include extensions on reachable types | `extensions` |
 | `--dependencies` | Dependency tree (visual) | `library`, `package` |
@@ -106,7 +105,7 @@ dnx dotnet-inspect -y -- api Newtonsoft.Json JsonConvert -m SerializeObject  # -
 
 **Do NOT use `-t` for type selection** — type is always a positional argument.
 
-**`--platform` vs `--package`**: `--platform` is only for SDK libraries (System.\*, Microsoft.AspNetCore.\*). Use `--package` for NuGet packages. Use `--dotnet` when unsure.
+**`--platform` vs `--package`**: `--platform` is only for SDK libraries (System.\*, Microsoft.AspNetCore.\*). Use `--package` for NuGet packages.
 
 **`diff` uses `..` range**: `diff System.Text.Json@8.0.0..9.0.0` (not two separate args).
 
