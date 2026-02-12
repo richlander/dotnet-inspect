@@ -93,6 +93,11 @@ public record FindOptions : IAssemblySourceOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
+    /// NuGet package ID prefix for prefix-based package discovery.
+    /// </summary>
+    public string? PackagePrefix { get; init; }
+
+    /// <summary>
     /// Returns true if any search scope is specified.
     /// </summary>
     public bool HasAnyScope =>
@@ -101,7 +106,8 @@ public record FindOptions : IAssemblySourceOptions
         PlatformAssemblies.Length > 0 ||
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0 ||
-        BinPaths.Length > 0;
+        BinPaths.Length > 0 ||
+        PackagePrefix != null;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

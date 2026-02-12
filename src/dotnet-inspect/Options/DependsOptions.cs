@@ -3,17 +3,27 @@ using DotnetInspector.Packages;
 namespace DotnetInspector.Options;
 
 /// <summary>
-/// Configuration options for the implements command.
+/// Configuration options for the depends command.
 /// </summary>
-public record ImplementsOptions : IAssemblySourceOptions
+public record DependsOptions : IAssemblySourceOptions
 {
     /// <summary>
-    /// Target interface or base type to find implementers for.
+    /// Target type name to walk dependencies for (type mode).
     /// </summary>
     public string TargetType { get; init; } = "";
 
     /// <summary>
-    /// Packages to search (name or name@version). Can specify multiple.
+    /// Library mode: show assembly reference dependencies.
+    /// </summary>
+    public string? LibraryName { get; init; }
+
+    /// <summary>
+    /// Package mode: show NuGet package dependencies.
+    /// </summary>
+    public string? PackageName { get; init; }
+
+    /// <summary>
+    /// Packages to search for type resolution. Can specify multiple.
     /// </summary>
     public string[] Packages { get; init; } = [];
 
@@ -23,7 +33,7 @@ public record ImplementsOptions : IAssemblySourceOptions
     public string[] Assemblies { get; init; } = [];
 
     /// <summary>
-    /// Platform assembly names to search (e.g., System.Text.Json). Can specify multiple.
+    /// Platform assembly names to search. Can specify multiple.
     /// </summary>
     public string[] PlatformAssemblies { get; init; } = [];
 
@@ -36,16 +46,6 @@ public record ImplementsOptions : IAssemblySourceOptions
     /// Target framework moniker (e.g., net8.0).
     /// </summary>
     public string? Tfm { get; init; }
-
-    /// <summary>
-    /// Include hidden (EditorBrowsable.Never) and obsolete types.
-    /// </summary>
-    public bool IncludeAll { get; init; }
-
-    /// <summary>
-    /// Limit number of results.
-    /// </summary>
-    public int? Limit { get; init; }
 
     /// <summary>
     /// Output as JSON.
@@ -68,22 +68,31 @@ public record ImplementsOptions : IAssemblySourceOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// NuGet package ID prefix for prefix-based package discovery.
-    /// </summary>
-    public string? PackagePrefix { get; init; }
-
-    /// <summary>
     /// Returns true if any search scope is specified.
     /// </summary>
     public bool HasAnyScope =>
         Packages.Length > 0 ||
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||
-        PlatformFrameworks.Length > 0 ||
-        PackagePrefix != null;
+        PlatformFrameworks.Length > 0;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput;
+
+    /// <summary>
+    /// True when in type dependency mode (default when no --library/--package).
+    /// </summary>
+    public bool IsTypeMode => LibraryName == null && PackageName == null;
+
+    /// <summary>
+    /// True when in library dependency mode.
+    /// </summary>
+    public bool IsLibraryMode => LibraryName != null;
+
+    /// <summary>
+    /// True when in package dependency mode.
+    /// </summary>
+    public bool IsPackageMode => PackageName != null;
 }

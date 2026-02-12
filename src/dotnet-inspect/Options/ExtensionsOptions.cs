@@ -83,13 +83,19 @@ public record ExtensionsOptions : IAssemblySourceOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
+    /// NuGet package ID prefix for prefix-based package discovery.
+    /// </summary>
+    public string? PackagePrefix { get; init; }
+
+    /// <summary>
     /// Returns true if any search scope is specified.
     /// </summary>
     public bool HasAnyScope =>
         Packages.Length > 0 ||
         Assemblies.Length > 0 ||
         PlatformAssemblies.Length > 0 ||
-        PlatformFrameworks.Length > 0;
+        PlatformFrameworks.Length > 0 ||
+        PackagePrefix != null;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

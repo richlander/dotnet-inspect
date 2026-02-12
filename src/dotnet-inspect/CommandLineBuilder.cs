@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -158,9 +158,17 @@ public static class CommandLineBuilder
         var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption, tipsOption);
         rootCommand.Subcommands.Add(cacheCommand);
 
+        // Demo command
+        var demoCommand = CreateDemoCommand(rootCommand);
+        rootCommand.Subcommands.Add(demoCommand);
+
         // Diff command
         var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(diffCommand);
+
+        // Depends command
+        var dependsCommand = CreateDependsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
+        rootCommand.Subcommands.Add(dependsCommand);
 
         // Extensions command
         var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -255,6 +263,53 @@ public static class CommandLineBuilder
         });
 
         return cacheCommand;
+    }
+
+    private static Command CreateDemoCommand(RootCommand rootCommand)
+    {
+        var demoCommand = new Command("demo", "Run curated demo queries that showcase the tool");
+
+        var feelingLuckyOption = new Option<bool>("--feeling-lucky") { Description = "Pick a random demo and run it" };
+        demoCommand.Options.Add(feelingLuckyOption);
+
+        var indexArg = new Argument<int?>("index")
+        {
+            Description = "Demo index to run (from 'demo list')",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        demoCommand.Arguments.Add(indexArg);
+
+        // Subcommand: list
+        var listCommand = new Command("list", "List all available demos");
+        listCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            return await DemoCommand.ExecuteListAsync();
+        });
+        demoCommand.Subcommands.Add(listCommand);
+
+        // Default: index, --feeling-lucky, or show help
+        demoCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            var index = parseResult.GetValue(indexArg);
+            if (index.HasValue)
+            {
+                return await DemoCommand.ExecuteInvokeAsync(index.Value, rootCommand);
+            }
+
+            if (parseResult.GetValue(feelingLuckyOption))
+            {
+                return await DemoCommand.ExecuteFeelingLuckyAsync(rootCommand);
+            }
+
+            // No index and no flag: show help + random demo tips
+            new HelpAction().Invoke(parseResult);
+            var tips = DemoCommand.Demos.Select((d, i) =>
+                new Tip("demo", $"{i + 1}", d.Title)).ToArray();
+            Hints.WriteTips(TipLevel.Minimal, tips, randomize: true);
+            return 0;
+        });
+
+        return demoCommand;
     }
 
     private static Command CreateDiffCommand(
@@ -411,6 +466,122 @@ public static class CommandLineBuilder
         return diffCommand;
     }
 
+    private static Command CreateDependsCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string?> tipsOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
+    {
+        var dependsCommand = new Command("depends", "Walk dependency graphs upward (type hierarchy, library references, or package dependencies)");
+
+        var targetTypeArg = new Argument<string?>("type")
+        {
+            Description = "Type name to walk dependencies for (e.g., IFloatingPointIeee754, Int128)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description = "Search in package(s) (name or name@version). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var assemblyOption = new Option<string[]>("--library")
+        {
+            Description = "Search in library file(s). Can repeat.",
+            AllowMultipleArgumentsPerToken = true
+        };
+        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        dependsCommand.Arguments.Add(targetTypeArg);
+        dependsCommand.Options.Add(packageOption);
+        dependsCommand.Options.Add(assemblyOption);
+        dependsCommand.Options.Add(platformOption);
+        dependsCommand.Options.Add(extensionsOption);
+        dependsCommand.Options.Add(aspnetcoreOption);
+        dependsCommand.Options.Add(curatedOption);
+        dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(jsonOption);
+        dependsCommand.Options.Add(compactOption);
+        dependsCommand.Options.Add(verboseOption);
+        dependsCommand.Options.Add(verbosityOption);
+        dependsCommand.Options.Add(sourceOption);
+        dependsCommand.Options.Add(addSourceOption);
+        dependsCommand.Options.Add(nugetConfigOption);
+        dependsCommand.Options.Add(tipsOption);
+
+        dependsCommand.SetAction(async (parseResult, ct) =>
+        {
+            var targetType = parseResult.GetValue(targetTypeArg);
+
+            if (string.IsNullOrEmpty(targetType))
+            {
+                new HelpAction().Invoke(parseResult);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Tips:");
+                Console.Error.WriteLine("  depends IFloatingPointIeee754 --platform   # type hierarchy");
+                Console.Error.WriteLine("  depends Int128 --platform                  # concrete type hierarchy");
+                Console.Error.WriteLine("  depends Stream --platform                  # class inheritance chain");
+                return 0;
+            }
+
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+
+            bool wantPlatform = parseResult.GetValue(platformOption);
+            bool wantExtensions = parseResult.GetValue(extensionsOption);
+            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
+            bool wantCurated = parseResult.GetValue(curatedOption);
+            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
+                || packages.Length > 0 || assemblies.Length > 0;
+
+            // Resolve scope
+            string[] frameworks = [];
+            if (!hasExplicitScope)
+            {
+                // Default scope: all platform frameworks + curated packages
+                frameworks = PlatformFrameworkNames;
+                packages = [.. packages, .. CuratedScopePackages];
+            }
+            else
+            {
+                if (wantPlatform) frameworks = PlatformFrameworkNames;
+                if (wantExtensions) packages = [.. packages, .. ExtensionsScopePackages];
+                if (wantAspnetcore) packages = [.. packages, .. AspNetCoreScopePackages];
+                if (wantCurated)
+                {
+                    frameworks = [.. frameworks, .. PlatformFrameworkNames];
+                    packages = [.. packages, .. CuratedScopePackages];
+                }
+            }
+
+            var options = new DependsOptions
+            {
+                TargetType = targetType,
+                Packages = packages,
+                Assemblies = assemblies,
+                PlatformAssemblies = [],
+                PlatformFrameworks = frameworks,
+                Tfm = parseResult.GetValue(tfmOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+            };
+
+            return await DependsCommand.ExecuteTypeDependsAsync(options);
+        });
+
+        return dependsCommand;
+    }
+
     private static Command CreateExtensionsCommand(
         Option<bool> jsonOption,
         Option<bool> verboseOption,
@@ -455,6 +626,7 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         extCommand.Arguments.Add(targetTypeArg);
         extCommand.Options.Add(packageOption);
         extCommand.Options.Add(assemblyOption);
@@ -469,6 +641,7 @@ public static class CommandLineBuilder
         extCommand.Options.Add(limitOption);
         extCommand.Options.Add(jsonOption);
         extCommand.Options.Add(compactOption);
+        extCommand.Options.Add(packagePrefixOption);
         extCommand.Options.Add(verboseOption);
         extCommand.Options.Add(verbosityOption);
         extCommand.Options.Add(sourceOption);
@@ -496,13 +669,21 @@ public static class CommandLineBuilder
 
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
             bool wantPlatform = parseResult.GetValue(platformOption);
             bool wantExtensions = parseResult.GetValue(extensionsOption);
             bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
             bool wantCurated = parseResult.GetValue(curatedOption);
             bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0;
+                || packages.Length > 0 || assemblies.Length > 0 || packagePrefix != null;
+
+            // Resolve --package-prefix to package list
+            if (packagePrefix != null)
+            {
+                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(verboseOption));
+                packages = [..packages, ..prefixPackages];
+            }
 
             // Resolve scope
             string[] frameworks = [];
@@ -540,6 +721,7 @@ public static class CommandLineBuilder
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                PackagePrefix = packagePrefix,
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
@@ -599,6 +781,7 @@ public static class CommandLineBuilder
         var groupedOption = new Option<bool>("--grouped") { Description = "Group results by pattern (use with --oneline)" };
         var terseOption = new Option<bool>("--terse") { Description = "Compact output (alias for --oneline --grouped)" };
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names, one per line" };
+        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
@@ -617,6 +800,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(groupedOption);
         findCommand.Options.Add(terseOption);
         findCommand.Options.Add(nameOnlyOption);
+        findCommand.Options.Add(packagePrefixOption);
         findCommand.Options.Add(verboseOption);
         findCommand.Options.Add(verbosityOption);
         findCommand.Options.Add(tipsOption);
@@ -647,13 +831,22 @@ public static class CommandLineBuilder
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
             var binPaths = parseResult.GetValue(binOption) ?? [];
+            var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
             bool wantPlatform = parseResult.GetValue(platformOption);
             bool wantExtensions = parseResult.GetValue(extensionsOption);
             bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
             bool wantCurated = parseResult.GetValue(curatedOption);
             bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || projects.Length > 0 || binPaths.Length > 0;
+                || packages.Length > 0 || assemblies.Length > 0 || projects.Length > 0 || binPaths.Length > 0
+                || packagePrefix != null;
+
+            // Resolve --package-prefix to package list
+            if (packagePrefix != null)
+            {
+                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(verboseOption));
+                packages = [..packages, ..prefixPackages];
+            }
 
             // Resolve scope
             string[] frameworks = [];
@@ -693,6 +886,7 @@ public static class CommandLineBuilder
                 Grouped = parseResult.GetValue(groupedOption) || terse,
                 NameOnly = parseResult.GetValue(nameOnlyOption),
                 Verbose = parseResult.GetValue(verboseOption),
+                PackagePrefix = packagePrefix,
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
@@ -845,6 +1039,7 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         implCommand.Arguments.Add(targetTypeArg);
         implCommand.Options.Add(packageOption);
         implCommand.Options.Add(assemblyOption);
@@ -857,6 +1052,7 @@ public static class CommandLineBuilder
         implCommand.Options.Add(limitOption);
         implCommand.Options.Add(jsonOption);
         implCommand.Options.Add(compactOption);
+        implCommand.Options.Add(packagePrefixOption);
         implCommand.Options.Add(verboseOption);
         implCommand.Options.Add(verbosityOption);
         implCommand.Options.Add(sourceOption);
@@ -884,13 +1080,21 @@ public static class CommandLineBuilder
 
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+            var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
             bool wantPlatform = parseResult.GetValue(platformOption);
             bool wantExtensions = parseResult.GetValue(extensionsOption);
             bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
             bool wantCurated = parseResult.GetValue(curatedOption);
             bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0;
+                || packages.Length > 0 || assemblies.Length > 0 || packagePrefix != null;
+
+            // Resolve --package-prefix to package list
+            if (packagePrefix != null)
+            {
+                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(verboseOption));
+                packages = [..packages, ..prefixPackages];
+            }
 
             // Resolve scope
             string[] frameworks = [];
@@ -925,6 +1129,7 @@ public static class CommandLineBuilder
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(verboseOption),
+                PackagePrefix = packagePrefix,
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
@@ -994,6 +1199,10 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(addSourceOption);
         packageCommand.Options.Add(nugetConfigOption);
 
+        // Search subcommand
+        var searchCommand = CreatePackageSearchCommand(jsonOption, verboseOption);
+        packageCommand.Subcommands.Add(searchCommand);
+
         packageCommand.SetAction(async (parseResult, ct) =>
         {
             var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
@@ -1057,6 +1266,65 @@ public static class CommandLineBuilder
         });
 
         return packageCommand;
+    }
+
+    private static Command CreatePackageSearchCommand(
+        Option<bool> jsonOption,
+        Option<bool> verboseOption)
+    {
+        var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
+
+        var queryArg = new Argument<string?>("query")
+        {
+            Description = "Search query (keyword or package name prefix)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+
+        var takeOption = new Option<int>("--take")
+        {
+            Description = "Maximum number of results (default: 20)",
+            DefaultValueFactory = _ => 20
+        };
+        var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions" };
+        prereleaseOption.Aliases.Add("--prerelease");
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+
+        searchCommand.Arguments.Add(queryArg);
+        searchCommand.Options.Add(takeOption);
+        searchCommand.Options.Add(prereleaseOption);
+        searchCommand.Options.Add(jsonOption);
+        searchCommand.Options.Add(compactOption);
+        searchCommand.Options.Add(verboseOption);
+
+        searchCommand.SetAction(async (parseResult, ct) =>
+        {
+            var query = parseResult.GetValue(queryArg);
+
+            if (string.IsNullOrEmpty(query))
+            {
+                Console.Error.WriteLine("Usage: package search <query>");
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Examples:");
+                Console.Error.WriteLine("  package search Azure.AI");
+                Console.Error.WriteLine("  package search AWSSDK --take 50");
+                Console.Error.WriteLine("  package search \"json serializer\" --json");
+                return 0;
+            }
+
+            var options = new PackageSearchOptions
+            {
+                Query = query,
+                Take = parseResult.GetValue(takeOption),
+                Prerelease = parseResult.GetValue(prereleaseOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                Verbose = parseResult.GetValue(verboseOption)
+            };
+
+            return await PackageSearchCommand.ExecuteAsync(options);
+        });
+
+        return searchCommand;
     }
 
     /// <summary>
@@ -1630,5 +1898,31 @@ public static class CommandLineBuilder
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Resolves a package ID prefix to a list of matching package names via NuGet search.
+    /// </summary>
+    private static async Task<string[]> ResolvePrefixPackagesAsync(string prefix, bool verbose)
+    {
+        Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+        var client = HttpClientFactory.Shared;
+
+        log?.Invoke($"Resolving packages with prefix: {prefix}");
+        var results = await NuGetSearchService.SearchByPrefixAsync(client, prefix, log: log);
+
+        if (results.Count == 0)
+        {
+            Console.Error.WriteLine($"Warning: No packages found matching prefix \"{prefix}\"");
+            return [];
+        }
+
+        log?.Invoke($"Found {results.Count} package(s) matching prefix \"{prefix}\"");
+        var packageNames = results.Select(r => r.PackageId).ToArray();
+
+        foreach (var pkg in packageNames)
+            log?.Invoke($"  {pkg}");
+
+        return packageNames;
     }
 }
