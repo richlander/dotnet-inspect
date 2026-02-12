@@ -19,7 +19,6 @@ dotnet-inspect diff System.Text.Json@9.0.0..10.0.2  # API version comparison
 dotnet-inspect extensions HttpClient                # Extension methods
 dotnet-inspect implements Stream                    # Interface implementers
 dotnet-inspect samples Markout MarkoutWriter        # Code samples
-dotnet-inspect platform                             # List installed frameworks
 dotnet-inspect cli                                  # CLI args explorer
 ```
 
@@ -182,12 +181,14 @@ dotnet-inspect api System.Text.Json JsonSerializer --json             # JSON out
 Search for types across packages, frameworks, and local assets.
 
 ```bash
-dotnet-inspect find HttpClient                           # Search runtime (default scope)
+dotnet-inspect find HttpClient                           # Search default scope (curated)
 dotnet-inspect find "*Stream*" -n 10                     # Glob pattern, limit results
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
 dotnet-inspect find "*Serializer*" --package System.Text.Json --package Newtonsoft.Json  # Multiple packages
-dotnet-inspect find ILogger --framework aspnetcore       # ASP.NET Core framework
-dotnet-inspect find "ChatClient*" --dotnet --terse       # Search runtime + aspnetcore + curated packages
+dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
+dotnet-inspect find "ChatClient*" --terse                 # Search default scope, compact output
+dotnet-inspect find "*Logger*" --platform                # All platform frameworks
+dotnet-inspect find "*Host*" --extensions                # Microsoft.Extensions packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
 dotnet-inspect find "*Service*" --bin ./bin/Debug/net8.0  # Built output directory
 ```
@@ -195,20 +196,22 @@ dotnet-inspect find "*Service*" --bin ./bin/Debug/net8.0  # Built output directo
 Batch search (comma-separated patterns):
 
 ```bash
-dotnet-inspect find "Chat*,Diction*" -v:q --framework runtime --framework aspnetcore --package Microsoft.Extensions.AI
+dotnet-inspect find "Chat*,Diction*" -v:q
 dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --terse
 ```
 
 | Scope | Description |
 |-------|-------------|
-| (none) | Defaults to `--framework runtime` |
-| `--dotnet` | runtime + aspnetcore frameworks + curated Microsoft packages |
+| (none) | Default scope (all platform frameworks + Microsoft.Extensions.AI) |
+| `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
+| `--extensions` | Curated Microsoft.Extensions.* packages |
+| `--aspnetcore` | Curated Microsoft.AspNetCore.* packages |
 | `--package` | NuGet package (name or name@version). Repeatable. |
-| `--framework` | All libraries in framework (runtime, aspnetcore). Repeatable. |
 | `--library` | Local library file |
-| `--platform` | Specific platform library |
 | `--project` | Project dependencies via project.assets.json |
 | `--bin` | All DLLs in output directory |
+
+Scope flags are combinable: `--platform --package Newtonsoft.Json` searches both.
 
 | Option | Description |
 |--------|-------------|
@@ -238,9 +241,10 @@ dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --name-only          # Type n
 Find extension methods/properties for a type. Detects both classic extension methods and C# 14 extension properties.
 
 ```bash
-dotnet-inspect extensions HttpClient                                 # Runtime (default)
+dotnet-inspect extensions HttpClient                                 # Default curated scope
 dotnet-inspect extensions HttpClient --reachable                     # Include reachable types
-dotnet-inspect extensions DbContext --dotnet                         # Search all .NET scopes
+dotnet-inspect extensions HttpClient --platform                      # All platform frameworks
+dotnet-inspect extensions DbContext                                  # Default scope
 dotnet-inspect extensions IServiceCollection \
   --package Microsoft.Extensions.DependencyInjection \
   --package Microsoft.Extensions.Azure                               # Multi-package scan
@@ -256,9 +260,9 @@ The `--reachable` flag finds extensions on types accessible via properties and m
 Find types implementing an interface or extending a base class.
 
 ```bash
-dotnet-inspect implements Stream --framework runtime --framework aspnetcore  # Cross-framework
-dotnet-inspect implements Stream --dotnet                             # Same, plus curated packages
-dotnet-inspect implements IDisposable --framework runtime             # Interface implementers
+dotnet-inspect implements Stream                                     # Default scope
+dotnet-inspect implements Stream --platform                          # All platform frameworks
+dotnet-inspect implements IDisposable --extensions                   # Microsoft.Extensions packages
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json  # In package
 ```
 
@@ -273,17 +277,6 @@ dotnet-inspect samples Newtonsoft.Json JObject        # Third-party examples
 ```
 
 Also accessible via `api` command: `dotnet-inspect api Markout MarkoutWriter --samples -v:q`
-
-### platform
-
-List installed frameworks and inspect platform libraries.
-
-```bash
-dotnet-inspect platform                             # List installed frameworks
-dotnet-inspect platform --list-versions             # Installed SDK versions
-dotnet-inspect platform --framework runtime         # List runtime libraries
-dotnet-inspect platform --framework aspnetcore      # List ASP.NET Core libraries
-```
 
 ### cache
 
@@ -354,9 +347,9 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | Option | Description | Commands |
 |--------|-------------|----------|
 | `--package` | NuGet package source | api, library, find, extensions, implements, diff |
-| `--platform` | Platform library source | api, library, find, extensions, implements, diff |
-| `--framework` | Framework scope (runtime, aspnetcore) | find, extensions, implements, diff |
-| `--dotnet` | runtime + aspnetcore + curated Microsoft packages | find, extensions, implements |
+| `--platform` | Platform library source (string) / all platform frameworks (bool) | api, library, diff (string) / find, extensions, implements (bool) |
+| `--extensions` | Curated Microsoft.Extensions.* packages | find, extensions, implements |
+| `--aspnetcore` | Curated Microsoft.AspNetCore.* packages | find, extensions, implements |
 | `--library` | Local library file | api, find, extensions, implements |
 | `--tfm net8.0` | Select target framework | package, library, api, extensions |
 | `-m Name` | Filter to member (supports globs) | api |
@@ -414,11 +407,11 @@ dotnet-inspect api System.Text.Json -t JsonSerializer        # ✗ -t is not a t
 ### Common Mistakes to Avoid
 
 ```bash
-# WRONG: Using --platform for NuGet packages
+# WRONG: --platform on search commands doesn't take a library name (it's a bool flag)
 dotnet-inspect find "IHost*" --platform Microsoft.Extensions.Hosting   # ✗
-# CORRECT: Use --package for NuGet packages, --platform for SDK libraries
+# CORRECT: Use --package for specific NuGet packages, --extensions for curated set
 dotnet-inspect find "IHost*" --package Microsoft.Extensions.Hosting    # ✓
-dotnet-inspect find "IHost*" --dotnet                                  # ✓ (includes both)
+dotnet-inspect find "IHost*" --extensions                              # ✓ (curated set)
 
 # WRONG: Two separate version args for diff
 dotnet-inspect diff System.Text.Json@8.0.0 System.Text.Json@9.0.0     # ✗
@@ -436,11 +429,16 @@ dotnet-inspect api --package Newtonsoft.Json -m SerializeObject         # ✗
 dotnet-inspect api Newtonsoft.Json JsonConvert -m SerializeObject       # ✓
 ```
 
-### Platform vs Package — When to Use Each
+### Scope Flags on Search Commands (find, extensions, implements)
 
-- **`--platform`**: Only for libraries shipped in the .NET SDK (System.*, Microsoft.AspNetCore.*). Resolves from local SDK packs.
-- **`--package`**: For NuGet packages (including Microsoft.Extensions.*, Newtonsoft.Json, etc.). Downloads from NuGet.
-- **`--dotnet`**: Convenience scope — both frameworks + curated Microsoft packages. Use when unsure.
+- **`--platform`** (bool): All platform frameworks (runtime, aspnetcore, netstandard ref packs).
+- **`--extensions`**: Curated Microsoft.Extensions.* packages (DI, Logging, Configuration, etc.).
+- **`--aspnetcore`**: Curated Microsoft.AspNetCore.* packages (Authentication, Mvc, SignalR, etc.).
+- **(no flags)**: Default scope — all platform frameworks + Microsoft.Extensions.AI.
+- **`--package`**: Specific NuGet packages. Combinable with scope flags.
+
+Note: `api`, `library`, `diff` still use `--platform <name>` as a string option for specific platform libraries.
+
 - **Bare names**: The tool auto-routes. `System.Text.Json` → platform; `Newtonsoft.Json` → package.
 
 ### Generic Type Syntax
@@ -475,7 +473,7 @@ ParseResult Parse(Command command, IReadOnlyList<string> args, ParserConfigurati
 
 ```bash
 # Step 1: Find the type
-dotnet-inspect find "JsonSerializer" --framework runtime
+dotnet-inspect find "JsonSerializer"
 # Shows: System.Text.Json.JsonSerializer in System.Text.Json.dll
 
 # Step 2: Get type shape
@@ -504,7 +502,9 @@ dotnet-inspect api JsonSerializer --package System.Text.Json Serialize:1
 | Flag | api | find | extensions | implements | diff | library | package |
 |------|-----|------|------------|------------|------|---------|---------|
 | `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| `--platform` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `--library` | ✓ | ✓ | ✓ | ✓ | | — | — |
-| `--framework` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `--platform` | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
+| `--extensions` | — | ✓ | ✓ | ✓ | — | — | — |
+| `--aspnetcore` | — | ✓ | ✓ | ✓ | — | — | — |
+| `--library` | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--framework` | ✓ | — | — | — | ✓ | ✓ | — |
 | `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

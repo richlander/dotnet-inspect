@@ -346,41 +346,14 @@ public class CommandLineTests
         Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));
     }
 
-    [Theory]
-    [InlineData(new[] { "platform", "runtime" }, new[] { "platform", "ls", "--framework", "runtime" })]
-    [InlineData(new[] { "platform", "runtime", "ls" }, new[] { "platform", "ls", "--framework", "runtime" })]
-    [InlineData(new[] { "platform", "runtime", "list" }, new[] { "platform", "ls", "--framework", "runtime" })]
-    [InlineData(new[] { "platform", "runtime@10.0.1" }, new[] { "platform", "ls", "--framework", "runtime@10.0.1" })]
-    [InlineData(new[] { "platform", "aspnetcore", "ls" }, new[] { "platform", "ls", "--framework", "aspnetcore" })]
-    [InlineData(new[] { "platform", "netstandard" }, new[] { "platform", "ls", "--framework", "netstandard" })]
-    [InlineData(new[] { "platform", "runtime", "ls", "--json" }, new[] { "platform", "ls", "--framework", "runtime", "--json" })]
-    [InlineData(new[] { "platform", "runtime@9.0.1", "--types" }, new[] { "platform", "ls", "--framework", "runtime@9.0.1", "--types" })]
-    [InlineData(new[] { "platform", "runtime", "9.0.12" }, new[] { "platform", "ls", "--framework", "runtime@9.0.12" })]
-    [InlineData(new[] { "platform", "runtime", "9.0.12", "ls" }, new[] { "platform", "ls", "--framework", "runtime@9.0.12" })]
-    [InlineData(new[] { "platform", "runtime", "9.0.12", "--json" }, new[] { "platform", "ls", "--framework", "runtime@9.0.12", "--json" })]
-    public void PreprocessArgs_PlatformFramework_RewritesToLsFramework(string[] args, string[] expected)
-    {
-        var result = CommandLineBuilder.PreprocessArgs(args);
-
-        Assert.Equal(expected, result);
-    }
-
     [Fact]
-    public void PreprocessArgs_PlatformLs_ReturnsUnchanged()
+    public void PreprocessArgs_PlatformBareIsUnknown_PrependsRouter()
     {
-        var args = new[] { "platform", "ls" };
+        // "platform" is no longer a known command
+        var args = new[] { "platform" };
         var result = CommandLineBuilder.PreprocessArgs(args);
 
-        Assert.Equal(args, result);
-    }
-
-    [Fact]
-    public void PreprocessArgs_PlatformAssembly_ReturnsUnchanged()
-    {
-        var args = new[] { "platform", "System.Text.Json" };
-        var result = CommandLineBuilder.PreprocessArgs(args);
-
-        Assert.Equal(args, result);
+        Assert.Equal(["router", "platform"], result);
     }
 
     [Theory]
@@ -621,9 +594,65 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void FindCommand_WithFramework_ParsesCorrectly()
+    public void FindCommand_WithPlatformBoolFlag_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--framework", "runtime"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithExtensionsFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--extensions"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithAspnetcoreFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--aspnetcore"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithDotnetFlag_ProducesError()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--dotnet"]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithCombinedScopeFlags_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform", "--extensions"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithAllScopeFlags_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform", "--extensions", "--aspnetcore"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithScopeFlagAndPackage_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform", "--package", "Newtonsoft.Json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithNoArgs_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find"]);
 
         Assert.Empty(result.Errors);
     }
@@ -639,7 +668,7 @@ public class CommandLineTests
     [Fact]
     public void FindCommand_WithLimit_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--framework", "runtime", "-n", "10"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform", "-n", "10"]);
 
         Assert.Empty(result.Errors);
     }
@@ -698,6 +727,102 @@ public class CommandLineTests
     public void ApiCommand_WithInterfacesAndHierarchy_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--interfaces", "--hierarchy"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ExtensionsCommand_WithPlatformFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions", "HttpClient", "--platform"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ExtensionsCommand_WithExtensionsFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions", "HttpClient", "--extensions"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ExtensionsCommand_WithAspnetcoreFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions", "HttpClient", "--aspnetcore"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ExtensionsCommand_WithCombinedScopeFlags_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions", "HttpClient", "--platform", "--extensions"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ExtensionsCommand_WithScopeFlagAndPackage_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions", "HttpClient", "--platform", "--package", "Newtonsoft.Json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ExtensionsCommand_WithNoArgs_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["extensions"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ImplementsCommand_WithPlatformFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--platform"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ImplementsCommand_WithExtensionsFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--extensions"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ImplementsCommand_WithAspnetcoreFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--aspnetcore"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ImplementsCommand_WithCombinedScopeFlags_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--platform", "--aspnetcore"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ImplementsCommand_WithScopeFlagAndPackage_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--extensions", "--package", "Newtonsoft.Json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void ImplementsCommand_WithNoArgs_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements"]);
 
         Assert.Empty(result.Errors);
     }

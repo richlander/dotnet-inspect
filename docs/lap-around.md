@@ -209,10 +209,10 @@ The router only applies special routing logic to `System.` and `Microsoft.` bare
 
 ## Find
 
-You can search for types in any scope. The default is platform runtime assemblies (not `aspnetcore`).
+You can search for types in any scope. The default is all platform frameworks plus curated packages.
 
 ```bash=
-$ dotnet-inspect find "Chat*,Diction*" -v:q --framework runtime --framework aspnetcore --package Microsoft.Extensions.AI
+$ dotnet-inspect find "Chat*,Diction*" -v:q
 # Find Results
 
 ## Chat*
@@ -810,7 +810,7 @@ $ dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q | head 
 It can sometimes be useful to know which types implement another, like a Stream. `implements` does that.
 
 ```bash=
-$ dotnet-inspect implements Stream --framework runtime --framework aspnetcore
+$ dotnet-inspect implements Stream
 # Types Implementing Stream
 
 Matches: 17
@@ -852,10 +852,10 @@ dotnet-inspect extensions HttpClient                    # List all extensions ta
 dotnet-inspect extensions HttpClient --reachable        # List all extensions one can use from HttpClient + one property away
 ```
 
-The `--dotnet` flag searches runtime + aspnetcore frameworks and curated Microsoft packages in one shot, replacing the need to enumerate packages by hand:
+The default scope searches all platform frameworks plus curated packages, replacing the need to enumerate packages by hand:
 
 ```bash=
-$ dotnet-inspect extensions IServiceCollection --dotnet | head -14
+$ dotnet-inspect extensions IServiceCollection | head -14
 # Extension Methods for IServiceCollection
 
 ## IServiceCollection Extensions (121)

@@ -55,35 +55,6 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
-// Platform command JSON types
-public record PlatformFrameworksJson(List<PlatformFrameworkJson> Frameworks);
-public record PlatformFrameworkJson(string ShortName, string LatestVersion, int AssemblyCount);
-public record PlatformVersionsJson(string ShortName, List<string> Versions);
-public record PlatformAssembliesJson(string Framework, string Version, List<PlatformAssemblyJson> Assemblies);
-public record PlatformAssemblyJson(string Name, int? Types);
-
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<PlatformFrameworkJson>))]
-[JsonSerializable(typeof(List<PlatformVersionsJson>))]
-[JsonSerializable(typeof(List<PlatformAssembliesJson>))]
-public partial class PlatformJsonContext : JsonSerializerContext
-{
-}
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<PlatformFrameworkJson>))]
-[JsonSerializable(typeof(List<PlatformVersionsJson>))]
-[JsonSerializable(typeof(List<PlatformAssembliesJson>))]
-public partial class PlatformCompactJsonContext : JsonSerializerContext
-{
-}
-
 // Find command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,

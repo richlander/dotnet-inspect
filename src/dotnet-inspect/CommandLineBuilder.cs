@@ -19,17 +19,56 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "diff", "find", "search", "samples", "platform", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "cache", "cli", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
-    /// Curated packages included in the --dotnet scope.
-    /// These are popular Microsoft packages that ship outside the platform frameworks.
+    /// Platform framework names for --platform scope.
     /// </summary>
-    internal static readonly string[] DotNetScopePackages =
+    internal static readonly string[] PlatformFrameworkNames = ["runtime", "aspnetcore", "netstandard"];
+
+    /// <summary>
+    /// Curated Microsoft.Extensions.* packages for --extensions scope.
+    /// </summary>
+    internal static readonly string[] ExtensionsScopePackages =
+    [
+        "Microsoft.Extensions.DependencyInjection",
+        "Microsoft.Extensions.DependencyInjection.Abstractions",
+        "Microsoft.Extensions.Logging",
+        "Microsoft.Extensions.Logging.Abstractions",
+        "Microsoft.Extensions.Configuration",
+        "Microsoft.Extensions.Configuration.Abstractions",
+        "Microsoft.Extensions.Options",
+        "Microsoft.Extensions.Hosting",
+        "Microsoft.Extensions.Hosting.Abstractions",
+        "Microsoft.Extensions.FileProviders.Abstractions",
+        "Microsoft.Extensions.Http",
+        "Microsoft.Extensions.Caching.Memory",
+        "Microsoft.Extensions.Caching.Abstractions",
+        "Microsoft.Extensions.Telemetry.Abstractions",
+        "Microsoft.Extensions.AI",
+        "Microsoft.Extensions.AI.Abstractions",
+    ];
+
+    /// <summary>
+    /// Curated Microsoft.AspNetCore.* packages for --aspnetcore scope.
+    /// </summary>
+    internal static readonly string[] AspNetCoreScopePackages =
+    [
+        "Microsoft.AspNetCore.Authentication",
+        "Microsoft.AspNetCore.Authorization",
+        "Microsoft.AspNetCore.Components",
+        "Microsoft.AspNetCore.Mvc.Core",
+        "Microsoft.AspNetCore.SignalR",
+    ];
+
+    /// <summary>
+    /// Small default package set for --curated scope (the implicit default).
+    /// </summary>
+    internal static readonly string[] CuratedScopePackages =
     [
         "Microsoft.Extensions.AI",
-        "Microsoft.EntityFrameworkCore",
+        "Microsoft.Extensions.AI.Abstractions",
     ];
 
     /// <summary>
@@ -60,49 +99,8 @@ public static class CommandLineBuilder
             return ["router", .. args];
         }
 
-        // platform <framework>[@version] [version] [ls|list] [options...] → platform ls --framework <framework>[@version] [options...]
-        if (args.Length >= 2
-            && args[0].Equals("platform", StringComparison.OrdinalIgnoreCase)
-            && !args[1].StartsWith('-')
-            && IsFrameworkName(args[1]))
-        {
-            var framework = args[1];
-            int skip = 2;
-
-            // Absorb a bare version token after the framework name (e.g. `platform runtime 9.0.12`)
-            if (!framework.Contains('@') && args.Length > skip
-                && !args[skip].StartsWith('-') && IsVersionLike(args[skip]))
-            {
-                framework = $"{framework}@{args[skip]}";
-                skip++;
-            }
-
-            // Skip optional ls/list that follows the framework name
-            if (args.Length > skip && (args[skip].Equals("ls", StringComparison.OrdinalIgnoreCase)
-                                    || args[skip].Equals("list", StringComparison.OrdinalIgnoreCase)))
-            {
-                skip++;
-            }
-
-            return ["platform", "ls", "--framework", framework, .. args[skip..]];
-        }
-
         return args;
     }
-
-    /// <summary>
-    /// Returns true if the argument is a known framework name, optionally with @version suffix.
-    /// </summary>
-    private static bool IsFrameworkName(string arg)
-    {
-        var name = arg.Contains('@') ? arg[..arg.LastIndexOf('@')] : arg;
-        return PlatformResolver.FrameworkMappings.ContainsKey(name);
-    }
-
-    /// <summary>
-    /// Returns true if the argument looks like a version string (starts with a digit).
-    /// </summary>
-    private static bool IsVersionLike(string arg) => arg.Length > 0 && char.IsDigit(arg[0]);
 
     /// <summary>
     /// Creates the root command with all subcommands configured.
@@ -180,10 +178,6 @@ public static class CommandLineBuilder
         var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(packageCommand);
 
-        // Platform command
-        var platformCommand = CreatePlatformCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption);
-        rootCommand.Subcommands.Add(platformCommand);
-
         // Router command (hidden, implicit default for bare names)
         var routerCommand = CreateRouterCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(routerCommand);
@@ -233,7 +227,7 @@ public static class CommandLineBuilder
                 new Tip("-T:d", "", "show more tips per command"),
                 new Tip(ApiCommand.Name, "--package <package>", "view public API surface"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
-                new Tip(FindCommand.Name, "<pattern> --platform <library>", "search platform types"));
+                new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
         });
 
         return rootCommand;
@@ -429,9 +423,10 @@ public static class CommandLineBuilder
     {
         var extCommand = new Command("extensions", "Find extension methods for a type");
 
-        var targetTypeArg = new Argument<string>("type")
+        var targetTypeArg = new Argument<string?>("type")
         {
-            Description = "Target type to find extensions for (e.g., HttpClient, IEnumerable<T>)"
+            Description = "Target type to find extensions for (e.g., HttpClient, IEnumerable<T>)",
+            Arity = ArgumentArity.ZeroOrOne
         };
 
         var packageOption = new Option<string[]>("--package")
@@ -444,16 +439,10 @@ public static class CommandLineBuilder
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<string[]>("--platform")
-        {
-            Description = "Search in platform library(s) (e.g., System.Text.Json). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
-        };
-        var frameworkOption = new Option<string[]>("--framework")
-        {
-            Description = "Search all libraries in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
-        };
+        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var reachableOption = new Option<bool>("--reachable")
         {
             Description = "Include extensions on types reachable via properties/methods"
@@ -466,14 +455,13 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var dotnetOption = new Option<bool>("--dotnet") { Description = "Search runtime + aspnetcore frameworks and curated Microsoft packages" };
-
         extCommand.Arguments.Add(targetTypeArg);
         extCommand.Options.Add(packageOption);
         extCommand.Options.Add(assemblyOption);
         extCommand.Options.Add(platformOption);
-        extCommand.Options.Add(frameworkOption);
-        extCommand.Options.Add(dotnetOption);
+        extCommand.Options.Add(extensionsOption);
+        extCommand.Options.Add(aspnetcoreOption);
+        extCommand.Options.Add(curatedOption);
         extCommand.Options.Add(reachableOption);
         extCommand.Options.Add(depthOption);
         extCommand.Options.Add(tfmOption);
@@ -491,25 +479,57 @@ public static class CommandLineBuilder
         extCommand.SetAction(async (parseResult, ct) =>
         {
             var targetType = parseResult.GetValue(targetTypeArg);
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var frameworks = parseResult.GetValue(frameworkOption) ?? [];
 
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
-            var platforms = parseResult.GetValue(platformOption) ?? [];
-            bool hasScopeFlags = packages.Length > 0 || frameworks.Length > 0 || assemblies.Length > 0 || platforms.Length > 0;
-
-            if (parseResult.GetValue(dotnetOption) || !hasScopeFlags)
+            if (string.IsNullOrEmpty(targetType))
             {
-                frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
-                packages = [..packages, ..DotNetScopePackages];
+                new HelpAction().Invoke(parseResult);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Tips:");
+                Console.Error.WriteLine("  extensions HttpClient                     # search default scope");
+                Console.Error.WriteLine("  extensions HttpClient --platform          # platform libraries only");
+                Console.Error.WriteLine("  extensions HttpClient --extensions         # Microsoft.Extensions packages");
+                Console.Error.WriteLine("  extensions HttpClient --aspnetcore         # ASP.NET Core packages");
+                Console.Error.WriteLine("  extensions HttpClient --package Foo        # specific package");
+                Console.Error.WriteLine("  extensions HttpClient --platform --extensions  # combine scopes");
+                return 0;
+            }
+
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+
+            bool wantPlatform = parseResult.GetValue(platformOption);
+            bool wantExtensions = parseResult.GetValue(extensionsOption);
+            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
+            bool wantCurated = parseResult.GetValue(curatedOption);
+            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
+                || packages.Length > 0 || assemblies.Length > 0;
+
+            // Resolve scope
+            string[] frameworks = [];
+            if (!hasExplicitScope)
+            {
+                // Default scope: all platform frameworks + curated packages
+                frameworks = PlatformFrameworkNames;
+                packages = [..packages, ..CuratedScopePackages];
+            }
+            else
+            {
+                if (wantPlatform) frameworks = PlatformFrameworkNames;
+                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
+                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
+                if (wantCurated)
+                {
+                    frameworks = [..frameworks, ..PlatformFrameworkNames];
+                    packages = [..packages, ..CuratedScopePackages];
+                }
             }
 
             var options = new ExtensionsOptions
             {
-                TargetType = targetType!,
+                TargetType = targetType,
                 Packages = packages,
                 Assemblies = assemblies,
-                PlatformAssemblies = platforms,
+                PlatformAssemblies = [],
                 PlatformFrameworks = frameworks,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
@@ -542,9 +562,10 @@ public static class CommandLineBuilder
         var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");
         findCommand.Aliases.Add("search");
 
-        var patternArg = new Argument<string>("pattern")
+        var patternArg = new Argument<string?>("pattern")
         {
-            Description = "Type name or glob pattern. Comma-separated for multiple (e.g., \"Option*,Argument*,Command*\")"
+            Description = "Type name or glob pattern. Comma-separated for multiple (e.g., \"Option*,Argument*,Command*\")",
+            Arity = ArgumentArity.ZeroOrOne
         };
 
         var packageOption = new Option<string[]>("--package")
@@ -557,16 +578,10 @@ public static class CommandLineBuilder
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<string[]>("--platform")
-        {
-            Description = "Search in platform library(s) (e.g., System.Text.Json). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
-        };
-        var frameworkOption = new Option<string[]>("--framework")
-        {
-            Description = "Search all libraries in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
-        };
+        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -584,14 +599,13 @@ public static class CommandLineBuilder
         var groupedOption = new Option<bool>("--grouped") { Description = "Group results by pattern (use with --oneline)" };
         var terseOption = new Option<bool>("--terse") { Description = "Compact output (alias for --oneline --grouped)" };
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names, one per line" };
-        var dotnetOption = new Option<bool>("--dotnet") { Description = "Search runtime + aspnetcore frameworks and curated Microsoft packages" };
-
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
-        findCommand.Options.Add(frameworkOption);
-        findCommand.Options.Add(dotnetOption);
+        findCommand.Options.Add(extensionsOption);
+        findCommand.Options.Add(aspnetcoreOption);
+        findCommand.Options.Add(curatedOption);
         findCommand.Options.Add(projectOption);
         findCommand.Options.Add(binOption);
         findCommand.Options.Add(tfmOption);
@@ -613,20 +627,52 @@ public static class CommandLineBuilder
         findCommand.SetAction(async (parseResult, ct) =>
         {
             var pattern = parseResult.GetValue(patternArg);
+
+            if (string.IsNullOrEmpty(pattern))
+            {
+                new HelpAction().Invoke(parseResult);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Tips:");
+                Console.Error.WriteLine("  find Chat*                                # search default scope");
+                Console.Error.WriteLine("  find Chat* --platform                     # platform libraries only");
+                Console.Error.WriteLine("  find Chat* --extensions                   # Microsoft.Extensions packages");
+                Console.Error.WriteLine("  find Chat* --aspnetcore                   # ASP.NET Core packages");
+                Console.Error.WriteLine("  find Chat* --package Newtonsoft.Json       # specific package");
+                Console.Error.WriteLine("  find Chat* --platform --extensions         # combine scopes");
+                return 0;
+            }
+
             var terse = parseResult.GetValue(terseOption);
             var packages = parseResult.GetValue(packageOption) ?? [];
-            var frameworks = parseResult.GetValue(frameworkOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
-            var platforms = parseResult.GetValue(platformOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
             var binPaths = parseResult.GetValue(binOption) ?? [];
-            bool hasScopeFlags = packages.Length > 0 || frameworks.Length > 0 || assemblies.Length > 0
-                || platforms.Length > 0 || projects.Length > 0 || binPaths.Length > 0;
 
-            if (parseResult.GetValue(dotnetOption) || !hasScopeFlags)
+            bool wantPlatform = parseResult.GetValue(platformOption);
+            bool wantExtensions = parseResult.GetValue(extensionsOption);
+            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
+            bool wantCurated = parseResult.GetValue(curatedOption);
+            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
+                || packages.Length > 0 || assemblies.Length > 0 || projects.Length > 0 || binPaths.Length > 0;
+
+            // Resolve scope
+            string[] frameworks = [];
+            if (!hasExplicitScope)
             {
-                frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
-                packages = [..packages, ..DotNetScopePackages];
+                // Default scope: all platform frameworks + curated packages
+                frameworks = PlatformFrameworkNames;
+                packages = [..packages, ..CuratedScopePackages];
+            }
+            else
+            {
+                if (wantPlatform) frameworks = PlatformFrameworkNames;
+                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
+                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
+                if (wantCurated)
+                {
+                    frameworks = [..frameworks, ..PlatformFrameworkNames];
+                    packages = [..packages, ..CuratedScopePackages];
+                }
             }
 
             var options = new FindOptions
@@ -634,7 +680,7 @@ public static class CommandLineBuilder
                 Pattern = pattern!,
                 Packages = packages,
                 Assemblies = assemblies,
-                PlatformAssemblies = platforms,
+                PlatformAssemblies = [],
                 PlatformFrameworks = frameworks,
                 Projects = projects,
                 BinPaths = binPaths,
@@ -659,7 +705,7 @@ public static class CommandLineBuilder
             if (exitCode == 0 && !options.IsRawOutput)
             {
                 var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
-                var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform <library>";
+                var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform";
 
                 Hints.WriteTips(tipLevel,
                     new(ApiCommand.Name, $"<TypeName> {sourceFlag} --shape", "view type shape"),
@@ -764,159 +810,6 @@ public static class CommandLineBuilder
         return samplesCommand;
     }
 
-    private static Command CreatePlatformCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption)
-    {
-        var platformCommand = new Command(PlatformCommand.Name, "Inspect platform libraries and frameworks");
-
-        var assemblyNameArg = new Argument<string?>("library")
-        {
-            Description = "Platform library name to inspect (e.g., System.Text.Json)",
-            Arity = ArgumentArity.ZeroOrOne
-        };
-        assemblyNameArg.DefaultValueFactory = _ => null;
-
-        var frameworkOption = new Option<string?>("--framework")
-        {
-            Description = "Framework to use (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
-        };
-        var metadataOption = new Option<bool>("--metadata")
-        {
-            Description = "Show library info (PE metadata: name, version, TFM, architecture)"
-        };
-        var sourcelinkAuditOption = new Option<bool>("--source-link-audit")
-        {
-            Description = "Full provenance verification (parallel HTTP HEAD on all source files)"
-        };
-        platformCommand.Arguments.Add(assemblyNameArg);
-        platformCommand.Options.Add(frameworkOption);
-        platformCommand.Options.Add(metadataOption);
-        platformCommand.Options.Add(sourcelinkAuditOption);
-        platformCommand.Options.Add(jsonOption);
-        platformCommand.Options.Add(verboseOption);
-        platformCommand.Options.Add(verbosityOption);
-        platformCommand.Options.Add(includeSectionsOption);
-        platformCommand.Options.Add(excludeSectionsOption);
-        platformCommand.Options.Add(tipsOption);
-
-        // list subcommand (alias: ls) - list installed frameworks and assemblies
-        var listCommand = new Command("list", "List installed frameworks and libraries");
-        listCommand.Aliases.Add("ls");
-
-        var listFrameworkOption = new Option<string?>("--framework")
-        {
-            Description = "Framework to use (runtime, aspnetcore, netstandard). Use @version for specific version (e.g., runtime@8.0.23)"
-        };
-        var listVersionsOption = new Option<bool>("--list-versions")
-        {
-            Description = "List all installed versions for each framework"
-        };
-        var includeTypesOption = new Option<bool>("--types")
-        {
-            Description = "Include public type count for each library (use with --framework)"
-        };
-        var listJsonOption = new Option<bool>("--json")
-        {
-            Description = "Output as JSON"
-        };
-        var compactOption = new Option<bool>("--compact")
-        {
-            Description = "Minified JSON (use with --json)"
-        };
-        var listLimitOption = new Option<int?>("--limit")
-        {
-            Description = "Limit number of results"
-        };
-        var listVerboseOption = new Option<bool>("--verbose")
-        {
-            Description = "Show verbose output"
-        };
-        var listVerbosityOption = new Option<string?>("-v")
-        {
-            Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)"
-        };
-        var listVersionOption = new Option<string?>("--version")
-        {
-            Description = "Framework version (e.g., 9.0.12)"
-        };
-        listCommand.Options.Add(listFrameworkOption);
-        listCommand.Options.Add(listVersionsOption);
-        listCommand.Options.Add(listVersionOption);
-        listCommand.Options.Add(includeTypesOption);
-        listCommand.Options.Add(listJsonOption);
-        listCommand.Options.Add(compactOption);
-        listCommand.Options.Add(listLimitOption);
-        listCommand.Options.Add(listVerboseOption);
-        listCommand.Options.Add(listVerbosityOption);
-
-        listCommand.SetAction(async (parseResult, ct) =>
-        {
-            var framework = parseResult.GetValue(listFrameworkOption);
-            var version = parseResult.GetValue(listVersionOption);
-
-            // Merge --version into --framework spec (e.g. --framework runtime --version 9.0.12 → runtime@9.0.12)
-            if (!string.IsNullOrEmpty(version) && !string.IsNullOrEmpty(framework) && !framework.Contains('@'))
-            {
-                framework = $"{framework}@{version}";
-            }
-
-            var options = new PlatformOptions
-            {
-                Framework = framework,
-                ListVersions = parseResult.GetValue(listVersionsOption),
-                IncludeTypes = parseResult.GetValue(includeTypesOption),
-                Limit = parseResult.GetValue(listLimitOption),
-                JsonOutput = parseResult.GetValue(listJsonOption),
-                CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(listVerboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(listVerbosityOption))
-            };
-
-            return await PlatformCommand.ExecuteAsync(options);
-        });
-
-        platformCommand.Subcommands.Add(listCommand);
-
-        platformCommand.SetAction(async (parseResult, ct) =>
-        {
-            var assemblyName = parseResult.GetValue(assemblyNameArg);
-
-            // If an assembly name is specified, delegate to AssemblyCommand
-            if (!string.IsNullOrEmpty(assemblyName))
-            {
-                bool showMetadata = parseResult.GetValue(metadataOption);
-                bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
-
-                var assemblyOptions = new AssemblyOptions
-                {
-                    PlatformAssembly = assemblyName,
-                    PlatformFramework = parseResult.GetValue(frameworkOption),
-                    IncludeMetadata = showMetadata,
-                    IncludeSourcelinkAudit = runSourcelinkAudit,
-                    JsonOutput = parseResult.GetValue(jsonOption),
-                    Verbose = parseResult.GetValue(verboseOption),
-                    Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                    IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                    ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
-                };
-
-                return await AssemblyCommand.ExecuteAsync(assemblyOptions);
-            }
-
-            // No assembly specified: show help
-            new HelpAction().Invoke(parseResult);
-            return 0;
-        });
-
-        return platformCommand;
-    }
-
     private static Command CreateImplementsCommand(
         Option<bool> jsonOption,
         Option<bool> verboseOption,
@@ -929,9 +822,10 @@ public static class CommandLineBuilder
     {
         var implCommand = new Command("implements", "Find types implementing an interface or extending a base class");
 
-        var targetTypeArg = new Argument<string>("type")
+        var targetTypeArg = new Argument<string?>("type")
         {
-            Description = "Target interface or base type (e.g., IDisposable, Stream, IList<T>)"
+            Description = "Target interface or base type (e.g., IDisposable, Stream, IList<T>)",
+            Arity = ArgumentArity.ZeroOrOne
         };
 
         var packageOption = new Option<string[]>("--package")
@@ -944,27 +838,20 @@ public static class CommandLineBuilder
             Description = "Search in library file(s). Can repeat.",
             AllowMultipleArgumentsPerToken = true
         };
-        var platformOption = new Option<string[]>("--platform")
-        {
-            Description = "Search in platform library(s) (e.g., System.Text.Json). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
-        };
-        var frameworkOption = new Option<string[]>("--framework")
-        {
-            Description = "Search all libraries in framework(s) (runtime, aspnetcore, netstandard). Can repeat.",
-            AllowMultipleArgumentsPerToken = true
-        };
+        var platformOption = new Option<bool>("--platform") { Description = "Search all platform frameworks (runtime, aspnetcore, netstandard)" };
+        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var dotnetOption = new Option<bool>("--dotnet") { Description = "Search runtime + aspnetcore frameworks and curated Microsoft packages" };
-
         implCommand.Arguments.Add(targetTypeArg);
         implCommand.Options.Add(packageOption);
         implCommand.Options.Add(assemblyOption);
         implCommand.Options.Add(platformOption);
-        implCommand.Options.Add(frameworkOption);
-        implCommand.Options.Add(dotnetOption);
+        implCommand.Options.Add(extensionsOption);
+        implCommand.Options.Add(aspnetcoreOption);
+        implCommand.Options.Add(curatedOption);
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
         implCommand.Options.Add(limitOption);
@@ -980,24 +867,57 @@ public static class CommandLineBuilder
         implCommand.SetAction(async (parseResult, ct) =>
         {
             var targetType = parseResult.GetValue(targetTypeArg);
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var frameworks = parseResult.GetValue(frameworkOption) ?? [];
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
-            var platforms = parseResult.GetValue(platformOption) ?? [];
-            bool hasScopeFlags = packages.Length > 0 || frameworks.Length > 0 || assemblies.Length > 0 || platforms.Length > 0;
 
-            if (parseResult.GetValue(dotnetOption) || !hasScopeFlags)
+            if (string.IsNullOrEmpty(targetType))
             {
-                frameworks = [..frameworks, ..new[] { "runtime", "aspnetcore" }];
-                packages = [..packages, ..DotNetScopePackages];
+                new HelpAction().Invoke(parseResult);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Tips:");
+                Console.Error.WriteLine("  implements Stream                         # search default scope");
+                Console.Error.WriteLine("  implements Stream --platform              # platform libraries only");
+                Console.Error.WriteLine("  implements Stream --extensions             # Microsoft.Extensions packages");
+                Console.Error.WriteLine("  implements Stream --aspnetcore             # ASP.NET Core packages");
+                Console.Error.WriteLine("  implements Stream --package Foo            # specific package");
+                Console.Error.WriteLine("  implements Stream --platform --extensions  # combine scopes");
+                return 0;
+            }
+
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
+
+            bool wantPlatform = parseResult.GetValue(platformOption);
+            bool wantExtensions = parseResult.GetValue(extensionsOption);
+            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
+            bool wantCurated = parseResult.GetValue(curatedOption);
+            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
+                || packages.Length > 0 || assemblies.Length > 0;
+
+            // Resolve scope
+            string[] frameworks = [];
+            if (!hasExplicitScope)
+            {
+                // Default scope: all platform frameworks + curated packages
+                frameworks = PlatformFrameworkNames;
+                packages = [..packages, ..CuratedScopePackages];
+            }
+            else
+            {
+                if (wantPlatform) frameworks = PlatformFrameworkNames;
+                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
+                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
+                if (wantCurated)
+                {
+                    frameworks = [..frameworks, ..PlatformFrameworkNames];
+                    packages = [..packages, ..CuratedScopePackages];
+                }
             }
 
             var options = new ImplementsOptions
             {
-                TargetType = targetType!,
+                TargetType = targetType,
                 Packages = packages,
                 Assemblies = assemblies,
-                PlatformAssemblies = platforms,
+                PlatformAssemblies = [],
                 PlatformFrameworks = frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),

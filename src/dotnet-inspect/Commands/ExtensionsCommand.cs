@@ -21,11 +21,15 @@ public class ExtensionsCommand
 
         try
         {
-            // Safety fallback — CommandLineBuilder should have applied --dotnet scope
+            // Safety fallback — CommandLineBuilder should have applied curated scope
             if (!options.HasAnyScope)
             {
-                logger.Log("No scope specified, defaulting to --dotnet scope");
-                options = options with { PlatformFrameworks = ["runtime", "aspnetcore"] };
+                logger.Log("No scope specified, defaulting to curated scope");
+                options = options with
+                {
+                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+                    Packages = [..options.Packages, ..CommandLineBuilder.CuratedScopePackages]
+                };
             }
 
             List<ExtensionMethodResult> results = [];
