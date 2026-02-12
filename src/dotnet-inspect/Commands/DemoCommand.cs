@@ -21,47 +21,55 @@ public class DemoCommand
     /// </summary>
     public static readonly DemoEntry[] Demos =
     [
+        // api (4)
         new("Shape: INumber<TSelf> — generic math interface", "api",
             ["api", "System.Runtime", "INumber<TSelf>", "--shape"]),
-
-        new("Extensions for IServiceCollection", "extensions",
-            ["extensions", "IServiceCollection"]),
-
-        new("Implements Stream", "implements",
-            ["implements", "Stream"]),
-
-        new("Diff: System.CommandLine breaking changes (beta→stable)", "diff",
-            ["diff", "System.CommandLine@2.0.0-beta4.22272.1..2.0.3", "-v:q"]),
-
-        new("API: JsonSerializer members", "api",
-            ["api", "System.Text.Json", "JsonSerializer"]),
-
-        new("Find: Chat* types", "find",
-            ["find", "Chat*"]),
-
-        new("Package: System.Text.Json@8.0.0 vulnerabilities", "package",
-            ["package", "System.Text.Json@8.0.0", "-s", "Vulnerabilities"]),
-
-        new("Library: Microsoft.Extensions.AI.OpenAI dependency tree", "library",
-            ["library", "Microsoft.Extensions.AI.OpenAI", "--dependencies"]),
 
         new("Shape: Int128 — generic math concrete type", "api",
             ["api", "System.Runtime", "Int128", "--shape"]),
 
-        new("Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic", "find",
-            ["find", "Chat*,Converse*,Message*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime", "--package", "Anthropic"]),
-
-        new("Depends: IFloatingPointIeee754 interface hierarchy", "depends",
-            ["depends", "IFloatingPointIeee754<TSelf>"]),
+        new("API: JsonSerializer members", "api",
+            ["api", "System.Text.Json", "JsonSerializer"]),
 
         new("Code: OptionsFactory.Create — source, lowered C#, and IL", "api",
             ["api", "--package", "Microsoft.Extensions.Options", "OptionsFactory", "Create"]),
 
-        new("Package search: Azure AI ecosystem", "search",
-            ["package", "search", "Azure.AI"]),
+        // depends (1)
+        new("Depends: IFloatingPointIeee754 interface hierarchy", "depends",
+            ["depends", "IFloatingPointIeee754<TSelf>"]),
+
+        // diff (1)
+        new("Diff: System.CommandLine breaking changes (beta→stable)", "diff",
+            ["diff", "System.CommandLine@2.0.0-beta4.22272.1..2.0.3", "-v:q"]),
+
+        // extensions (1)
+        new("Extensions for IServiceCollection", "extensions",
+            ["extensions", "IServiceCollection"]),
+
+        // find (3)
+        new("Find: Chat* types", "find",
+            ["find", "Chat*"]),
+
+        new("Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic", "find",
+            ["find", "Chat*,Converse*,Message*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime", "--package", "Anthropic"]),
 
         new("Find: Chat* across Azure AI packages (prefix search)", "find",
             ["find", "Chat*", "--package-prefix", "Azure.AI"]),
+
+        // implements (1)
+        new("Implements Stream", "implements",
+            ["implements", "Stream"]),
+
+        // library (1)
+        new("Library: Microsoft.Extensions.AI.OpenAI dependency tree", "library",
+            ["library", "Microsoft.Extensions.AI.OpenAI", "--dependencies"]),
+
+        // package (2)
+        new("Package: System.Text.Json@8.0.0 vulnerabilities", "package",
+            ["package", "System.Text.Json@8.0.0", "-s", "Vulnerabilities"]),
+
+        new("Package search: Azure AI ecosystem", "search",
+            ["package", "search", "Azure.AI"]),
     ];
 
     public static async Task<int> ExecuteListAsync()
