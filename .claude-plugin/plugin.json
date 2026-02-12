@@ -6,5 +6,5 @@
     "name": "Rich"
   },
   "license": "MIT",
-  "keywords": ["dotnet", "nuget", "package", "assembly", "api"]
+  "keywords": ["dotnet", "nuget", "package", "library", "api"]
 }
