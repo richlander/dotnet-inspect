@@ -104,34 +104,40 @@ and implicit/explicit conversion operators. The interface list shows the full
 generic math hierarchy resolved with concrete types
 (`IShiftOperators<Int128, int, Int128>` — three different types in one interface).
 
-## 10. Find: Chat\*/Converse\* across OpenAI, Azure, and AWS
+## 10. Find: Chat\*/Converse\*/Message\* across OpenAI, Azure, AWS, Anthropic
 
 ```bash
-dotnet-inspect find "Chat*,Converse*" --package OpenAI --package Azure.AI.OpenAI --package AWSSDK.BedrockRuntime
+dotnet-inspect find "Chat*,Converse*,Message*" --package OpenAI --package Azure.AI.OpenAI --package AWSSDK.BedrockRuntime --package Anthropic
 ```
 
 Pairs with demo #6 to show scope expansion. The default scope finds AI types
-in curated packages; this demo adds three vendor SDK packages and searches
-across all of them. The multi-glob `Chat*,Converse*` catches both naming
-conventions (OpenAI/Azure call it "Chat", AWS calls it "Converse"). Results
-span 67+ types across three packages, showing how `--package` flags compose.
+in curated packages; this demo adds four vendor SDK packages and searches
+across all of them. The multi-glob catches each vendor's naming convention
+(OpenAI/Azure use "Chat", AWS uses "Converse", Anthropic uses "Message").
+Results span 118 types across four packages.
 
-## 11. Extensions for HttpClient
-
-```bash
-dotnet-inspect extensions HttpClient
-```
-
-Finds extension methods targeting `HttpClient` across the default scope.
-Everyone knows `HttpClient`; seeing what extends it is immediately relatable
-and often surprising (JSON helpers, logging, DI integration).
-
-## 12. Diff: System.Text.Json breaking changes (8.0→10.0)
+## 11. Depends: IFloatingPointIeee754 interface hierarchy
 
 ```bash
-dotnet-inspect diff --package System.Text.Json@8.0.0..10.0.3 --breaking
+dotnet-inspect depends "IFloatingPointIeee754<TSelf>"
 ```
 
-Shows only the breaking changes between two major versions of System.Text.Json.
-The `--breaking` filter focuses on what matters most for migration planning.
-A real-world scenario that many .NET developers face.
+Walks the interface dependency DAG upward from `IFloatingPointIeee754<TSelf>`,
+showing the full generic math hierarchy as a tree. Fans out into
+`IFloatingPoint`, `INumber`, `INumberBase`, and then all the operator and
+function interfaces (`IExponentialFunctions`, `ITrigonometricFunctions`, etc.).
+The tree de-duplicates nodes at their shallowest introduction, revealing the
+diamond inheritance pattern in the generic math design.
+
+## 12. Code: OptionsFactory.Create — source, lowered C#, and IL
+
+```bash
+dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
+```
+
+Shows the member detail page for `OptionsFactory<TOptions>.Create` — the
+method that wires up the options pattern. The output includes four sections:
+original C# source (via SourceLink), lowered C# (decompiled from IL with
+goto-based control flow), raw IL disassembly, and annotated IL with
+pre-execution stack state at each instruction. A showcase of the tool's
+decompilation pipeline on a real, well-known method.

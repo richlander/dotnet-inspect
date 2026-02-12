@@ -48,14 +48,14 @@ public class DemoCommand
         new("Shape: Int128 — generic math concrete type", "api",
             ["api", "System.Runtime", "Int128", "--shape"]),
 
-        new("Find: Chat*/Converse* across OpenAI, Azure, and AWS", "find",
-            ["find", "Chat*,Converse*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime"]),
+        new("Find: Chat*/Converse*/Message* across OpenAI, Azure, AWS, Anthropic", "find",
+            ["find", "Chat*,Converse*,Message*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime", "--package", "Anthropic"]),
 
-        new("Extensions for HttpClient", "extensions",
-            ["extensions", "HttpClient"]),
+        new("Depends: IFloatingPointIeee754 interface hierarchy", "depends",
+            ["depends", "IFloatingPointIeee754<TSelf>"]),
 
-        new("Diff: System.Text.Json breaking changes (8.0→10.0)", "diff",
-            ["diff", "--package", "System.Text.Json@8.0.0..10.0.3", "--breaking"]),
+        new("Code: OptionsFactory.Create — source, lowered C#, and IL", "api",
+            ["api", "--package", "Microsoft.Extensions.Options", "OptionsFactory", "Create"]),
     ];
 
     public static async Task<int> ExecuteListAsync()
