@@ -13,7 +13,7 @@ public class DemoCommand
     /// </summary>
     public record DemoEntry(string Title, string Category, string[] Args)
     {
-        public string CommandLine => string.Join(" ", Args.Select(a => a.Contains(' ') || a.Contains('*') ? $"\"{a}\"" : a));
+        public string CommandLine => string.Join(" ", Args.Select(a => a.Contains(' ') || a.Contains('*') || a.Contains('<') ? $"\"{a}\"" : a));
     }
 
     /// <summary>
