@@ -72,6 +72,22 @@ public static class SectionRegistry
     }
 
     /// <summary>
+    /// Resolves both include and exclude section filters.
+    /// Returns the resolved sets, or null values with <paramref name="hasError"/> set if resolution fails.
+    /// </summary>
+    public static (HashSet<string>? Include, HashSet<string>? Exclude) ResolveFilters(
+        string[] knownSections,
+        HashSet<string>? includeRequested,
+        HashSet<string>? excludeRequested,
+        out bool hasError)
+    {
+        var include = Resolve(knownSections, includeRequested, out var includeError);
+        var exclude = Resolve(knownSections, excludeRequested, out var excludeError);
+        hasError = includeError || excludeError;
+        return (include, exclude);
+    }
+
+    /// <summary>
     /// Resolves user-supplied section names against known sections.
     /// Supports case-insensitive matching and trailing <c>*</c> wildcards.
     /// </summary>

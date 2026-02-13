@@ -33,12 +33,10 @@ public class ApiCommand
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
-        options = options with
-        {
-            IncludeSections = SectionRegistry.Resolve(allApiSections, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(allApiSections, options.ExcludeSections, out var excludeError),
-        };
-        if (includeError || excludeError) return 1;
+        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
+            allApiSections, options.IncludeSections, options.ExcludeSections, out var sectionError);
+        if (sectionError) return 1;
+        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
         // Bare -s without input: list all potential sections and exit
         if (options.IncludeSections is { Count: 0 } &&
