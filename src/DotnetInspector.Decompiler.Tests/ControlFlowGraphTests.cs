@@ -294,4 +294,42 @@ public class CfgSampleClass
         try { throw new InvalidOperationException("test"); }
         catch { throw; }
     }
+
+    public static int WhileLoop(int n)
+    {
+        int i = 0;
+        while (i < n)
+            i++;
+        return i;
+    }
+
+    public static int DoWhileLoop(int n)
+    {
+        int i = 0;
+        do { i++; } while (i < n);
+        return i;
+    }
+
+    public static int LoopWithBreak(int[] arr)
+    {
+        int result = -1;
+        for (int i = 0; i < arr.Length; i++)
+        {
+            if (arr[i] == 42)
+            {
+                result = i;
+                break;
+            }
+        }
+        return result;
+    }
+
+    public static int NestedLoops(int n, int m)
+    {
+        int sum = 0;
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < m; j++)
+                sum += i * j;
+        return sum;
+    }
 }

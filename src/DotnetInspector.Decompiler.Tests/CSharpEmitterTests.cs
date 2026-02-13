@@ -63,8 +63,8 @@ public class CSharpEmitterTests
     {
         string output = EmitMethod(nameof(CfgSampleClass.LoopSum));
 
-        Assert.True(output.Contains("while") || output.Contains("goto"),
-            $"Expected loop or goto in:\n{output}");
+        Assert.Contains("while", output);
+        Assert.DoesNotContain("goto", output);
     }
 
     [Fact]
@@ -168,10 +168,46 @@ public class CSharpEmitterTests
     [InlineData(nameof(CfgSampleClass.TryFinally))]
     [InlineData(nameof(CfgSampleClass.LoopSum))]
     [InlineData(nameof(CfgSampleClass.ThrowAndRethrow))]
+    [InlineData(nameof(CfgSampleClass.WhileLoop))]
+    [InlineData(nameof(CfgSampleClass.DoWhileLoop))]
+    [InlineData(nameof(CfgSampleClass.LoopWithBreak))]
+    [InlineData(nameof(CfgSampleClass.NestedLoops))]
     public void AllSampleMethods_ProduceNonEmptyOutput(string methodName)
     {
         string output = EmitMethod(methodName);
         Assert.NotEmpty(output);
+    }
+
+    // --- While loops ---
+
+    [Fact]
+    public void WhileLoop_EmitsWhile()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.WhileLoop));
+
+        Assert.Contains("while", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void NestedLoops_EmitsWhile()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.NestedLoops));
+
+        // Should have at least one while
+        Assert.Contains("while", output);
+    }
+
+    // --- Goto-to-return inlining ---
+
+    [Fact]
+    public void TryCatch_InlinesReturn()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.TryCatch));
+
+        Assert.Contains("return", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
     }
 
     // --- Platform stress test ---
