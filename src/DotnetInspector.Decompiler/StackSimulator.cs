@@ -35,7 +35,7 @@ public sealed class StackSimulationResult
 /// outgoing state to successors using a worklist. Introduces
 /// <see cref="ILVariable"/> instances at block boundaries.
 /// </summary>
-public static class StackSimulator
+internal static class StackSimulator
 {
     /// <summary>
     /// Simulate the evaluation stack for the given method, producing typed

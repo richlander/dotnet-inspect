@@ -13,7 +13,7 @@ namespace DotnetInspector.Decompiler;
 /// changes per instruction. Ported from dotnet/runtime Internal.IL.ILStackHelper,
 /// adapted to use <see cref="MethodBodyContext"/> and BCL types.
 /// </summary>
-public static class StackHeightCalculator
+internal static class StackHeightCalculator
 {
     const int StackHeightNotSet = int.MinValue;
     const int StackAllocThreshold = 256 / sizeof(int);

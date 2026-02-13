@@ -36,7 +36,7 @@ public sealed class ConditionalPattern
 /// <summary>
 /// Detects if/else patterns from conditional branches in the CFG.
 /// </summary>
-public static class ConditionalDetector
+internal static class ConditionalDetector
 {
     /// <summary>
     /// Find if/else patterns in the CFG.

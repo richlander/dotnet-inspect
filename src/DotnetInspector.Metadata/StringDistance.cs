@@ -3,7 +3,7 @@ namespace DotnetInspector.Metadata;
 /// <summary>
 /// High-level string distance API for fuzzy matching.
 /// </summary>
-public static class StringDistance
+internal static class StringDistance
 {
     /// <summary>
     /// Computes the edit distance between two strings.
@@ -27,7 +27,7 @@ public static class StringDistance
 /// Computes the Levenshtein edit distance between two strings.
 /// Uses an optimized single-row algorithm with O(min(m,n)) memory.
 /// </summary>
-public static class LevenshteinDistance
+internal static class LevenshteinDistance
 {
     /// <summary>
     /// Computes the Levenshtein edit distance between two strings.
