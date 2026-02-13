@@ -118,6 +118,7 @@ public sealed class MethodBodyContext
                 genericContext = GenericContext.ForMethod(reader, typeDef, method);
             }
         }
+        // Graceful fallback when generic context cannot be built from declaring type
         catch { }
 
         var localTypes = DecodeLocalTypes(reader, body.LocalSignature, genericContext);

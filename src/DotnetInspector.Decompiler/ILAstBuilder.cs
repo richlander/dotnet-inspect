@@ -993,6 +993,7 @@ public static class ILAstBuilder
                 return (reader.GetString(memberRef.Name), StackValue.FromTypeName(typeName));
             }
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { }
         return ($"field:0x{token:X8}", StackValue.CreateUnknown());
     }
@@ -1015,6 +1016,7 @@ public static class ILAstBuilder
                 return reader.GetTypeSpecification((TypeSpecificationHandle)handle)
                     .DecodeSignature(SignatureDecoder.Instance, genericContext);
         }
+        // Fallback when metadata token cannot be decoded (malformed IL or cross-assembly ref)
         catch { }
         return null;
     }
@@ -1022,6 +1024,7 @@ public static class ILAstBuilder
     static string? ResolveString(MetadataReader reader, int token)
     {
         try { return reader.GetUserString(MetadataTokens.UserStringHandle(token)); }
+        // Fallback when string token is invalid
         catch { return null; }
     }
 
@@ -1058,6 +1061,7 @@ public static class ILAstBuilder
                 return reader.GetString(memberRef.Name);
             }
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { }
         return $"token:0x{token:X8}";
     }
@@ -1088,6 +1092,7 @@ public static class ILAstBuilder
                 return $"{typeName}::{name}";
             }
         }
+        // Fallback when parent type cannot be resolved
         catch { }
         return name;
     }
@@ -1108,6 +1113,7 @@ public static class ILAstBuilder
                 _ => $"token:0x{token:X8}"
             };
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"token:0x{token:X8}"; }
     }
 

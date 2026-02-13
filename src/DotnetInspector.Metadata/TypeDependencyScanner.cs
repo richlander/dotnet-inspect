@@ -35,7 +35,16 @@ public static class TypeDependencyScanner
                 try
                 {
                     var stream = File.OpenRead(path);
-                    var peReader = new PEReader(stream);
+                    PEReader peReader;
+                    try
+                    {
+                        peReader = new PEReader(stream);
+                    }
+                    catch
+                    {
+                        stream.Dispose();
+                        throw;
+                    }
                     peReaders.Add(peReader);
 
                     if (!peReader.HasMetadata)
@@ -59,10 +68,8 @@ public static class TypeDependencyScanner
                         typeIndex.TryAdd(fullName, (peReader, mdReader, typeDef));
                     }
                 }
-                catch
-                {
-                    // Skip assemblies that can't be read
-                }
+                // Skip assemblies that can't be read
+                catch { }
             }
 
             // Find the target type
