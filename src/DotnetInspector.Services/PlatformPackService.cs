@@ -39,7 +39,7 @@ public static class PlatformPackService
             return null;
         }
 
-        return await EnsurePackAsync(packName, version, client, log);
+        return await EnsurePackAsync(packName, version, client, log).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -149,10 +149,10 @@ public static class PlatformPackService
         HttpClient client,
         Action<string>? log)
     {
-        version ??= await GetLatestPackVersionAsync(packName, client, log);
+        version ??= await GetLatestPackVersionAsync(packName, client, log).ConfigureAwait(false);
         if (version == null) return null;
 
-        var packDir = await EnsurePackAsync(packName, version, client, log);
+        var packDir = await EnsurePackAsync(packName, version, client, log).ConfigureAwait(false);
         return packDir != null ? new PackResult(packName, version, packDir) : null;
     }
 
@@ -165,7 +165,7 @@ public static class PlatformPackService
         Action<string>? log = null)
     {
         var sources = NuGetSourceResolver.ResolveSources(null);
-        return await PackageExtractor.GetLatestVersionAsync(client, packName, sources, log);
+        return await PackageExtractor.GetLatestVersionAsync(client, packName, sources, log).ConfigureAwait(false);
     }
 
     // ── Core download ────────────────────────────────────────────────
@@ -199,7 +199,7 @@ public static class PlatformPackService
             client,
             $"{packName}@{version}",
             log,
-            tempDirPrefix: "inspect-pack");
+            tempDirPrefix: "inspect-pack").ConfigureAwait(false);
 
         if (result == null)
         {

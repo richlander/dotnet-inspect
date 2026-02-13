@@ -49,7 +49,7 @@ public class SymbolPackageDownloader(HttpClient client)
         if (isMicrosoftPackage)
         {
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
-            var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log);
+            var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log).ConfigureAwait(false);
             if (msdlResult.PdbFilePath != null)
                 return msdlResult;
             if (msdlResult.WindowsPdbDetected)
@@ -60,7 +60,7 @@ public class SymbolPackageDownloader(HttpClient client)
         if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
-                packageName, packageVersion, assemblyPath, log);
+                packageName, packageVersion, assemblyPath, log).ConfigureAwait(false);
             if (snupkgResult.PdbFilePath != null)
                 return snupkgResult;
             if (snupkgResult.WindowsPdbDetected)
@@ -70,7 +70,7 @@ public class SymbolPackageDownloader(HttpClient client)
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
         if (!isMicrosoftPackage)
         {
-            var symbolResult = await TryLocateFromSymbolServerAsync(pdbFileName, symbolKey, log);
+            var symbolResult = await TryLocateFromSymbolServerAsync(pdbFileName, symbolKey, log).ConfigureAwait(false);
             if (symbolResult.PdbFilePath != null)
                 return symbolResult;
             if (symbolResult.WindowsPdbDetected)
@@ -102,7 +102,7 @@ public class SymbolPackageDownloader(HttpClient client)
 
         try
         {
-            using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log);
+            using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log).ConfigureAwait(false);
             if (response == null || !response.IsSuccessStatusCode)
             {
                 log?.Invoke("MSDL: symbol not found");
@@ -112,7 +112,7 @@ public class SymbolPackageDownloader(HttpClient client)
             Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
             using (var fs = File.Create(cachePath))
             {
-                await response.Content.CopyToAsync(fs);
+                await response.Content.CopyToAsync(fs).ConfigureAwait(false);
             }
 
             var headerCheck = CheckPdbHeader(cachePath);
@@ -168,7 +168,7 @@ public class SymbolPackageDownloader(HttpClient client)
         {
             foreach (var snupkgUrl in snupkgUrls)
             {
-                response = await HttpRetryHelper.GetWithRetryAsync(_client, snupkgUrl, log: log);
+                response = await HttpRetryHelper.GetWithRetryAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
                 if (response != null && response.IsSuccessStatusCode)
                 {
                     log?.Invoke($"Found symbol package at: {snupkgUrl}");
@@ -192,7 +192,7 @@ public class SymbolPackageDownloader(HttpClient client)
                 var snupkgPath = Path.Combine(tempDir, "package.snupkg");
                 using (var fs = File.Create(snupkgPath))
                 {
-                    await response.Content.CopyToAsync(fs);
+                    await response.Content.CopyToAsync(fs).ConfigureAwait(false);
                 }
                 response.Dispose();
                 response = null;
@@ -277,7 +277,7 @@ public class SymbolPackageDownloader(HttpClient client)
 
             try
             {
-                using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log);
+                using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log).ConfigureAwait(false);
                 if (response == null || !response.IsSuccessStatusCode)
                     continue;
 
@@ -285,7 +285,7 @@ public class SymbolPackageDownloader(HttpClient client)
 
                 using (var fs = File.Create(cachePath))
                 {
-                    await response.Content.CopyToAsync(fs);
+                    await response.Content.CopyToAsync(fs).ConfigureAwait(false);
                 }
 
                 var headerCheck = CheckPdbHeader(cachePath);

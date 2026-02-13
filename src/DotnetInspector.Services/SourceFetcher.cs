@@ -34,7 +34,7 @@ public class SourceFetcher(HttpClient httpClient)
         // Fetch from network with retry
         try
         {
-            string? content = await HttpRetryHelper.GetStringWithRetryAsync(_httpClient, url);
+            string? content = await HttpRetryHelper.GetStringWithRetryAsync(_httpClient, url).ConfigureAwait(false);
             if (content == null)
                 return null;
             _memoryCache[url] = content;

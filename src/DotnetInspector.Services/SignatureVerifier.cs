@@ -82,7 +82,7 @@ public static partial class SignatureVerifier
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             try
             {
-                await process.WaitForExitAsync(cts.Token);
+                await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -93,8 +93,8 @@ public static partial class SignatureVerifier
                 };
             }
 
-            var output = await outputTask;
-            var error = await errorTask;
+            var output = await outputTask.ConfigureAwait(false);
+            var error = await errorTask.ConfigureAwait(false);
 
             return ParseVerificationOutput(output, error, process.ExitCode);
         }
