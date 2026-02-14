@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf-test", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -215,6 +215,24 @@ public static class CommandLineBuilder
         var skillCommand = new Command("skill", "Show skill definition");
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
+
+        // Perf-test command (hidden, for profiling)
+        var perfTestCommand = new Command(PerfTestCommand.Name, "Run perf test loop for profiling") { Hidden = true };
+        var perfTestPathArg = new Argument<string>("path") { Description = "Path to assembly file" };
+        var perfTestIterationsOption = new Option<int>("--iterations") { Description = "Number of iterations (default: 1000)" };
+        perfTestIterationsOption.Aliases.Add("-n");
+        var perfTestTypesOnlyOption = new Option<bool>("--types-only") { Description = "Skip member extraction (types-only mode)" };
+        perfTestCommand.Arguments.Add(perfTestPathArg);
+        perfTestCommand.Options.Add(perfTestIterationsOption);
+        perfTestCommand.Options.Add(perfTestTypesOnlyOption);
+        perfTestCommand.SetAction((parseResult) =>
+        {
+            var path = parseResult.GetValue(perfTestPathArg)!;
+            var iterations = parseResult.GetValue(perfTestIterationsOption);
+            var typesOnly = parseResult.GetValue(perfTestTypesOnlyOption);
+            return PerfTestCommand.Execute(path, iterations > 0 ? iterations : 1000, typesOnly);
+        });
+        rootCommand.Subcommands.Add(perfTestCommand);
 
         // No-args: show help + tips
         rootCommand.SetAction((parseResult) =>

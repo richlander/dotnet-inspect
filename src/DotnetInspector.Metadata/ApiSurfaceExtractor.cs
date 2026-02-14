@@ -9,7 +9,7 @@ namespace DotnetInspector.Metadata;
 /// </summary>
 public static class ApiSurfaceExtractor
 {
-    public static ApiSurface Extract(PEReader peReader, bool includeAll = false)
+    public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false)
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
@@ -136,6 +136,8 @@ public static class ApiSurfaceExtractor
             }
 
             // Get public members
+            if (!typesOnly)
+            {
             apiType.Members = [];
 
             // Methods
@@ -303,6 +305,7 @@ public static class ApiSurfaceExtractor
                 apiType.Members.Add(member);
                 surface.PublicEventCount++;
             }
+            } // end if (!typesOnly)
 
             surface.Types.Add(apiType);
             surface.PublicTypeCount++;

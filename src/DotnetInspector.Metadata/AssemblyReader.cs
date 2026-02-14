@@ -14,12 +14,12 @@ public static class AssemblyReader
     /// Extracts the public API surface from a DLL file on disk.
     /// Returns null if the file cannot be read or has no metadata.
     /// </summary>
-    public static ApiSurface? ExtractApiSurface(string dllPath, bool includeAll = false)
+    public static ApiSurface? ExtractApiSurface(string dllPath, bool includeAll = false, bool typesOnly = false)
     {
         try
         {
             using var stream = File.OpenRead(dllPath);
-            return ExtractApiSurface(stream, includeAll);
+            return ExtractApiSurface(stream, includeAll, typesOnly);
         }
         catch
         {
@@ -31,7 +31,7 @@ public static class AssemblyReader
     /// Extracts the public API surface from a stream containing a PE image.
     /// Returns null if the stream cannot be read or has no metadata.
     /// </summary>
-    public static ApiSurface? ExtractApiSurface(Stream stream, bool includeAll = false)
+    public static ApiSurface? ExtractApiSurface(Stream stream, bool includeAll = false, bool typesOnly = false)
     {
         try
         {
@@ -40,7 +40,7 @@ public static class AssemblyReader
             if (!peReader.HasMetadata)
                 return null;
 
-            return ApiSurfaceExtractor.Extract(peReader, includeAll);
+            return ApiSurfaceExtractor.Extract(peReader, includeAll, typesOnly);
         }
         catch
         {
