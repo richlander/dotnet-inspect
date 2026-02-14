@@ -70,7 +70,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results);
+                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader);
             }
 
             return 0;
@@ -123,9 +123,19 @@ public class ImplementsCommand
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader)
     {
-        Console.WriteLine(ImplementsOutputFormatter.FormatResults(targetType, results));
+        var view = ImplementsOutputFormatter.BuildView(targetType, results);
+
+        if (oneLine)
+        {
+            var writer = new OneLineWriter(Console.Out, showHeader: !noHeader);
+            new MarkoutContext().Serialize(view, writer);
+        }
+        else
+        {
+            Console.WriteLine(new MarkoutContext().Serialize(view));
+        }
     }
 }
 

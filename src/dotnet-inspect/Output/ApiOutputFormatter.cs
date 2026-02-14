@@ -19,6 +19,13 @@ public static class ApiOutputFormatter
 
     public static string RenderFullApiMarkdown(ApiSurface api, ApiOptions options)
     {
+        var writer = new MarkdownWriter(BuildWriterOptions(api, options));
+        RenderFullApiMarkdown(writer, api, options);
+        return writer.ToString().TrimEnd();
+    }
+
+    public static void RenderFullApiMarkdown(MarkoutWriter writer, ApiSurface api, ApiOptions options)
+    {
         var totalCount = api.Types.Count;
 
         // Pre-truncate types list if --limit (before serialization so section reflects limit)
@@ -28,19 +35,6 @@ public static class ApiOutputFormatter
             truncatedCount = totalCount - options.Limit.Value;
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
-
-        // Compute effective sections via pipeline
-        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var includeSections = pipeline.ComputeIncludeSections(
-            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-
-        // Single writer with section filtering
-        var writerOptions = new MarkoutWriterOptions
-        {
-            IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
-        };
-        var writer = new MarkoutWriter(writerOptions);
 
         // Serialize title + summary fields via CLI wrapper
         new MarkoutContext().Serialize(new CliApiSurface(api), writer);
@@ -78,18 +72,32 @@ public static class ApiOutputFormatter
                 writer.WriteParagraph($"... *and {truncatedCount.Value} more types*");
             }
         }
+    }
 
-        return writer.ToString().TrimEnd();
+    private static MarkoutWriterOptions BuildWriterOptions(ApiSurface api, ApiOptions options)
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
+        return new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+        };
     }
 
     // ===== Single Type Rendering =====
 
     public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
-        // Signatures-only: plain text, no serializer
-        if (options.SignaturesOnly)
-            return RenderSignaturesOnly(type, options);
+        var writer = new MarkdownWriter(BuildTypeWriterOptions(type, options));
+        RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        return writer.ToString().TrimEnd();
+    }
 
+    public static void RenderTypeMarkdown(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    {
         // Build the view model
         var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
@@ -97,25 +105,12 @@ public static class ApiOutputFormatter
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
             PopulateEnumValues(view, type, options);
 
-        // Compute effective sections via pipeline
-        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        var includeSections = pipeline.ComputeIncludeSections(
-            type, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-
-        // Single writer with section filtering via MarkoutWriterOptions
-        var writerOptions = new MarkoutWriterOptions
-        {
-            IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
-        };
-        var writer = new MarkoutWriter(writerOptions);
-
         // Serialize title + description + identity fields + enum values + type params + interfaces + baseclass
         new MarkoutContext().Serialize(view, writer);
 
         // Quiet: just title + stats line, no member tables
         if (options.Verbosity == Verbosity.Quiet)
-            return writer.ToString().TrimEnd();
+            return;
 
         // Imperative rendering for member tables and source info
         int truncatedCount = 0;
@@ -144,8 +139,19 @@ public static class ApiOutputFormatter
         // Truncation message
         if (truncatedCount > 0)
             writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
+    }
 
-        return writer.ToString().TrimEnd();
+    private static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            type, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
+        return new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+        };
     }
 
     // ===== Shape Output (--shape) =====
@@ -154,49 +160,6 @@ public static class ApiOutputFormatter
     {
         var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter);
         MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
-    }
-
-    // ===== Signatures-Only Mode =====
-
-    public static string RenderSignaturesOnly(ApiType type, ApiOptions options)
-    {
-        var members = type.Members
-            .Where(m => !IsCompilerGenerated(m.Name))
-            .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name)
-            .ToList();
-
-        if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
-
-        if (options.UnsafeOnly)
-            members = members.Where(m => m.IsUnsafe).ToList();
-
-        var sb = new StringBuilder();
-        var displayMembers = members.AsEnumerable();
-        if (options.Limit.HasValue && options.Limit.Value < members.Count)
-            displayMembers = displayMembers.Take(options.Limit.Value);
-
-        if (type.Kind == "enum")
-        {
-            var enumMembers = members
-                .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
-                .OrderBy(m => m.EnumValue);
-            foreach (var member in options.Limit.HasValue && options.Limit.Value < members.Count
-                ? enumMembers.Take(options.Limit.Value)
-                : enumMembers)
-            {
-                sb.AppendLine($"{member.Name} = {member.EnumValue}");
-            }
-        }
-        else
-        {
-            foreach (var member in displayMembers)
-            {
-                sb.AppendLine(member.Signature ?? member.ReturnType ?? "");
-            }
-        }
-        return sb.ToString().TrimEnd();
     }
 
     // ===== View Model Factories =====

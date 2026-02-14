@@ -637,7 +637,7 @@ COMMAND: api 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1
 **Properties:** Arity
 
 ================================================================================
-COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 --signatures-only -n 10
+COMMAND: api JsonSerializer --package System.Text.Json@10.0.2 --oneline -n 10
 ================================================================================
 # System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 

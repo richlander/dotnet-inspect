@@ -1,105 +1,48 @@
 using DotnetInspector.Commands;
-using Markout;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Output;
 
 /// <summary>
-/// Formats find command results for display.
+/// Builds view models for find command results.
 /// </summary>
 public static class FindOutputFormatter
 {
-    public static string FormatOneLineOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern, bool grouped)
+    public static FindResultView BuildView(List<TypeSearchResult> results, string pattern, int totalCount, int? limit)
     {
-        if (grouped)
+        var showing = (limit.HasValue && totalCount > limit.Value) ? (int?)results.Count : null;
+
+        return new FindResultView
         {
-            // Grouped: one line per pattern with matching type names
-            List<string> lines = [];
-            foreach (var (pattern, results) in resultsByPattern)
-            {
-                var typeNames = results.Select(r => r.TypeName).Distinct().OrderBy(n => n);
-                lines.Add($"{pattern}: {string.Join(", ", typeNames)}");
-            }
-            return string.Join(Environment.NewLine, lines);
-        }
-        else
-        {
-            // Flat: all type names space-separated on one line
-            var allTypeNames = resultsByPattern.Values
-                .SelectMany(r => r)
-                .Select(r => r.TypeName)
-                .Distinct()
-                .OrderBy(n => n);
-            return string.Join(" ", allTypeNames);
-        }
+            Title = $"Find: {pattern}",
+            Matches = totalCount,
+            Showing = showing,
+            Description = results.Count == 0 ? "No types found matching the pattern." : null,
+            Rows = results.Count == 0 ? null : results
+                .Select(r => new FindRow(
+                    pattern, r.TypeName, r.Namespace ?? "", r.Kind ?? "",
+                    r.Assembly ?? "", FormatSource(r)))
+                .ToList()
+        };
     }
 
-    public static string FormatNameOnlyOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
+    public static FindResultView BuildMultiPatternView(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
     {
-        var allTypeNames = resultsByPattern.Values
-            .SelectMany(r => r)
-            .Select(r => r.TypeName)
-            .Distinct()
-            .OrderBy(n => n);
-        return string.Join(Environment.NewLine, allTypeNames);
+        var totalCount = resultsByPattern.Values.Sum(r => r.Count);
+
+        return new FindResultView
+        {
+            Title = "Find Results",
+            Matches = totalCount,
+            Description = totalCount == 0 ? "No types found matching the pattern." : null,
+            MultiPatternRows = totalCount == 0 ? null : resultsByPattern
+                .SelectMany(kvp => kvp.Value.Select(r => new FindRow(
+                    kvp.Key, r.TypeName, r.Namespace ?? "", r.Kind ?? "",
+                    r.Assembly ?? "", FormatSource(r))))
+                .ToList()
+        };
     }
 
-    public static string FormatMultiPatternOutput(Dictionary<string, List<TypeSearchResult>> resultsByPattern)
-    {
-        var writer = new MarkoutWriter();
-        writer.WriteHeading(1, "Find Results");
-
-        foreach (var (pattern, results) in resultsByPattern)
-        {
-            writer.WriteHeading(2, pattern);
-            writer.WriteField("Matches", results.Count);
-
-            if (results.Count == 0)
-            {
-                writer.WriteParagraph("*No types found.*");
-            }
-            else
-            {
-                WriteResultTable(writer, results);
-            }
-        }
-
-        return writer.ToString().TrimEnd();
-    }
-
-    public static string FormatMarkoutOutput(List<TypeSearchResult> results, string pattern, int totalCount, int? limit)
-    {
-        var writer = new MarkoutWriter();
-        writer.WriteHeading(1, $"Find: {pattern}");
-        writer.WriteField("Matches", totalCount);
-
-        if (results.Count == 0)
-        {
-            writer.WriteParagraph("*No types found matching the pattern.*");
-        }
-        else
-        {
-            WriteResultTable(writer, results);
-
-            if (limit.HasValue && totalCount > limit.Value)
-            {
-                writer.WriteParagraph($"... *and {totalCount - limit.Value} more types*");
-            }
-        }
-
-        return writer.ToString().TrimEnd();
-    }
-
-    private static void WriteResultTable(MarkoutWriter writer, List<TypeSearchResult> results)
-    {
-        var headers = new[] { "Type", "Namespace", "Kind", "Library", "Source" };
-        var rows = results.Select(result =>
-        {
-            var ns = result.Namespace ?? "";
-            var source = result.SourceVersion != null
-                ? $"{result.Source}@{result.SourceVersion}"
-                : result.Source ?? "";
-            return new[] { result.TypeName, ns, result.Kind ?? "", result.Assembly ?? "", source };
-        });
-        writer.WriteTable(headers, rows);
-    }
+    private static string FormatSource(TypeSearchResult r)
+        => r.SourceVersion != null ? $"{r.Source}@{r.SourceVersion}" : r.Source ?? "";
 }

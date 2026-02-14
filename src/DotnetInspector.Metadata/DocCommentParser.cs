@@ -366,6 +366,52 @@ public partial class DocCommentParser
     }
 
     /// <summary>
+    /// Extracts all sample references from a source file by scanning all doc comment blocks.
+    /// </summary>
+    public List<SampleReference> ExtractAllSamples(string sourceContent)
+    {
+        List<SampleReference> allSamples = [];
+        List<string>? commentLines = null;
+
+        foreach (var rawLine in sourceContent.Split('\n'))
+        {
+            var trimmed = rawLine.Trim();
+
+            if (trimmed.StartsWith("///"))
+            {
+                commentLines ??= [];
+                commentLines.Add(trimmed);
+            }
+            else
+            {
+                if (commentLines is { Count: > 0 })
+                {
+                    var block = string.Join("\n", commentLines);
+                    var doc = ParseXmlDocComment(block);
+                    if (doc?.Samples != null)
+                    {
+                        allSamples.AddRange(doc.Samples);
+                    }
+                    commentLines = null;
+                }
+            }
+        }
+
+        // Handle trailing comment block
+        if (commentLines is { Count: > 0 })
+        {
+            var block = string.Join("\n", commentLines);
+            var doc = ParseXmlDocComment(block);
+            if (doc?.Samples != null)
+            {
+                allSamples.AddRange(doc.Samples);
+            }
+        }
+
+        return allSamples;
+    }
+
+    /// <summary>
     /// Checks if a path points to a code file based on extension.
     /// </summary>
     private static bool IsCodeFile(string path)

@@ -41,7 +41,7 @@ dnx dotnet-inspect -y -- diff "*Json*" --package System.Text.Json@9.0.0..10.0.0
 
 # Search for types by pattern (single or batch with comma-separated patterns)
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Chat*,Diction*" --terse
+dnx dotnet-inspect -y -- find "Chat*,Diction*" --oneline
 
 # Find extension methods for a type (detects C# 14 extension properties too)
 dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
@@ -80,11 +80,11 @@ dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFacto
 | `--select` | Show Select column with Name:N shorthand | `api` |
 | `--index N` | Target Nth overload (or use Name:N shorthand) | `api` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
-| `--terse` | Compact output (alias for --oneline --grouped) | `find` |
+| `--oneline` | One result per line, columnar output | `api`, `find`, `diff`, `implements` |
 | `--reachable` | Include extensions on reachable types | `extensions` |
 | `--dependencies` | Dependency tree (visual) | `library`, `package` |
 | `--source-link-audit` | SourceLink/determinism audit | `library` |
-| `--stat` | Statistics only (no member details) | `diff` |
+| `--no-header` | Suppress column headers (use with --oneline) | `api`, `find`, `diff`, `implements` |
 | `--breaking` | Breaking changes only | `diff` |
 | `--prerelease` | Include prerelease versions | `package --versions` |
 | `--json` | JSON output | all |

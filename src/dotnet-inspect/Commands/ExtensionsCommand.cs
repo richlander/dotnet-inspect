@@ -146,7 +146,8 @@ public class ExtensionsCommand
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity)
     {
-        Console.WriteLine(ExtensionsOutputFormatter.FormatResults(targetType, results, verbosity));
+        var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
+        Console.WriteLine(new MarkoutContext().Serialize(view));
     }
 
     /// <summary>

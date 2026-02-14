@@ -150,7 +150,7 @@ dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q  # Full p
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2  # Single type
 dotnet-inspect diff "*Writer*" --package Markout@0.1.8..0.2.0            # Glob filter
 dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2           # Platform versions
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --stat               # Stats only
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --oneline            # One change per line
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking           # Breaking only
 ```
 
@@ -162,7 +162,7 @@ Search for types across packages, frameworks, and local assets.
 dotnet-inspect find HttpClient                           # Runtime (default scope)
 dotnet-inspect find "*Stream*" -n 10                     # Glob, limit results
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
-dotnet-inspect find "ChatClient*" --terse                 # Compact output
+dotnet-inspect find "ChatClient*" --oneline                # Columnar output
 dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
 ```

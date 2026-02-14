@@ -46,7 +46,7 @@ public class DemoCommand
             ["diff", "System.CommandLine@2.0.0-beta4.22272.1..2.0.3", "-v:q"]),
 
         new("How has System.Text.Json evolved across two major versions?", "migration",
-            ["diff", "System.Text.Json@8.0.0..10.0.3", "--stat"]),
+            ["diff", "System.Text.Json@8.0.0..10.0.3", "--oneline"]),
 
         // extensions (1)
         new("What can I register with dependency injection?", "discovery",

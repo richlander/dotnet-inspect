@@ -181,7 +181,7 @@ dotnet-inspect api Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.Signal
 Other flags:
 
 ```bash
-dotnet-inspect api System.Text.Json JsonSerializer --signatures-only  # Plain output
+dotnet-inspect api System.Text.Json JsonSerializer --oneline          # One member per line
 dotnet-inspect api Command --package System.CommandLine --ctor        # Constructor details
 dotnet-inspect api System.Text.Json JsonSerializer --json             # JSON output
 ```
@@ -196,7 +196,7 @@ dotnet-inspect find "*Stream*" -n 10                     # Glob pattern, limit r
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
 dotnet-inspect find "*Serializer*" --package System.Text.Json --package Newtonsoft.Json  # Multiple packages
 dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
-dotnet-inspect find "ChatClient*" --terse                 # Search default scope, compact output
+dotnet-inspect find "ChatClient*" --oneline                # Search default scope, columnar output
 dotnet-inspect find "*Logger*" --platform                # All platform frameworks
 dotnet-inspect find "*Host*" --extensions                # Microsoft.Extensions packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
@@ -207,7 +207,7 @@ Batch search (comma-separated patterns):
 
 ```bash
 dotnet-inspect find "Chat*,Diction*" -v:q
-dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --terse
+dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --oneline
 ```
 
 | Scope | Description |
@@ -226,10 +226,8 @@ Scope flags are combinable: `--platform --package Newtonsoft.Json` searches both
 
 | Option | Description |
 |--------|-------------|
-| `--terse` | Compact output (alias for --oneline --grouped) |
-| `--oneline` | Space-separated type names on one line |
-| `--name-only` | One type name per line |
-| `--grouped` | Group by pattern (with --oneline) |
+| `--oneline` | One result per line, columnar output |
+| `--no-header` | Suppress column headers (use with --oneline) |
 | `-n` | Limit results per pattern |
 
 ### diff
@@ -241,7 +239,7 @@ dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q  # Full p
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2  # Single type
 dotnet-inspect diff "*Writer*" --package Markout@0.1.8..0.2.0            # Glob filter
 dotnet-inspect diff JsonSerializer --platform System.Text.Json@8.0.23..10.0.2  # Platform versions
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --stat               # Stats only
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --oneline             # One change per line
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking           # Breaking only
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --additive           # Additive only
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --name-only          # Type names only
@@ -394,7 +392,7 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--docs` | Include XML documentation | api |
 | `--samples` | Fetch code samples | api |
 | `--ctor` | Constructor details | api |
-| `--signatures-only` | Plain method signatures | api |
+| `--oneline` | One result per line, columnar | api, find, diff, implements |
 | `--shape` | Type shape diagram | api |
 | `--dependencies` | Dependency tree (visual) | library, package |
 | `--references` | Direct assembly references | library |
@@ -406,11 +404,10 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--tfms` | List target frameworks | package |
 | `--layout` | File tree view | package |
 | `--reachable` | Include reachable type extensions | extensions |
-| `--stat` | Statistics only (no member details) | diff |
+| `--no-header` | Suppress column headers | api, find, diff, implements |
 | `--breaking` | Breaking changes only | diff |
 | `--additive` | Additive changes only | diff |
-| `--name-only` | Names only | find, diff |
-| `--terse` | Compact output | find |
+| `--name-only` | Names only | diff |
 | `-n N` | Limit results | find, extensions, package |
 | `--all` | Include hidden/obsolete | implements, find |
 | `--json` | JSON output | all commands |

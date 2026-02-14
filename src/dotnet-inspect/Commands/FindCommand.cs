@@ -3,6 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Commands;
 
@@ -39,8 +40,8 @@ public class FindCommand
                 };
             }
 
-            // For oneline/name-only/multi-pattern mode, collect results per pattern
-            if (options.OneLine || options.NameOnly || patterns.Length > 1)
+            // For oneline/multi-pattern mode, collect results per pattern
+            if (options.OneLine || patterns.Length > 1)
             {
                 return await ExecuteMultiPatternAsync(patterns, options, logger, tempDirs, context.HttpClient);
             }
@@ -92,17 +93,9 @@ public class FindCommand
             var allResults = resultsByPattern.Values.SelectMany(r => r).Distinct().ToList();
             WriteJsonOutput(allResults, options.CompactJson);
         }
-        else if (options.NameOnly)
-        {
-            Console.WriteLine(FindOutputFormatter.FormatNameOnlyOutput(resultsByPattern));
-        }
-        else if (options.OneLine)
-        {
-            Console.WriteLine(FindOutputFormatter.FormatOneLineOutput(resultsByPattern, options.Grouped));
-        }
         else
         {
-            Console.WriteLine(FindOutputFormatter.FormatMultiPatternOutput(resultsByPattern));
+            WriteMarkoutOutput(FindOutputFormatter.BuildMultiPatternView(resultsByPattern), options.OneLine, options.NoHeader);
         }
 
         return 0;
@@ -126,7 +119,7 @@ public class FindCommand
             }
             else
             {
-                Console.WriteLine(FindOutputFormatter.FormatMarkoutOutput(results, pattern, totalCount, options.Limit));
+                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit), options.OneLine, options.NoHeader);
             }
 
             return 0;
@@ -140,6 +133,19 @@ public class FindCommand
     private static void WriteJsonOutput(List<TypeSearchResult> results, bool compact)
     {
         JsonOutputHelper.Write(results, FindJsonContext.Default.ListTypeSearchResult, FindCompactJsonContext.Default.ListTypeSearchResult, compact);
+    }
+
+    private static void WriteMarkoutOutput(FindResultView view, bool oneLine, bool noHeader)
+    {
+        if (oneLine)
+        {
+            var writer = new OneLineWriter(Console.Out, showHeader: !noHeader);
+            new MarkoutContext().Serialize(view, writer);
+        }
+        else
+        {
+            Console.WriteLine(new MarkoutContext().Serialize(view));
+        }
     }
 }
 

@@ -49,7 +49,7 @@ dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json -m Serial
 
 ```bash
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --terse
+dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --oneline
 dnx dotnet-inspect -y -- find "*Logger*"
 ```
 

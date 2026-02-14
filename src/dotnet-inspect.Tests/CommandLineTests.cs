@@ -158,9 +158,9 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ApiCommand_WithSignaturesOnly_ParsesCorrectly()
+    public void ApiCommand_WithOneLine_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--signatures-only"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--oneline"]);
 
         Assert.Empty(result.Errors);
     }
@@ -586,14 +586,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void FindCommand_WithOneLineGrouped_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--oneline", "--grouped"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
     public void FindCommand_WithPlatformBoolFlag_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform"]);
@@ -674,17 +666,9 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void FindCommand_WithNameOnly_ParsesCorrectly()
+    public void DiffCommand_WithOneLine_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--name-only"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void DiffCommand_WithStat_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--stat"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--oneline"]);
 
         Assert.Empty(result.Errors);
     }

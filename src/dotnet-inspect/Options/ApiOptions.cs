@@ -36,7 +36,8 @@ public record ApiOptions
     public bool BrowsableUrls { get; init; }
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
-    public bool SignaturesOnly { get; init; }
+    public bool OneLine { get; init; }
+    public bool NoHeader { get; init; }
     public bool ShapeOutput { get; init; }
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
@@ -54,7 +55,7 @@ public record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || SignaturesOnly || ShapeOutput;
+    public bool IsRawOutput => JsonOutput || OneLine || ShapeOutput;
 }
 
 /// <summary>

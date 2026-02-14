@@ -603,6 +603,11 @@ public class ApiCommand
         {
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
         }
+        else if (options.OneLine)
+        {
+            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            ApiOutputFormatter.RenderFullApiMarkdown(writer, api, options);
+        }
         else
         {
             Console.WriteLine(ApiOutputFormatter.RenderFullApiMarkdown(api, options));
@@ -731,6 +736,11 @@ public class ApiCommand
         else if (options.JsonOutput)
         {
             WriteJsonTypeOutput(type, options);
+        }
+        else if (options.OneLine)
+        {
+            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            ApiOutputFormatter.RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         }
         else
         {

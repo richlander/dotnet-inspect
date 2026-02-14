@@ -91,7 +91,7 @@ makes a compelling case for the `diff` command during migrations.
 ## 8. Diff: System.Text.Json evolution — diffstat view
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 --stat
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 --oneline
 ```
 
 A git-style diffstat showing the evolution of System.Text.Json across two major
