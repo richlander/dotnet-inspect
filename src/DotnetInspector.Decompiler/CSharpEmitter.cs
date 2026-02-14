@@ -115,6 +115,17 @@ public static class CSharpEmitter
                         _loopConsumedLabels.Add(branchLabel);
                 }
             }
+
+            // Conditionals consume their then/else/condition block labels (branches are structured)
+            foreach (var cond in structure.Conditionals)
+            {
+                if (_blockStartOffset.TryGetValue(cond.ThenIndex, out int thenOff))
+                    _loopConsumedLabels.Add($"IL_{thenOff:X4}");
+                if (cond.ElseIndex >= 0 && _blockStartOffset.TryGetValue(cond.ElseIndex, out int elseOff))
+                    _loopConsumedLabels.Add($"IL_{elseOff:X4}");
+                if (cond.FollowIndex >= 0 && _blockStartOffset.TryGetValue(cond.FollowIndex, out int followOff))
+                    _loopConsumedLabels.Add($"IL_{followOff:X4}");
+            }
         }
 
         static HashSet<string> CollectGotoTargets(ILAstMethod ast)
@@ -314,7 +325,7 @@ public static class CSharpEmitter
                 if (lastNode is ILAstStatement branchStmt)
                 {
                     branchExpression = branchStmt.Expression;
-                    condition = ExpressionToString(ExtractCondition(branchExpression));
+                    condition = BranchConditionToString(branchExpression);
                 }
             }
 
@@ -468,7 +479,7 @@ public static class CSharpEmitter
                 }
 
                 negateCondition = !branchGoesIntoLoop;
-                condition = ExpressionToString(ExtractCondition(branchExpr));
+                condition = BranchConditionToString(branchExpr);
                 if (negateCondition)
                     condition = NegateConditionString(condition);
             }
@@ -1712,6 +1723,23 @@ public static class CSharpEmitter
             // Use a temp context with the new StringBuilder
             var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
             tempCtx.EmitExpression(expr);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Render a branch expression's condition as a string, handling both
+        /// single-argument (brfalse/brtrue) and two-argument (beq/blt/ble/etc.) branches.
+        /// </summary>
+        string BranchConditionToString(ILAstExpression branchExpr)
+        {
+            // For single-argument branches (brfalse/brtrue), use ExtractCondition
+            if (branchExpr.Arguments.Count == 1)
+                return ExpressionToString(ExtractCondition(branchExpr));
+
+            // For comparison-and-branch opcodes (beq, blt, ble, etc.), render via EmitBranchCondition
+            var sb = new StringBuilder();
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
+            tempCtx.EmitBranchCondition(branchExpr);
             return sb.ToString();
         }
 

@@ -141,6 +141,18 @@ internal static class ConditionalDetector
                 }
             }
 
+            // Guard-clause pattern: if the "else" is a terminal block (return/throw)
+            // and "then" is a continuation, swap to produce: if (cond) { return; } continuation
+            if (elseIdx >= 0 && !negate
+                && IsTerminalBlock(cfg, elseIdx) && !IsTerminalBlock(cfg, thenIdx))
+            {
+                (thenIdx, elseIdx) = (elseIdx, thenIdx);
+                negate = true;
+                // The swapped else is the continuation — treat as simple-if
+                followIdx = elseIdx;
+                elseIdx = -1;
+            }
+
             patterns.Add(new ConditionalPattern(i, thenIdx, elseIdx, followIdx, negate));
         }
 
@@ -159,6 +171,18 @@ internal static class ConditionalDetector
         var block = cfg.BasicBlocks[blockIdx];
         // Blocks of 1-2 bytes are typically just leave.s, br.s, endfinally, ret
         return block.Size <= 2;
+    }
+
+    /// <summary>
+    /// A block is "terminal" if it has no successors (ends with ret, throw, or rethrow).
+    /// Guard-clause patterns end with a terminal block.
+    /// </summary>
+    static bool IsTerminalBlock(ControlFlowGraph cfg, int blockIdx)
+    {
+        if (blockIdx < 0 || blockIdx >= cfg.BasicBlocks.Count)
+            return false;
+
+        return cfg.BasicBlocks[blockIdx].Targets.Count == 0;
     }
 
     static int FindFollowBlock(ControlFlowGraph cfg, DominatorTree domTree, int condIdx, int thenIdx, int elseIdx)
