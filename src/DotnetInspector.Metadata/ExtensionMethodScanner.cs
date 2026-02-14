@@ -304,6 +304,7 @@ public static class ExtensionMethodScanner
                                     toProcess.Enqueue((propType, path, remainingDepth - 1));
                                 }
                             }
+                            // Skip properties with undecodable signatures
                             catch { }
                         }
 
@@ -333,12 +334,14 @@ public static class ExtensionMethodScanner
                                     toProcess.Enqueue((retType, path, remainingDepth - 1));
                                 }
                             }
+                            // Skip methods with undecodable signatures
                             catch { }
                         }
 
                         goto foundType;
                     }
                 }
+                // Skip assemblies with unreadable metadata
                 catch { }
             }
             foundType:;

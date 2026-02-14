@@ -262,7 +262,7 @@ internal static class TypeSearchService
 
         try
         {
-            var api = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll);
+            var api = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll, typesOnly: true);
             if (api == null)
                 return results;
 

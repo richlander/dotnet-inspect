@@ -267,6 +267,7 @@ public static class AssemblyDetailScanner
                                 || sig.ParameterTypes.Any(p => p.Contains('*')))
                                 flags.HasUnsafeCode = true;
                         }
+                        // Skip methods with undecodable signatures
                         catch { }
                     }
                 }

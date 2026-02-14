@@ -33,10 +33,10 @@ public class Downloader<T> : IAsyncEnumerable<T> where T : class
 
         while (tasks.Count > 0)
         {
-            var completed = await Task.WhenAny(tasks);
+            var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
             tasks.Remove(completed);
 
-            var result = await completed;
+            var result = await completed.ConfigureAwait(false);
             if (result != null)
             {
                 yield return result;

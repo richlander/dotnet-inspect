@@ -62,12 +62,14 @@ public static partial class SignatureVerifier
             var startInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"nuget verify \"{nupkgPath}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            startInfo.ArgumentList.Add("nuget");
+            startInfo.ArgumentList.Add("verify");
+            startInfo.ArgumentList.Add(nupkgPath);
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -77,8 +79,12 @@ public static partial class SignatureVerifier
             var errorTask = process.StandardError.ReadToEndAsync();
 
             // Wait up to 10 seconds for verification
-            var completed = await Task.Run(() => process.WaitForExit(10_000));
-            if (!completed)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
             {
                 process.Kill();
                 return new SignatureVerificationResult
@@ -87,8 +93,8 @@ public static partial class SignatureVerifier
                 };
             }
 
-            var output = await outputTask;
-            var error = await errorTask;
+            var output = await outputTask.ConfigureAwait(false);
+            var error = await errorTask.ConfigureAwait(false);
 
             return ParseVerificationOutput(output, error, process.ExitCode);
         }

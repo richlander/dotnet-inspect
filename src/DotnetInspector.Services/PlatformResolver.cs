@@ -394,7 +394,7 @@ public static class PlatformResolver
                 explicitVersion = frameworkSpec[(frameworkSpec.LastIndexOf('@') + 1)..];
 
             var requests = PlatformPackService.BuildPackRequests(assemblyName, explicitVersion);
-            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log))
+            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log).ConfigureAwait(false))
             {
             }
         }

@@ -27,7 +27,7 @@ public sealed class NaturalLoop
 /// Detects natural loops in a CFG using back-edge analysis on the dominator tree.
 /// A back-edge is an edge t→h where h dominates t.
 /// </summary>
-public static class LoopDetector
+internal static class LoopDetector
 {
     /// <summary>
     /// Find all natural loops in the CFG.

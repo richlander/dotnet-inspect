@@ -22,12 +22,10 @@ public class AssemblyCommand
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
         // Validate section filters
-        options = options with
-        {
-            IncludeSections = SectionRegistry.Resolve(pipeline.AllSectionNames, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(pipeline.AllSectionNames, options.ExcludeSections, out var excludeError),
-        };
-        if (includeError || excludeError) return 1;
+        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
+            pipeline.AllSectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
+        if (sectionError) return 1;
+        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
         // Bare -s without input: list all potential sections and exit
         if (options.IncludeSections is { Count: 0 } &&

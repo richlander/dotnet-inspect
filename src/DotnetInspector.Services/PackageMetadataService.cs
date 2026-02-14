@@ -18,7 +18,7 @@ public static class PackageMetadataService
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{packageName.ToLowerInvariant()}/{version}.json";
             log?.Invoke($"Fetching package metadata from: {registrationUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl).ConfigureAwait(false);
             if (json == null)
                 return null;
 
@@ -55,7 +55,7 @@ public static class PackageMetadataService
             string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
             log?.Invoke($"Fetching registration metadata: {registrationUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl).ConfigureAwait(false);
             if (json != null)
             {
                 using var doc = JsonDocument.Parse(json);
@@ -87,7 +87,7 @@ public static class PackageMetadataService
             try
             {
                 log?.Invoke($"Fetching catalog entry: {catalogEntryUrl}");
-                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(client, catalogEntryUrl);
+                string? catalogJson = await HttpRetryHelper.GetStringWithRetryAsync(client, catalogEntryUrl).ConfigureAwait(false);
                 if (catalogJson != null)
                 {
                     using var doc = JsonDocument.Parse(catalogJson);
@@ -113,7 +113,7 @@ public static class PackageMetadataService
             string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{normalizedName}&take=1";
             log?.Invoke($"Fetching search metadata: {searchUrl}");
 
-            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl);
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, searchUrl).ConfigureAwait(false);
             if (json != null)
             {
                 using var doc = JsonDocument.Parse(json);
@@ -176,7 +176,7 @@ public static class PackageMetadataService
         // Fetch from vulnerability API
         try
         {
-            var vulnerabilities = await GetPackageVulnerabilitiesAsync(client, normalizedName, version, log);
+            var vulnerabilities = await GetPackageVulnerabilitiesAsync(client, normalizedName, version, log).ConfigureAwait(false);
             if (vulnerabilities.Count > 0)
             {
                 metadata.Vulnerabilities = vulnerabilities;
@@ -193,7 +193,7 @@ public static class PackageMetadataService
             string nupkgUrl = $"https://api.nuget.org/v3-flatcontainer/{normalizedName}/{version}/{normalizedName}.{version}.nupkg";
             log?.Invoke($"Fetching package size: {nupkgUrl}");
 
-            var response = await HttpRetryHelper.HeadWithRetryAsync(client, nupkgUrl);
+            var response = await HttpRetryHelper.HeadWithRetryAsync(client, nupkgUrl).ConfigureAwait(false);
             if (response?.Content.Headers.ContentLength is long contentLength)
             {
                 metadata.PackageSize = contentLength;
@@ -244,7 +244,7 @@ public static class PackageMetadataService
         }
 
         string indexUrl = "https://api.nuget.org/v3/vulnerabilities/index.json";
-        string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl);
+        string? indexJson = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl).ConfigureAwait(false);
         if (indexJson == null)
             return result;
 
@@ -259,7 +259,7 @@ public static class PackageMetadataService
             if (pageUrl == null) continue;
 
             log?.Invoke($"Fetching vulnerability page: {pageUrl}");
-            string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(client, pageUrl);
+            string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(client, pageUrl).ConfigureAwait(false);
             if (pageJson == null) continue;
 
             using var pageDoc = JsonDocument.Parse(pageJson);
@@ -286,7 +286,7 @@ public static class PackageMetadataService
                             if (ghsaId != null)
                             {
                                 vulnerability.GhsaId = ghsaId;
-                                await EnrichFromGitHubAdvisoryAsync(client, vulnerability, ghsaId, log);
+                                await EnrichFromGitHubAdvisoryAsync(client, vulnerability, ghsaId, log).ConfigureAwait(false);
                             }
                         }
 
@@ -316,14 +316,14 @@ public static class PackageMetadataService
             request.Headers.Add("User-Agent", "dotnet-inspect");
             request.Headers.Add("Accept", "application/vnd.github+json");
 
-            var response = await client.SendAsync(request);
+            var response = await client.SendAsync(request).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 log?.Invoke($"GitHub API returned {response.StatusCode}");
                 return;
             }
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 

@@ -509,6 +509,7 @@ public static class AnnotatedILEmitter
                 _ => $"method:0x{token:X8}"
             };
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"method:0x{token:X8}"; }
     }
 
@@ -524,6 +525,7 @@ public static class AnnotatedILEmitter
                 _ => $"field:0x{token:X8}"
             };
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"field:0x{token:X8}"; }
     }
 
@@ -534,6 +536,7 @@ public static class AnnotatedILEmitter
             var handle = MetadataTokens.EntityHandle(token);
             return Metadata.TypeResolver.GetTypeName(reader, handle, genericContext) ?? $"type:0x{token:X8}";
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"type:0x{token:X8}"; }
     }
 
@@ -545,6 +548,7 @@ public static class AnnotatedILEmitter
             string value = reader.GetUserString(handle);
             return $"\"{EscapeString(value)}\"";
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"string:0x{token:X8}"; }
     }
 
@@ -563,6 +567,7 @@ public static class AnnotatedILEmitter
                 _ => $"token:0x{token:X8}"
             };
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"token:0x{token:X8}"; }
     }
 
@@ -573,6 +578,7 @@ public static class AnnotatedILEmitter
             return Metadata.TypeResolver.GetTypeName(context.Reader, handle, context.GenericContext)
                 ?? $"type:0x{MetadataTokens.GetToken(handle):X8}";
         }
+        // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"type:0x{MetadataTokens.GetToken(handle):X8}"; }
     }
 

@@ -61,8 +61,17 @@ public static class CSharpEmitter
         // Catch handler statements to suppress (blockIndex, nodeIndex) — already emitted in catch clause
         readonly HashSet<(int blockIndex, int nodeIndex)> _catchVariableStatements;
 
+        // Return blocks whose gotos have been inlined — suppress the block itself
+        readonly HashSet<string> _inlinedReturnLabels;
+
         // Map block index → IL start offset (for emitting labels)
         readonly Dictionary<int, int> _blockStartOffset;
+
+        // IL offset labels of loop headers — gotos to these are suppressed (replaced by while)
+        readonly HashSet<string> _loopHeaderLabels;
+
+        // IL offset labels consumed by while-loop conditions (body entry points from header branch)
+        readonly HashSet<string> _loopConsumedLabels;
 
         public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false)
         {
@@ -87,6 +96,36 @@ public static class CSharpEmitter
             _gotoTargets = CollectGotoTargets(ast);
             _emittedLabels = [];
             _catchVariableStatements = [];
+            _inlinedReturnLabels = [];
+
+            // Build set of loop header labels for goto suppression
+            _loopHeaderLabels = [];
+            _loopConsumedLabels = [];
+            foreach (var loop in structure.Loops)
+            {
+                if (_blockStartOffset.TryGetValue(loop.HeaderIndex, out int offset))
+                    _loopHeaderLabels.Add($"IL_{offset:X4}");
+
+                // The header's branch target into the body is consumed by while(cond)
+                if (loop.HeaderIndex >= 0 && loop.HeaderIndex < ast.Blocks.Count)
+                {
+                    var headerBlock = ast.Blocks[loop.HeaderIndex];
+                    var lastNode = headerBlock.Nodes.LastOrDefault();
+                    if (lastNode is ILAstStatement { Expression.Operand: string branchLabel })
+                        _loopConsumedLabels.Add(branchLabel);
+                }
+            }
+
+            // Conditionals consume their then/else/condition block labels (branches are structured)
+            foreach (var cond in structure.Conditionals)
+            {
+                if (_blockStartOffset.TryGetValue(cond.ThenIndex, out int thenOff))
+                    _loopConsumedLabels.Add($"IL_{thenOff:X4}");
+                if (cond.ElseIndex >= 0 && _blockStartOffset.TryGetValue(cond.ElseIndex, out int elseOff))
+                    _loopConsumedLabels.Add($"IL_{elseOff:X4}");
+                if (cond.FollowIndex >= 0 && _blockStartOffset.TryGetValue(cond.FollowIndex, out int followOff))
+                    _loopConsumedLabels.Add($"IL_{followOff:X4}");
+            }
         }
 
         static HashSet<string> CollectGotoTargets(ILAstMethod ast)
@@ -147,10 +186,24 @@ public static class CSharpEmitter
             if (lastBlockIdx < 0 || !_blockMap.TryGetValue(lastBlockIdx, out var lastBlock))
                 return;
 
+            // If the block was already emitted as part of the structured tree, skip
+            if (_consumedBlocks.Contains(lastBlockIdx))
+                return;
+
             // Only applies if the block has a return statement
             bool hasReturn = lastBlock.Nodes.Any(n =>
                 n is ILAstStatement { Expression.OpCode: ILOpCode.Ret });
             if (!hasReturn) return;
+
+            // If this block is a return-only block and all gotos to it were inlined,
+            // its label is no longer needed — skip the trailing return
+            if (lastBlock.Nodes.Count == 1
+                && _blockStartOffset.TryGetValue(lastBlockIdx, out int offset))
+            {
+                string label = $"IL_{offset:X4}";
+                if (!_emittedLabels.Contains(label))
+                    return;
+            }
 
             // Check if the last emitted line already ends with a return
             string output = _sb.ToString().TrimEnd();
@@ -199,6 +252,16 @@ public static class CSharpEmitter
         {
             if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
                 return;
+
+            // Suppress return-only blocks whose gotos were all inlined
+            if (astBlock.Nodes.Count == 1
+                && astBlock.Nodes[0] is ILAstStatement { Expression.OpCode: ILOpCode.Ret }
+                && _blockStartOffset.TryGetValue(blockIndex, out int retOffset)
+                && _inlinedReturnLabels.Contains($"IL_{retOffset:X4}"))
+            {
+                _consumedBlocks.Add(blockIndex);
+                return;
+            }
 
             _consumedBlocks.Add(blockIndex);
             _currentBlockNodes = astBlock.Nodes;
@@ -262,7 +325,7 @@ public static class CSharpEmitter
                 if (lastNode is ILAstStatement branchStmt)
                 {
                     branchExpression = branchStmt.Expression;
-                    condition = ExpressionToString(ExtractCondition(branchExpression));
+                    condition = BranchConditionToString(branchExpression);
                 }
             }
 
@@ -371,11 +434,262 @@ public static class CSharpEmitter
 
         void EmitLoop(StructuredBlock block, int indent)
         {
-            // Emit loop body blocks sequentially with IL offset labels.
-            // The loop's back-edge is a conditional goto that naturally appears
-            // as "if (cond) goto IL_XXXX;" — no while(true) wrapper needed.
-            foreach (var child in block.Children)
-                EmitStructuredBlock(child, indent);
+            int headerIdx = block.LoopHeaderIndex;
+            if (headerIdx < 0 || !_blockMap.TryGetValue(headerIdx, out var headerBlock))
+            {
+                // Fallback: emit blocks sequentially
+                foreach (var child in block.Children)
+                    EmitStructuredBlock(child, indent);
+                return;
+            }
+
+            // Find the NaturalLoop for this header
+            var loop = _structure.Loops.FirstOrDefault(l => l.HeaderIndex == headerIdx);
+            if (loop is null)
+            {
+                foreach (var child in block.Children)
+                    EmitStructuredBlock(child, indent);
+                return;
+            }
+
+            // Try to extract the while condition from the header block's last node
+            string? condition = null;
+            bool negateCondition = false;
+            var lastNode = headerBlock.Nodes.LastOrDefault();
+            if (lastNode is ILAstStatement branchStmt && IsBranchOpCode(branchStmt.Expression.OpCode))
+            {
+                var branchExpr = branchStmt.Expression;
+                string? branchTarget = branchExpr.Operand as string;
+
+                // Determine if the branch goes into the loop body or exits
+                // If branch target is inside the loop → branch-on-true means "while (cond)"
+                // If branch target is outside the loop → branch-on-true means "while (!cond)"
+                bool branchGoesIntoLoop = false;
+                if (branchTarget is not null)
+                {
+                    foreach (int bodyIdx in loop.BodyIndices)
+                    {
+                        if (_blockStartOffset.TryGetValue(bodyIdx, out int offset)
+                            && branchTarget == $"IL_{offset:X4}")
+                        {
+                            branchGoesIntoLoop = true;
+                            break;
+                        }
+                    }
+                }
+
+                negateCondition = !branchGoesIntoLoop;
+                condition = BranchConditionToString(branchExpr);
+                if (negateCondition)
+                    condition = NegateConditionString(condition);
+            }
+
+            // Collect body block indices (exclude header)
+            var bodyIndices = loop.BodyIndices
+                .Where(idx => idx != headerIdx)
+                .OrderBy(x => x)
+                .ToList();
+
+            if (condition is not null)
+            {
+                // Emit any non-branch statements from the header before the while
+                EmitHeaderStatements(headerIdx, indent);
+
+                WriteIndent(indent);
+                _sb.AppendLine($"while ({condition})");
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+
+                foreach (int bodyIdx in bodyIndices)
+                    EmitBasicBlockForLoop(bodyIdx, indent + 1, loop);
+
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+
+                // Mark header as consumed so it doesn't emit separately
+                _consumedBlocks.Add(headerIdx);
+            }
+            else
+            {
+                // Fallback: emit as before
+                foreach (var child in block.Children)
+                    EmitStructuredBlock(child, indent);
+            }
+        }
+
+        /// <summary>
+        /// Emit non-branch statements from the loop header block (e.g., increment).
+        /// </summary>
+        void EmitHeaderStatements(int headerIdx, int indent)
+        {
+            if (!_blockMap.TryGetValue(headerIdx, out var headerBlock))
+                return;
+
+            _currentBlockNodes = headerBlock.Nodes;
+
+            // Emit all statements except the last (the branch condition)
+            for (int i = 0; i < headerBlock.Nodes.Count - 1; i++)
+            {
+                var node = headerBlock.Nodes[i];
+                switch (node)
+                {
+                    case ILAstAssignment assign:
+                        WriteIndent(indent);
+                        _sb.Append($"{assign.Variable.Name} = ");
+                        EmitExpression(assign.Value);
+                        _sb.AppendLine(";");
+                        break;
+                    case ILAstStatement stmt:
+                        EmitStatement(stmt.Expression, indent);
+                        break;
+                }
+            }
+
+            _currentBlockNodes = null;
+        }
+
+        /// <summary>
+        /// Emit a basic block inside a loop, converting gotos to break/continue.
+        /// </summary>
+        void EmitBasicBlockForLoop(int blockIndex, int indent, NaturalLoop loop)
+        {
+            if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
+                return;
+
+            _consumedBlocks.Add(blockIndex);
+            _currentBlockNodes = astBlock.Nodes;
+
+            TryEmitLabel(blockIndex);
+
+            for (int nodeIdx = 0; nodeIdx < astBlock.Nodes.Count; nodeIdx++)
+            {
+                if (_catchVariableStatements.Contains((blockIndex, nodeIdx)))
+                    continue;
+
+                var node = astBlock.Nodes[nodeIdx];
+                switch (node)
+                {
+                    case ILAstAssignment assign:
+                        WriteIndent(indent);
+                        _sb.Append($"{assign.Variable.Name} = ");
+                        EmitExpression(assign.Value);
+                        _sb.AppendLine(";");
+                        break;
+
+                    case ILAstStatement stmt:
+                        // Convert unconditional gotos to break/continue
+                        if (stmt.Expression.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                            && stmt.Expression.Operand is string gotoTarget)
+                        {
+                            if (IsLoopHeaderTarget(gotoTarget, loop))
+                            {
+                                WriteIndent(indent);
+                                _sb.AppendLine("continue;");
+                            }
+                            else if (!IsInsideLoop(gotoTarget, loop))
+                            {
+                                WriteIndent(indent);
+                                _sb.AppendLine("break;");
+                            }
+                            else
+                            {
+                                EmitStatement(stmt.Expression, indent);
+                            }
+                        }
+                        // Convert conditional branches: if(cond) goto header → if(cond) continue
+                        else if (IsBranchOpCode(stmt.Expression.OpCode)
+                            && stmt.Expression.Operand is string condTarget)
+                        {
+                            if (IsLoopHeaderTarget(condTarget, loop))
+                            {
+                                WriteIndent(indent);
+                                _sb.Append("if (");
+                                EmitBranchCondition(stmt.Expression);
+                                _sb.AppendLine(") continue;");
+                            }
+                            else if (!IsInsideLoop(condTarget, loop))
+                            {
+                                WriteIndent(indent);
+                                _sb.Append("if (");
+                                EmitBranchCondition(stmt.Expression);
+                                _sb.AppendLine(") break;");
+                            }
+                            else
+                            {
+                                EmitStatement(stmt.Expression, indent);
+                            }
+                        }
+                        else
+                        {
+                            EmitStatement(stmt.Expression, indent);
+                        }
+                        break;
+                }
+            }
+
+            _currentBlockNodes = null;
+        }
+
+        bool IsLoopHeaderTarget(string target, NaturalLoop loop)
+        {
+            return _blockStartOffset.TryGetValue(loop.HeaderIndex, out int headerOffset)
+                && target == $"IL_{headerOffset:X4}";
+        }
+
+        bool IsInsideLoop(string target, NaturalLoop loop)
+        {
+            foreach (int bodyIdx in loop.BodyIndices)
+            {
+                if (_blockStartOffset.TryGetValue(bodyIdx, out int offset)
+                    && target == $"IL_{offset:X4}")
+                    return true;
+            }
+            return false;
+        }
+
+        static bool IsBranchOpCode(ILOpCode op) => op is
+            ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s or
+            ILOpCode.Beq or ILOpCode.Beq_s or ILOpCode.Bne_un or ILOpCode.Bne_un_s or
+            ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bgt or ILOpCode.Bgt_s or
+            ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s or
+            ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or
+            ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s;
+
+        /// <summary>
+        /// If the goto target is a block containing only a return statement,
+        /// emit the return directly and return true. Otherwise return false.
+        /// </summary>
+        bool TryEmitInlinedReturn(string targetLabel, int indent)
+        {
+            // Find the block with this IL offset
+            foreach (var (blockIdx, offset) in _blockStartOffset)
+            {
+                if ($"IL_{offset:X4}" != targetLabel) continue;
+                if (!_blockMap.TryGetValue(blockIdx, out var targetBlock)) return false;
+
+                // Block must have exactly one node: a return statement
+                if (targetBlock.Nodes.Count != 1) return false;
+                if (targetBlock.Nodes[0] is not ILAstStatement { Expression: var retExpr }) return false;
+                if (retExpr.OpCode != ILOpCode.Ret) return false;
+
+                // Track that we inlined this return
+                _inlinedReturnLabels.Add(targetLabel);
+
+                // Emit the return inline
+                WriteIndent(indent);
+                if (retExpr.Arguments.Count > 0)
+                {
+                    _sb.Append("return ");
+                    EmitExpression(retExpr.Arguments[0]);
+                    _sb.AppendLine(";");
+                }
+                else
+                {
+                    _sb.AppendLine("return;");
+                }
+                return true;
+            }
+            return false;
         }
 
         void EmitTryCatchFinally(StructuredBlock block, int indent)
@@ -611,6 +925,12 @@ public static class CSharpEmitter
 
                 // Branches become comments in the initial output
                 case ILOpCode.Br or ILOpCode.Br_s:
+                    // Suppress gotos into loop headers (the while condition replaces them)
+                    if (expr.Operand is string brTarget && _loopHeaderLabels.Contains(brTarget))
+                        break;
+                    // Inline goto-to-return: if target block only has a return, emit return directly
+                    if (expr.Operand is string brRetTarget && TryEmitInlinedReturn(brRetTarget, indent))
+                        break;
                     WriteIndent(indent);
                     _sb.AppendLine($"goto {expr.Operand};");
                     break;
@@ -632,8 +952,12 @@ public static class CSharpEmitter
                     // leave exits a try/catch block — emit goto if target is a labeled block
                     if (expr.Operand is string leaveTarget && _gotoTargets.Contains(leaveTarget))
                     {
-                        WriteIndent(indent);
-                        _sb.AppendLine($"goto {leaveTarget};");
+                        // Inline leave-to-return when possible
+                        if (!TryEmitInlinedReturn(leaveTarget, indent))
+                        {
+                            WriteIndent(indent);
+                            _sb.AppendLine($"goto {leaveTarget};");
+                        }
                     }
                     break;
 
@@ -1303,6 +1627,9 @@ public static class CSharpEmitter
             if (_blockStartOffset.TryGetValue(blockIndex, out int startOffset))
             {
                 string label = $"IL_{startOffset:X4}";
+                // Suppress labels consumed by while-loop conditions or loop headers
+                if (_loopConsumedLabels.Contains(label) || _loopHeaderLabels.Contains(label))
+                    return;
                 if (_gotoTargets.Contains(label) && _emittedLabels.Add(label))
                     _sb.AppendLine($"{label}:");
             }
@@ -1396,6 +1723,23 @@ public static class CSharpEmitter
             // Use a temp context with the new StringBuilder
             var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
             tempCtx.EmitExpression(expr);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Render a branch expression's condition as a string, handling both
+        /// single-argument (brfalse/brtrue) and two-argument (beq/blt/ble/etc.) branches.
+        /// </summary>
+        string BranchConditionToString(ILAstExpression branchExpr)
+        {
+            // For single-argument branches (brfalse/brtrue), use ExtractCondition
+            if (branchExpr.Arguments.Count == 1)
+                return ExpressionToString(ExtractCondition(branchExpr));
+
+            // For comparison-and-branch opcodes (beq, blt, ble, etc.), render via EmitBranchCondition
+            var sb = new StringBuilder();
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
+            tempCtx.EmitBranchCondition(branchExpr);
             return sb.ToString();
         }
 

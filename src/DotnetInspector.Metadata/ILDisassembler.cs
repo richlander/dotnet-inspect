@@ -346,6 +346,7 @@ public static class ILDisassembler
                     return new GenericContext(typeArgs, []);
             }
         }
+        // Graceful fallback when generic type signature cannot be decoded
         catch { }
         return null;
     }

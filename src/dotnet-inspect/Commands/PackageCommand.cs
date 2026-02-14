@@ -26,12 +26,10 @@ public class PackageCommand
         var sectionNames = pipeline.AllSectionNames;
 
         // Validate section filters
-        options = options with
-        {
-            IncludeSections = SectionRegistry.Resolve(sectionNames, options.IncludeSections, out var includeError),
-            ExcludeSections = SectionRegistry.Resolve(sectionNames, options.ExcludeSections, out var excludeError),
-        };
-        if (includeError || excludeError) return 1;
+        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
+            sectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
+        if (sectionError) return 1;
+        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
         // Bare -s without input: list all potential sections and exit
         if (options.IncludeSections is { Count: 0 } && packageArgs.Length < 1)

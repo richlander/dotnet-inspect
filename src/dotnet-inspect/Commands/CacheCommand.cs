@@ -13,13 +13,13 @@ public class CacheCommand
     {
         if (options.Clean)
         {
-            return CleanCacheAsync();
+            return Task.FromResult(CleanCache());
         }
 
-        return ShowCacheInfoAsync();
+        return Task.FromResult(ShowCacheInfo());
     }
 
-    private static Task<int> ShowCacheInfoAsync()
+    private static int ShowCacheInfo()
     {
         var info = PackageCacheService.GetCacheInfo();
 
@@ -28,10 +28,10 @@ public class CacheCommand
             .ToList();
 
         Console.WriteLine(CacheOutputFormatter.FormatCacheInfo(info.Location, categories, info.TotalSize));
-        return Task.FromResult(0);
+        return 0;
     }
 
-    private static Task<int> CleanCacheAsync()
+    private static int CleanCache()
     {
         try
         {
@@ -44,12 +44,12 @@ public class CacheCommand
             {
                 Console.WriteLine($"Cleared {CacheOutputFormatter.FormatSize(freed)} from cache.");
             }
-            return Task.FromResult(0);
+            return 0;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error clearing cache: {ex.Message}");
-            return Task.FromResult(1);
+            return 1;
         }
     }
 

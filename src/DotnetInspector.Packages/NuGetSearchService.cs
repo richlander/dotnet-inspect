@@ -46,7 +46,7 @@ public static class NuGetSearchService
         string url = $"{DefaultSearchUrl}?q={Uri.EscapeDataString(query)}&take={take}&prerelease={prerelease.ToString().ToLowerInvariant()}";
         log?.Invoke($"Searching NuGet: {url}");
 
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log).ConfigureAwait(false);
         if (json == null)
             return [];
 
@@ -75,7 +75,7 @@ public static class NuGetSearchService
         string url = $"{DefaultSearchUrl}?q={Uri.EscapeDataString(prefix)}&take={take}&prerelease={prerelease.ToString().ToLowerInvariant()}";
         log?.Invoke($"Searching NuGet by prefix: {url}");
 
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log).ConfigureAwait(false);
         if (json == null)
             return [];
 

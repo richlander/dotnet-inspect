@@ -24,7 +24,7 @@ public static class DependencyResolutionService
             log?.Invoke($"Resolving: {dep.Id} {dep.Version}");
 
             var (children, author) = await ResolveChildDependenciesAsync(
-                client, dep.Id, dep.Version, tfm, globalSeen, log);
+                client, dep.Id, dep.Version, tfm, globalSeen, log).ConfigureAwait(false);
 
             nodes.Add(new DependencyNode(dep.Id, dep.Version, author, children));
         }
@@ -61,7 +61,7 @@ public static class DependencyResolutionService
             if (version == null) return ([], null);
 
             string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
-            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: log);
+            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: log).ConfigureAwait(false);
             if (extractResult == null) return ([], null);
 
             try
@@ -76,7 +76,7 @@ public static class DependencyResolutionService
                 var group = FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
                 if (group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
 
-                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log);
+                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log).ConfigureAwait(false);
                 return (children, nuspec.Authors);
             }
             finally
