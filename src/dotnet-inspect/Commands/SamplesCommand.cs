@@ -22,6 +22,12 @@ public class SamplesCommand
 
         try
         {
+            // Local .cs file mode: read file directly, skip SourceLink/PDB
+            if (!string.IsNullOrEmpty(options.FilePath))
+            {
+                return ExecuteForLocalFile(options.FilePath, options.Region);
+            }
+
             // Get package info from options
             string? packageName = null;
             string? packageVersion = null;
@@ -44,6 +50,31 @@ public class SamplesCommand
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
         }
+    }
+
+    private static int ExecuteForLocalFile(string filePath, string? region)
+    {
+        if (!File.Exists(filePath))
+        {
+            Console.Error.WriteLine($"Error: File not found: {filePath}");
+            return 1;
+        }
+
+        var content = File.ReadAllText(filePath);
+
+        if (!string.IsNullOrEmpty(region))
+        {
+            var regionContent = SourceFetcher.ExtractRegion(content, region);
+            if (regionContent == null)
+            {
+                Console.Error.WriteLine($"Error: Region '{region}' not found in {filePath}");
+                return 1;
+            }
+            content = regionContent;
+        }
+
+        Console.Write(content);
+        return 0;
     }
 
     private static async Task<int> ExecuteForTypeAsync(
@@ -302,6 +333,16 @@ public record SamplesOptions
     /// Type name to get samples for (positional argument). Null for library-wide samples.
     /// </summary>
     public string? TypeName { get; init; }
+
+    /// <summary>
+    /// Local .cs file path to read directly (skips SourceLink/PDB).
+    /// </summary>
+    public string? FilePath { get; init; }
+
+    /// <summary>
+    /// Optional region name to extract from a local file (used with --file).
+    /// </summary>
+    public string? Region { get; init; }
 
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }

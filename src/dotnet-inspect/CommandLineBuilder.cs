@@ -956,6 +956,8 @@ public static class CommandLineBuilder
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing instead of /raw/ URLs" };
         var listOption = new Option<bool>("--list") { Description = "List samples only (don't fetch content)" };
         var printOption = new Option<int?>("--print") { Description = "Print specific sample by number (raw code, no markdown)", Arity = ArgumentArity.ExactlyOne };
+        var fileOption = new Option<string?>("--file") { Description = "Read a local .cs file directly (skips SourceLink/PDB)" };
+        var regionOption = new Option<string?>("--region") { Description = "Extract a specific #region from the file (used with --file)" };
 
         samplesCommand.Arguments.Add(argsArg);
         samplesCommand.Options.Add(packageOption);
@@ -966,6 +968,8 @@ public static class CommandLineBuilder
         samplesCommand.Options.Add(browsableUrlsOption);
         samplesCommand.Options.Add(listOption);
         samplesCommand.Options.Add(printOption);
+        samplesCommand.Options.Add(fileOption);
+        samplesCommand.Options.Add(regionOption);
         samplesCommand.Options.Add(verboseOption);
         samplesCommand.Options.Add(verbosityOption);
         samplesCommand.Options.Add(sourceOption);
@@ -1013,6 +1017,8 @@ public static class CommandLineBuilder
                 Verbose = parseResult.GetValue(verboseOption),
                 ListOnly = parseResult.GetValue(listOption),
                 PrintSample = parseResult.GetValue(printOption),
+                FilePath = parseResult.GetValue(fileOption),
+                Region = parseResult.GetValue(regionOption),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
