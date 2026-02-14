@@ -26,6 +26,17 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
+[MarkoutContext(typeof(ImplementsResultView))]
+[MarkoutContext(typeof(ImplementerRow))]
+[MarkoutContext(typeof(FindResultView))]
+[MarkoutContext(typeof(FindRow))]
+[MarkoutContext(typeof(ExtensionsResultView))]
+[MarkoutContext(typeof(ExtensionCountRow))]
+[MarkoutContext(typeof(ExtensionRow))]
+[MarkoutContext(typeof(DiffOneLineView))]
+[MarkoutContext(typeof(DiffOneLineRow))]
+[MarkoutContext(typeof(SamplesListView))]
+[MarkoutContext(typeof(EmptyDepsView))]
 public partial class MarkoutContext : MarkoutSerializerContext
 {
 }

@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -22,10 +23,10 @@ public class SamplesCommand
 
         try
         {
-            // Local .cs file mode: read file directly, skip SourceLink/PDB
+            // Local .cs file mode: parse XML docs locally, skip SourceLink/PDB
             if (!string.IsNullOrEmpty(options.FilePath))
             {
-                return ExecuteForLocalFile(options.FilePath, options.Region);
+                return ExecuteForLocalFile(options);
             }
 
             // Get package info from options
@@ -52,8 +53,10 @@ public class SamplesCommand
         }
     }
 
-    private static int ExecuteForLocalFile(string filePath, string? region)
+    private static int ExecuteForLocalFile(SamplesOptions options)
     {
+        var filePath = options.FilePath!;
+
         if (!File.Exists(filePath))
         {
             Console.Error.WriteLine($"Error: File not found: {filePath}");
@@ -62,19 +65,154 @@ public class SamplesCommand
 
         var content = File.ReadAllText(filePath);
 
-        if (!string.IsNullOrEmpty(region))
+        // Extract all sample references from XML doc comments
+        var parser = new DocCommentParser();
+        var sampleRefs = parser.ExtractAllSamples(content);
+
+        if (sampleRefs.Count == 0)
         {
-            var regionContent = SourceFetcher.ExtractRegion(content, region);
-            if (regionContent == null)
+            if (options.ListOnly || options.PrintSample.HasValue)
             {
-                Console.Error.WriteLine($"Error: Region '{region}' not found in {filePath}");
-                return 1;
+                Console.Error.WriteLine($"No samples found in {filePath}.");
+                return 0;
             }
-            content = regionContent;
+
+            // No samples and no explicit output mode - dump the file (backwards compat)
+            if (!string.IsNullOrEmpty(options.Region))
+            {
+                var regionContent = SourceFetcher.ExtractRegion(content, options.Region);
+                if (regionContent == null)
+                {
+                    Console.Error.WriteLine($"Error: Region '{options.Region}' not found in {filePath}");
+                    return 1;
+                }
+                Console.Write(regionContent);
+                return 0;
+            }
+
+            Console.Write(content);
+            return 0;
         }
 
-        Console.Write(content);
+        // Build TypedSample list
+        var typeName = Path.GetFileNameWithoutExtension(filePath);
+        var ns = ExtractNamespace(content);
+        var fileDir = Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? ".";
+
+        // Deduplicate by path + region
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var samples = new List<TypedSample>();
+        foreach (var s in sampleRefs)
+        {
+            var key = $"{s.RelativePath}|{s.Region}";
+            if (seen.Add(key))
+            {
+                samples.Add(new TypedSample(typeName, ns, new SampleReference
+                {
+                    RelativePath = s.RelativePath,
+                    Description = s.Description,
+                    Region = s.Region,
+                }));
+            }
+        }
+
+        // Sort by path for consistent ordering
+        samples = samples
+            .OrderBy(s => s.Sample.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Handle --list
+        if (options.ListOnly)
+        {
+            var view = SamplesOutputFormatter.BuildListView(
+                samples, null, null, Path.GetFileName(filePath), options.BrowsableUrls);
+            Console.WriteLine(new MarkoutContext().Serialize(view));
+            return 0;
+        }
+
+        // Handle --print N
+        if (options.PrintSample.HasValue)
+        {
+            return PrintLocalSample(samples, options.PrintSample.Value, fileDir);
+        }
+
+        // Default: print all local samples
+        return PrintAllLocalSamples(samples, fileDir, filePath);
+    }
+
+    private static int PrintLocalSample(List<TypedSample> samples, int sampleNumber, string fileDir)
+    {
+        if (sampleNumber < 1 || sampleNumber > samples.Count)
+        {
+            Console.Error.WriteLine($"Error: Sample #{sampleNumber} not found. Available: 1-{samples.Count}");
+            return 1;
+        }
+
+        var sample = samples[sampleNumber - 1].Sample;
+        var resolvedPath = Path.GetFullPath(Path.Combine(fileDir, sample.RelativePath));
+
+        if (!File.Exists(resolvedPath))
+        {
+            Console.Error.WriteLine($"Error: Sample file not found: {resolvedPath}");
+            return 1;
+        }
+
+        var sampleContent = File.ReadAllText(resolvedPath);
+
+        if (!string.IsNullOrEmpty(sample.Region))
+        {
+            var regionContent = SourceFetcher.ExtractRegion(sampleContent, sample.Region);
+            if (regionContent != null)
+            {
+                sampleContent = regionContent;
+            }
+            else
+            {
+                Console.Error.WriteLine($"Warning: Region '{sample.Region}' not found in {resolvedPath}");
+            }
+        }
+
+        Console.WriteLine(sampleContent);
         return 0;
+    }
+
+    private static int PrintAllLocalSamples(List<TypedSample> samples, string fileDir, string filePath)
+    {
+        var writer = new MarkdownWriter(Console.Out);
+        writer.WriteHeading(1, $"Samples: {Path.GetFileName(filePath)}");
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            var typedSample = samples[i];
+            var sample = typedSample.Sample;
+            var resolvedPath = Path.GetFullPath(Path.Combine(fileDir, sample.RelativePath));
+
+            string? sampleContent = null;
+            if (File.Exists(resolvedPath))
+            {
+                sampleContent = File.ReadAllText(resolvedPath);
+                if (!string.IsNullOrEmpty(sample.Region))
+                {
+                    sampleContent = SourceFetcher.ExtractRegion(sampleContent, sample.Region) ?? sampleContent;
+                }
+            }
+
+            SamplesOutputFormatter.WriteSamplesWithContent(writer, i, typedSample, sampleContent);
+        }
+
+        return 0;
+    }
+
+    private static string? ExtractNamespace(string sourceContent)
+    {
+        var idx = sourceContent.IndexOf("namespace ", StringComparison.Ordinal);
+        if (idx < 0) return null;
+
+        var start = idx + "namespace ".Length;
+        var end = sourceContent.IndexOfAny([';', '{', '\n', '\r'], start);
+        if (end < 0) return null;
+
+        return sourceContent[start..end].Trim();
     }
 
     private static async Task<int> ExecuteForTypeAsync(
@@ -198,8 +336,9 @@ public class SamplesCommand
         // Handle --list: show numbered list only
         if (options.ListOnly)
         {
-            var listOutput = RenderSamplesList(samples, packageName, packageVersion, assemblyName, options);
-            Console.WriteLine(listOutput);
+            var view = SamplesOutputFormatter.BuildListView(
+                samples, packageName, packageVersion, assemblyName, options.BrowsableUrls);
+            Console.WriteLine(new MarkoutContext().Serialize(view));
             return 0;
         }
 
@@ -241,7 +380,7 @@ public class SamplesCommand
         HttpClient httpClient)
     {
         var fetcher = new SourceFetcher(httpClient);
-        var writer = new MarkoutWriter(Console.Out);
+        var writer = new MarkdownWriter(Console.Out);
 
         // H1 title - output immediately
         SamplesOutputFormatter.WriteSamplesTitle(writer, assemblyName, packageName, packageVersion);
@@ -277,16 +416,6 @@ public class SamplesCommand
         }
 
         return 0;
-    }
-
-    private static string RenderSamplesList(
-        List<TypedSample> samples, 
-        string? packageName, 
-        string? packageVersion, 
-        string? assemblyName,
-        SamplesOptions options)
-    {
-        return SamplesOutputFormatter.FormatSamplesList(samples, packageName, packageVersion, assemblyName, options.BrowsableUrls);
     }
 
     private static async Task<string?> FetchSampleContentAsync(SourceFetcher fetcher, SampleReference sample, VerboseLogger logger)

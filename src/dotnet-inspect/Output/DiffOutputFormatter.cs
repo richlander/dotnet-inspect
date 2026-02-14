@@ -1,4 +1,5 @@
 using DotnetInspector.Metadata;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -8,13 +9,15 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
-    public static string RenderNameOnly(IReadOnlyList<TypeDiff> typeDiffs)
+    public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
-        var names = typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n);
-        return string.Join(Environment.NewLine, names);
+        foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
+        {
+            writer.WriteListItem(name);
+        }
     }
 
-    public static string RenderStat(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffOneLineView BuildOneLineView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -24,50 +27,47 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        var sb = new System.Text.StringBuilder();
-        sb.Append(name);
-        sb.Append(' ');
-        sb.Append(fromVersion);
-        sb.Append("..");
-        sb.Append(toVersion);
-        sb.Append("  ");
-        sb.AppendLine(FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking));
-
-        foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
+        var rows = typeDiffs.OrderBy(td => td.TypeFullName).Select(td =>
         {
-            char symbol;
+            string symbol;
             string detail;
 
             if (td.IsAdded)
             {
-                symbol = '+';
-                detail = "(added)";
+                symbol = "+";
+                detail = "added";
             }
             else if (td.IsRemoved)
             {
-                symbol = '-';
-                detail = "(removed)";
+                symbol = "-";
+                detail = "removed";
             }
             else if (td.BreakingCount > 0)
             {
-                symbol = '\u2717'; // ✗
+                symbol = "\u2717"; // ✗
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
             else
             {
-                symbol = '~';
+                symbol = "~";
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            sb.AppendLine($" {symbol} {TypeMatcher.GetSimpleName(td.TypeFullName),-40} {detail}");
-        }
+            return new DiffOneLineRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
+        }).ToList();
 
-        return sb.ToString().TrimEnd();
+        return new DiffOneLineView
+        {
+            Title = $"API Diff: {name}",
+            Versions = $"{fromVersion} → {toVersion}",
+            Summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking),
+            Rows = rows.Count > 0 ? rows : null
+        };
     }
 
     public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
-        var writer = new MarkoutWriter();
+        var writer = new MarkdownWriter();
 
         writer.WriteHeading(1, $"API Diff: {name}");
         writer.WriteParagraph($"**{fromVersion}** → **{toVersion}**");

@@ -41,3 +41,13 @@ public class PackageDependenciesView
 public partial class PackageDependenciesContext : MarkoutSerializerContext
 {
 }
+
+/// <summary>
+/// View model for empty dependency tree output (--dependencies with zero deps for a TFM).
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description))]
+public class EmptyDepsView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    [MarkoutIgnore] public string? Description { get; set; }
+}

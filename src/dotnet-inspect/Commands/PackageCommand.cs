@@ -70,9 +70,10 @@ public class PackageCommand
                 return 1;
             }
 
+            var versionWriter = new Output.OneLineWriter(Console.Out, showHeader: false);
             foreach (var v in versions)
             {
-                Console.WriteLine(v);
+                versionWriter.WriteListItem(v);
             }
 
             return 0;
@@ -405,9 +406,10 @@ public class PackageCommand
             ? fileNames.Take(options.Limit.Value)
             : fileNames;
 
+        var fileWriter = new Output.OneLineWriter(Console.Out, showHeader: false);
         foreach (var file in results)
         {
-            Console.WriteLine(file);
+            fileWriter.WriteListItem(file);
         }
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
@@ -443,9 +445,10 @@ public class PackageCommand
             .OrderByDescending(t => TfmResolver.GetTfmPriority(t!))
             .ToList();
 
+        var tfmWriter = new Output.OneLineWriter(Console.Out, showHeader: false);
         foreach (var tfm in tfms)
         {
-            Console.WriteLine(tfm);
+            tfmWriter.WriteListItem(tfm!);
         }
     }
 
@@ -482,10 +485,12 @@ public class PackageCommand
 
         if (group.Dependencies.Count == 0)
         {
-            var writer = new MarkoutWriter();
-            writer.WriteHeading(1, $"{result.PackageName} ({result.Version})");
-            writer.WriteParagraph($"No additional dependencies for {tfm}.");
-            Console.WriteLine(writer.ToString().TrimEnd());
+            var emptyView = new EmptyDepsView
+            {
+                Title = $"{result.PackageName} ({result.Version})",
+                Description = $"No additional dependencies for {tfm}."
+            };
+            Console.WriteLine(new MarkoutContext().Serialize(emptyView));
             return 0;
         }
 

@@ -4,6 +4,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Commands;
 
@@ -74,8 +75,19 @@ public class DiffCommand
             }
 
             var diff = ApiDiffAnalyzer.Compare(fromSurface, toSurface);
-            var output = RenderDiff(name, diff, fromVersion, toVersion, options);
-            Console.WriteLine(output);
+
+            if (options.OneLine)
+            {
+                var typeDiffs = ApplyFilters(diff, options);
+                var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
+                var writer = new OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+                new MarkoutContext().Serialize(view, writer);
+            }
+            else
+            {
+                var output = RenderDiff(name, diff, fromVersion, toVersion, options);
+                Console.WriteLine(output);
+            }
 
             return 0;
         }
@@ -199,7 +211,7 @@ public class DiffCommand
         return (packageName, fromVersion, toVersion);
     }
 
-    internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
+    internal static IReadOnlyList<TypeDiff> ApplyFilters(ApiDiff diff, DiffOptions options)
     {
         var typeDiffs = diff.TypeDiffs;
 
@@ -212,13 +224,19 @@ public class DiffCommand
         }
 
         // Apply classification filter
-        typeDiffs = FilterByClassification(typeDiffs, options);
+        return FilterByClassification(typeDiffs, options);
+    }
+
+    internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
+    {
+        var typeDiffs = ApplyFilters(diff, options);
 
         if (options.NameOnly)
-            return DiffOutputFormatter.RenderNameOnly(typeDiffs);
-
-        if (options.Stat)
-            return DiffOutputFormatter.RenderStat(name, typeDiffs, fromVersion, toVersion);
+        {
+            var nameWriter = new OneLineWriter(new StringWriter());
+            DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
+            return nameWriter.ToString();
+        }
 
         return DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
     }
@@ -255,7 +273,8 @@ public record DiffOptions
     public bool IncludeAll { get; init; }
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
-    public bool Stat { get; init; }
+    public bool OneLine { get; init; }
+    public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
@@ -264,5 +283,5 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => Stat || NameOnly;
+    public bool IsRawOutput => OneLine || NameOnly;
 }
