@@ -21,4 +21,11 @@ public class FindResultView
 }
 
 [MarkoutSerializable]
-public record FindRow(string Pattern, string Type, string Namespace, string Kind, string Library, string Source);
+public record FindRow(
+    string Pattern,
+    string Type,
+    string Namespace,
+    [property: MarkoutValueMap("class=📦", "struct=🔲", "interface=🔌", "enum=🔢", "delegate=⚡")]
+    string Kind,
+    string Library,
+    string Source);

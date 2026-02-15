@@ -398,14 +398,14 @@ public class LibraryInspectionView
         List<TreeNode> result = [];
         foreach (var node in nodes)
         {
-            var icon = node.ResolvedFrom switch
+            var badge = node.ResolvedFrom switch
             {
                 "local" => "📁",
                 "platform" => "🚢",
                 _ => "❓"
             };
             var suffix = node.IsCyclic ? " (circular)" : "";
-            result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", icon));
+            result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", badge));
         }
         return result;
     }
@@ -468,6 +468,7 @@ public record PInvokeMethodRow(
 [MarkoutSerializable]
 public record ResourceRow(
     string Name,
+    [property: MarkoutValueMap("public=🔓", "private=🔒")]
     string Visibility,
     string Size);
 
