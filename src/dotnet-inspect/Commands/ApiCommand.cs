@@ -759,14 +759,38 @@ public class ApiCommand
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
         // Determine if we can use the full serializer for member tables
-        bool fullSerializer = !options.ShowSelect && !options.CtorOnly && !options.OverloadIndex.HasValue
-            && options.Verbosity != Verbosity.Quiet;
+        // Only --select requires imperative rendering (custom Select column)
+        bool fullSerializer = !options.ShowSelect && options.Verbosity != Verbosity.Quiet;
 
         int truncatedCount = 0;
         string truncatedNoun = "";
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
-            (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSections(view, type, options);
+        {
+            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+                && type.Members.Any(m => m.Kind == "constructor"))
+            {
+                ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
+            }
+            else
+            {
+                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSections(view, type, options);
+            }
+
+            // --index: populate code sections and custom attributes
+            if (options.OverloadIndex.HasValue && options.DllPath != null)
+            {
+                var methods = type.Members
+                    .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
+                    .ToList();
+                if (methods.Count > 0)
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+            }
+
+            // Source code (already resolved in command layer)
+            if (options.MethodSource != null)
+                view.SourceCode = new Markout.CodeSection("csharp", options.MethodSource.SourceCode);
+        }
 
         if (options.OneLine)
         {
@@ -779,24 +803,11 @@ public class ApiCommand
             var writer = new Markout.MarkdownWriter(writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
-            // Imperative fallback for --select, --ctor, --index
+            // Imperative fallback for --select only
             if (!fullSerializer && options.Verbosity != Verbosity.Quiet
                 && view.EnumValues == null && view.EnumValuesWithDocs == null)
             {
-                if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
-                    && type.Members.Any(m => m.Kind == "constructor"))
-                {
-                    var grouped = ApiOutputFormatter.GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-                    var ctors = grouped
-                        .SelectMany(g => g.Value)
-                        .Where(m => m.Kind == "constructor")
-                        .ToList();
-                    ApiOutputFormatter.RenderConstructorEmphasis(writer, type, ctors);
-                }
-                else
-                {
-                    (truncatedCount, truncatedNoun) = ApiOutputFormatter.RenderMembersPerKind(writer, type, options);
-                }
+                (truncatedCount, truncatedNoun) = ApiOutputFormatter.RenderMembersPerKind(writer, type, options);
             }
 
             if (truncatedCount > 0)

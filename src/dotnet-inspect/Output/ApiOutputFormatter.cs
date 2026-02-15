@@ -142,35 +142,33 @@ public static class ApiOutputFormatter
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
             PopulateEnumValues(view, type, options);
 
-        // Serialize title + description + identity fields + enum values + type params + interfaces + baseclass
-        new MarkoutContext().Serialize(view, writer);
-
-        // Quiet: just title + stats line, no member tables
-        if (options.Verbosity == Verbosity.Quiet)
-            return;
-
-        // Imperative rendering for member tables and source info
         int truncatedCount = 0;
         string truncatedNoun = "";
 
-        if (view.EnumValues == null && view.EnumValuesWithDocs == null)
+        // Populate member sections declaratively (unless quiet, select, or enum)
+        bool fullSerializer = !options.ShowSelect && options.Verbosity != Verbosity.Quiet;
+
+        if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal &&
-                type.Members.Any(m => m.Kind == "constructor"))
+            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+                && type.Members.Any(m => m.Kind == "constructor"))
             {
-                // --ctor emphasis mode
-                var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-                var members = grouped
-                    .SelectMany(g => g.Value)
-                    .Where(m => m.Kind == "constructor")
-                    .ToList();
-                RenderConstructorEmphasis(writer, type, members);
+                PopulateConstructorOverloads(view, type, options);
             }
             else
             {
-                // Per-kind member sections (all verbosity levels)
-                (truncatedCount, truncatedNoun) = RenderMembersPerKind(writer, type, options);
+                (truncatedCount, truncatedNoun) = PopulateMemberSections(view, type, options);
             }
+        }
+
+        // Serialize the complete view
+        new MarkoutContext().Serialize(view, writer);
+
+        // Imperative fallback for --select only
+        if (!fullSerializer && options.Verbosity != Verbosity.Quiet
+            && view.EnumValues == null && view.EnumValuesWithDocs == null)
+        {
+            (truncatedCount, truncatedNoun) = RenderMembersPerKind(writer, type, options);
         }
 
         // Truncation message
@@ -524,170 +522,99 @@ public static class ApiOutputFormatter
                 formatter.FormatRows(kind, members, hasDocs, options.ShowSelect));
         }
 
-        // Custom attributes (when --index selects a single member)
-        if (options.DllPath != null && options.OverloadIndex.HasValue)
-        {
-            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
-            if (methods.Count > 0)
-                RenderMethodAttributes(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-        }
-
-        // C# source (when --index selects a single member and source is available)
-        if (options.MethodSource != null)
-        {
-            writer.WriteHeading(2, "Source");
-            writer.WriteCodeBlockStart("csharp");
-            writer.WriteParagraph(options.MethodSource.SourceCode);
-            writer.WriteCodeBlockEnd();
-        }
-
-        // IL method body (when --index selects a single member)
-        if (options.DllPath != null && options.OverloadIndex.HasValue)
-        {
-            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
-            if (methods.Count > 0)
-            {
-                RenderLoweredCSharp(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-                RenderILBodies(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-                RenderAnnotatedIL(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-            }
-        }
-
         return (truncated, "members");
     }
 
-    private static void RenderILBodies(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    internal static void PopulateConstructorOverloads(ApiTypeView view, ApiType type, ApiOptions options)
     {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var constructors = grouped
+            .SelectMany(g => g.Value)
+            .Where(m => m.Kind == "constructor")
+            .ToList();
 
-        foreach (var method in methods)
-        {
-            var instructions = ILDisassembler.DisassembleMethod(
-                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-            if (instructions is null || instructions.Count == 0)
-                continue;
-
-            writer.WriteHeading(2, "IL");
-            var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
-            writer.WriteCodeBlockStart("il");
-            writer.WriteParagraph(ilText);
-            writer.WriteCodeBlockEnd();
-        }
-    }
-
-    private static void RenderAnnotatedIL(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
-    {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-
-        foreach (var method in methods)
-        {
-            try
-            {
-                var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-                if (context is null)
-                    continue;
-
-                var annotatedIL = Decompiler.AnnotatedILEmitter.Emit(
-                    context, Decompiler.ILAnnotationDepth.Structured);
-
-                if (string.IsNullOrWhiteSpace(annotatedIL))
-                    continue;
-
-                writer.WriteHeading(2, "IL (Annotated)");
-                writer.WriteCodeBlockStart("il");
-                writer.WriteParagraph(annotatedIL.TrimEnd());
-                writer.WriteCodeBlockEnd();
-            }
-            catch
-            {
-                // Decompiler may fail on some methods — skip silently
-            }
-        }
-    }
-
-    private static void RenderLoweredCSharp(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
-    {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-
-        foreach (var method in methods)
-        {
-            try
-            {
-                var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-                if (context is null)
-                    continue;
-
-                var loweredCSharp = Decompiler.CSharpEmitter.Emit(context);
-
-                if (string.IsNullOrWhiteSpace(loweredCSharp))
-                    continue;
-
-                writer.WriteHeading(2, "Lowered C#");
-                writer.WriteCodeBlockStart("csharp");
-                writer.WriteParagraph(loweredCSharp.TrimEnd());
-                writer.WriteCodeBlockEnd();
-            }
-            catch
-            {
-                // Decompiler may fail on some methods — skip silently
-            }
-        }
-    }
-
-    private static void RenderMethodAttributes(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
-    {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-
-        foreach (var method in methods)
-        {
-            var attributes = AttributeReader.GetMethodAttributes(
-                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-            if (attributes.Count == 0)
-                continue;
-
-            writer.WriteHeading(2, "Custom Attributes");
-            writer.WriteTable(
-                ["Name", "Value"],
-                attributes.Select(a => new[] { a.Name, a.Value ?? "" }));
-        }
-    }
-
-    internal static void RenderConstructorEmphasis(MarkoutWriter writer, ApiType type, List<ApiMember> constructors)
-    {
-        writer.WriteHeading(2, $"Constructors ({constructors.Count} overload{(constructors.Count != 1 ? "s" : "")})");
+        if (constructors.Count == 0) return;
 
         var sorted = constructors
             .OrderBy(c => SignatureParser.CountParameters(c.Signature))
             .ToList();
 
-        for (int i = 0; i < sorted.Count; i++)
+        view.ConstructorOverloads = sorted.Select((ctor, i) =>
         {
-            var ctor = sorted[i];
             var paramCount = SignatureParser.CountParameters(ctor.Signature);
             var paramInfo = SignatureParser.ExtractParameterInfo(ctor.Signature);
 
-            writer.WriteHeading(3, $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}");
-
-            writer.WriteCodeBlockStart("csharp");
-            writer.WriteParagraph($"new {type.Name}{SignatureParser.FormatConstructorCall(ctor.Signature)}");
-            writer.WriteCodeBlockEnd();
+            var overloadView = new ConstructorOverloadView
+            {
+                Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
+                Signature = new CodeSection("csharp", $"new {type.Name}{SignatureParser.FormatConstructorCall(ctor.Signature)}")
+            };
 
             if (paramInfo.Count > 0)
             {
-                var headers = new[] { "Parameter", "Type", "Notes" };
-                var rows = paramInfo.Select(p => new[] { p.name, $"`{p.type}`", p.hasDefault ? "optional" : "required" });
-                writer.WriteTable(headers, rows);
+                overloadView.Parameters = paramInfo
+                    .Select(p => new ConstructorParameterRow(p.name, $"`{p.type}`", p.hasDefault ? "optional" : "required"))
+                    .ToList();
             }
+
+            return overloadView;
+        }).ToList();
+    }
+
+    internal static void PopulateIndexSections(ApiTypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+
+        foreach (var method in methods)
+        {
+            // Custom attributes
+            var attributes = AttributeReader.GetMethodAttributes(
+                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+            if (attributes.Count > 0)
+            {
+                view.MethodAttributeRows = attributes
+                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .ToList();
+            }
+
+            // Lowered C#
+            try
+            {
+                var context = Decompiler.MethodBodyContext.Create(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                if (context != null)
+                {
+                    var lowered = Decompiler.CSharpEmitter.Emit(context);
+                    if (!string.IsNullOrWhiteSpace(lowered))
+                        view.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
+                }
+            }
+            catch { }
+
+            // IL disassembly
+            var instructions = ILDisassembler.DisassembleMethod(
+                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+            if (instructions is { Count: > 0 })
+            {
+                var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+                view.ILCode = new CodeSection("il", ilText);
+            }
+
+            // Annotated IL
+            try
+            {
+                var context = Decompiler.MethodBodyContext.Create(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                if (context != null)
+                {
+                    var annotated = Decompiler.AnnotatedILEmitter.Emit(
+                        context, Decompiler.ILAnnotationDepth.Structured);
+                    if (!string.IsNullOrWhiteSpace(annotated))
+                        view.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                }
+            }
+            catch { }
         }
     }
 

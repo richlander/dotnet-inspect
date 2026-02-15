@@ -134,6 +134,36 @@ public class ApiTypeView
     [JsonIgnore]
     public List<MemberRow>? EventRowsWithDocs { get; set; }
 
+    // Constructor emphasis (--ctor mode, Normal+ verbosity)
+    [MarkoutSection(Name = "Constructors")]
+    [JsonIgnore]
+    public List<ConstructorOverloadView>? ConstructorOverloads { get; set; }
+
+    // Index mode sections (--index path)
+    [MarkoutSection(Name = "Custom Attributes")]
+    [JsonIgnore]
+    public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
+
+    [MarkoutSection(Name = "Source")]
+    [MarkoutIgnoreInTable]
+    [JsonIgnore]
+    public CodeSection SourceCode { get; set; }
+
+    [MarkoutSection(Name = "Lowered C#")]
+    [MarkoutIgnoreInTable]
+    [JsonIgnore]
+    public CodeSection LoweredCSharp { get; set; }
+
+    [MarkoutSection(Name = "IL")]
+    [MarkoutIgnoreInTable]
+    [JsonIgnore]
+    public CodeSection ILCode { get; set; }
+
+    [MarkoutSection(Name = "IL (Annotated)")]
+    [MarkoutIgnoreInTable]
+    [JsonIgnore]
+    public CodeSection AnnotatedIL { get; set; }
+
 }
 
 [MarkoutSerializable]
@@ -233,6 +263,28 @@ public record ForwarderSummaryRow(
 
 [MarkoutSerializable]
 public record MemberRow(string Name, string Signature, string? Description);
+
+[MarkoutSerializable]
+public record MethodAttributeRow(string Name, string Value);
+
+/// <summary>
+/// View model for constructor emphasis (--ctor mode).
+/// Each overload renders as a subheading with a code block and parameter table.
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title))]
+public class ConstructorOverloadView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+
+    [MarkoutIgnoreInTable]
+    public CodeSection Signature { get; set; }
+
+    [MarkoutSection(Name = "Parameters")]
+    public List<ConstructorParameterRow>? Parameters { get; set; }
+}
+
+[MarkoutSerializable]
+public record ConstructorParameterRow(string Parameter, string Type, string Notes);
 
 /// <summary>
 /// View model for type shape output (--shape).
