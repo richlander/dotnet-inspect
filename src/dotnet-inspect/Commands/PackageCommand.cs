@@ -71,10 +71,7 @@ public class PackageCommand
             }
 
             var versionWriter = new Output.OneLineWriter(Console.Out, showHeader: false);
-            foreach (var v in versions)
-            {
-                versionWriter.WriteListItem(v);
-            }
+            versionWriter.WriteList(versions);
 
             return 0;
         }
@@ -407,10 +404,7 @@ public class PackageCommand
             : fileNames;
 
         var fileWriter = new Output.OneLineWriter(Console.Out, showHeader: false);
-        foreach (var file in results)
-        {
-            fileWriter.WriteListItem(file);
-        }
+        fileWriter.WriteList(results);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
@@ -446,10 +440,7 @@ public class PackageCommand
             .ToList();
 
         var tfmWriter = new Output.OneLineWriter(Console.Out, showHeader: false);
-        foreach (var tfm in tfms)
-        {
-            tfmWriter.WriteListItem(tfm!);
-        }
+        tfmWriter.WriteList(tfms!);
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
