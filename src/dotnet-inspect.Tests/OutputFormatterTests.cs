@@ -201,7 +201,7 @@ public class OutputFormatterTests
         var api = CreateTestApiSurface();
         var options = new ApiOptions { Verbosity = Verbosity.Quiet };
 
-        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+        var output = RenderFullApi(api, options);
 
         Assert.Contains("Source: NuGet", output);
         Assert.DoesNotContain("## Classes", output);
@@ -214,7 +214,7 @@ public class OutputFormatterTests
         var api = CreateTestApiSurface();
         var options = new ApiOptions { Verbosity = Verbosity.Minimal };
 
-        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+        var output = RenderFullApi(api, options);
 
         Assert.Contains("## Classes", output);
         Assert.Contains("TestLib.Type1", output);
@@ -231,7 +231,7 @@ public class OutputFormatterTests
             TypeFilter = "Type1*"
         };
 
-        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+        var output = RenderFullApi(api, options);
 
         Assert.Contains("## Classes", output);
         Assert.Contains("TestLib.Type1", output);
@@ -243,7 +243,7 @@ public class OutputFormatterTests
         var api = CreateTestApiSurface();
         var options = new ApiOptions { Verbosity = Verbosity.Quiet };
 
-        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options);
+        var output = RenderFullApi(api, options);
 
         Assert.Contains("Source: NuGet", output);
         Assert.Contains("TFM: net10.0", output);
@@ -335,7 +335,7 @@ public class OutputFormatterTests
         var api = CreateTestApiSurface();
         var options = new ApiOptions { Verbosity = Verbosity.Quiet };
 
-        var output = ApiOutputFormatter.RenderFullApiMarkdown(api, options).TrimEnd();
+        var output = RenderFullApi(api, options).TrimEnd();
         var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None);
 
         Assert.Equal(3, lines.Length);
@@ -343,6 +343,17 @@ public class OutputFormatterTests
         Assert.Equal("", lines[1]);
         Assert.Contains(" | ", lines[2]);
         Assert.DoesNotContain("## ", output);
+    }
+
+    private static string RenderFullApi(ApiSurface api, ApiOptions options)
+    {
+        var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
+        var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+        var writer = new MarkdownWriter(writerOptions);
+        new MarkoutContext().Serialize(view, writer);
+        if (truncatedCount > 0)
+            writer.WriteParagraph($"... *and {truncatedCount} more types*");
+        return writer.ToString().TrimEnd();
     }
 
     private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections)

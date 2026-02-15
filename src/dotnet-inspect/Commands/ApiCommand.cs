@@ -602,15 +602,26 @@ public class ApiCommand
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
+            return;
         }
-        else if (options.OneLine)
+
+        var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
+
+        if (options.OneLine)
         {
             var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
-            ApiOutputFormatter.RenderFullApiMarkdown(writer, api, options);
+            new MarkoutContext().Serialize(view, writer);
         }
         else
         {
-            Console.WriteLine(ApiOutputFormatter.RenderFullApiMarkdown(api, options));
+            var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            var writer = new Markout.MarkdownWriter(writerOptions);
+            new MarkoutContext().Serialize(view, writer);
+
+            if (truncatedCount > 0)
+                writer.WriteParagraph($"... *and {truncatedCount} more types*");
+
+            Console.WriteLine(writer.ToString().TrimEnd());
         }
     }
 
@@ -732,19 +743,66 @@ public class ApiCommand
         if (options.ShapeOutput)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter);
+            return;
         }
-        else if (options.JsonOutput)
+
+        if (options.JsonOutput)
         {
             WriteJsonTypeOutput(type, options);
+            return;
         }
-        else if (options.OneLine)
+
+        var view = ApiOutputFormatter.BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+
+        // Populate enum values declaratively for Normal+ enums
+        if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
+            ApiOutputFormatter.PopulateEnumValues(view, type, options);
+
+        // Determine if we can use the full serializer for member tables
+        bool fullSerializer = !options.ShowSelect && !options.CtorOnly && !options.OverloadIndex.HasValue
+            && options.Verbosity != Verbosity.Quiet;
+
+        int truncatedCount = 0;
+        string truncatedNoun = "";
+
+        if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
+            (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSections(view, type, options);
+
+        if (options.OneLine)
         {
             var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
-            ApiOutputFormatter.RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+            new MarkoutContext().Serialize(view, writer);
         }
         else
         {
-            Console.WriteLine(ApiOutputFormatter.RenderTypeMarkdown(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options));
+            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var writer = new Markout.MarkdownWriter(writerOptions);
+            new MarkoutContext().Serialize(view, writer);
+
+            // Imperative fallback for --select, --ctor, --index
+            if (!fullSerializer && options.Verbosity != Verbosity.Quiet
+                && view.EnumValues == null && view.EnumValuesWithDocs == null)
+            {
+                if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+                    && type.Members.Any(m => m.Kind == "constructor"))
+                {
+                    var grouped = ApiOutputFormatter.GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+                    var ctors = grouped
+                        .SelectMany(g => g.Value)
+                        .Where(m => m.Kind == "constructor")
+                        .ToList();
+                    ApiOutputFormatter.RenderConstructorEmphasis(writer, type, ctors);
+                }
+                else
+                {
+                    (truncatedCount, truncatedNoun) = ApiOutputFormatter.RenderMembersPerKind(writer, type, options);
+                }
+            }
+
+            if (truncatedCount > 0)
+                writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
+
+            Console.WriteLine(writer.ToString().TrimEnd());
         }
     }
 

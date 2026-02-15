@@ -98,6 +98,42 @@ public class ApiTypeView
     [JsonIgnore]
     public List<SourceRow>? SourceRows { get; set; }
 
+    // Member sections (populated by ApiOutputFormatter.PopulateMemberSections)
+    [MarkoutSection(Name = "Constructors", IgnoreProperty = nameof(MemberRow.Description))]
+    [JsonIgnore]
+    public List<MemberRow>? ConstructorRows { get; set; }
+    [MarkoutSection(Name = "Constructors")]
+    [JsonIgnore]
+    public List<MemberRow>? ConstructorRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Fields", IgnoreProperty = nameof(MemberRow.Description))]
+    [JsonIgnore]
+    public List<MemberRow>? FieldRows { get; set; }
+    [MarkoutSection(Name = "Fields")]
+    [JsonIgnore]
+    public List<MemberRow>? FieldRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Properties", IgnoreProperty = nameof(MemberRow.Description))]
+    [JsonIgnore]
+    public List<MemberRow>? PropertyRows { get; set; }
+    [MarkoutSection(Name = "Properties")]
+    [JsonIgnore]
+    public List<MemberRow>? PropertyRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Methods", IgnoreProperty = nameof(MemberRow.Description))]
+    [JsonIgnore]
+    public List<MemberRow>? MethodRows { get; set; }
+    [MarkoutSection(Name = "Methods")]
+    [JsonIgnore]
+    public List<MemberRow>? MethodRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Events", IgnoreProperty = nameof(MemberRow.Description))]
+    [JsonIgnore]
+    public List<MemberRow>? EventRows { get; set; }
+    [MarkoutSection(Name = "Events")]
+    [JsonIgnore]
+    public List<MemberRow>? EventRowsWithDocs { get; set; }
+
 }
 
 [MarkoutSerializable]
@@ -137,38 +173,66 @@ public class SourceRow
 }
 
 /// <summary>
-/// Markout-aware wrapper for ApiSurface used in --all-types serialization path.
+/// View model for full API surface rendering (all types in an assembly).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Name))]
+[MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description))]
 public class CliApiSurface
 {
-    private readonly ApiSurface _inner;
+    [MarkoutIgnore] public string? Name { get; set; }
+    [MarkoutIgnore] public string? Description { get; set; }
 
-    public CliApiSurface(ApiSurface inner)
-    {
-        _inner = inner;
-    }
-
-    [MarkoutIgnore]
-    public string? Name => _inner.Name;
-
-    [MarkoutSkipNull]
-    public string? Library => _inner.Library;
-
-    public int Types => _inner.PublicTypeCount;
-    public int Methods => _inner.PublicMethodCount;
-    public int Properties => _inner.PublicPropertyCount;
-
-    [MarkoutSkipNull]
-    public string? Source => _inner.Source;
-
-    [MarkoutSkipNull]
-    public string? Version => _inner.Version;
+    [MarkoutSkipNull] public string? Library { get; set; }
+    public int Types { get; set; }
+    public int Methods { get; set; }
+    public int Properties { get; set; }
+    [MarkoutSkipNull] public string? Source { get; set; }
+    [MarkoutSkipNull] public string? Version { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
-    public string? Tfm => _inner.Tfm;
+    public string? Tfm { get; set; }
+
+    // Type forwarders (edge case: types == 0 with forwarders)
+    [MarkoutSection(Name = "Type Forwarders")]
+    public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
+
+    // Per-kind type sections (5 kinds × with/without docs)
+    [MarkoutSection(Name = "Classes", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    public List<TypeSummaryRow>? Classes { get; set; }
+    [MarkoutSection(Name = "Classes")]
+    public List<TypeSummaryRow>? ClassesWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Structs", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    public List<TypeSummaryRow>? Structs { get; set; }
+    [MarkoutSection(Name = "Structs")]
+    public List<TypeSummaryRow>? StructsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Interfaces", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    public List<TypeSummaryRow>? Interfaces { get; set; }
+    [MarkoutSection(Name = "Interfaces")]
+    public List<TypeSummaryRow>? InterfacesWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Enums", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    public List<TypeSummaryRow>? Enums { get; set; }
+    [MarkoutSection(Name = "Enums")]
+    public List<TypeSummaryRow>? EnumsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Delegates", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    public List<TypeSummaryRow>? Delegates { get; set; }
+    [MarkoutSection(Name = "Delegates")]
+    public List<TypeSummaryRow>? DelegatesWithDocs { get; set; }
 }
+
+[MarkoutSerializable]
+public record TypeSummaryRow(string Type, string Members, string? Description);
+
+[MarkoutSerializable]
+public record ForwarderSummaryRow(
+    [property: MarkoutPropertyName("Target Library")] string TargetLibrary,
+    string Types);
+
+[MarkoutSerializable]
+public record MemberRow(string Name, string Signature, string? Description);
 
 /// <summary>
 /// View model for type shape output (--shape).
