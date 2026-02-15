@@ -74,7 +74,7 @@ public static class DiffOutputFormatter
 
         if (typeDiffs.Count == 0)
         {
-            writer.WriteParagraph("*No API changes detected.*");
+            writer.WriteCallout(CalloutSeverity.Note, "No API changes detected.");
             return writer.ToString().TrimEnd();
         }
 

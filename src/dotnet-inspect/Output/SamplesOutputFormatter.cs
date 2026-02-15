@@ -65,7 +65,7 @@ public static class SamplesOutputFormatter
         }
         else
         {
-            writer.WriteParagraph("*Failed to fetch sample content*");
+            writer.WriteCallout(CalloutSeverity.Warning, "Failed to fetch sample content");
         }
     }
 
