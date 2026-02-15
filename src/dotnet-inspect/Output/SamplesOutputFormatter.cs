@@ -22,7 +22,7 @@ public static class SamplesOutputFormatter
             ? $" ({packageName} {packageVersion})"
             : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
 
-        var items = samples.Select(typedSample =>
+        var rows = samples.Select(typedSample =>
         {
             var sample = typedSample.Sample;
             var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
@@ -35,13 +35,13 @@ public static class SamplesOutputFormatter
                 url = GitHubUrlResolver.ConvertRawToBlobUrl(url);
             }
 
-            return $"{typedSample.FullTypeName} - {description}: {url}";
+            return new SampleRow(typedSample.FullTypeName, description, url);
         }).ToList();
 
         return new SamplesListView
         {
             Title = $"Samples: {title}{packageInfo}",
-            Items = items.Count > 0 ? items : null
+            Samples = rows.Count > 0 ? rows : null
         };
     }
 

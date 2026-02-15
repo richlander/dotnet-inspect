@@ -7,6 +7,8 @@ public class SamplesListView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
 
-    [MarkoutSection(Name = "Samples")]
-    public List<string>? Items { get; set; }
+    public List<SampleRow>? Samples { get; set; }
 }
+
+[MarkoutSerializable]
+public record SampleRow(string Type, string Description, string Url);
