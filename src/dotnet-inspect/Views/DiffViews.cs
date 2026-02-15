@@ -17,3 +17,30 @@ public class DiffOneLineView
 
 [MarkoutSerializable]
 public record DiffOneLineRow(string Change, string Type, string Detail);
+
+/// <summary>
+/// View model for full diff rendering. Uses GroupBy to partition changes
+/// by type name, rendering each type as a subheading with its changes as list items.
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title))]
+public class DiffFullView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Breaking Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
+    public List<DiffChangeRow>? BreakingChanges { get; set; }
+
+    [MarkoutSection(Name = "Potentially Breaking Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
+    public List<DiffChangeRow>? PotentiallyBreakingChanges { get; set; }
+
+    [MarkoutSection(Name = "Additive Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
+    public List<DiffChangeRow>? AdditiveChanges { get; set; }
+}
+
+[MarkoutSerializable]
+public record DiffChangeRow(
+    [property: MarkoutIgnore] string TypeName,
+    string Message);

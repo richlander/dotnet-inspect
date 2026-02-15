@@ -65,17 +65,18 @@ public static class DiffOutputFormatter
         };
     }
 
-    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
-        var writer = new MarkdownWriter();
-
-        writer.WriteHeading(1, $"API Diff: {name}");
-        writer.WriteParagraph($"**{fromVersion}** → **{toVersion}**");
+        var view = new DiffFullView
+        {
+            Title = $"API Diff: {name}",
+            Versions = $"**{fromVersion}** → **{toVersion}**",
+        };
 
         if (typeDiffs.Count == 0)
         {
-            writer.WriteCallout(CalloutSeverity.Note, "No API changes detected.");
-            return writer.ToString().TrimEnd();
+            view.Status = new Callout(CalloutSeverity.Note, "No API changes detected.");
+            return view;
         }
 
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
@@ -86,14 +87,20 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        var summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking);
-        writer.WriteParagraph($"**Summary:** {summary} across {typeDiffs.Count} types");
+        view.Summary = $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking)} across {typeDiffs.Count} types";
 
-        // Group by classification: breaking first, then potentially breaking, then additive
-        WriteSection(writer, "Breaking Changes", ChangeClassification.Breaking, typeDiffs);
-        WriteSection(writer, "Potentially Breaking Changes", ChangeClassification.PotentiallyBreaking, typeDiffs);
-        WriteSection(writer, "Additive Changes", ChangeClassification.Additive, typeDiffs);
+        view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
+        view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
+        view.AdditiveChanges = BuildChangeRows(ChangeClassification.Additive, typeDiffs);
 
+        return view;
+    }
+
+    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    {
+        var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
+        var writer = new MarkdownWriter();
+        new MarkoutContext().Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
 
@@ -106,40 +113,25 @@ public static class DiffOutputFormatter
         return parts.Count > 0 ? string.Join(", ", parts) : "no changes";
     }
 
-    private static void WriteSection(MarkoutWriter writer, string heading, ChangeClassification classification, IReadOnlyList<TypeDiff> typeDiffs)
+    private static List<DiffChangeRow>? BuildChangeRows(ChangeClassification classification, IReadOnlyList<TypeDiff> typeDiffs)
     {
-        // Collect types that have changes of this classification
-        var relevantTypes = typeDiffs
-            .Where(td => td.Changes.Any(c => c.Classification == classification))
-            .OrderBy(td => td.TypeFullName)
-            .ToList();
+        var rows = new List<DiffChangeRow>();
 
-        if (relevantTypes.Count == 0)
-            return;
-
-        writer.WriteHeading(2, heading);
-
-        foreach (var td in relevantTypes)
+        foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
         {
-            writer.WriteHeading(3, TypeMatcher.GetSimpleName(td.TypeFullName));
-
-            var changes = td.Changes
-                .Where(c => c.Classification == classification)
-                .ToList();
-
-            foreach (var change in changes)
+            var typeName = TypeMatcher.GetSimpleName(td.TypeFullName);
+            foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
                 var message = change.Message;
-
-                // For signature changes, append old → new values
                 if (change.Kind == ChangeKind.MemberSignatureChanged &&
                     change.OldValue != null && change.NewValue != null)
                 {
                     message += $": `{change.OldValue}` → `{change.NewValue}`";
                 }
-
-                writer.WriteListItem(message);
+                rows.Add(new DiffChangeRow(typeName, message));
             }
         }
+
+        return rows.Count > 0 ? rows : null;
     }
 }

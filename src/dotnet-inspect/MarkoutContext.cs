@@ -41,6 +41,8 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ExtensionRow))]
 [MarkoutContext(typeof(DiffOneLineView))]
 [MarkoutContext(typeof(DiffOneLineRow))]
+[MarkoutContext(typeof(DiffFullView))]
+[MarkoutContext(typeof(DiffChangeRow))]
 [MarkoutContext(typeof(SamplesListView))]
 [MarkoutContext(typeof(EmptyDepsView))]
 public partial class MarkoutContext : MarkoutSerializerContext
