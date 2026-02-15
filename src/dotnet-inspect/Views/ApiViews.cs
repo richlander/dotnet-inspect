@@ -99,40 +99,77 @@ public class ApiTypeView
     public List<SourceRow>? SourceRows { get; set; }
 
     // Member sections (populated by ApiOutputFormatter.PopulateMemberSections)
-    [MarkoutSection(Name = "Constructors", IgnoreProperty = nameof(MemberRow.Description))]
+    // Without --select: hide Select column
+    [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorRows { get; set; }
-    [MarkoutSection(Name = "Constructors")]
+    [MarkoutSection(Name = "Constructors", IgnoreProperty = "Select")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorRowsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Fields", IgnoreProperty = nameof(MemberRow.Description))]
+    [MarkoutSection(Name = "Fields", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? FieldRows { get; set; }
-    [MarkoutSection(Name = "Fields")]
+    [MarkoutSection(Name = "Fields", IgnoreProperty = "Select")]
     [JsonIgnore]
     public List<MemberRow>? FieldRowsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Properties", IgnoreProperty = nameof(MemberRow.Description))]
+    [MarkoutSection(Name = "Properties", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? PropertyRows { get; set; }
-    [MarkoutSection(Name = "Properties")]
+    [MarkoutSection(Name = "Properties", IgnoreProperty = "Select")]
     [JsonIgnore]
     public List<MemberRow>? PropertyRowsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Methods", IgnoreProperty = nameof(MemberRow.Description))]
+    [MarkoutSection(Name = "Methods", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? MethodRows { get; set; }
-    [MarkoutSection(Name = "Methods")]
+    [MarkoutSection(Name = "Methods", IgnoreProperty = "Select")]
     [JsonIgnore]
     public List<MemberRow>? MethodRowsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Events", IgnoreProperty = nameof(MemberRow.Description))]
+    [MarkoutSection(Name = "Events", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? EventRows { get; set; }
-    [MarkoutSection(Name = "Events")]
+    [MarkoutSection(Name = "Events", IgnoreProperty = "Select")]
     [JsonIgnore]
     public List<MemberRow>? EventRowsWithDocs { get; set; }
+
+    // With --select: show Select column
+    [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description")]
+    [JsonIgnore]
+    public List<MemberRow>? ConstructorSelectRows { get; set; }
+    [MarkoutSection(Name = "Constructors")]
+    [JsonIgnore]
+    public List<MemberRow>? ConstructorSelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Fields", IgnoreProperty = "Description")]
+    [JsonIgnore]
+    public List<MemberRow>? FieldSelectRows { get; set; }
+    [MarkoutSection(Name = "Fields")]
+    [JsonIgnore]
+    public List<MemberRow>? FieldSelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Properties", IgnoreProperty = "Description")]
+    [JsonIgnore]
+    public List<MemberRow>? PropertySelectRows { get; set; }
+    [MarkoutSection(Name = "Properties")]
+    [JsonIgnore]
+    public List<MemberRow>? PropertySelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Methods", IgnoreProperty = "Description")]
+    [JsonIgnore]
+    public List<MemberRow>? MethodSelectRows { get; set; }
+    [MarkoutSection(Name = "Methods")]
+    [JsonIgnore]
+    public List<MemberRow>? MethodSelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Events", IgnoreProperty = "Description")]
+    [JsonIgnore]
+    public List<MemberRow>? EventSelectRows { get; set; }
+    [MarkoutSection(Name = "Events")]
+    [JsonIgnore]
+    public List<MemberRow>? EventSelectRowsWithDocs { get; set; }
 
     // Constructor emphasis (--ctor mode, Normal+ verbosity)
     [MarkoutSection(Name = "Constructors")]
@@ -262,7 +299,18 @@ public record ForwarderSummaryRow(
     string Types);
 
 [MarkoutSerializable]
-public record MemberRow(string Name, string Signature, string? Description);
+public record MemberRow(
+    [property: MarkoutSkipNull] string? Select,
+    string Name,
+    string Signature,
+    string? Description)
+{
+    /// <summary>
+    /// Creates a MemberRow without a Select column.
+    /// </summary>
+    public MemberRow(string name, string signature, string? description)
+        : this(null, name, signature, description) { }
+}
 
 [MarkoutSerializable]
 public record MethodAttributeRow(string Name, string Value);

@@ -759,8 +759,7 @@ public class ApiCommand
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
         // Determine if we can use the full serializer for member tables
-        // Only --select requires imperative rendering (custom Select column)
-        bool fullSerializer = !options.ShowSelect && options.Verbosity != Verbosity.Quiet;
+        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
 
         int truncatedCount = 0;
         string truncatedNoun = "";
@@ -802,13 +801,6 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var writer = new Markout.MarkdownWriter(writerOptions);
             new MarkoutContext().Serialize(view, writer);
-
-            // Imperative fallback for --select only
-            if (!fullSerializer && options.Verbosity != Verbosity.Quiet
-                && view.EnumValues == null && view.EnumValuesWithDocs == null)
-            {
-                (truncatedCount, truncatedNoun) = ApiOutputFormatter.RenderMembersPerKind(writer, type, options);
-            }
 
             if (truncatedCount > 0)
                 writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");

@@ -145,8 +145,8 @@ public static class ApiOutputFormatter
         int truncatedCount = 0;
         string truncatedNoun = "";
 
-        // Populate member sections declaratively (unless quiet, select, or enum)
-        bool fullSerializer = !options.ShowSelect && options.Verbosity != Verbosity.Quiet;
+        // Populate member sections declaratively (unless quiet or enum)
+        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
@@ -163,13 +163,6 @@ public static class ApiOutputFormatter
 
         // Serialize the complete view
         new MarkoutContext().Serialize(view, writer);
-
-        // Imperative fallback for --select only
-        if (!fullSerializer && options.Verbosity != Verbosity.Quiet
-            && view.EnumValues == null && view.EnumValuesWithDocs == null)
-        {
-            (truncatedCount, truncatedNoun) = RenderMembersPerKind(writer, type, options);
-        }
 
         // Truncation message
         if (truncatedCount > 0)
@@ -444,82 +437,71 @@ public static class ApiOutputFormatter
 
         bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = options.Verbosity == Verbosity.Minimal;
+        bool showSelect = options.ShowSelect;
 
         foreach (var group in kindGroups)
         {
             var kind = group.Key;
             var members = group.OrderBy(m => m.Name).ThenBy(m => m.Signature).ToList();
 
+            // Pre-compute overload counts and indices for --select
+            var overloadCounts = showSelect
+                ? members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count())
+                : null;
+            var overloadIndices = showSelect ? new Dictionary<string, int>() : null;
+
             var rows = members.Select(m =>
             {
                 var sig = abbreviate
                     ? SignatureParser.AbbreviateSignature(m.Signature ?? m.ReturnType ?? "")
                     : m.Signature ?? m.ReturnType ?? "";
-                return new MemberRow(m.Name, $"`{sig}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
+
+                string? select = null;
+                if (showSelect && overloadCounts != null && overloadIndices != null)
+                {
+                    overloadIndices.TryGetValue(m.Name, out int idx);
+                    idx++;
+                    overloadIndices[m.Name] = idx;
+                    bool hasOverloads = overloadCounts[m.Name] > 1;
+                    select = $"`{(hasOverloads ? $"{m.Name}:{idx}" : m.Name)}`";
+                }
+
+                return new MemberRow(select, m.Name, $"`{sig}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)
             {
                 case "constructor":
-                    if (hasDocs) view.ConstructorRowsWithDocs = rows; else view.ConstructorRows = rows;
+                    if (showSelect)
+                    { if (hasDocs) view.ConstructorSelectRowsWithDocs = rows; else view.ConstructorSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.ConstructorRowsWithDocs = rows; else view.ConstructorRows = rows; }
                     break;
                 case "field":
-                    if (hasDocs) view.FieldRowsWithDocs = rows; else view.FieldRows = rows;
+                    if (showSelect)
+                    { if (hasDocs) view.FieldSelectRowsWithDocs = rows; else view.FieldSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.FieldRowsWithDocs = rows; else view.FieldRows = rows; }
                     break;
                 case "property":
-                    if (hasDocs) view.PropertyRowsWithDocs = rows; else view.PropertyRows = rows;
+                    if (showSelect)
+                    { if (hasDocs) view.PropertySelectRowsWithDocs = rows; else view.PropertySelectRows = rows; }
+                    else
+                    { if (hasDocs) view.PropertyRowsWithDocs = rows; else view.PropertyRows = rows; }
                     break;
                 case "method":
-                    if (hasDocs) view.MethodRowsWithDocs = rows; else view.MethodRows = rows;
+                    if (showSelect)
+                    { if (hasDocs) view.MethodSelectRowsWithDocs = rows; else view.MethodSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.MethodRowsWithDocs = rows; else view.MethodRows = rows; }
                     break;
                 case "event":
-                    if (hasDocs) view.EventRowsWithDocs = rows; else view.EventRows = rows;
+                    if (showSelect)
+                    { if (hasDocs) view.EventSelectRowsWithDocs = rows; else view.EventSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.EventRowsWithDocs = rows; else view.EventRows = rows; }
                     break;
             }
-        }
-
-        return (truncated, "members");
-    }
-
-    internal static (int truncated, string noun) RenderMembersPerKind(
-        MarkoutWriter writer, ApiType type, ApiOptions options)
-    {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-        if (grouped.Count == 0) return (0, "");
-
-        // Flatten sorted for --limit application
-        var allMembers = grouped
-            .SelectMany(g => g.Value)
-            .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name)
-            .ToList();
-
-        int truncated = 0;
-        if (options.Limit.HasValue && options.Limit.Value < allMembers.Count)
-        {
-            truncated = allMembers.Count - options.Limit.Value;
-            allMembers = allMembers.Take(options.Limit.Value).ToList();
-        }
-
-        // Re-group after truncation
-        var kindGroups = allMembers
-            .GroupBy(m => m.Kind)
-            .OrderBy(g => GetMemberSortOrder(g.Key))
-            .ToList();
-
-        bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
-        var formatter = MemberTableFormatter.Create(options.Verbosity);
-
-        foreach (var group in kindGroups)
-        {
-            var kind = group.Key;
-            var sectionName = PluralizeKind(kind);
-            var members = group.ToList();
-
-            writer.WriteHeading(2, sectionName);
-            writer.WriteTable(
-                formatter.GetHeaders(kind, members, hasDocs, options.ShowSelect),
-                formatter.FormatRows(kind, members, hasDocs, options.ShowSelect));
         }
 
         return (truncated, "members");
