@@ -136,6 +136,11 @@ public static class HttpRetryHelper
 
                 log?.Invoke($"Socket error {socketError} (retryable): {url}");
             }
+            catch (DotnetInspector.Core.OfflineException)
+            {
+                log?.Invoke($"Network access is disabled (--offline mode).");
+                return null;
+            }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;

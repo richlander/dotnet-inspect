@@ -145,6 +145,8 @@ public static class CommandLineBuilder
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");
         rootCommand.Options.Add(rootTipsOption);
+        var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
+        rootCommand.Options.Add(offlineOption);
 
         // API command
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
