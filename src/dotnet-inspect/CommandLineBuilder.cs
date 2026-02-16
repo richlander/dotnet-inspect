@@ -1453,8 +1453,8 @@ public static class CommandLineBuilder
                 Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
                 var client = HttpClientFactory.Shared;
 
-                // Build prioritized download list (biased pack first)
-                var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion);
+                // Probe at latest to check if the assembly is in a platform pack
+                var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
 
                 // Download with overlapped I/O; check each result as it lands
                 await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
@@ -1466,9 +1466,12 @@ public static class CommandLineBuilder
                         var (assemblyPath, framework, version, error) =
                             PlatformResolver.ResolveAssembly(bareName);
 
-                        if (assemblyPath != null && hasExplicitVersion)
+                        if (assemblyPath != null && hasExplicitVersion && framework != null)
                         {
+                            // Now download the specific version of this pack
                             frameworkSpec = $"{framework}@{explicitVersion}";
+                            if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
+                                await PlatformPackService.EnsurePackAsync(packName, explicitVersion!, client, log);
                             (assemblyPath, framework, version, error) =
                                 PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
                         }
@@ -1800,11 +1803,11 @@ public static class CommandLineBuilder
                     var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
                     var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
 
-                    // Ensure ref packs are downloaded before resolving
+                    // Probe at latest to check if the assembly is in a platform pack
                     var client = HttpClientFactory.Shared;
                     bool verbose = parseResult.GetValue(verboseOption);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion);
+                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
                     await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
                     {
                         if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
@@ -1812,9 +1815,11 @@ public static class CommandLineBuilder
                             string? frameworkSpec = null;
                             var (asmPath, framework, _, error) = PlatformResolver.ResolveAssembly(bareName);
 
-                            if (asmPath != null && explicitVersion != null)
+                            if (asmPath != null && explicitVersion != null && framework != null)
                             {
                                 frameworkSpec = $"{framework}@{explicitVersion}";
+                                if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
+                                    await PlatformPackService.EnsurePackAsync(packName, explicitVersion, client, log);
                                 (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
                             }
 
