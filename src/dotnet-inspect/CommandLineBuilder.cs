@@ -412,6 +412,12 @@ public static class CommandLineBuilder
                 // First positional is the package version range
                 if (args.Length >= 1) packageVersionRange = args[0];
                 if (args.Length >= 2) typeName = args[1];
+
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packageVersionRange}@{typeName}' to specify a version.");
+                    return 1;
+                }
             }
 
             var typeFilterValues = parseResult.GetValue(typeFilterOption);
@@ -994,6 +1000,12 @@ public static class CommandLineBuilder
                 if (args.Length >= 1) packagePath = args[0];
                 if (args.Length >= 2) typeName = args[1];
 
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+                    return 1;
+                }
+
                 // Route file paths (.dll → --library, .nupkg stays as package path)
                 if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
                 {
@@ -1403,6 +1415,13 @@ public static class CommandLineBuilder
 
             var name = packageArgs[0];
 
+            // Detect version number passed as a separate positional argument
+            if (packageArgs.Length >= 2 && LooksLikeVersionNumber(packageArgs[1]))
+            {
+                Console.Error.WriteLine($"Error: '{packageArgs[1]}' looks like a version number. Use '{name}@{packageArgs[1]}' to specify a version.");
+                return 1;
+            }
+
             // Route file paths to the appropriate command
             if (TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
             {
@@ -1762,6 +1781,12 @@ public static class CommandLineBuilder
                 if (args.Length >= 2) typeName = args[1];
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+                    return 1;
+                }
+
                 // Route file paths (.dll → --library, .nupkg stays as package path)
                 if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
                 {
@@ -1925,6 +1950,25 @@ public static class CommandLineBuilder
         {
             packagePath = positional;
             return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if the value looks like a version number (e.g. "2.0.0", "8.0.0-preview.1").
+    /// Used to detect when a user passes a version as a positional argument instead of using the @ syntax.
+    /// </summary>
+    internal static bool LooksLikeVersionNumber(string? value)
+    {
+        if (string.IsNullOrEmpty(value) || !char.IsAsciiDigit(value[0]))
+            return false;
+
+        // Must contain at least one dot followed by a digit (e.g. "2.0")
+        for (int i = 1; i < value.Length - 1; i++)
+        {
+            if (value[i] == '.' && char.IsAsciiDigit(value[i + 1]))
+                return true;
         }
 
         return false;
