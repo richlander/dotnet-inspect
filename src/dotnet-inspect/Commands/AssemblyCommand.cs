@@ -288,12 +288,13 @@ public class AssemblyCommand
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
     {
-        var resolution = await PackageExtractor.ExtractPackageAsync(httpClient, packageSource, logger.Log);
-        if (resolution == null)
+        var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, packageSource, logger.Log);
+        if (!outcome.IsSuccess)
         {
-            // ExtractPackageAsync already prints error messages
+            Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
             return null;
         }
+        var resolution = outcome.Result!;
 
         string extractPath = resolution.ExtractPath;
         string? tempDir = resolution.TempDir;

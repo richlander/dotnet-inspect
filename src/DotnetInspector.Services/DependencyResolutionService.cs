@@ -61,8 +61,13 @@ public static class DependencyResolutionService
             if (version == null) return ([], null);
 
             string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
-            var extractResult = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: log).ConfigureAwait(false);
-            if (extractResult == null) return ([], null);
+            var outcome = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: log).ConfigureAwait(false);
+            if (!outcome.IsSuccess)
+            {
+                log?.Invoke(outcome.ErrorMessage!);
+                return ([], null);
+            }
+            var extractResult = outcome.Result!;
 
             try
             {
@@ -87,8 +92,9 @@ public static class DependencyResolutionService
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
+            log?.Invoke($"Error resolving dependencies: {ex.Message}");
             return ([], null);
         }
     }

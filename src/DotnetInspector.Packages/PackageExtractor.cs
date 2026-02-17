@@ -24,6 +24,20 @@ public record PackageExtractionResult(
     bool FromCache = false);
 
 /// <summary>
+/// Outcome of a package extraction operation, carrying either a successful result or an error message.
+/// </summary>
+/// <param name="Result">The extraction result on success, or null on failure</param>
+/// <param name="ErrorMessage">Error description on failure, or null on success</param>
+public readonly record struct PackageExtractionOutcome(
+    PackageExtractionResult? Result,
+    string? ErrorMessage)
+{
+    public bool IsSuccess => Result is not null;
+    public static implicit operator PackageExtractionOutcome(PackageExtractionResult result) => new(result, null);
+    public static PackageExtractionOutcome Error(string message) => new(null, message);
+}
+
+/// <summary>
 /// Shared utility for extracting NuGet packages from local files or NuGet feeds.
 /// </summary>
 public static class PackageExtractor
@@ -37,8 +51,8 @@ public static class PackageExtractor
     /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
     /// <param name="sourceOptions">NuGet source configuration (defaults to nuget.org)</param>
     /// <param name="version">Explicit version (overrides any version embedded in packageSource)</param>
-    /// <returns>Extraction result or null if failed</returns>
-    public static async Task<PackageExtractionResult?> ExtractPackageAsync(
+    /// <returns>Extraction outcome carrying result on success or error message on failure</returns>
+    public static async Task<PackageExtractionOutcome> ExtractPackageAsync(
         HttpClient client,
         string packageSource,
         Action<string>? log = null,
@@ -56,19 +70,18 @@ public static class PackageExtractor
         return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version).ConfigureAwait(false);
     }
 
-    private static PackageExtractionResult? ExtractLocalPackage(
+    private static PackageExtractionOutcome ExtractLocalPackage(
         string packageSource,
         Action<string>? log,
         string tempDirPrefix)
     {
         if (!File.Exists(packageSource))
         {
-            return null;
+            return PackageExtractionOutcome.Error($"File not found: {packageSource}");
         }
 
-        string tempDir = Path.Combine(Path.GetTempPath(), $"{tempDirPrefix}-{Guid.NewGuid():N}");
+        string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
         string extractPath = Path.Combine(tempDir, "extracted");
-        Directory.CreateDirectory(tempDir);
 
         log?.Invoke($"Extracting package: {Path.GetFileName(packageSource)}");
         ZipFile.ExtractToDirectory(packageSource, extractPath);
@@ -77,7 +90,7 @@ public static class PackageExtractor
         return new PackageExtractionResult(extractPath, tempDir, pkgName, pkgVersion, packageSource);
     }
 
-    private static async Task<PackageExtractionResult?> DownloadAndExtractPackageAsync(
+    private static async Task<PackageExtractionOutcome> DownloadAndExtractPackageAsync(
         HttpClient client,
         string packageSource,
         Action<string>? log,
@@ -97,8 +110,7 @@ public static class PackageExtractor
             version = await ResolveVersionPatternAsync(client, packageName, version, sources, log).ConfigureAwait(false);
             if (version == null)
             {
-                Console.Error.WriteLine($"Error: No version matching pattern found for '{packageName}'.");
-                return null;
+                return PackageExtractionOutcome.Error($"No version matching pattern found for '{packageName}'.");
             }
         }
 
@@ -108,8 +120,7 @@ public static class PackageExtractor
             version = await GetLatestVersionAsync(client, packageName, sources, log).ConfigureAwait(false);
             if (version == null)
             {
-                Console.Error.WriteLine($"Error: Package '{packageName}' not found.");
-                return null;
+                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
             }
         }
 
@@ -127,9 +138,8 @@ public static class PackageExtractor
             return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg, FromCache: true);
         }
 
-        string tempDir = Path.Combine(Path.GetTempPath(), $"{tempDirPrefix}-{Guid.NewGuid():N}");
+        string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
         string extractPath = Path.Combine(tempDir, "extracted");
-        Directory.CreateDirectory(tempDir);
 
         // Try each source in order
         byte[]? packageBytes = null;
@@ -152,9 +162,9 @@ public static class PackageExtractor
                     break;
                 }
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException ex)
             {
-                // Try next source
+                log?.Invoke($"Source {source.Name} failed: {ex.Message}");
                 continue;
             }
         }
@@ -162,8 +172,7 @@ public static class PackageExtractor
         if (packageBytes == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
-            Console.Error.WriteLine($"Error: Failed to download package '{packageName}@{version}'.");
-            return null;
+            return PackageExtractionOutcome.Error($"Failed to download package '{packageName}@{version}'.");
         }
 
         string? nupkgPath = null;
@@ -181,10 +190,10 @@ public static class PackageExtractor
                 log?.Invoke($"Cached to: {newCachePath}");
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
-            return null;
+            return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
         }
 
         return new PackageExtractionResult(extractPath, tempDir, packageName, version, nupkgPath);
@@ -284,8 +293,10 @@ public static class PackageExtractor
             var nupkgFiles = Directory.GetFiles(cacheDir, "*.nupkg");
             return nupkgFiles.Length > 0 ? nupkgFiles[0] : null;
         }
-        catch
+        catch (Exception ex)
         {
+            // Error scanning for nupkg in cache directory; non-fatal
+            System.Diagnostics.Debug.WriteLine($"Error scanning for nupkg: {ex.Message}");
             return null;
         }
     }

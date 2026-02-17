@@ -4,175 +4,89 @@ using DotnetInspector.Output;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for FindCommand output formatting.
+/// Tests for FindCommand output formatting via OneLineWriter.
 /// </summary>
 public class FindCommandTests
 {
     [Fact]
-    public void FormatOneLineOutput_Flat_ReturnsSpaceSeparatedNames()
-    {
-        var results = new Dictionary<string, List<TypeSearchResult>>
-        {
-            ["Option*"] = [
-                new TypeSearchResult { TypeName = "Option" },
-                new TypeSearchResult { TypeName = "OptionResult" }
-            ],
-            ["Command*"] = [
-                new TypeSearchResult { TypeName = "Command" },
-                new TypeSearchResult { TypeName = "CommandResult" }
-            ]
-        };
-
-        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
-
-        Assert.Equal("Command CommandResult Option OptionResult", output);
-    }
-
-    [Fact]
-    public void FormatOneLineOutput_Grouped_ReturnsGroupedLines()
-    {
-        var results = new Dictionary<string, List<TypeSearchResult>>
-        {
-            ["Option*"] = [
-                new TypeSearchResult { TypeName = "Option" },
-                new TypeSearchResult { TypeName = "OptionResult" }
-            ],
-            ["Command*"] = [
-                new TypeSearchResult { TypeName = "Command" }
-            ]
-        };
-
-        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: true);
-        var lines = output.Split(Environment.NewLine);
-
-        Assert.Equal(2, lines.Length);
-        Assert.Equal("Option*: Option, OptionResult", lines[0]);
-        Assert.Equal("Command*: Command", lines[1]);
-    }
-
-    [Fact]
-    public void FormatOneLineOutput_Flat_DeduplicatesTypes()
-    {
-        var results = new Dictionary<string, List<TypeSearchResult>>
-        {
-            ["*Option*"] = [
-                new TypeSearchResult { TypeName = "Option" },
-                new TypeSearchResult { TypeName = "VersionOption" }
-            ],
-            ["Version*"] = [
-                new TypeSearchResult { TypeName = "VersionOption" },
-                new TypeSearchResult { TypeName = "Version" }
-            ]
-        };
-
-        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
-
-        // Should be deduplicated and sorted
-        Assert.Equal("Option Version VersionOption", output);
-    }
-
-    [Fact]
-    public void FormatOneLineOutput_Flat_SortsAlphabetically()
-    {
-        var results = new Dictionary<string, List<TypeSearchResult>>
-        {
-            ["*"] = [
-                new TypeSearchResult { TypeName = "Zebra" },
-                new TypeSearchResult { TypeName = "Alpha" },
-                new TypeSearchResult { TypeName = "Middle" }
-            ]
-        };
-
-        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
-
-        Assert.Equal("Alpha Middle Zebra", output);
-    }
-
-    [Fact]
-    public void FormatOneLineOutput_EmptyResults_ReturnsEmptyString()
-    {
-        var results = new Dictionary<string, List<TypeSearchResult>>
-        {
-            ["NoMatch*"] = []
-        };
-
-        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: false);
-
-        Assert.Equal("", output);
-    }
-
-    [Fact]
-    public void FormatNameOnlyOutput_ReturnsOnePerLine()
-    {
-        var results = new Dictionary<string, List<TypeSearchResult>>
-        {
-            ["*"] = [
-                new TypeSearchResult { TypeName = "TypeA" },
-                new TypeSearchResult { TypeName = "TypeB" },
-                new TypeSearchResult { TypeName = "TypeC" }
-            ]
-        };
-
-        var output = FindOutputFormatter.FormatNameOnlyOutput(results);
-        var lines = output.Split(Environment.NewLine);
-
-        Assert.Equal(3, lines.Length);
-        Assert.Equal("TypeA", lines[0]);
-        Assert.Equal("TypeB", lines[1]);
-        Assert.Equal("TypeC", lines[2]);
-    }
-
-    [Fact]
-    public void FormatNameOnlyOutput_DeduplicatesAndSorts()
+    public void OneLineWriter_MultiPattern_OutputsColumnarResults()
     {
         var results = new Dictionary<string, List<TypeSearchResult>>
         {
             ["Pattern1"] = [
-                new TypeSearchResult { TypeName = "Zebra" },
-                new TypeSearchResult { TypeName = "Alpha" }
+                new TypeSearchResult { TypeName = "Zebra", Namespace = "Animals", Kind = "class", Assembly = "Zoo" },
+                new TypeSearchResult { TypeName = "Alpha", Namespace = "Greek", Kind = "struct", Assembly = "Letters" }
             ],
             ["Pattern2"] = [
-                new TypeSearchResult { TypeName = "Alpha" },
-                new TypeSearchResult { TypeName = "Beta" }
+                new TypeSearchResult { TypeName = "Beta", Namespace = "Greek", Kind = "interface", Assembly = "Letters" }
             ]
         };
 
-        var output = FindOutputFormatter.FormatNameOnlyOutput(results);
-        var lines = output.Split(Environment.NewLine);
+        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var sw = new StringWriter();
+        var writer = new OneLineWriter(sw, showHeader: false);
+        new MarkoutContext().Serialize(view, writer);
+        var lines = sw.ToString().TrimEnd().Split(Environment.NewLine);
 
         Assert.Equal(3, lines.Length);
-        Assert.Equal("Alpha", lines[0]);
-        Assert.Equal("Beta", lines[1]);
-        Assert.Equal("Zebra", lines[2]);
+        Assert.Contains("Zebra", lines[0]);
+        Assert.Contains("Alpha", lines[1]);
+        Assert.Contains("Beta", lines[2]);
     }
 
     [Fact]
-    public void FormatNameOnlyOutput_EmptyResults_ReturnsEmptyString()
+    public void OneLineWriter_EmptyResults_NoOutput()
     {
         var results = new Dictionary<string, List<TypeSearchResult>>
         {
             ["NoMatch*"] = []
         };
 
-        var output = FindOutputFormatter.FormatNameOnlyOutput(results);
+        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var sw = new StringWriter();
+        var writer = new OneLineWriter(sw, showHeader: false);
+        new MarkoutContext().Serialize(view, writer);
 
-        Assert.Equal("", output);
+        Assert.Equal("", sw.ToString().TrimEnd());
     }
 
     [Fact]
-    public void FormatOneLineOutput_Grouped_SortsWithinGroups()
+    public void OneLineWriter_WithHeader_IncludesColumnHeaders()
     {
         var results = new Dictionary<string, List<TypeSearchResult>>
         {
             ["Test*"] = [
-                new TypeSearchResult { TypeName = "TestZ" },
-                new TypeSearchResult { TypeName = "TestA" },
-                new TypeSearchResult { TypeName = "TestM" }
+                new TypeSearchResult { TypeName = "TestA", Namespace = "Ns", Kind = "class", Assembly = "Lib" }
             ]
         };
 
-        var output = FindOutputFormatter.FormatOneLineOutput(results, grouped: true);
+        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var sw = new StringWriter();
+        var writer = new OneLineWriter(sw, showHeader: true);
+        new MarkoutContext().Serialize(view, writer);
+        var output = sw.ToString();
 
-        Assert.Equal("Test*: TestA, TestM, TestZ", output);
+        Assert.Contains("TYPE", output);
+        Assert.Contains("TestA", output);
+    }
+
+    [Fact]
+    public void OneLineWriter_NoHeader_OmitsColumnHeaders()
+    {
+        var results = new Dictionary<string, List<TypeSearchResult>>
+        {
+            ["Test*"] = [
+                new TypeSearchResult { TypeName = "TestA", Namespace = "Ns", Kind = "class", Assembly = "Lib" }
+            ]
+        };
+
+        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var sw = new StringWriter();
+        var writer = new OneLineWriter(sw, showHeader: false);
+        new MarkoutContext().Serialize(view, writer);
+        var output = sw.ToString();
+
+        Assert.DoesNotContain("TYPE", output);
+        Assert.Contains("TestA", output);
     }
 }

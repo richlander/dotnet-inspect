@@ -73,19 +73,14 @@ public record FindOptions : IAssemblySourceOptions
     public bool Verbose { get; init; }
 
     /// <summary>
-    /// One-line output: space-separated type names (flat by default, grouped with --grouped).
+    /// One-line-per-result output (columnar, no headers).
     /// </summary>
     public bool OneLine { get; init; }
 
     /// <summary>
-    /// Group results by pattern (use with --oneline).
+    /// Suppress column headers in oneline output.
     /// </summary>
-    public bool Grouped { get; init; }
-
-    /// <summary>
-    /// Show only type names, one per line.
-    /// </summary>
-    public bool NameOnly { get; init; }
+    public bool NoHeader { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.
@@ -112,5 +107,5 @@ public record FindOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NameOnly;
+    public bool IsRawOutput => JsonOutput || OneLine;
 }

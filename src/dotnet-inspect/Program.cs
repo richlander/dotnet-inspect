@@ -1,7 +1,13 @@
 using DotnetInspector;
 using DotnetInspector.Packages;
 
+// Parse --offline early (before command parsing) to configure HttpClientFactory
+bool offline = args.Contains("--offline");
+if (offline)
+    args = args.Where(a => a != "--offline").ToArray();
+
 // Initialize library configuration
+DotnetInspector.Core.HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect");
 
 // Handle --version explicitly to show short commit hash

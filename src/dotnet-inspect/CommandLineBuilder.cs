@@ -145,6 +145,8 @@ public static class CommandLineBuilder
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");
         rootCommand.Options.Add(rootTipsOption);
+        var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
+        rootCommand.Options.Add(offlineOption);
 
         // API command
         var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -366,7 +368,8 @@ public static class CommandLineBuilder
             AllowMultipleArgumentsPerToken = true
         };
         typeFilterOption.Aliases.Add("--type");
-        var statOption = new Option<bool>("--stat") { Description = "Show only statistics per type (no member details)" };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
@@ -378,7 +381,8 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
         diffCommand.Options.Add(typeFilterOption);
-        diffCommand.Options.Add(statOption);
+        diffCommand.Options.Add(oneLineOption);
+        diffCommand.Options.Add(noHeaderOption);
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
@@ -410,6 +414,12 @@ public static class CommandLineBuilder
                 // First positional is the package version range
                 if (args.Length >= 1) packageVersionRange = args[0];
                 if (args.Length >= 2) typeName = args[1];
+
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packageVersionRange}@{typeName}' to specify a version.");
+                    return 1;
+                }
             }
 
             var typeFilterValues = parseResult.GetValue(typeFilterOption);
@@ -437,7 +447,8 @@ public static class CommandLineBuilder
                 IncludeAll = parseResult.GetValue(allOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 TypeFilter = typeFilter,
-                Stat = parseResult.GetValue(statOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
                 NameOnly = parseResult.GetValue(nameOnlyOption),
                 Breaking = parseResult.GetValue(breakingOption),
                 Additive = parseResult.GetValue(additiveOption),
@@ -467,10 +478,10 @@ public static class CommandLineBuilder
                     {
                         var pkgName = versionRange[..atIdx];
                         var toVersion = versionRange[(dotDotIdx + 2)..];
-                        if (!options.Stat && !options.NameOnly)
+                        if (!options.OneLine && !options.NameOnly)
                             tips.Add(new(ApiCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
-                        if (!options.Stat)
-                            tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --stat", "summary statistics"));
+                        if (!options.OneLine)
+                            tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --oneline", "summary statistics"));
                     }
                 }
 
@@ -795,10 +806,8 @@ public static class CommandLineBuilder
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "Space-separated type names on one line" };
-        var groupedOption = new Option<bool>("--grouped") { Description = "Group results by pattern (use with --oneline)" };
-        var terseOption = new Option<bool>("--terse") { Description = "Compact output (alias for --oneline --grouped)" };
-        var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names, one per line" };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
@@ -815,9 +824,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(jsonOption);
         findCommand.Options.Add(compactOption);
         findCommand.Options.Add(oneLineOption);
-        findCommand.Options.Add(groupedOption);
-        findCommand.Options.Add(terseOption);
-        findCommand.Options.Add(nameOnlyOption);
+        findCommand.Options.Add(noHeaderOption);
         findCommand.Options.Add(packagePrefixOption);
         findCommand.Options.Add(verboseOption);
         findCommand.Options.Add(verbosityOption);
@@ -844,7 +851,6 @@ public static class CommandLineBuilder
                 return 0;
             }
 
-            var terse = parseResult.GetValue(terseOption);
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
@@ -900,9 +906,8 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption) || terse,
-                Grouped = parseResult.GetValue(groupedOption) || terse,
-                NameOnly = parseResult.GetValue(nameOnlyOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 PackagePrefix = packagePrefix,
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
@@ -921,7 +926,7 @@ public static class CommandLineBuilder
 
                 Hints.WriteTips(tipLevel,
                     new(ApiCommand.Name, $"<TypeName> {sourceFlag} --shape", "view type shape"),
-                    new(FindCommand.Name, $"{pattern} {sourceFlag} --terse", "compact output"),
+                    new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
                     new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results"),
                     new(LlmsTxtCommand.Name, "", "complete usage examples"));
             }
@@ -997,6 +1002,12 @@ public static class CommandLineBuilder
                 if (args.Length >= 1) packagePath = args[0];
                 if (args.Length >= 2) typeName = args[1];
 
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+                    return 1;
+                }
+
                 // Route file paths (.dll → --library, .nupkg stays as package path)
                 if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
                 {
@@ -1064,6 +1075,8 @@ public static class CommandLineBuilder
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         implCommand.Arguments.Add(targetTypeArg);
         implCommand.Options.Add(packageOption);
         implCommand.Options.Add(assemblyOption);
@@ -1076,6 +1089,8 @@ public static class CommandLineBuilder
         implCommand.Options.Add(limitOption);
         implCommand.Options.Add(jsonOption);
         implCommand.Options.Add(compactOption);
+        implCommand.Options.Add(oneLineOption);
+        implCommand.Options.Add(noHeaderOption);
         implCommand.Options.Add(packagePrefixOption);
         implCommand.Options.Add(verboseOption);
         implCommand.Options.Add(verbosityOption);
@@ -1152,6 +1167,8 @@ public static class CommandLineBuilder
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 PackagePrefix = packagePrefix,
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
@@ -1400,6 +1417,13 @@ public static class CommandLineBuilder
 
             var name = packageArgs[0];
 
+            // Detect version number passed as a separate positional argument
+            if (packageArgs.Length >= 2 && LooksLikeVersionNumber(packageArgs[1]))
+            {
+                Console.Error.WriteLine($"Error: '{packageArgs[1]}' looks like a version number. Use '{name}@{packageArgs[1]}' to specify a version.");
+                return 1;
+            }
+
             // Route file paths to the appropriate command
             if (TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
             {
@@ -1431,8 +1455,8 @@ public static class CommandLineBuilder
                 Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
                 var client = HttpClientFactory.Shared;
 
-                // Build prioritized download list (biased pack first)
-                var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion);
+                // Probe at latest to check if the assembly is in a platform pack
+                var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
 
                 // Download with overlapped I/O; check each result as it lands
                 await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
@@ -1444,9 +1468,12 @@ public static class CommandLineBuilder
                         var (assemblyPath, framework, version, error) =
                             PlatformResolver.ResolveAssembly(bareName);
 
-                        if (assemblyPath != null && hasExplicitVersion)
+                        if (assemblyPath != null && hasExplicitVersion && framework != null)
                         {
+                            // Now download the specific version of this pack
                             frameworkSpec = $"{framework}@{explicitVersion}";
+                            if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
+                                await PlatformPackService.EnsurePackAsync(packName, explicitVersion!, client, log);
                             (assemblyPath, framework, version, error) =
                                 PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
                         }
@@ -1669,7 +1696,8 @@ public static class CommandLineBuilder
         var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter types to those with SourceLink resolution" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
-        var signaturesOnlyOption = new Option<bool>("--signatures-only") { Description = "Output member signatures only (plain text, no table)" };
+        var apiOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var apiNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
@@ -1696,7 +1724,8 @@ public static class CommandLineBuilder
         apiCommand.Options.Add(browsableUrlsOption);
         apiCommand.Options.Add(jsonOption);
         apiCommand.Options.Add(compactOption);
-        apiCommand.Options.Add(signaturesOnlyOption);
+        apiCommand.Options.Add(apiOneLineOption);
+        apiCommand.Options.Add(apiNoHeaderOption);
         apiCommand.Options.Add(shapeOption);
         apiCommand.Options.Add(unsafeOption);
         apiCommand.Options.Add(indexOption);
@@ -1757,6 +1786,12 @@ public static class CommandLineBuilder
                 if (args.Length >= 2) typeName = args[1];
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+                    return 1;
+                }
+
                 // Route file paths (.dll → --library, .nupkg stays as package path)
                 if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
                 {
@@ -1770,11 +1805,11 @@ public static class CommandLineBuilder
                     var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
                     var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
 
-                    // Ensure ref packs are downloaded before resolving
+                    // Probe at latest to check if the assembly is in a platform pack
                     var client = HttpClientFactory.Shared;
                     bool verbose = parseResult.GetValue(verboseOption);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion);
+                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
                     await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
                     {
                         if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
@@ -1782,9 +1817,11 @@ public static class CommandLineBuilder
                             string? frameworkSpec = null;
                             var (asmPath, framework, _, error) = PlatformResolver.ResolveAssembly(bareName);
 
-                            if (asmPath != null && explicitVersion != null)
+                            if (asmPath != null && explicitVersion != null && framework != null)
                             {
                                 frameworkSpec = $"{framework}@{explicitVersion}";
+                                if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
+                                    await PlatformPackService.EnsurePackAsync(packName, explicitVersion, client, log);
                                 (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
                             }
 
@@ -1859,7 +1896,8 @@ public static class CommandLineBuilder
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                SignaturesOnly = parseResult.GetValue(signaturesOnlyOption),
+                OneLine = parseResult.GetValue(apiOneLineOption),
+                NoHeader = parseResult.GetValue(apiNoHeaderOption),
                 ShapeOutput = parseResult.GetValue(shapeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
@@ -1919,6 +1957,25 @@ public static class CommandLineBuilder
         {
             packagePath = positional;
             return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if the value looks like a version number (e.g. "2.0.0", "8.0.0-preview.1").
+    /// Used to detect when a user passes a version as a positional argument instead of using the @ syntax.
+    /// </summary>
+    internal static bool LooksLikeVersionNumber(string? value)
+    {
+        if (string.IsNullOrEmpty(value) || !char.IsAsciiDigit(value[0]))
+            return false;
+
+        // Must contain at least one dot followed by a digit (e.g. "2.0")
+        for (int i = 1; i < value.Length - 1; i++)
+        {
+            if (value[i] == '.' && char.IsAsciiDigit(value[i + 1]))
+                return true;
         }
 
         return false;

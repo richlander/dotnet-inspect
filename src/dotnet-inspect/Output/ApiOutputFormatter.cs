@@ -1,5 +1,4 @@
 using System.Reflection.PortableExecutable;
-using System.Text;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
@@ -15,81 +14,127 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class ApiOutputFormatter
 {
-    // ===== Full API Rendering =====
+    // ===== Full API View Model Factory =====
 
-    public static string RenderFullApiMarkdown(ApiSurface api, ApiOptions options)
+    internal static (CliApiSurface view, int truncatedCount) BuildFullApiView(ApiSurface api, ApiOptions options)
     {
         var totalCount = api.Types.Count;
 
-        // Pre-truncate types list if --limit (before serialization so section reflects limit)
-        int? truncatedCount = null;
+        // Pre-truncate types list if --limit
+        int truncatedCount = 0;
         if (options.Limit.HasValue && options.Limit.Value < totalCount)
         {
             truncatedCount = totalCount - options.Limit.Value;
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
 
-        // Compute effective sections via pipeline
-        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var includeSections = pipeline.ComputeIncludeSections(
-            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-
-        // Single writer with section filtering
-        var writerOptions = new MarkoutWriterOptions
+        var view = new CliApiSurface
         {
-            IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
+            Name = api.Name,
+            Library = api.Library,
+            Types = api.PublicTypeCount,
+            Methods = api.PublicMethodCount,
+            Properties = api.PublicPropertyCount,
+            Source = api.Source,
+            Version = api.Version,
+            Tfm = api.Tfm
         };
-        var writer = new MarkoutWriter(writerOptions);
-
-        // Serialize title + summary fields via CLI wrapper
-        new MarkoutContext().Serialize(new CliApiSurface(api), writer);
 
         if (totalCount == 0)
         {
-            writer.WriteParagraph("This library contains no public types.");
-
             if (api.TypeForwarders.Count > 0)
             {
-                writer.WriteParagraph("Type forwarders could not be resolved. Target libraries:");
-
-                var byAssembly = api.TypeForwarders
+                view.Description = "This library contains no public types. Type forwarders could not be resolved.";
+                view.TypeForwarders = api.TypeForwarders
                     .GroupBy(f => f.TargetAssembly)
                     .OrderBy(g => g.Key)
+                    .Select(g => new ForwarderSummaryRow(g.Key, g.Count().ToString()))
                     .ToList();
-
-                writer.WriteTable(
-                    new[] { "Target Library", "Types" },
-                    byAssembly.Select(g => new[] { g.Key, g.Count().ToString() }));
+            }
+            else
+            {
+                view.Description = "This library contains no public types.";
             }
         }
         else if (options.Verbosity != Verbosity.Quiet)
         {
             if (api.IsTypeForwardingAssembly)
-            {
-                writer.WriteParagraph("*This is a type-forwarding library. Types shown are resolved from target libraries.*");
-            }
+                view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
 
-            // Per-kind type sections
-            RenderTypesPerKind(writer, api.Types, options);
-
-            if (truncatedCount.HasValue)
-            {
-                writer.WriteParagraph($"... *and {truncatedCount.Value} more types*");
-            }
+            PopulateTypeSections(view, api.Types, options.ShowDocs);
         }
 
-        return writer.ToString().TrimEnd();
+        return (view, truncatedCount);
+    }
+
+    private static void PopulateTypeSections(CliApiSurface view, List<ApiType> types, bool showDocs)
+    {
+        var byKind = types
+            .GroupBy(t => t.Kind)
+            .OrderBy(g => GetTypeKindSortOrder(g.Key))
+            .ToList();
+
+        foreach (var group in byKind)
+        {
+            var rows = group.Select(t =>
+            {
+                var fullName = FormatGenericFullName(t);
+                var members = t.Members.Count.ToString();
+                string? desc = null;
+                if (showDocs)
+                {
+                    desc = t.Documentation.Summary ?? "";
+                    desc = desc.ReplaceLineEndings(" ");
+                    if (desc.Length > 80) desc = desc[..77] + "...";
+                }
+                return new TypeSummaryRow(fullName, members, desc);
+            }).ToList();
+
+            switch (group.Key)
+            {
+                case "class":
+                    if (showDocs) view.ClassesWithDocs = rows; else view.Classes = rows;
+                    break;
+                case "struct":
+                    if (showDocs) view.StructsWithDocs = rows; else view.Structs = rows;
+                    break;
+                case "interface":
+                    if (showDocs) view.InterfacesWithDocs = rows; else view.Interfaces = rows;
+                    break;
+                case "enum":
+                    if (showDocs) view.EnumsWithDocs = rows; else view.Enums = rows;
+                    break;
+                case "delegate":
+                    if (showDocs) view.DelegatesWithDocs = rows; else view.Delegates = rows;
+                    break;
+            }
+        }
+    }
+
+    internal static MarkoutWriterOptions BuildWriterOptions(ApiSurface api, ApiOptions options)
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
+        return new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+        };
     }
 
     // ===== Single Type Rendering =====
 
     public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
-        // Signatures-only: plain text, no serializer
-        if (options.SignaturesOnly)
-            return RenderSignaturesOnly(type, options);
+        var writer = new MarkdownWriter(BuildTypeWriterOptions(type, options));
+        RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        return writer.ToString().TrimEnd();
+    }
 
+    public static void RenderTypeMarkdown(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    {
         // Build the view model
         var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
@@ -97,55 +142,44 @@ public static class ApiOutputFormatter
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
             PopulateEnumValues(view, type, options);
 
-        // Compute effective sections via pipeline
-        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        var includeSections = pipeline.ComputeIncludeSections(
-            type, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-
-        // Single writer with section filtering via MarkoutWriterOptions
-        var writerOptions = new MarkoutWriterOptions
-        {
-            IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
-        };
-        var writer = new MarkoutWriter(writerOptions);
-
-        // Serialize title + description + identity fields + enum values + type params + interfaces + baseclass
-        new MarkoutContext().Serialize(view, writer);
-
-        // Quiet: just title + stats line, no member tables
-        if (options.Verbosity == Verbosity.Quiet)
-            return writer.ToString().TrimEnd();
-
-        // Imperative rendering for member tables and source info
         int truncatedCount = 0;
         string truncatedNoun = "";
 
-        if (view.EnumValues == null && view.EnumValuesWithDocs == null)
+        // Populate member sections declaratively (unless quiet or enum)
+        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
+
+        if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal &&
-                type.Members.Any(m => m.Kind == "constructor"))
+            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+                && type.Members.Any(m => m.Kind == "constructor"))
             {
-                // --ctor emphasis mode
-                var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
-                var members = grouped
-                    .SelectMany(g => g.Value)
-                    .Where(m => m.Kind == "constructor")
-                    .ToList();
-                RenderConstructorEmphasis(writer, type, members);
+                PopulateConstructorOverloads(view, type, options);
             }
             else
             {
-                // Per-kind member sections (all verbosity levels)
-                (truncatedCount, truncatedNoun) = RenderMembersPerKind(writer, type, options);
+                (truncatedCount, truncatedNoun) = PopulateMemberSections(view, type, options);
             }
         }
+
+        // Serialize the complete view
+        new MarkoutContext().Serialize(view, writer);
 
         // Truncation message
         if (truncatedCount > 0)
             writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
+    }
 
-        return writer.ToString().TrimEnd();
+    internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(
+            type, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+
+        return new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+        };
     }
 
     // ===== Shape Output (--shape) =====
@@ -154,49 +188,6 @@ public static class ApiOutputFormatter
     {
         var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter);
         MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
-    }
-
-    // ===== Signatures-Only Mode =====
-
-    public static string RenderSignaturesOnly(ApiType type, ApiOptions options)
-    {
-        var members = type.Members
-            .Where(m => !IsCompilerGenerated(m.Name))
-            .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name)
-            .ToList();
-
-        if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
-
-        if (options.UnsafeOnly)
-            members = members.Where(m => m.IsUnsafe).ToList();
-
-        var sb = new StringBuilder();
-        var displayMembers = members.AsEnumerable();
-        if (options.Limit.HasValue && options.Limit.Value < members.Count)
-            displayMembers = displayMembers.Take(options.Limit.Value);
-
-        if (type.Kind == "enum")
-        {
-            var enumMembers = members
-                .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
-                .OrderBy(m => m.EnumValue);
-            foreach (var member in options.Limit.HasValue && options.Limit.Value < members.Count
-                ? enumMembers.Take(options.Limit.Value)
-                : enumMembers)
-            {
-                sb.AppendLine($"{member.Name} = {member.EnumValue}");
-            }
-        }
-        else
-        {
-            foreach (var member in displayMembers)
-            {
-                sb.AppendLine(member.Signature ?? member.ReturnType ?? "");
-            }
-        }
-        return sb.ToString().TrimEnd();
     }
 
     // ===== View Model Factories =====
@@ -391,46 +382,7 @@ public static class ApiOutputFormatter
 
     // ===== Internal Rendering Methods =====
 
-    private static void RenderTypesPerKind(MarkoutWriter writer, List<ApiType> types, ApiOptions options)
-    {
-        bool showDocs = options.ShowDocs;
-
-        var byKind = types
-            .GroupBy(t => t.Kind)
-            .OrderBy(g => GetTypeKindSortOrder(g.Key))
-            .ToList();
-
-        foreach (var group in byKind)
-        {
-            var sectionName = PluralizeTypeKind(group.Key);
-            writer.WriteHeading(2, sectionName);
-
-            var headers = showDocs
-                ? new[] { "Type", "Members", "Description" }
-                : new[] { "Type", "Members" };
-
-            var rows = group.Select(t =>
-            {
-                var fullName = FormatGenericFullName(t);
-                var members = t.Members.Count.ToString();
-
-                if (showDocs)
-                {
-                    var desc = t.Documentation.Summary ?? "";
-                    desc = desc.ReplaceLineEndings(" ");
-                    if (desc.Length > 80)
-                        desc = desc[..77] + "...";
-                    return new[] { fullName, members, desc };
-                }
-
-                return new[] { fullName, members };
-            });
-
-            writer.WriteTable(headers, rows);
-        }
-    }
-
-    private static void PopulateEnumValues(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static void PopulateEnumValues(ApiTypeView view, ApiType type, ApiOptions options)
     {
         var enumMembers = type.Members
             .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
@@ -458,8 +410,7 @@ public static class ApiOutputFormatter
             view.EnumValues = rows;
     }
 
-    private static (int truncated, string noun) RenderMembersPerKind(
-        MarkoutWriter writer, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSections(ApiTypeView view, ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return (0, "");
@@ -485,184 +436,167 @@ public static class ApiOutputFormatter
             .ToList();
 
         bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
-        var formatter = MemberTableFormatter.Create(options.Verbosity);
+        bool abbreviate = options.Verbosity == Verbosity.Minimal;
+        bool showSelect = options.ShowSelect;
 
         foreach (var group in kindGroups)
         {
             var kind = group.Key;
-            var sectionName = PluralizeKind(kind);
-            var members = group.ToList();
+            var members = group.OrderBy(m => m.Name).ThenBy(m => m.Signature).ToList();
 
-            writer.WriteHeading(2, sectionName);
-            writer.WriteTable(
-                formatter.GetHeaders(kind, members, hasDocs, options.ShowSelect),
-                formatter.FormatRows(kind, members, hasDocs, options.ShowSelect));
-        }
+            // Pre-compute overload counts and indices for --select
+            var overloadCounts = showSelect
+                ? members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count())
+                : null;
+            var overloadIndices = showSelect ? new Dictionary<string, int>() : null;
 
-        // Custom attributes (when --index selects a single member)
-        if (options.DllPath != null && options.OverloadIndex.HasValue)
-        {
-            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
-            if (methods.Count > 0)
-                RenderMethodAttributes(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-        }
-
-        // C# source (when --index selects a single member and source is available)
-        if (options.MethodSource != null)
-        {
-            writer.WriteHeading(2, "Source");
-            writer.WriteCodeBlockStart("csharp");
-            writer.WriteParagraph(options.MethodSource.SourceCode);
-            writer.WriteCodeBlockEnd();
-        }
-
-        // IL method body (when --index selects a single member)
-        if (options.DllPath != null && options.OverloadIndex.HasValue)
-        {
-            var methods = allMembers.Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract).ToList();
-            if (methods.Count > 0)
+            var rows = members.Select(m =>
             {
-                RenderLoweredCSharp(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-                RenderILBodies(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
-                RenderAnnotatedIL(writer, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+                var sig = abbreviate
+                    ? SignatureParser.AbbreviateSignature(m.Signature ?? m.ReturnType ?? "")
+                    : m.Signature ?? m.ReturnType ?? "";
+
+                string? select = null;
+                if (showSelect && overloadCounts != null && overloadIndices != null)
+                {
+                    overloadIndices.TryGetValue(m.Name, out int idx);
+                    idx++;
+                    overloadIndices[m.Name] = idx;
+                    bool hasOverloads = overloadCounts[m.Name] > 1;
+                    select = $"`{(hasOverloads ? $"{m.Name}:{idx}" : m.Name)}`";
+                }
+
+                return new MemberRow(select, m.Name, $"`{sig}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
+            }).ToList();
+
+            switch (kind)
+            {
+                case "constructor":
+                    if (showSelect)
+                    { if (hasDocs) view.ConstructorSelectRowsWithDocs = rows; else view.ConstructorSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.ConstructorRowsWithDocs = rows; else view.ConstructorRows = rows; }
+                    break;
+                case "field":
+                    if (showSelect)
+                    { if (hasDocs) view.FieldSelectRowsWithDocs = rows; else view.FieldSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.FieldRowsWithDocs = rows; else view.FieldRows = rows; }
+                    break;
+                case "property":
+                    if (showSelect)
+                    { if (hasDocs) view.PropertySelectRowsWithDocs = rows; else view.PropertySelectRows = rows; }
+                    else
+                    { if (hasDocs) view.PropertyRowsWithDocs = rows; else view.PropertyRows = rows; }
+                    break;
+                case "method":
+                    if (showSelect)
+                    { if (hasDocs) view.MethodSelectRowsWithDocs = rows; else view.MethodSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.MethodRowsWithDocs = rows; else view.MethodRows = rows; }
+                    break;
+                case "event":
+                    if (showSelect)
+                    { if (hasDocs) view.EventSelectRowsWithDocs = rows; else view.EventSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.EventRowsWithDocs = rows; else view.EventRows = rows; }
+                    break;
             }
         }
 
         return (truncated, "members");
     }
 
-    private static void RenderILBodies(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    internal static void PopulateConstructorOverloads(ApiTypeView view, ApiType type, ApiOptions options)
     {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var constructors = grouped
+            .SelectMany(g => g.Value)
+            .Where(m => m.Kind == "constructor")
+            .ToList();
 
-        foreach (var method in methods)
-        {
-            var instructions = ILDisassembler.DisassembleMethod(
-                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-            if (instructions is null || instructions.Count == 0)
-                continue;
-
-            writer.WriteHeading(2, "IL");
-            var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
-            writer.WriteCodeBlockStart("il");
-            writer.WriteParagraph(ilText);
-            writer.WriteCodeBlockEnd();
-        }
-    }
-
-    private static void RenderAnnotatedIL(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
-    {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-
-        foreach (var method in methods)
-        {
-            try
-            {
-                var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-                if (context is null)
-                    continue;
-
-                var annotatedIL = Decompiler.AnnotatedILEmitter.Emit(
-                    context, Decompiler.ILAnnotationDepth.Structured);
-
-                if (string.IsNullOrWhiteSpace(annotatedIL))
-                    continue;
-
-                writer.WriteHeading(2, "IL (Annotated)");
-                writer.WriteCodeBlockStart("il");
-                writer.WriteParagraph(annotatedIL.TrimEnd());
-                writer.WriteCodeBlockEnd();
-            }
-            catch
-            {
-                // Decompiler may fail on some methods — skip silently
-            }
-        }
-    }
-
-    private static void RenderLoweredCSharp(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
-    {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-
-        foreach (var method in methods)
-        {
-            try
-            {
-                var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-                if (context is null)
-                    continue;
-
-                var loweredCSharp = Decompiler.CSharpEmitter.Emit(context);
-
-                if (string.IsNullOrWhiteSpace(loweredCSharp))
-                    continue;
-
-                writer.WriteHeading(2, "Lowered C#");
-                writer.WriteCodeBlockStart("csharp");
-                writer.WriteParagraph(loweredCSharp.TrimEnd());
-                writer.WriteCodeBlockEnd();
-            }
-            catch
-            {
-                // Decompiler may fail on some methods — skip silently
-            }
-        }
-    }
-
-    private static void RenderMethodAttributes(MarkoutWriter writer, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
-    {
-        using var stream = File.OpenRead(dllPath);
-        using var peReader = new PEReader(stream);
-
-        foreach (var method in methods)
-        {
-            var attributes = AttributeReader.GetMethodAttributes(
-                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-
-            if (attributes.Count == 0)
-                continue;
-
-            writer.WriteHeading(2, "Custom Attributes");
-            writer.WriteTable(
-                ["Name", "Value"],
-                attributes.Select(a => new[] { a.Name, a.Value ?? "" }));
-        }
-    }
-
-    private static void RenderConstructorEmphasis(MarkoutWriter writer, ApiType type, List<ApiMember> constructors)
-    {
-        writer.WriteHeading(2, $"Constructors ({constructors.Count} overload{(constructors.Count != 1 ? "s" : "")})");
+        if (constructors.Count == 0) return;
 
         var sorted = constructors
             .OrderBy(c => SignatureParser.CountParameters(c.Signature))
             .ToList();
 
-        for (int i = 0; i < sorted.Count; i++)
+        view.ConstructorOverloads = sorted.Select((ctor, i) =>
         {
-            var ctor = sorted[i];
             var paramCount = SignatureParser.CountParameters(ctor.Signature);
             var paramInfo = SignatureParser.ExtractParameterInfo(ctor.Signature);
 
-            writer.WriteHeading(3, $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}");
-
-            writer.WriteCodeBlockStart("csharp");
-            writer.WriteParagraph($"new {type.Name}{SignatureParser.FormatConstructorCall(ctor.Signature)}");
-            writer.WriteCodeBlockEnd();
+            var overloadView = new ConstructorOverloadView
+            {
+                Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
+                Signature = new CodeSection("csharp", $"new {type.Name}{SignatureParser.FormatConstructorCall(ctor.Signature)}")
+            };
 
             if (paramInfo.Count > 0)
             {
-                var headers = new[] { "Parameter", "Type", "Notes" };
-                var rows = paramInfo.Select(p => new[] { p.name, $"`{p.type}`", p.hasDefault ? "optional" : "required" });
-                writer.WriteTable(headers, rows);
+                overloadView.Parameters = paramInfo
+                    .Select(p => new ConstructorParameterRow(p.name, $"`{p.type}`", p.hasDefault ? "optional" : "required"))
+                    .ToList();
             }
+
+            return overloadView;
+        }).ToList();
+    }
+
+    internal static void PopulateIndexSections(ApiTypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+
+        foreach (var method in methods)
+        {
+            // Custom attributes
+            var attributes = AttributeReader.GetMethodAttributes(
+                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+            if (attributes.Count > 0)
+            {
+                view.MethodAttributeRows = attributes
+                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .ToList();
+            }
+
+            // Lowered C#
+            try
+            {
+                var context = Decompiler.MethodBodyContext.Create(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                if (context != null)
+                {
+                    var lowered = Decompiler.CSharpEmitter.Emit(context);
+                    if (!string.IsNullOrWhiteSpace(lowered))
+                        view.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
+                }
+            }
+            catch { }
+
+            // IL disassembly
+            var instructions = ILDisassembler.DisassembleMethod(
+                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+            if (instructions is { Count: > 0 })
+            {
+                var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+                view.ILCode = new CodeSection("il", ilText);
+            }
+
+            // Annotated IL
+            try
+            {
+                var context = Decompiler.MethodBodyContext.Create(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                if (context != null)
+                {
+                    var annotated = Decompiler.AnnotatedILEmitter.Emit(
+                        context, Decompiler.ILAnnotationDepth.Structured);
+                    if (!string.IsNullOrWhiteSpace(annotated))
+                        view.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                }
+            }
+            catch { }
         }
     }
 
@@ -710,16 +644,6 @@ public static class ApiOutputFormatter
         var displayName = FormatGenericTypeName(type.Name, type.TypeParameters);
         return string.IsNullOrEmpty(type.Namespace) ? displayName : $"{type.Namespace}.{displayName}";
     }
-
-    private static string PluralizeTypeKind(string kind) => kind switch
-    {
-        "class" => "Classes",
-        "struct" => "Structs",
-        "interface" => "Interfaces",
-        "enum" => "Enums",
-        "delegate" => "Delegates",
-        _ => char.ToUpper(kind[0]) + kind[1..] + "s"
-    };
 
     private static string PluralizeKind(string kind) => kind switch
     {

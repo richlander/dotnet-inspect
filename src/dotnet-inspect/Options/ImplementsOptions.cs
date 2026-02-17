@@ -58,6 +58,16 @@ public record ImplementsOptions : IAssemblySourceOptions
     public bool CompactJson { get; init; }
 
     /// <summary>
+    /// One-line-per-result output (tab-separated, no headers).
+    /// </summary>
+    public bool OneLine { get; init; }
+
+    /// <summary>
+    /// Suppress column headers in oneline output.
+    /// </summary>
+    public bool NoHeader { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
@@ -85,5 +95,5 @@ public record ImplementsOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput;
+    public bool IsRawOutput => JsonOutput || OneLine;
 }

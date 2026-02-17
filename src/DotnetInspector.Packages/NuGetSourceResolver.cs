@@ -100,9 +100,9 @@ public static class NuGetSourceResolver
             {
                 ParseConfigFile(configFile, sources, disabledSources);
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip invalid config files
+                Console.Error.WriteLine($"Warning: Skipping invalid NuGet config {configFile}: {ex.Message}");
             }
         }
 

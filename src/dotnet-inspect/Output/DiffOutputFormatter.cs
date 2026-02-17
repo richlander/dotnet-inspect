@@ -1,4 +1,5 @@
 using DotnetInspector.Metadata;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -8,13 +9,15 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
-    public static string RenderNameOnly(IReadOnlyList<TypeDiff> typeDiffs)
+    public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
-        var names = typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n);
-        return string.Join(Environment.NewLine, names);
+        foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
+        {
+            writer.WriteListItem(name);
+        }
     }
 
-    public static string RenderStat(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffOneLineView BuildOneLineView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -24,58 +27,56 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        var sb = new System.Text.StringBuilder();
-        sb.Append(name);
-        sb.Append(' ');
-        sb.Append(fromVersion);
-        sb.Append("..");
-        sb.Append(toVersion);
-        sb.Append("  ");
-        sb.AppendLine(FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking));
-
-        foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
+        var rows = typeDiffs.OrderBy(td => td.TypeFullName).Select(td =>
         {
-            char symbol;
+            string symbol;
             string detail;
 
             if (td.IsAdded)
             {
-                symbol = '+';
-                detail = "(added)";
+                symbol = "+";
+                detail = "added";
             }
             else if (td.IsRemoved)
             {
-                symbol = '-';
-                detail = "(removed)";
+                symbol = "-";
+                detail = "removed";
             }
             else if (td.BreakingCount > 0)
             {
-                symbol = '\u2717'; // ✗
+                symbol = "\u2717"; // ✗
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
             else
             {
-                symbol = '~';
+                symbol = "~";
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            sb.AppendLine($" {symbol} {TypeMatcher.GetSimpleName(td.TypeFullName),-40} {detail}");
-        }
+            return new DiffOneLineRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
+        }).ToList();
 
-        return sb.ToString().TrimEnd();
+        return new DiffOneLineView
+        {
+            Title = $"API Diff: {name}",
+            Versions = $"{fromVersion} → {toVersion}",
+            Summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking),
+            Rows = rows.Count > 0 ? rows : null
+        };
     }
 
-    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
-        var writer = new MarkoutWriter();
-
-        writer.WriteHeading(1, $"API Diff: {name}");
-        writer.WriteParagraph($"**{fromVersion}** → **{toVersion}**");
+        var view = new DiffFullView
+        {
+            Title = $"API Diff: {name}",
+            Versions = $"**{fromVersion}** → **{toVersion}**",
+        };
 
         if (typeDiffs.Count == 0)
         {
-            writer.WriteParagraph("*No API changes detected.*");
-            return writer.ToString().TrimEnd();
+            view.Status = new Callout(CalloutSeverity.Note, "No API changes detected.");
+            return view;
         }
 
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
@@ -86,14 +87,20 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        var summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking);
-        writer.WriteParagraph($"**Summary:** {summary} across {typeDiffs.Count} types");
+        view.Summary = $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking)} across {typeDiffs.Count} types";
 
-        // Group by classification: breaking first, then potentially breaking, then additive
-        WriteSection(writer, "Breaking Changes", ChangeClassification.Breaking, typeDiffs);
-        WriteSection(writer, "Potentially Breaking Changes", ChangeClassification.PotentiallyBreaking, typeDiffs);
-        WriteSection(writer, "Additive Changes", ChangeClassification.Additive, typeDiffs);
+        view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
+        view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
+        view.AdditiveChanges = BuildChangeRows(ChangeClassification.Additive, typeDiffs);
 
+        return view;
+    }
+
+    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    {
+        var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
+        var writer = new MarkdownWriter();
+        new MarkoutContext().Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
 
@@ -106,40 +113,25 @@ public static class DiffOutputFormatter
         return parts.Count > 0 ? string.Join(", ", parts) : "no changes";
     }
 
-    private static void WriteSection(MarkoutWriter writer, string heading, ChangeClassification classification, IReadOnlyList<TypeDiff> typeDiffs)
+    private static List<DiffChangeRow>? BuildChangeRows(ChangeClassification classification, IReadOnlyList<TypeDiff> typeDiffs)
     {
-        // Collect types that have changes of this classification
-        var relevantTypes = typeDiffs
-            .Where(td => td.Changes.Any(c => c.Classification == classification))
-            .OrderBy(td => td.TypeFullName)
-            .ToList();
+        var rows = new List<DiffChangeRow>();
 
-        if (relevantTypes.Count == 0)
-            return;
-
-        writer.WriteHeading(2, heading);
-
-        foreach (var td in relevantTypes)
+        foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
         {
-            writer.WriteHeading(3, TypeMatcher.GetSimpleName(td.TypeFullName));
-
-            var changes = td.Changes
-                .Where(c => c.Classification == classification)
-                .ToList();
-
-            foreach (var change in changes)
+            var typeName = TypeMatcher.GetSimpleName(td.TypeFullName);
+            foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
                 var message = change.Message;
-
-                // For signature changes, append old → new values
                 if (change.Kind == ChangeKind.MemberSignatureChanged &&
                     change.OldValue != null && change.NewValue != null)
                 {
                     message += $": `{change.OldValue}` → `{change.NewValue}`";
                 }
-
-                writer.WriteListItem(message);
+                rows.Add(new DiffChangeRow(typeName, message));
             }
         }
+
+        return rows.Count > 0 ? rows : null;
     }
 }

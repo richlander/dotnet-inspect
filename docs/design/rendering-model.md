@@ -78,7 +78,7 @@ The `api` command extracts the public API surface from a library. Its default vi
 |------|------|-------------|
 | `--docs` | Documentation | XML doc comments fetched from source |
 | `--samples` | Code samples | Sample references from XML docs |
-| `--signatures-only` | Compact signatures | One signature per line, no tables |
+| `--oneline` | Columnar output | One result per line, docker-style columns |
 
 `--docs` enriches the member table with a Description column rather than replacing the view, but it still functions as a lens -- it fetches external data (source files via SourceLink) that is not part of the library's identity metadata.
 
@@ -105,8 +105,8 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 |---------|---------------------|---------------------------|
 | `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--library`, `--audit` |
-| `api` | Type fields, Members table | `--docs`, `--samples`, `--signatures-only` |
+| `api` | Type fields, Members table | `--docs`, `--samples`, `--oneline` |
 | `library` | Library info, PE headers | `--audit`, `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | Change summary | `--stat`, `--name-only` |
+| `diff` | Change summary | `--oneline`, `--name-only` |

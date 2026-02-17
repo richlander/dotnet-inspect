@@ -1,44 +1,29 @@
 using DotnetInspector.Commands;
-using Markout;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Output;
 
 /// <summary>
-/// Formats implementer search results for display.
+/// Builds the view model for implementer search results.
 /// </summary>
 public static class ImplementsOutputFormatter
 {
-    public static string FormatResults(string targetType, List<ImplementerResult> results)
+    public static ImplementsResultView BuildView(string targetType, List<ImplementerResult> results)
     {
-        var writer = new MarkoutWriter();
-
-        writer.WriteHeading(1, $"Types Implementing {targetType}");
-
-        if (results.Count == 0)
+        return new ImplementsResultView
         {
-            writer.WriteParagraph("No implementing types found.");
-            return writer.ToString().TrimEnd();
-        }
-
-        writer.WriteField("Matches", results.Count);
-
-        // Group by source
-        var bySource = results.GroupBy(r => r.Source).ToList();
-
-        foreach (var sourceGroup in bySource)
-        {
-            var source = sourceGroup.Key;
-            var version = sourceGroup.First().SourceVersion;
-            var sourceDisplay = version != null ? $"{source}@{version}" : source;
-
-            writer.WriteHeading(2, sourceDisplay ?? "Unknown");
-
-            var headers = new[] { "Type", "Kind", "Relationship", "Library" };
-            var rows = sourceGroup.OrderBy(r => r.TypeName)
-                .Select(impl => new[] { impl.TypeName, impl.Kind, impl.Relationship, impl.Assembly ?? "" });
-            writer.WriteTable(headers, rows);
-        }
-
-        return writer.ToString().TrimEnd();
+            Title = $"Types Implementing {targetType}",
+            Matches = results.Count,
+            Description = results.Count == 0 ? "No implementing types found." : null,
+            Rows = results.Count == 0 ? null : results
+                .OrderBy(r => r.TypeName)
+                .Select(r => new ImplementerRow(
+                    r.TypeName, r.Kind, r.Relationship,
+                    r.Assembly ?? "", FormatSource(r)))
+                .ToList()
+        };
     }
+
+    private static string FormatSource(ImplementerResult r)
+        => r.SourceVersion != null ? $"{r.Source}@{r.SourceVersion}" : r.Source ?? "";
 }

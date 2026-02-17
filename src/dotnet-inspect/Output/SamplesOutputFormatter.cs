@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -9,22 +10,19 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class SamplesOutputFormatter
 {
-    public static string FormatSamplesList(
+    public static SamplesListView BuildListView(
         List<TypedSample> samples,
         string? packageName,
         string? packageVersion,
         string? assemblyName,
         bool browsableUrls)
     {
-        var writer = new MarkoutWriter();
-
         var title = assemblyName ?? packageName ?? "Samples";
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
             : packageName != null && assemblyName != packageName ? $" ({packageName})" : "";
-        writer.WriteHeading(1, $"Samples: {title}{packageInfo}");
 
-        var items = samples.Select((typedSample, i) =>
+        var rows = samples.Select(typedSample =>
         {
             var sample = typedSample.Sample;
             var description = sample.Description ?? Path.GetFileName(sample.RelativePath);
@@ -37,12 +35,14 @@ public static class SamplesOutputFormatter
                 url = GitHubUrlResolver.ConvertRawToBlobUrl(url);
             }
 
-            return $"{typedSample.FullTypeName} - {description}: {url}";
-        });
+            return new SampleRow(typedSample.FullTypeName, description, url);
+        }).ToList();
 
-        writer.WriteArray(items);
-
-        return writer.ToString().TrimEnd();
+        return new SamplesListView
+        {
+            Title = $"Samples: {title}{packageInfo}",
+            Samples = rows.Count > 0 ? rows : null
+        };
     }
 
     public static void WriteSamplesWithContent(
@@ -59,13 +59,15 @@ public static class SamplesOutputFormatter
         if (content != null)
         {
             var lang = GetLanguageFromPath(sample.RelativePath);
-            writer.WriteCodeBlockStart(lang);
-            Console.Out.WriteLine(content);
-            writer.WriteCodeBlockEnd();
+            writer.WriteCodeStart(lang);
+            // WriteParagraph writes the content through the writer's underlying
+            // TextWriter, replacing the previous Console.Out.WriteLine bypass.
+            writer.WriteParagraph(content);
+            writer.WriteCodeEnd();
         }
         else
         {
-            writer.WriteParagraph("*Failed to fetch sample content*");
+            writer.WriteCallout(CalloutSeverity.Warning, "Failed to fetch sample content");
         }
     }
 

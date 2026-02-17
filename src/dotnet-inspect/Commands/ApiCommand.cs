@@ -76,9 +76,13 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await Packages.PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
-                if (extracted == null)
+                var outcome = await Packages.PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
+                if (!outcome.IsSuccess)
+                {
+                    Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
                     return 1;
+                }
+                var extracted = outcome.Result!;
                 (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
                 apiSource = "NuGet";
                 apiVersion = packageVersion;
@@ -602,10 +606,26 @@ public class ApiCommand
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
+            return;
+        }
+
+        var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
+
+        if (options.OneLine)
+        {
+            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            new MarkoutContext().Serialize(view, writer);
         }
         else
         {
-            Console.WriteLine(ApiOutputFormatter.RenderFullApiMarkdown(api, options));
+            var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            var writer = new Markout.MarkdownWriter(writerOptions);
+            new MarkoutContext().Serialize(view, writer);
+
+            if (truncatedCount > 0)
+                writer.WriteParagraph($"... *and {truncatedCount} more types*");
+
+            Console.WriteLine(writer.ToString().TrimEnd());
         }
     }
 
@@ -727,14 +747,69 @@ public class ApiCommand
         if (options.ShapeOutput)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter);
+            return;
         }
-        else if (options.JsonOutput)
+
+        if (options.JsonOutput)
         {
             WriteJsonTypeOutput(type, options);
+            return;
+        }
+
+        var view = ApiOutputFormatter.BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+
+        // Populate enum values declaratively for Normal+ enums
+        if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
+            ApiOutputFormatter.PopulateEnumValues(view, type, options);
+
+        // Determine if we can use the full serializer for member tables
+        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
+
+        int truncatedCount = 0;
+        string truncatedNoun = "";
+
+        if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
+        {
+            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+                && type.Members.Any(m => m.Kind == "constructor"))
+            {
+                ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
+            }
+            else
+            {
+                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSections(view, type, options);
+            }
+
+            // --index: populate code sections and custom attributes
+            if (options.OverloadIndex.HasValue && options.DllPath != null)
+            {
+                var methods = type.Members
+                    .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
+                    .ToList();
+                if (methods.Count > 0)
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+            }
+
+            // Source code (already resolved in command layer)
+            if (options.MethodSource != null)
+                view.SourceCode = new Markout.CodeSection("csharp", options.MethodSource.SourceCode);
+        }
+
+        if (options.OneLine)
+        {
+            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            new MarkoutContext().Serialize(view, writer);
         }
         else
         {
-            Console.WriteLine(ApiOutputFormatter.RenderTypeMarkdown(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options));
+            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var writer = new Markout.MarkdownWriter(writerOptions);
+            new MarkoutContext().Serialize(view, writer);
+
+            if (truncatedCount > 0)
+                writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
+
+            Console.WriteLine(writer.ToString().TrimEnd());
         }
     }
 

@@ -136,6 +136,11 @@ public static class HttpRetryHelper
 
                 log?.Invoke($"Socket error {socketError} (retryable): {url}");
             }
+            catch (DotnetInspector.Core.OfflineException)
+            {
+                log?.Invoke($"Network access is disabled (--offline mode).");
+                return null;
+            }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
@@ -227,6 +232,12 @@ public static class HttpRetryHelper
         using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
         if (response == null)
             return null;
+
+        const long MaxDownloadSize = 500_000_000; // 500 MB
+
+        if (response.Content.Headers.ContentLength is > MaxDownloadSize)
+            throw new InvalidOperationException(
+                $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
 
         return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
     }

@@ -144,7 +144,7 @@ public static class ApiMemberSectionDescriptors
             => model.SourceFilePath != null;
     }
 
-    // ===== Imperative sections (rendered via RenderMembersPerKind) =====
+    // ===== Member sections (rendered via PopulateMemberSections) =====
 
     public sealed class Constructors : ISectionDescriptor<ApiType>
     {

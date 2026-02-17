@@ -32,6 +32,15 @@ public static class NuGetCache
         ?? throw new InvalidOperationException("NuGetCache.Initialize(appName) must be called before using app cache methods.");
 
     /// <summary>
+    /// Validates that a value is safe to use as a path component (no traversal or separators).
+    /// </summary>
+    internal static void ValidatePathComponent(string value, string name)
+    {
+        if (value.Contains("..") || value.Contains('/') || value.Contains('\\') || value.Contains('\0'))
+            throw new ArgumentException($"Invalid {name}: '{value}'");
+    }
+
+    /// <summary>
     /// Gets the path to the NuGet package cache (read-only).
     /// </summary>
     public static string GetNuGetCachePath()
@@ -80,6 +89,9 @@ public static class NuGetCache
     /// <returns>The path to the cached package directory, or null if not found</returns>
     public static string? TryGetCachedPackage(string packageName, string version)
     {
+        ValidatePathComponent(packageName, "package name");
+        ValidatePathComponent(version, "version");
+
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
@@ -114,6 +126,9 @@ public static class NuGetCache
     /// </summary>
     public static string GetPackageCachePath(string packageName, string version)
     {
+        ValidatePathComponent(packageName, "package name");
+        ValidatePathComponent(version, "version");
+
         var appCachePath = GetAppCachePath();
         var packageDir = Path.Combine(appCachePath, packageName.ToLowerInvariant(), version.ToLowerInvariant());
         return packageDir;
@@ -128,6 +143,9 @@ public static class NuGetCache
     /// <returns>The path to the cached package, or null if caching failed</returns>
     public static string? CachePackage(string extractedPath, string packageName, string version)
     {
+        ValidatePathComponent(packageName, "package name");
+        ValidatePathComponent(version, "version");
+
         try
         {
             var targetPath = GetPackageCachePath(packageName, version);

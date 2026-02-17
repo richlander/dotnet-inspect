@@ -33,8 +33,8 @@ public class HttpClientFactoryTests
     [Fact]
     public void CreateNew_ReturnsDifferentInstances()
     {
-        var client1 = HttpClientFactory.CreateNew();
-        var client2 = HttpClientFactory.CreateNew();
+        var client1 = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var client2 = DotnetInspector.Core.HttpClientFactory.CreateNew();
 
         Assert.NotSame(client1, client2);
     }
@@ -43,7 +43,7 @@ public class HttpClientFactoryTests
     public void CreateNew_RespectsTimeout()
     {
         var timeout = TimeSpan.FromSeconds(5);
-        var client = HttpClientFactory.CreateNew(timeout);
+        var client = DotnetInspector.Core.HttpClientFactory.CreateNew(timeout);
 
         Assert.Equal(timeout, client.Timeout);
     }

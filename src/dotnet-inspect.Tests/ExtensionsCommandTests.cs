@@ -180,7 +180,8 @@ public class ExtensionsCommandTests
         var results = CreateOverloadResults();
         var collapsed = ExtensionsCommand.CollapseOverloads(results);
 
-        var output = ExtensionsOutputFormatter.FormatResults("IEnumerable<T>", collapsed);
+        var view = ExtensionsOutputFormatter.BuildView("IEnumerable<T>", collapsed);
+        var output = new MarkoutContext().Serialize(view);
         var tableRows = output.Split('\n')
             .Where(l => l.StartsWith("| ") && !l.StartsWith("| -") && !l.Contains("Name"))
             .ToList();
@@ -274,7 +275,8 @@ public class ExtensionsCommandTests
             new() { MethodName = "CopyToAsync", Kind = "method", ExtensionClass = "StreamExt", Assembly = "System.IO", ReachablePath = ".GetStreamAsync()", ReachableFromType = "Stream" },
         };
 
-        var output = ExtensionsOutputFormatter.FormatResults("HttpClient", results, Verbosity.Quiet);
+        var view = ExtensionsOutputFormatter.BuildView("HttpClient", results, Verbosity.Quiet);
+        var output = new MarkoutContext().Serialize(view);
 
         // Should have a counts table, not the full extension tables
         Assert.Contains("| Type ", output);

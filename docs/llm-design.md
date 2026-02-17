@@ -104,20 +104,12 @@ This enables precision: request exactly the data you need.
 
 ### Minimal Output Modes
 
-- `--signatures-only`: Plain method signatures without table formatting
+- `--oneline`: One result per line, columnar output (works on `api`, `find`, `diff`, `implements`)
 - `--json --compact`: Minified JSON with null/false values omitted
 
 ```bash
-# Instead of a full table, get just the signatures
-dotnet-inspect api JsonSerializer --package System.Text.Json --signatures-only
-```
-
-Output:
-
-```text
-static JsonDocument Parse(string json, JsonDocumentOptions options)
-static JsonDocument Parse(ReadOnlySpan<byte> utf8Json, JsonDocumentOptions options)
-...
+# Instead of a full table, get columnar output
+dotnet-inspect api JsonSerializer --package System.Text.Json --oneline
 ```
 
 ## Complete Information
@@ -219,7 +211,7 @@ When updating the skill:
 dotnet-inspect api --package System.Text.Json
 
 # What methods does JsonSerializer have?
-dotnet-inspect api JsonSerializer --package System.Text.Json --signatures-only
+dotnet-inspect api JsonSerializer --package System.Text.Json --oneline
 ```
 
 ### Constructors for Dependency Injection

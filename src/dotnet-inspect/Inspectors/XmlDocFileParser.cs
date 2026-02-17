@@ -24,7 +24,7 @@ public partial class XmlDocFileParser
 
         try
         {
-            var doc = new XmlDocument();
+            var doc = new XmlDocument { XmlResolver = null };
             doc.Load(xmlPath);
 
             var members = doc.SelectNodes("/doc/members/member");
