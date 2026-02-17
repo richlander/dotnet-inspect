@@ -549,20 +549,35 @@ public static class CommandLineBuilder
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
             var targetType = parseResult.GetValue(targetTypeArg);
+            var packages = parseResult.GetValue(packageOption) ?? [];
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
+            // Mode detection: no type arg → library or package dependency mode
             if (string.IsNullOrEmpty(targetType))
             {
+                var commonOptions = new DependsOptions
+                {
+                    Tfm = parseResult.GetValue(tfmOption),
+                    JsonOutput = parseResult.GetValue(jsonOption),
+                    CompactJson = parseResult.GetValue(compactOption),
+                    Verbose = parseResult.GetValue(verboseOption),
+                    SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                };
+
+                if (assemblies.Length == 1 && packages.Length == 0)
+                    return await DependsCommand.ExecuteLibraryDependsAsync(commonOptions with { LibraryName = assemblies[0] });
+
+                if (packages.Length == 1 && assemblies.Length == 0)
+                    return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
+
                 new HelpAction().Invoke(parseResult);
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("Tips:");
                 Console.Error.WriteLine("  depends IFloatingPointIeee754 --platform   # type hierarchy");
-                Console.Error.WriteLine("  depends Int128 --platform                  # concrete type hierarchy");
-                Console.Error.WriteLine("  depends Stream --platform                  # class inheritance chain");
+                Console.Error.WriteLine("  depends --library Microsoft.Extensions.AI   # assembly references");
+                Console.Error.WriteLine("  depends --package System.Text.Json          # NuGet dependencies");
                 return 0;
             }
-
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
             bool wantPlatform = parseResult.GetValue(platformOption);
             bool wantExtensions = parseResult.GetValue(extensionsOption);
