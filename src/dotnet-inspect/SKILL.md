@@ -53,6 +53,7 @@ dnx dotnet-inspect -y -- implements Stream
 # Package metadata and versions
 dnx dotnet-inspect -y -- package System.Text.Json -v:d
 dnx dotnet-inspect -y -- package System.Text.Json --versions
+dnx dotnet-inspect -y -- package System.Text.Json --version
 
 # Library metadata, SourceLink audit, dependency tree
 dnx dotnet-inspect -y -- library --package System.Text.Json --source-link-audit
