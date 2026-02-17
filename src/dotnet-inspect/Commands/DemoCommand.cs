@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspector.Output;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -80,15 +81,14 @@ public class DemoCommand
 
     public static async Task<int> ExecuteListAsync()
     {
-        Console.WriteLine("# Demo Queries");
-        Console.WriteLine();
+        var writer = new MarkdownWriter(Console.Out);
+        writer.WriteHeading(1, "Demo Queries");
 
         for (int i = 0; i < Demos.Length; i++)
         {
             var demo = Demos[i];
-            var label = char.ToUpper(demo.Category[0]) + demo.Category[1..];
-            Console.WriteLine($"  {i + 1,2}. **{label}** {demo.Title}");
-            Console.WriteLine($"      dotnet-inspect {demo.CommandLine}");
+            var label = $"{i + 1}. {char.ToUpper(demo.Category[0])}{demo.Category[1..]}";
+            writer.WriteField(label, demo.Title);
         }
 
         Console.WriteLine();
