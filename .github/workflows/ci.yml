@@ -82,6 +82,7 @@ jobs:
         run: dotnet tool install -g ilspycmd --allow-roll-forward
 
       - name: Install ilasm/ildasm
+        continue-on-error: true
         shell: bash
         run: |
           RID=${{ matrix.rid }}
