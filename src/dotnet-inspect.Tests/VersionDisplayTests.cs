@@ -27,8 +27,12 @@ public class VersionDisplayTests
         return versionSegment.Split(':')[1].Trim();
     }
 
-    private static bool IsThreePartVersion(string version) =>
-        version.Split('.').Length == 3 && version.Split('.').All(p => int.TryParse(p, out _));
+    private static bool IsThreePartVersion(string version)
+    {
+        // Strip prerelease suffix (e.g., "11.0.0-preview.1.26104.118" → "11.0.0")
+        var baseParts = version.Split('-')[0].Split('.');
+        return baseParts.Length == 3 && baseParts.All(p => int.TryParse(p, out _));
+    }
 
     // --- Priority chain tests ---
 
