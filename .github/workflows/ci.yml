@@ -72,7 +72,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Build
         run: dotnet build src/dotnet-inspect -c Release
@@ -84,12 +85,12 @@ jobs:
         shell: bash
         run: |
           RID=${{ matrix.rid }}
-          VERSION=10.0.2
+          VERSION=11.0.0-preview.1.26104.118
           PACKAGES_DIR=$(mktemp -d)
           PROJ_DIR=$(mktemp -d)
           cat > "$PROJ_DIR/iltools.csproj" <<EOF
           <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
             <ItemGroup>
               <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
               <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
@@ -119,7 +120,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Pack pointer package
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
@@ -228,7 +230,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
 
       - name: Pack RID-specific package
         run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:OfficialBuild=true
