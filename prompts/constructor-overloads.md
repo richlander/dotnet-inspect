@@ -5,13 +5,13 @@ Show me all the constructors for HttpClient.
 ## Optimal Path (Expert, Markdown)
 
 ```bash
-dotnet-inspect api HttpClient --platform System.Net.Http --ctor -v:d
+dotnet-inspect member HttpClient --platform System.Net.Http --ctor -v:d
 ```
 
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect api HttpClient --platform System.Net.Http --ctor --json | jq '.members[] | .signature'
+dotnet-inspect member HttpClient --platform System.Net.Http --ctor --json | jq '.members[] | .signature'
 ```
 
 ## Discovery Path (Learning)
@@ -26,7 +26,7 @@ dotnet-inspect find HttpClient --framework runtime
 dotnet-inspect type HttpClient --platform System.Net.Http
 
 # Step 3: Get detailed constructor info
-dotnet-inspect api HttpClient --platform System.Net.Http --ctor -v:d
+dotnet-inspect member HttpClient --platform System.Net.Http --ctor -v:d
 ```
 
 ## Expected Output

@@ -20,7 +20,8 @@ dnx dotnet-inspect -y -- <command>
 |---------|---------|
 | `package X` | Package metadata, dependencies, files, versions |
 | `library X` | Library metadata, symbols, SourceLink audit, dependency tree |
-| `api X` | Public API surface (table format, or `--shape` for hierarchy) |
+| `type` | Discover types (terse, no docs) — use `--shape` for hierarchy |
+| `member X` | Inspect members (docs on by default, supports dotted syntax) |
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |
@@ -42,7 +43,8 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `--json` | JSON output |
 | `-s Name` | Include section (glob-capable: `-s Ext*`) |
 | `-x Name` | Exclude section |
-| `--shape` | Type shape diagram (hierarchy + members) |
+| `--shape` | Type shape diagram (hierarchy + members) — `type` command |
+| `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
 | `--source-link-audit` | SourceLink/determinism audit |
 | `-T:q/d` | Tips verbosity (contextual hints on stderr) |
 
@@ -69,7 +71,7 @@ Some packages bundle multiple libraries per TFM (e.g., `Microsoft.Azure.SignalR`
 ```bash
 dotnet-inspect package Microsoft.Azure.SignalR              # Shows Libraries: 2
 dotnet-inspect package Microsoft.Azure.SignalR --layout     # File tree
-dotnet-inspect api Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll  # Secondary library
+dotnet-inspect member Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll  # Secondary library
 ```
 
 #### Custom NuGet sources
@@ -95,28 +97,34 @@ dotnet-inspect library System.Text.Json --references -s Lib*           # Direct 
 dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 ```
 
-### api
+### type
 
-Extract public API surface with positional syntax and fuzzy matching.
+Discover types in a package or library — terse output, no docs by default.
 
 ```bash
-dotnet-inspect api System.Text.Json                              # All types in package
-dotnet-inspect api System.Text.Json JsonSerializer               # Specific type — member lists
-dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to member(s)
-dotnet-inspect api System.Text.Json JsonSerializer -m 'Deseri*'  # Glob member filter
-dotnet-inspect api 'HashSet<T>' --platform System.Collections --shape  # Type shape diagram
-dotnet-inspect api System.Text.Json JsonSerializer --docs        # With XML documentation
-dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces # Section filter
-dotnet-inspect api --platform System.Text.Json JsonSerializer    # Platform library
-dotnet-inspect api System.Text.Json@9.0.0 JsonSerializer        # Specific version
-dotnet-inspect api 'Option<T>' --package System.CommandLine      # Generic types (quote!)
-dotnet-inspect api Markout MarkoutWriter --samples -v:q          # Code samples
+dotnet-inspect type --package System.Text.Json                   # All types in package
+dotnet-inspect type -t "JsonS*" --package System.Text.Json       # Types matching glob
+dotnet-inspect type 'HashSet<T>' --platform System.Collections --shape  # Type shape diagram
+dotnet-inspect type --platform System.Text.Json                  # Platform library
+dotnet-inspect type --package System.Text.Json --json            # JSON output
+```
+
+### member
+
+Inspect type members — docs on by default, supports dotted syntax.
+
+```bash
+dotnet-inspect member JsonSerializer --package System.Text.Json         # All members (docs on)
+dotnet-inspect member JsonSerializer --package System.Text.Json --no-docs  # Suppress docs
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
+dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
+dotnet-inspect member 'Option<T>' --package System.CommandLine          # Generic types (quote!)
 ```
 
 Member selection and decompilation — use `--select` to see `Name:N` addressing hints, then drill in:
 
 ```bash
-$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+$ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options --select
 ## Constructors
 
 | Select | Name | Signature |
@@ -134,7 +142,7 @@ $ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --sel
 Then target a member using the `Name:N` shorthand to get source, decompiled C#, and IL:
 
 ```bash
-$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
+$ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options Create
 ## Source                          # Original C# (via SourceLink)
 ## Lowered C#                     # Decompiled C# faithful to IL semantics
 ## IL                             # Raw IL disassembly with resolved tokens

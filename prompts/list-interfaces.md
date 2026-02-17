@@ -5,13 +5,13 @@ Which interfaces does List\<T\> implement?
 ## Optimal Path (Expert, Markdown)
 
 ```bash
-dotnet-inspect api "List<T>" --platform System.Collections --interfaces
+dotnet-inspect type "List<T>" --platform System.Collections --shape
 ```
 
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect api "List<T>" --platform System.Collections --json | jq '.interfaces'
+dotnet-inspect member "List<T>" --platform System.Collections --json | jq '.interfaces'
 ```
 
 ## Discovery Path (Learning)
@@ -28,7 +28,7 @@ dotnet-inspect find "List*" --framework runtime
 dotnet-inspect type "List<T>" --platform System.Collections
 
 # Or for just interfaces in JSON:
-dotnet-inspect api "List<T>" --platform System.Collections --json | jq '.interfaces'
+dotnet-inspect member "List<T>" --platform System.Collections --json | jq '.interfaces'
 ```
 
 ## Expected Output

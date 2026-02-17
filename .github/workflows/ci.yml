@@ -185,13 +185,19 @@ jobs:
           grep -q "## Package Dependencies" smoke-package-normal.md
           grep -q "Library" smoke-package-normal.md
 
-      - name: Smoke test - api command
+      - name: Smoke test - type command
         run: |
-          dotnet-inspect api JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-api.md
-          cat smoke-api.md
-          grep -q "JsonSerializer" smoke-api.md
-          grep -q "Serialize" smoke-api.md
-          grep -q "Deserialize" smoke-api.md
+          dotnet-inspect type --package System.Text.Json@10.0.0 -n 5 > smoke-type.md
+          cat smoke-type.md
+          grep -q "JsonSerializer" smoke-type.md
+
+      - name: Smoke test - member command
+        run: |
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-member.md
+          cat smoke-member.md
+          grep -q "JsonSerializer" smoke-member.md
+          grep -q "Serialize" smoke-member.md
+          grep -q "Deserialize" smoke-member.md
 
       - name: Smoke test - platform command
         run: |

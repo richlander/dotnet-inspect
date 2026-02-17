@@ -25,7 +25,8 @@ public class ApiCommand
         if (options.MemberFilter.Count > 0 && string.IsNullOrEmpty(typeName))
         {
             Console.Error.WriteLine("Error: --member requires a type argument.");
-            Console.Error.WriteLine("Usage: dotnet-inspect api <type> --package <pkg> --member <name>");
+            Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg> -m <name>");
+            Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
             return 1;
         }
 
@@ -160,7 +161,9 @@ public class ApiCommand
             {
                 Console.Error.WriteLine("Error: No package, library, or platform specified.");
                 Console.Error.WriteLine();
-                Console.Error.WriteLine("Example: dotnet-inspect api System.Text.Json JsonSerializer");
+                Console.Error.WriteLine("Examples:");
+                Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
+                Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
                 return 1;
             }
 
@@ -274,9 +277,9 @@ public class ApiCommand
 
                         List<Tip> tips =
                         [
-                            new(ApiCommand.Name, $"{simpleName} {sourceFlag}", "view type members"),
-                            new(ApiCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"),
-                            new(ApiCommand.Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
+                            new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
+                            new(TypeCommand.Name, $"{sourceFlag} --shape", "view type shape"),
+                            new(TypeCommand.Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
                         Hints.WriteTips(options.TipLevel, [.. tips]);
@@ -486,14 +489,14 @@ public class ApiCommand
                         if (exampleGroup != null)
                         {
                             var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
-                            tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
+                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
                         }
 
                         if (overloadGroups.Any(g => g.Count() > 1))
-                            tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} --select", "show Name:N overload index"));
+                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} --select", "show Name:N overload index"));
 
-                        tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
-                        tips.Add(new(ApiCommand.Name, $"{simpleName} {sourceFlag} --docs", "include XML documentation"));
+                        tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
+                        tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
 
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }

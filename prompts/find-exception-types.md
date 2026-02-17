@@ -5,13 +5,13 @@ Find all exception types in System.Runtime.
 ## Optimal Path (Expert, Markdown)
 
 ```bash
-dotnet-inspect api --platform System.Runtime --filter "*Exception*"
+dotnet-inspect type --platform System.Runtime -t "*Exception*"
 ```
 
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect api --platform System.Runtime --filter "*Exception*" --json | jq '.types[].name'
+dotnet-inspect type --platform System.Runtime -t "*Exception*" --json | jq '.types[].name'
 ```
 
 ## Discovery Path (Learning)
@@ -23,7 +23,7 @@ dotnet-inspect find "*Exception*" --framework runtime -n 20
 # Shows exceptions from many assemblies
 
 # Step 2: Focus on System.Runtime assembly
-dotnet-inspect api --platform System.Runtime --filter "*Exception*"
+dotnet-inspect type --platform System.Runtime -t "*Exception*"
 
 # Lists all exception types in System.Runtime
 ```
@@ -49,7 +49,7 @@ dotnet-inspect api --platform System.Runtime --filter "*Exception*"
 
 ## Key Learnings
 
-- `--filter` uses glob patterns for type names
-- Combine `--platform` with `--filter` to search within one assembly
+- `-t` uses glob patterns for type names in `type` command
+- Combine `--platform` with `-t` to search within one assembly
 - `find` searches across all assemblies in a framework
 - Use `-n` to limit results when exploring
