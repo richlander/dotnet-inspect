@@ -4,9 +4,8 @@ namespace DotnetInspector.Output;
 
 /// <summary>
 /// A MarkoutWriter subclass that produces docker-style columnar output.
-/// Batch tables (WriteTable) use space-padded columns with uppercase headers.
-/// Streaming tables (WriteTableStart/Row/End) fall back to tab-separated values.
-/// Suppresses headings, fields, paragraphs, and code blocks.
+/// Tables use space-padded columns with uppercase headers.
+/// Suppresses all shapes except Tables and Lists via <see cref="SupportedShapes"/>.
 /// </summary>
 public class OneLineWriter : MarkoutWriter
 {
@@ -18,51 +17,26 @@ public class OneLineWriter : MarkoutWriter
         _showHeader = showHeader;
     }
 
+    public OneLineWriter(TextWriter writer, MarkoutWriterOptions options, bool showHeader = true) : base(writer, options)
+    {
+        _showHeader = showHeader;
+    }
+
+    /// <inheritdoc/>
+    public override MarkoutShape SupportedShapes => MarkoutShape.Tables | MarkoutShape.Lists;
+
     public override void WriteHeading(int level, string text, string? context)
     {
         UpdateSectionState(level, text);
     }
 
-    public override void WriteParagraph(string? text) { }
-
-    public override void WriteField(string key, string? value) { }
-
-    public override void WriteField(string key, bool value) { }
-
-    public override void WriteField<T>(string key, T value) { }
-
-    public override void WriteFieldNoBreak(string key, string? value) { }
-
-    public override void WriteFieldNoBreak(string key, bool value) { }
-
-    public override void WriteFieldNoBreak<T>(string key, T value) { }
-
-    public override void WriteCompactFields(params MarkoutField[] fields) { }
-
-    public override void WriteCompactFields(IReadOnlyList<MarkoutField> fields) { }
-
-    public override void WriteCodeBlockStart(string? language = null) { }
-
-    public override void WriteCodeBlockEnd() { }
-
-    public override void WriteTableStart(params string[] headers)
+    /// <inheritdoc/>
+    protected override void FlushStreamingTable(string[] headers, IList<string[]> rows, int skippedRows)
     {
-        if (SectionExcluded)
-            return;
-
-        if (_showHeader)
-            Writer.WriteLine(string.Join('\t', headers.Select(h => h.ToUpperInvariant())));
+        WriteTable(headers, rows);
+        if (skippedRows > 0)
+            Writer.WriteLine($"\n... and {skippedRows} more");
     }
-
-    public override void WriteTableRow(params string[] values)
-    {
-        if (SectionExcluded)
-            return;
-
-        Writer.WriteLine(string.Join('\t', values));
-    }
-
-    public override void WriteTableEnd() { }
 
     public override void WriteTable(IEnumerable<string> headers, IEnumerable<string[]> rows)
     {
@@ -72,11 +46,18 @@ public class OneLineWriter : MarkoutWriter
         var headerArray = headers as string[] ?? headers.ToArray();
         var rowList = rows as IList<string[]> ?? rows.ToList();
 
-        // Calculate column widths from headers and data
+        // Apply MaxItems
+        var maxItems = Options.MaxItems;
+        var visibleRows = maxItems.HasValue && rowList.Count > maxItems.Value
+            ? rowList.Take(maxItems.Value).ToList()
+            : rowList;
+        var skipped = rowList.Count - visibleRows.Count;
+
+        // Calculate column widths from headers and visible data
         var widths = new int[headerArray.Length];
         for (int i = 0; i < headerArray.Length; i++)
             widths[i] = headerArray[i].Length;
-        foreach (var row in rowList)
+        foreach (var row in visibleRows)
         {
             for (int i = 0; i < Math.Min(row.Length, widths.Length); i++)
                 widths[i] = Math.Max(widths[i], row[i].Length);
@@ -95,7 +76,7 @@ public class OneLineWriter : MarkoutWriter
             Writer.WriteLine();
         }
 
-        foreach (var row in rowList)
+        foreach (var row in visibleRows)
         {
             for (int i = 0; i < row.Length; i++)
             {
@@ -106,6 +87,9 @@ public class OneLineWriter : MarkoutWriter
             }
             Writer.WriteLine();
         }
+
+        if (skipped > 0)
+            Writer.WriteLine($"\n... and {skipped} more");
     }
 
     public override void WriteListItem(string text)

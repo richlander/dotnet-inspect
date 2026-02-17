@@ -36,12 +36,13 @@ public static class AssemblyCollector
         // 1. Packages
         foreach (var pkg in options.Packages)
         {
-            var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, tempDirPrefix, options.SourceOptions);
-            if (extracted == null)
+            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, tempDirPrefix, options.SourceOptions);
+            if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
+                Console.Error.WriteLine($"Warning: {outcome.ErrorMessage}");
                 continue;
             }
+            var extracted = outcome.Result!;
 
             if (extracted.TempDir != null) tempDirs.Add(extracted.TempDir);
 

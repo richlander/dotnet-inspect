@@ -28,9 +28,13 @@ internal static class ApiServices
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
-                if (extracted == null)
+                var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
+                if (!outcome.IsSuccess)
+                {
+                    Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
                     return (null, null, null);
+                }
+                var extracted = outcome.Result!;
 
                 (searchPath, tempDir, var packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
 
@@ -127,9 +131,13 @@ internal static class ApiServices
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
-                if (extracted == null)
+                var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
+                if (!outcome.IsSuccess)
+                {
+                    Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
                     return (null, null);
+                }
+                var extracted = outcome.Result!;
                 (searchPath, tempDir, packageName, _) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
 
                 if (!string.IsNullOrEmpty(options.Tfm))

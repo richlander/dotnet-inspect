@@ -145,23 +145,19 @@ public class PackageCommand
 
         try
         {
-            resolution = await PackageExtractor.ExtractPackageAsync(
+            var outcome = await PackageExtractor.ExtractPackageAsync(
                 client,
                 isLocalFile ? packageArgs[0] : packageName,
                 logger.Log,
                 sourceOptions: options.SourceOptions,
                 version: isLocalFile ? null : (version.Length > 0 ? version : null));
 
-            if (resolution == null)
+            if (!outcome.IsSuccess)
             {
-                if (isLocalFile)
-                    Console.Error.WriteLine($"Error: File not found: {packageArgs[0]}");
-                else if (version.Length > 0)
-                    Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found or download failed.");
-                else
-                    Console.Error.WriteLine($"Error: Package '{packageName}' not found.");
+                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
                 return 1;
             }
+            resolution = outcome.Result!;
 
             extractPath = resolution.ExtractPath;
             // Update version from resolution (may have been auto-discovered)

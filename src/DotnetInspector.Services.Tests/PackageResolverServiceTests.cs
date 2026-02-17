@@ -30,12 +30,13 @@ public class PackageExtractorTests
     }
 
     [Fact]
-    public async Task ExtractPackageAsync_LocalFile_DoesNotExist_ReturnsNull()
+    public async Task ExtractPackageAsync_LocalFile_DoesNotExist_ReturnsError()
     {
-        var result = await PackageExtractor.ExtractPackageAsync(
+        var outcome = await PackageExtractor.ExtractPackageAsync(
             new HttpClient(), "/nonexistent/path/package.nupkg");
 
-        Assert.Null(result);
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains("File not found", outcome.ErrorMessage);
     }
 
     [Fact]

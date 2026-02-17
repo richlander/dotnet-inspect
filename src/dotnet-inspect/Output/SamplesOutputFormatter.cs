@@ -59,9 +59,11 @@ public static class SamplesOutputFormatter
         if (content != null)
         {
             var lang = GetLanguageFromPath(sample.RelativePath);
-            writer.WriteCodeBlockStart(lang);
-            Console.Out.WriteLine(content);
-            writer.WriteCodeBlockEnd();
+            writer.WriteCodeStart(lang);
+            // WriteParagraph writes the content through the writer's underlying
+            // TextWriter, replacing the previous Console.Out.WriteLine bypass.
+            writer.WriteParagraph(content);
+            writer.WriteCodeEnd();
         }
         else
         {

@@ -33,12 +33,13 @@ internal static class TypeSearchService
         {
             if (ReachedLimit()) break;
 
-            var extracted = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find");
-            if (extracted == null)
+            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find");
+            if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Warning: Could not extract package '{pkg}', skipping.");
+                Console.Error.WriteLine($"Warning: {outcome.ErrorMessage}");
                 continue;
             }
+            var extracted = outcome.Result!;
 
             var (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
             if (tempDir != null) tempDirs.Add(tempDir);

@@ -163,83 +163,80 @@ public class SymbolPackageDownloader(HttpClient client)
 
         log?.Invoke($"Trying symbol package: {normalizedName}.{normalizedVersion}.snupkg");
 
-        HttpResponseMessage? response = null;
+        foreach (var snupkgUrl in snupkgUrls)
+        {
+            try
+            {
+                using var response = await HttpRetryHelper.GetWithRetryAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
+                if (response is not { IsSuccessStatusCode: true })
+                    continue;
+
+                log?.Invoke($"Found symbol package at: {snupkgUrl}");
+                var result = await ExtractPdbFromSymbolPackage(
+                    response, normalizedName, normalizedVersion, assemblyPath, windowsPdbDetected, log).ConfigureAwait(false);
+                if (result.WindowsPdbDetected)
+                    windowsPdbDetected = true;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"Error downloading symbol package: {ex.Message}");
+            }
+        }
+
+        log?.Invoke("Symbol package not found on NuGet");
+        return new PdbDownloadResult(null, windowsPdbDetected);
+    }
+
+    private async Task<PdbDownloadResult> ExtractPdbFromSymbolPackage(
+        HttpResponseMessage response,
+        string normalizedName, string normalizedVersion, string assemblyPath,
+        bool windowsPdbDetected, Action<string>? log)
+    {
+        var tempDir = Directory.CreateTempSubdirectory("snupkg").FullName;
+
         try
         {
-            foreach (var snupkgUrl in snupkgUrls)
+            var snupkgPath = Path.Combine(tempDir, "package.snupkg");
+            using (var fs = File.Create(snupkgPath))
             {
-                response = await HttpRetryHelper.GetWithRetryAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
-                if (response != null && response.IsSuccessStatusCode)
-                {
-                    log?.Invoke($"Found symbol package at: {snupkgUrl}");
-                    break;
-                }
-                response?.Dispose();
-                response = null;
+                await response.Content.CopyToAsync(fs).ConfigureAwait(false);
             }
 
-            if (response == null || !response.IsSuccessStatusCode)
+            var extractPath = Path.Combine(tempDir, "extracted");
+            ZipFile.ExtractToDirectory(snupkgPath, extractPath);
+
+            var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+            var pdbFiles = Directory.GetFiles(extractPath, $"{assemblyName}.pdb", SearchOption.AllDirectories);
+
+            if (pdbFiles.Length == 0)
             {
-                log?.Invoke("Symbol package not found on NuGet");
+                log?.Invoke("No matching PDB found in symbol package");
                 return new PdbDownloadResult(null, windowsPdbDetected);
             }
 
-            var tempDir = Path.Combine(Path.GetTempPath(), $"snupkg-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
-
-            try
+            var pdbFile = pdbFiles[0];
+            var cachePath = EnsureCachedPdbPath(normalizedName, normalizedVersion, assemblyPath);
+            if (cachePath != null)
             {
-                var snupkgPath = Path.Combine(tempDir, "package.snupkg");
-                using (var fs = File.Create(snupkgPath))
-                {
-                    await response.Content.CopyToAsync(fs).ConfigureAwait(false);
-                }
-                response.Dispose();
-                response = null;
-
-                var extractPath = Path.Combine(tempDir, "extracted");
-                ZipFile.ExtractToDirectory(snupkgPath, extractPath);
-
-                var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-                var pdbFiles = Directory.GetFiles(extractPath, $"{assemblyName}.pdb", SearchOption.AllDirectories);
-
-                if (pdbFiles.Length == 0)
-                {
-                    log?.Invoke("No matching PDB found in symbol package");
-                    return new PdbDownloadResult(null, windowsPdbDetected);
-                }
-
-                var pdbFile = pdbFiles[0];
-                var cachePath = EnsureCachedPdbPath(normalizedName, normalizedVersion, assemblyPath);
-                if (cachePath != null)
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
-                    File.Copy(pdbFile, cachePath, overwrite: true);
-                    log?.Invoke($"Cached PDB to: {cachePath}");
-                    pdbFile = cachePath;
-                }
-
-                var headerCheck = CheckPdbHeader(pdbFile);
-                if (headerCheck == PdbHeaderKind.Portable)
-                {
-                    log?.Invoke("Successfully located PDB from symbol package");
-                    return new PdbDownloadResult(pdbFile, SymbolServer: "nuget.org");
-                }
-                if (headerCheck == PdbHeaderKind.Windows)
-                    windowsPdbDetected = true;
+                Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+                File.Copy(pdbFile, cachePath, overwrite: true);
+                log?.Invoke($"Cached PDB to: {cachePath}");
+                pdbFile = cachePath;
             }
-            finally
+
+            var headerCheck = CheckPdbHeader(pdbFile);
+            if (headerCheck == PdbHeaderKind.Portable)
             {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                log?.Invoke("Successfully located PDB from symbol package");
+                return new PdbDownloadResult(pdbFile, SymbolServer: "nuget.org");
             }
-        }
-        catch (Exception ex)
-        {
-            log?.Invoke($"Error downloading symbol package: {ex.Message}");
+            if (headerCheck == PdbHeaderKind.Windows)
+                windowsPdbDetected = true;
         }
         finally
         {
-            response?.Dispose();
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
 
         return new PdbDownloadResult(null, windowsPdbDetected);
@@ -350,6 +347,9 @@ public class SymbolPackageDownloader(HttpClient client)
 
     private string? GetCachedPdbPath(string packageName, string packageVersion, string assemblyPath)
     {
+        NuGetCache.ValidatePathComponent(packageName, "package name");
+        NuGetCache.ValidatePathComponent(packageVersion, "package version");
+
         var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
         var cachePath = Path.Combine(_cachePath, packageName, packageVersion, $"{assemblyName}.pdb");
         return cachePath;

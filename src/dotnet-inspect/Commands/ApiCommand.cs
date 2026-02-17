@@ -76,9 +76,13 @@ public class ApiCommand
 
             if (!string.IsNullOrEmpty(options.PackagePath))
             {
-                var extracted = await Packages.PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
-                if (extracted == null)
+                var outcome = await Packages.PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
+                if (!outcome.IsSuccess)
+                {
+                    Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
                     return 1;
+                }
+                var extracted = outcome.Result!;
                 (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
                 apiSource = "NuGet";
                 apiVersion = packageVersion;

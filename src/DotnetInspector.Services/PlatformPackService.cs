@@ -195,16 +195,18 @@ public static class PlatformPackService
 
         log?.Invoke($"Downloading pack: {packName} {version}");
 
-        var result = await PackageExtractor.ExtractPackageAsync(
+        var outcome = await PackageExtractor.ExtractPackageAsync(
             client,
             $"{packName}@{version}",
             log,
             tempDirPrefix: "inspect-pack").ConfigureAwait(false);
 
-        if (result == null)
+        if (!outcome.IsSuccess)
         {
+            log?.Invoke(outcome.ErrorMessage!);
             return null;
         }
+        var result = outcome.Result!;
 
         try
         {

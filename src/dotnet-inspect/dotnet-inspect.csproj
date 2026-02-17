@@ -22,7 +22,7 @@
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.4.4</VersionPrefix>
+    <VersionPrefix>0.5.0</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -60,16 +60,16 @@
     Markout references: Use ProjectReference for local development, PackageReference for releases.
     To switch: comment out one block and uncomment the other.
   -->
-  <!-- ProjectReference: Use when developing against local Markout changes -->
+  <!-- ProjectReference: Use when developing against local Markout changes
   <ItemGroup>
     <ProjectReference Include="..\..\..\markout\src\Markout\Markout.csproj" />
     <ProjectReference Include="..\..\..\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
-  <!-- PackageReference: Use for releases after new Markout version is published
-  <ItemGroup>
-    <PackageReference Include="Markout" Version="0.5.1" />
-  </ItemGroup>
   -->
+  <!-- PackageReference: Use for releases after new Markout version is published -->
+  <ItemGroup>
+    <PackageReference Include="Markout" Version="0.6.1" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
