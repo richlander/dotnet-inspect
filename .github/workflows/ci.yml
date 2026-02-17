@@ -98,7 +98,7 @@ jobs:
             </ItemGroup>
           </Project>
           EOF
-          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR"
+          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
           ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
           ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
           chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
