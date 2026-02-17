@@ -1228,7 +1228,7 @@ public static class CommandLineBuilder
         var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
-        var versionOption = new Option<string?>("--version") { Description = "Package version" };
+        var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show latest)", Arity = ArgumentArity.ZeroOrOne };
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
@@ -1264,6 +1264,9 @@ public static class CommandLineBuilder
             var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
             var explicitVersion = parseResult.GetValue(versionOption);
 
+            // Bare --version (no value): treat as --versions -n 1
+            bool bareVersion = explicitVersion == null && parseResult.GetResult(versionOption) is { Implicit: false };
+
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
 
             var options = new InspectionOptions
@@ -1277,11 +1280,11 @@ public static class CommandLineBuilder
                 ListTfms = parseResult.GetValue(tfmsOption),
                 ScopeLib = parseResult.GetValue(libOption),
                 ScopeTools = parseResult.GetValue(toolsOption),
-                ListVersions = parseResult.GetValue(versionsOption),
+                ListVersions = bareVersion || parseResult.GetValue(versionsOption),
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 ShowReadme = parseResult.GetValue(readmeOption),
                 OutputPath = parseResult.GetValue(outOption),
-                Limit = parseResult.GetValue(limitOption),
+                Limit = bareVersion ? 1 : parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = verbosity,

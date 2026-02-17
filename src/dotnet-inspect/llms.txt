@@ -51,6 +51,7 @@ Package data:
 
 ```bash
 dotnet-inspect package System.Text.Json --versions          # List available versions
+dotnet-inspect package System.Text.Json --version           # Show latest version
 dotnet-inspect package System.Text.Json --version 11.0.0-preview*  # Wildcard version
 dotnet-inspect package System.Text.Json --files             # File listing
 dotnet-inspect package System.Text.Json --tfms              # TFM list
@@ -399,7 +400,7 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--source-link-audit` | SourceLink/determinism audit | library |
 | `--extract-resources dir/` | Extract embedded resources | library |
 | `--versions` | List available versions | package |
-| `--version VER` | Specific version (supports wildcards) | package |
+| `--version` | Show latest version (or specify version) | package |
 | `--files` | List files | package |
 | `--tfms` | List target frameworks | package |
 | `--layout` | File tree view | package |

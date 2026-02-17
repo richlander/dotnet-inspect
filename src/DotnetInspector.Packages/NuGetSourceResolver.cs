@@ -222,5 +222,58 @@ public static class NuGetSourceResolver
                 }
             }
         }
+
+        // Parse packageSourceCredentials
+        var credentialsSection = configuration.Element("packageSourceCredentials");
+        if (credentialsSection != null)
+        {
+            foreach (var sourceElement in credentialsSection.Elements())
+            {
+                // Element name is the source name (XML-encoded: spaces become _x0020_, etc.)
+                var sourceName = System.Xml.XmlConvert.DecodeName(sourceElement.Name.LocalName);
+                if (sourceName == null || !sources.ContainsKey(sourceName))
+                    continue;
+
+                string? username = null;
+                string? password = null;
+                bool isClearText = false;
+
+                foreach (var add in sourceElement.Elements("add"))
+                {
+                    var key = add.Attribute("key")?.Value;
+                    var value = add.Attribute("value")?.Value;
+
+                    if (string.Equals(key, "Username", StringComparison.OrdinalIgnoreCase))
+                        username = value;
+                    else if (string.Equals(key, "ClearTextPassword", StringComparison.OrdinalIgnoreCase))
+                        { password = value; isClearText = true; }
+                    else if (string.Equals(key, "Password", StringComparison.OrdinalIgnoreCase))
+                        { password = value; isClearText = false; }
+                }
+
+                if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+                {
+                    string clearPassword;
+                    if (isClearText)
+                    {
+                        clearPassword = password!;
+                    }
+                    else
+                    {
+                        try { clearPassword = EncryptionUtility.DecryptString(password!); }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"Warning: Could not decrypt password for source '{sourceName}': {ex.Message}");
+                            continue;
+                        }
+                    }
+
+                    sources[sourceName] = sources[sourceName] with
+                    {
+                        Credentials = new NuGetSourceCredential(username!, clearPassword)
+                    };
+                }
+            }
+        }
     }
 }

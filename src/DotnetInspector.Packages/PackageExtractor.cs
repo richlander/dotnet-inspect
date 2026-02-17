@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO.Compression;
+using System.Net.Http.Headers;
 using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
@@ -155,7 +156,7 @@ public static class PackageExtractor
 
             try
             {
-                packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl).ConfigureAwait(false);
+                packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl, auth: source.GetAuthHeader()).ConfigureAwait(false);
                 if (packageBytes != null)
                 {
                     successfulSource = source.Name;
@@ -251,7 +252,7 @@ public static class PackageExtractor
 
         log?.Invoke($"Querying service index: {indexUrl}");
 
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl).ConfigureAwait(false);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: source.GetAuthHeader()).ConfigureAwait(false);
         if (json == null)
             return null;
 
@@ -425,12 +426,14 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log)
     {
+        var auth = source.GetAuthHeader();
+
         // Try flat-container index first
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(client, indexUrl, log, auth).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -443,7 +446,7 @@ public static class PackageExtractor
                 baseAddress += "/";
 
             string indexUrl = $"{baseAddress}{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(client, indexUrl, log, auth).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -452,10 +455,11 @@ public static class PackageExtractor
     }
 
     private static async Task<List<string>?> FetchVersionListAsync(
-        HttpClient client, string indexUrl, Action<string>? log)
+        HttpClient client, string indexUrl, Action<string>? log,
+        AuthenticationHeaderValue? auth = null)
     {
         log?.Invoke($"Fetching versions from: {indexUrl}");
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl).ConfigureAwait(false);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: auth).ConfigureAwait(false);
         if (json == null) return null;
 
         try
@@ -484,6 +488,8 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log)
     {
+        var auth = source.GetAuthHeader();
+
         // For nuget.org, use the search API — returns latest version directly without listing all versions
         if (source.IsNuGetOrg())
         {
@@ -499,7 +505,7 @@ public static class PackageExtractor
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, auth).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -514,7 +520,7 @@ public static class PackageExtractor
             string indexUrl = $"{baseAddress}{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, auth).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -555,9 +561,11 @@ public static class PackageExtractor
         return null;
     }
 
-    private static async Task<string?> ParseVersionIndexAsync(HttpClient client, string indexUrl)
+    private static async Task<string?> ParseVersionIndexAsync(
+        HttpClient client, string indexUrl,
+        AuthenticationHeaderValue? auth = null)
     {
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl).ConfigureAwait(false);
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: auth).ConfigureAwait(false);
         if (json == null)
             return null;
 

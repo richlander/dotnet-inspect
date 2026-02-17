@@ -6,6 +6,7 @@
 // Adapted for AOT compatibility and simplified for dotnet-inspect use case.
 
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 
 namespace DotnetInspector.Packages;
@@ -173,16 +174,24 @@ public static class HttpRetryHelper
     /// <param name="retryCount">Maximum number of retries (default: 3)</param>
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="auth">Optional authentication header for authenticated feeds</param>
     /// <returns>Response if successful, null if failed or not found</returns>
     public static Task<HttpResponseMessage?> GetWithRetryAsync(
         HttpClient client,
         string url,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null)
     {
         return ExecuteWithRetryAsync(
-            ct => client.GetAsync(url, ct),
+            ct =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (auth != null)
+                    request.Headers.Authorization = auth;
+                return client.SendAsync(request, ct);
+            },
             url,
             "GET",
             retryCount,
@@ -198,15 +207,17 @@ public static class HttpRetryHelper
     /// <param name="retryCount">Maximum number of retries (default: 3)</param>
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="auth">Optional authentication header for authenticated feeds</param>
     /// <returns>Response body as string, or null if failed</returns>
     public static async Task<string?> GetStringWithRetryAsync(
         HttpClient client,
         string url,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null)
     {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
+        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth).ConfigureAwait(false);
         if (response == null)
             return null;
 
@@ -221,15 +232,17 @@ public static class HttpRetryHelper
     /// <param name="retryCount">Maximum number of retries (default: 3)</param>
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="auth">Optional authentication header for authenticated feeds</param>
     /// <returns>Response body as byte array, or null if failed</returns>
     public static async Task<byte[]?> GetBytesWithRetryAsync(
         HttpClient client,
         string url,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null)
     {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
+        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth).ConfigureAwait(false);
         if (response == null)
             return null;
 

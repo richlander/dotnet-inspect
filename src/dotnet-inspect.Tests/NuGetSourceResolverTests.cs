@@ -314,4 +314,136 @@ public class NuGetSourceResolverTests
             Directory.Delete(rootDir, recursive: true);
         }
     }
+
+    [Fact]
+    public void ResolveSources_WithClearTextCredentials_ParsesCredentials()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-cred-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var configPath = Path.Combine(tempDir, "nuget.config");
+            File.WriteAllText(configPath, """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <add key="MyPrivateFeed" value="https://private.example.com/v3/index.json" />
+                  </packageSources>
+                  <packageSourceCredentials>
+                    <MyPrivateFeed>
+                      <add key="Username" value="myuser" />
+                      <add key="ClearTextPassword" value="mypassword" />
+                    </MyPrivateFeed>
+                  </packageSourceCredentials>
+                </configuration>
+                """);
+
+            var options = new NuGetSourceOptions { ConfigFile = configPath };
+            var sources = NuGetSourceResolver.ResolveSources(options);
+
+            Assert.Single(sources);
+            Assert.NotNull(sources[0].Credentials);
+            Assert.Equal("myuser", sources[0].Credentials!.Username);
+            Assert.Equal("mypassword", sources[0].Credentials!.Password);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveSources_WithEncodedSourceName_ParsesCredentials()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-cred-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var configPath = Path.Combine(tempDir, "nuget.config");
+            // Spaces in source names are encoded as _x0020_ in the XML element name
+            File.WriteAllText(configPath, """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <add key="My Private Feed" value="https://private.example.com/v3/index.json" />
+                  </packageSources>
+                  <packageSourceCredentials>
+                    <My_x0020_Private_x0020_Feed>
+                      <add key="Username" value="spaceuser" />
+                      <add key="ClearTextPassword" value="spacepass" />
+                    </My_x0020_Private_x0020_Feed>
+                  </packageSourceCredentials>
+                </configuration>
+                """);
+
+            var options = new NuGetSourceOptions { ConfigFile = configPath };
+            var sources = NuGetSourceResolver.ResolveSources(options);
+
+            Assert.Single(sources);
+            Assert.NotNull(sources[0].Credentials);
+            Assert.Equal("spaceuser", sources[0].Credentials!.Username);
+            Assert.Equal("spacepass", sources[0].Credentials!.Password);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveSources_WithNoCredentials_LeavesCredentialsNull()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-cred-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var configPath = Path.Combine(tempDir, "nuget.config");
+            File.WriteAllText(configPath, """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <add key="PublicFeed" value="https://public.example.com/v3/index.json" />
+                  </packageSources>
+                </configuration>
+                """);
+
+            var options = new NuGetSourceOptions { ConfigFile = configPath };
+            var sources = NuGetSourceResolver.ResolveSources(options);
+
+            Assert.Single(sources);
+            Assert.Null(sources[0].Credentials);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NuGetSource_GetAuthHeader_ReturnsBasicAuth()
+    {
+        var source = new NuGetSource("test", "https://test.example.com/v3/index.json")
+        {
+            Credentials = new NuGetSourceCredential("user", "pass")
+        };
+
+        var header = source.GetAuthHeader();
+
+        Assert.NotNull(header);
+        Assert.Equal("Basic", header!.Scheme);
+        // "user:pass" base64
+        var decoded = System.Text.Encoding.ASCII.GetString(Convert.FromBase64String(header.Parameter!));
+        Assert.Equal("user:pass", decoded);
+    }
+
+    [Fact]
+    public void NuGetSource_GetAuthHeader_ReturnsNullWithoutCredentials()
+    {
+        var source = new NuGetSource("test", "https://test.example.com/v3/index.json");
+
+        Assert.Null(source.GetAuthHeader());
+    }
 }
