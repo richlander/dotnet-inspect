@@ -69,6 +69,9 @@ public static class ApiSurfaceExtractor
             // Check if this is an extension class (static class with [Extension] attribute)
             bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
 
+            // Nullability context for annotated signatures
+            byte typeNullableContext = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
+
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
 
@@ -158,7 +161,7 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
-                var signature = GetMethodSignature(reader, typeDef, method);
+                var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -211,7 +214,7 @@ public static class ApiSurfaceExtractor
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
-                    Signature = GetPropertySignature(reader, typeDef, prop, accessors)
+                    Signature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext)
                 };
 
                 apiType.Members.Add(member);
@@ -239,7 +242,11 @@ public static class ApiSurfaceExtractor
                 if (!isEnum)
                 {
                     var context = GenericContext.ForType(reader, typeDef);
-                    fieldType = field.DecodeSignature(SignatureDecoder.Instance, context);
+                    var fieldNode = field.DecodeSignature(TypeNodeProvider.Instance, context);
+                    var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
+                    int pos = 0;
+                    fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
+                    fieldType = fieldNode.Render();
                 }
 
                 var member = new ApiMember
@@ -386,20 +393,34 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    private static string GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, byte typeNullableContext)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+        var treeSignature = method.DecodeSignature(TypeNodeProvider.Instance, context);
 
-        // Get parameter names from metadata
+        // Determine the effective nullable default: method overrides type
+        byte methodContext = NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes());
+        byte nullableDefault = methodContext != 0 ? methodContext : typeNullableContext;
+
+        // Apply nullability to return type
         var paramHandles = method.GetParameters().ToList();
-        var paramTypes = signature.ParameterTypes;
+        var returnBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, 0);
+        int pos = 0;
+        treeSignature.ReturnType.ApplyNullability(returnBytes, ref pos, nullableDefault);
+
+        // Build parameter list with nullability
+        var paramTypes = treeSignature.ParameterTypes;
 
         List<string> parameters = [];
         for (int i = 0; i < paramTypes.Length; i++)
         {
-            string type = paramTypes[i];
+            // Apply nullability to this parameter's type tree
+            var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
+            pos = 0;
+            paramTypes[i].ApplyNullability(paramBytes, ref pos, nullableDefault);
+            string type = paramTypes[i].Render();
+
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
             var (paramName, isParams, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
@@ -416,7 +437,7 @@ public static class ApiSurfaceExtractor
         }
 
         string paramStr2 = string.Join(", ", parameters);
-        return $"{signature.ReturnType} {name}({paramStr2})";
+        return $"{treeSignature.ReturnType.Render()} {name}({paramStr2})";
     }
 
     private static (string? name, bool isParams, bool hasDefault, object? defaultValue) GetParameterInfo(
@@ -489,11 +510,16 @@ public static class ApiSurfaceExtractor
         };
     }
 
-    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors)
+    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
-        var signature = prop.DecodeSignature(SignatureDecoder.Instance, context);
+        var treeSignature = prop.DecodeSignature(TypeNodeProvider.Instance, context);
+
+        // Apply nullability to the property type
+        var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());
+        int pos = 0;
+        treeSignature.ReturnType.ApplyNullability(propBytes, ref pos, typeNullableContext);
 
         // Determine accessor visibility
         bool hasPublicGetter = false;
@@ -526,7 +552,7 @@ public static class ApiSurfaceExtractor
         else
             accessorStr = "{ get; }"; // Fallback
 
-        return $"{signature.ReturnType} {name} {accessorStr}";
+        return $"{treeSignature.ReturnType.Render()} {name} {accessorStr}";
     }
 
     /// <summary>

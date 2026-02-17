@@ -16,6 +16,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect" />
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Metadata.Tests" />
   </ItemGroup>
 
   <ItemGroup>
