@@ -12,8 +12,8 @@ It operates on three types of content:
 dotnet-inspect Microsoft.Extensions.AI              # Bare name — routes to best source
 dotnet-inspect package System.Text.Json             # Package metadata
 dotnet-inspect library System.Text.Json             # Library metadata
-dotnet-inspect api System.Text.Json                 # Public API surface
-dotnet-inspect api System.Text.Json JsonSerializer  # Specific type
+dotnet-inspect type --package System.Text.Json      # Discover types (terse)
+dotnet-inspect member JsonSerializer --package System.Text.Json  # Inspect members (docs)
 dotnet-inspect find "Chat*,Diction*"                # Search types across scopes
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2  # API version comparison
 dotnet-inspect extensions HttpClient                # Extension methods
@@ -109,38 +109,45 @@ dotnet-inspect library --package System.Text.Json --extract-resources resources/
 dotnet-inspect library --package System.Text.Json -s Resour*         # View embedded resources
 ```
 
-### api
+### type
 
-Public API surface — type lists, member lists, type shape, decompilation.
+Discover types in a package or library — terse output, no docs by default.
 
 ```bash
-dotnet-inspect api System.Text.Json                              # All types (from package)
-dotnet-inspect api --platform System.Text.Json                   # All types (from platform)
-dotnet-inspect api --package System.Text.Json                    # All types (explicit package)
-dotnet-inspect api System.Text.Json JsonS*                       # Types matching glob
-dotnet-inspect api System.Text.Json JsonSerializer               # Single type — member lists
-dotnet-inspect api System.Text.Json JsonSerializer Serialize     # Filter to member name
-dotnet-inspect api System.Text.Json JsonSerializer -m 'Deseri*'  # Glob member filter
-dotnet-inspect api System.Text.Json JsonSerializer --docs        # With XML documentation
-dotnet-inspect api System.Text.Json@9.0.0 JsonSerializer        # Specific version
-dotnet-inspect api 'Option<T>' --package System.CommandLine      # Generic types (quote!)
-dotnet-inspect api 'HashSet<T>' --platform System.Collections --shape  # Type shape diagram
+dotnet-inspect type --package System.Text.Json                   # All types (from package)
+dotnet-inspect type --platform System.Text.Json                  # All types (from platform)
+dotnet-inspect type System.Text.Json                             # Bare name — auto-routes
+dotnet-inspect type -t "JsonS*" --package System.Text.Json       # Types matching glob
+dotnet-inspect type JsonSerializer --package System.Text.Json --shape  # Type shape diagram
+dotnet-inspect type 'HashSet<T>' --platform System.Collections --shape  # Generic types (quote!)
+dotnet-inspect type --package System.Text.Json --oneline         # Columnar output
+dotnet-inspect type --package System.Text.Json --json            # JSON output
+```
+
+### member
+
+Inspect type members — docs on by default, supports dotted syntax.
+
+```bash
+dotnet-inspect member JsonSerializer --package System.Text.Json         # All members (docs on)
+dotnet-inspect member JsonSerializer --package System.Text.Json --no-docs  # Suppress docs
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
+dotnet-inspect member JsonSerializer --package System.Text.Json -m 'Deseri*'  # Glob member filter
+dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
+dotnet-inspect member 'Option<T>' --package System.CommandLine          # Generic types (quote!)
 ```
 
 Section filtering:
 
 ```bash
-dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces          # Interfaces only
-dotnet-inspect api System.Text.Json JsonArray -v:d -s:Interfaces,Baseclass  # Multiple sections
-dotnet-inspect api System.Text.Json JsonSerializer -s:Methods             # Methods only
-dotnet-inspect api System.Text.Json JsonSerializer -s                     # Header only (no sections)
-dotnet-inspect api System.Text.Json -s "Classes"                          # Type-level section filter
+dotnet-inspect member JsonArray --package System.Text.Json -v:d -s:Interfaces  # Interfaces only
+dotnet-inspect member JsonSerializer --package System.Text.Json -s:Methods    # Methods only
 ```
 
 Member selection and decompilation — use `--select` to see `Name:N` addressing hints, then drill in:
 
 ```bash
-$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+$ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options --select
 ## Constructors
 
 | Select | Name | Signature |
@@ -158,7 +165,7 @@ $ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --sel
 Then target a member using the `Name:N` shorthand to get source, decompiled C#, and IL:
 
 ```bash
-$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create:1
+$ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options Create:1
 ## Source                          # Original C# (via SourceLink)
 ## Lowered C#                     # Decompiled C# faithful to IL semantics
 ## IL                             # Raw IL disassembly with resolved tokens
@@ -168,24 +175,21 @@ $ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Creat
 For constructors with overloads, `--params` can also disambiguate:
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory \
-  -m .ctor --params "IEnumerable<...>,IEnumerable<...>"                   # Overload by params
-```
-
-Multi-library packages:
-
-```bash
-dotnet-inspect api Microsoft.Azure.SignalR -v:q                              # Primary library
-dotnet-inspect api Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll  # Secondary library
+dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options \
+  -m .ctor --params "IEnumerable<...>,IEnumerable<...>"           # Overload by params
 ```
 
 Other flags:
 
 ```bash
-dotnet-inspect api System.Text.Json JsonSerializer --oneline          # One member per line
-dotnet-inspect api Command --package System.CommandLine --ctor        # Constructor details
-dotnet-inspect api System.Text.Json JsonSerializer --json             # JSON output
+dotnet-inspect member JsonSerializer --package System.Text.Json --oneline  # One member per line
+dotnet-inspect member Command --package System.CommandLine --ctor          # Constructor details
+dotnet-inspect member JsonSerializer --package System.Text.Json --json     # JSON output
 ```
+
+### api (deprecated)
+
+The `api` command is deprecated. Use `type` for type discovery or `member` for member inspection.
 
 ### find
 
@@ -308,7 +312,7 @@ dotnet-inspect samples Markout MarkoutWriter         # Print all samples
 dotnet-inspect samples Newtonsoft.Json JObject        # Third-party examples
 ```
 
-Also accessible via `api` command: `dotnet-inspect api Markout MarkoutWriter --samples -v:q`
+Also accessible via `member` command: `dotnet-inspect member Markout MarkoutWriter --samples -v:q`
 
 ### cache
 
@@ -378,23 +382,24 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 
 | Option | Description | Commands |
 |--------|-------------|----------|
-| `--package` | NuGet package source | api, library, find, extensions, implements, depends, diff |
+| `--package` | NuGet package source | type, member, library, find, extensions, implements, depends, diff |
 | `--package-prefix` | All packages matching NuGet ID prefix | find, extensions, implements |
-| `--platform` | Platform library source (string) / all platform frameworks (bool) | api, library, diff (string) / find, extensions, implements, depends (bool) |
+| `--platform` | Platform library source (string) / all platform frameworks (bool) | type, member, library, diff (string) / find, extensions, implements, depends (bool) |
 | `--extensions` | Curated Microsoft.Extensions.* packages | find, extensions, implements, depends |
 | `--aspnetcore` | Curated Microsoft.AspNetCore.* packages | find, extensions, implements, depends |
-| `--library` | Local library file | api, find, extensions, implements |
-| `--tfm net8.0` | Select target framework | package, library, api, extensions |
-| `-m Name` | Filter to member (supports globs) | api |
-| `--shape` | Type shape diagram (hierarchy + members) | api |
-| `--select` | Show Select column with Name:N shorthand | api |
-| `--index N` | Target Nth overload (or use Name:N shorthand) | api |
-| `--params "..."` | Target overload by parameter types | api |
-| `--docs` | Include XML documentation | api |
-| `--samples` | Fetch code samples | api |
-| `--ctor` | Constructor details | api |
-| `--oneline` | One result per line, columnar | api, find, diff, implements |
-| `--shape` | Type shape diagram | api |
+| `--library` | Local library file | type, member, find, extensions, implements |
+| `--tfm net8.0` | Select target framework | package, library, type, member, extensions |
+| `-t Pattern` | Filter types by glob pattern | type |
+| `-m Name` | Filter to member (supports globs, Type.Member syntax) | member |
+| `--shape` | Type shape diagram (hierarchy + members) | type |
+| `--select` | Show Select column with Name:N shorthand | member |
+| `--index N` | Target Nth overload (or use Name:N shorthand) | member |
+| `--params "..."` | Target overload by parameter types | member |
+| `--docs` | Include XML documentation (on by default for member) | member |
+| `--no-docs` | Suppress XML documentation | member |
+| `--samples` | Fetch code samples | member |
+| `--ctor` | Constructor details | member |
+| `--oneline` | One result per line, columnar | type, member, find, diff, implements |
 | `--dependencies` | Dependency tree (visual) | library, package |
 | `--references` | Direct assembly references | library |
 | `--source-link-audit` | SourceLink/determinism audit | library |
@@ -405,7 +410,7 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--tfms` | List target frameworks | package |
 | `--layout` | File tree view | package |
 | `--reachable` | Include reachable type extensions | extensions |
-| `--no-header` | Suppress column headers | api, find, diff, implements |
+| `--no-header` | Suppress column headers | type, member, find, diff, implements |
 | `--breaking` | Breaking changes only | diff |
 | `--additive` | Additive changes only | diff |
 | `--name-only` | Names only | diff |
@@ -422,18 +427,19 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 
 ## LLM Usage Guide
 
-### Important: Positional Argument Syntax
+### Important: New type and member Commands
 
-The `api` command uses **positional arguments**, not flags, for library/type/member:
+The `api` command is deprecated. Use `type` for discovery and `member` for inspection:
 
 ```bash
-# CORRECT — positional arguments
-dotnet-inspect api System.Text.Json                          # library
-dotnet-inspect api System.Text.Json JsonSerializer           # library type
-dotnet-inspect api System.Text.Json JsonSerializer Serialize # library type member
+# Type discovery (terse, no docs)
+dotnet-inspect type --package System.Text.Json                  # All types
+dotnet-inspect type -t "*Serializer*" --package System.Text.Json  # Filter by glob
 
-# WRONG — do not use -t for types
-dotnet-inspect api System.Text.Json -t JsonSerializer        # ✗ -t is not a type flag
+# Member inspection (docs on by default)
+dotnet-inspect member JsonSerializer --package System.Text.Json   # All members
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
+dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
 ```
 
 ### Common Mistakes to Avoid
@@ -451,14 +457,15 @@ dotnet-inspect diff System.Text.Json@8.0.0 System.Text.Json@9.0.0     # ✗
 dotnet-inspect diff System.Text.Json@8.0.0..9.0.0                     # ✓
 
 # WRONG: Running --help to learn syntax (wastes tokens)
-dotnet-inspect api --help                                              # ✗
+dotnet-inspect type --help                                              # ✗
 # CORRECT: Use llmstxt for complete syntax reference
 dotnet-inspect llmstxt                                                 # ✓
 
-# WRONG: Using -m without the type positional arg
-dotnet-inspect api --package Newtonsoft.Json -m SerializeObject         # ✗
-# CORRECT: Type is a positional argument before -m
-dotnet-inspect api Newtonsoft.Json JsonConvert -m SerializeObject       # ✓
+# WRONG: Using -m without the type name
+dotnet-inspect member --package Newtonsoft.Json -m SerializeObject     # ✗
+# CORRECT: Provide type as positional arg, or use dotted syntax
+dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject  # ✓
+dotnet-inspect member -m JsonConvert.SerializeObject --package Newtonsoft.Json  # ✓
 ```
 
 ### Scope Flags on Search Commands (find, extensions, implements, depends)
@@ -469,7 +476,7 @@ dotnet-inspect api Newtonsoft.Json JsonConvert -m SerializeObject       # ✓
 - **(no flags)**: Default scope — all platform frameworks + Microsoft.Extensions.AI.
 - **`--package`**: Specific NuGet packages. Combinable with scope flags.
 
-Note: `api`, `library`, `diff` still use `--platform <name>` as a string option for specific platform libraries.
+Note: `type`, `member`, `library`, `diff` still use `--platform <name>` as a string option for specific platform libraries.
 
 - **Bare names**: The tool auto-routes. `System.Text.Json` → platform; `Newtonsoft.Json` → package.
 
@@ -509,13 +516,16 @@ dotnet-inspect find "JsonSerializer"
 # Shows: System.Text.Json.JsonSerializer in System.Text.Json.dll
 
 # Step 2: Get type shape
-dotnet-inspect api JsonSerializer --platform System.Text.Json --shape
+dotnet-inspect type JsonSerializer --platform System.Text.Json --shape
 
 # Step 3: Drill into specific members
-dotnet-inspect api JsonSerializer --platform System.Text.Json -m Serialize -v:d
+dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -v:d
 
 # Step 4: View decompiled source for a specific overload
-dotnet-inspect api JsonSerializer --package System.Text.Json Serialize:1
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1
+
+# Or use dotted syntax (no type positional needed)
+dotnet-inspect member -m JsonSerializer.Serialize --package System.Text.Json
 ```
 
 ### Test Packages
@@ -531,13 +541,16 @@ dotnet-inspect api JsonSerializer --package System.Text.Json Serialize:1
 
 ### Flag Compatibility Matrix
 
-| Flag | api | find | extensions | implements | depends | diff | library | package |
-|------|-----|------|------------|------------|---------|------|---------|---------|
-| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| `--package-prefix` | — | ✓ | ✓ | ✓ | — | — | — | — |
-| `--platform` | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
-| `--extensions` | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
-| `--aspnetcore` | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
-| `--library` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
-| `--framework` | ✓ | — | — | — | — | ✓ | ✓ | — |
-| `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Flag | type | member | find | extensions | implements | depends | diff | library | package |
+|------|------|--------|------|------------|------------|---------|------|---------|---------|
+| `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| `--package-prefix` | — | — | ✓ | ✓ | ✓ | — | — | — | — |
+| `--platform` | ✓ (string) | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
+| `--extensions` | — | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--aspnetcore` | — | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--library` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `--framework` | ✓ | ✓ | — | — | — | — | ✓ | ✓ | — |
+| `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--docs` | — | ✓ | — | — | — | — | — | — | — |
+| `--no-docs` | — | ✓ | — | — | — | — | — | — | — |
+| `--shape` | ✓ | — | — | — | — | — | — | — | — |

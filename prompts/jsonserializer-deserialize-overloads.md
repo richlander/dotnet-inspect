@@ -7,20 +7,23 @@ Please tell me how many overloads there are for JsonSerializer.Deserialize in th
 Use `-v:d` for detailed verbosity to see all signatures in a table:
 
 ```bash
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize -v:d
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize -v:d
 ```
 
 ## Optimal Path (Expert, JSON)
 
 ```bash
 # All Deserialize signatures
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members[] | .signature'
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members[] | .signature'
 
 # Filter to generic overloads (return TValue)
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members[] | select(.signature | contains("TValue")) | .signature'
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members[] | select(.signature | contains("TValue")) | .signature'
 
 # Count total
-dotnet-inspect api JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members | length'
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members | length'
+
+# Or use dotted syntax
+dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json --json | jq '.members | length'
 ```
 
 ## Discovery Path (Learning)
@@ -37,7 +40,7 @@ dotnet-inspect find "JsonSerializer" --framework runtime
 dotnet-inspect type JsonSerializer --platform System.Text.Json
 
 # Step 3: Get full signatures with detailed verbosity
-dotnet-inspect api JsonSerializer --platform System.Text.Json -m Deserialize -v:d
+dotnet-inspect member JsonSerializer --platform System.Text.Json -m Deserialize -v:d
 ```
 
 ## Expected Output

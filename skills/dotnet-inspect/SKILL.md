@@ -9,8 +9,8 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## When to Use This Skill
 
-- **"What types are in this package?"** — `find` searches by glob pattern
-- **"What's the API surface?"** — `api` lists types, members, signatures, type shape
+- **"What types are in this package?"** — `type` discovers types (terse), `find` searches by pattern
+- **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
 - **"What extends this type?"** — `extensions` finds extension methods/properties
 - **"What implements this interface?"** — `implements` finds concrete types
@@ -32,17 +32,25 @@ dnx dotnet-inspect -y -- find "Chat*" --package Foo      # specific NuGet packag
 dnx dotnet-inspect -y -- find "Chat*" --platform --package Foo  # platform + a specific package
 ```
 
-Scope flags are combinable — use multiple flags to widen the search. `--package` works on all commands. `api`, `library`, `diff` also accept `--platform <name>` for a specific platform library.
+Scope flags are combinable — use multiple flags to widen the search. `--package` works on all commands. `type`, `member`, `library`, `diff` also accept `--platform <name>` for a specific platform library.
 
 ## Examples by Task
 
-### List API surface
+### Discover types
 
 ```bash
-dnx dotnet-inspect -y -- api System.Text.Json                              # all types in library
-dnx dotnet-inspect -y -- api System.Text.Json JsonSerializer               # members of a type
-dnx dotnet-inspect -y -- api 'HashSet<T>' --platform System.Collections --shape  # type shape diagram
-dnx dotnet-inspect -y -- api JsonSerializer --package System.Text.Json -m Serialize  # filter to member
+dnx dotnet-inspect -y -- type --package System.Text.Json                   # all types in package
+dnx dotnet-inspect -y -- type -t "*Serializer*" --package System.Text.Json # filter by glob
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape  # type shape diagram
+```
+
+### Inspect members
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json         # members with docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --no-docs  # suppress docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize  # filter to member
+dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json  # dotted syntax
 ```
 
 ### Search for types
@@ -100,7 +108,8 @@ dnx dotnet-inspect -y -- extensions IChatClient --package-prefix Microsoft.Exten
 
 | Command | Purpose |
 | ------- | ------- |
-| `api` | Public API surface — types, members, signatures, `--shape` for hierarchy |
+| `type` | **Discover types** — terse output, no docs, use `--shape` for hierarchy |
+| `member` | **Inspect members** — docs on by default, supports dotted syntax (`-m Type.Member`) |
 | `find` | Search for types by glob pattern across any scope |
 | `diff` | Compare API surfaces between versions — breaking/additive classification |
 | `extensions` | Find extension methods/properties for a type |
@@ -113,7 +122,8 @@ dnx dotnet-inspect -y -- extensions IChatClient --package-prefix Microsoft.Exten
 ## Key Syntax
 
 - **Generic types** need quotes: `'Option<T>'`, `'IEnumerable<T>'`
-- **Positional args** for `api`: `api <source> <type> <member>` (not flags)
+- **`type` uses `-t`** for type filtering, **`member` uses `-m`** for member filtering
+- **Dotted syntax** for `member`: `-m JsonSerializer.Deserialize`
 - **Diff ranges** use `..`: `--package System.Text.Json@9.0.0..10.0.0`
 - **Signatures** include `params` and default values from metadata
 

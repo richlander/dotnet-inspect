@@ -117,12 +117,87 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ApiCommand_WithoutType_ParsesCorrectly()
+    public void ApiCommand_Deprecated_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json"]);
 
         Assert.Empty(result.Errors);
         Assert.Equal("api", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void TypeCommand_WithoutType_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("type", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void TypeCommand_WithTypeFilter_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "-t", "*Serializer*", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("type", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void TypeCommand_WithShape_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json", "--shape"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_WithType_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("member", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void MemberCommand_WithMemberFilter_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Serialize"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_WithDottedSyntax_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "-m", "JsonSerializer.Deserialize", "--package", "System.Text.Json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_WithNoDocs_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--no-docs"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_WithCtor_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--ctor"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_WithIndex_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize", "--index", "1"]);
+
+        Assert.Empty(result.Errors);
     }
 
     [Fact]
@@ -134,75 +209,67 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ApiCommand_WithMemberFilter_ParsesCorrectly()
+    public void MemberCommand_WithMemberAlias_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "-m", "Serialize"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--member", "Serialize"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Fact]
-    public void ApiCommand_WithMemberAlias_ParsesCorrectly()
+    public void MemberCommand_WithMultipleMembers_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--member", "Serialize"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Serialize", "-m", "Deserialize"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Fact]
-    public void ApiCommand_WithMultipleMembers_ParsesCorrectly()
+    public void MemberCommand_WithOneLine_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "-m", "Serialize", "-m", "Deserialize"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--oneline"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Fact]
-    public void ApiCommand_WithOneLine_ParsesCorrectly()
+    public void TypeCommand_WithPlatform_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--oneline"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--shape"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("type", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void TypeCommand_WithPlatformAndFramework_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--framework", "runtime", "--shape"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Fact]
-    public void ApiCommand_WithShape_ParsesCorrectly()
+    public void MemberCommand_WithPlatform_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--shape"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "List`1", "--platform", "System.Collections"]);
 
         Assert.Empty(result.Errors);
-        Assert.Equal("api", result.CommandResult.Command.Name);
+        Assert.Equal("member", result.CommandResult.Command.Name);
     }
 
     [Fact]
-    public void ApiCommand_WithShapeAndTfm_ParsesCorrectly()
+    public void TypeCommand_WithJson_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--tfm", "net8.0", "--shape"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithShapeAndJson_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--json", "--shape"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json", "--json"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Fact]
-    public void ApiCommand_WithShapeAndPlatform_ParsesCorrectly()
+    public void TypeCommand_WithTfm_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "List`1", "--platform", "System.Collections", "--shape"]);
-
-        Assert.Empty(result.Errors);
-        Assert.Equal("api", result.CommandResult.Command.Name);
-    }
-
-    [Fact]
-    public void ApiCommand_WithShapeAndPlatformAndFramework_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "List`1", "--platform", "System.Collections", "--framework", "runtime", "--shape"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json", "--tfm", "net8.0"]);
 
         Assert.Empty(result.Errors);
     }

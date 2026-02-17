@@ -30,7 +30,10 @@ Start with these common workflows:
 
 ```bash
 # Understand a type's API shape (start here - most useful for learning APIs)
-dnx dotnet-inspect -y -- api 'HashSet<T>' --platform System.Collections --shape
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
+
+# Inspect type members with documentation
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 
 # Bare names — routes automatically (platform for System.*/Microsoft.*, NuGet for others)
 dnx dotnet-inspect -y -- Microsoft.Extensions.AI
@@ -62,12 +65,15 @@ dnx dotnet-inspect -y -- library Microsoft.Extensions.AI.OpenAI --dependencies
 # Code samples
 dnx dotnet-inspect -y -- samples Markout MarkoutWriter --list
 
-# Get XML documentation for a type
-dnx dotnet-inspect -y -- api Option --package System.CommandLine --docs
+# Get XML documentation for a type (member command has docs on by default)
+dnx dotnet-inspect -y -- member Option --package System.CommandLine
+
+# Dotted syntax — specify Type.Member in -m flag
+dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json
 
 # Drill into a specific method — get source, decompiled C#, and IL
-dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory --select  # See Name:N shorthand
-dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFactory Create:1  # Member doc
+dnx dotnet-inspect -y -- member OptionsFactory --package Microsoft.Extensions.Options --select  # See Name:N shorthand
+dnx dotnet-inspect -y -- member OptionsFactory --package Microsoft.Extensions.Options Create:1  # Member doc
 ```
 
 ## Key Flags
@@ -75,17 +81,19 @@ dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFacto
 | Flag | Purpose | Commands |
 | ---- | ------- | -------- |
 | `-v:d` | Detailed output (full signatures, all sections) | all |
-| `--shape` | Type shape diagram (hierarchy + members) | `api` |
-| `--docs` | Include XML documentation | `api` |
-| `-m Name` | Filter to specific member(s), supports globs | `api` |
-| `--select` | Show Select column with Name:N shorthand | `api` |
-| `--index N` | Target Nth overload (or use Name:N shorthand) | `api` |
+| `--shape` | Type shape diagram (hierarchy + members) | `type` |
+| `-t Pattern` | Filter types by glob pattern | `type` |
+| `--docs` | Include XML documentation (on by default for member) | `member` |
+| `--no-docs` | Suppress XML documentation | `member` |
+| `-m Name` | Filter to specific member(s), supports globs and Type.Member syntax | `member` |
+| `--select` | Show Select column with Name:N shorthand | `member` |
+| `--index N` | Target Nth overload (or use Name:N shorthand) | `member` |
 | `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
-| `--oneline` | One result per line, columnar output | `api`, `find`, `diff`, `implements` |
+| `--oneline` | One result per line, columnar output | `type`, `member`, `find`, `diff`, `implements` |
 | `--reachable` | Include extensions on reachable types | `extensions` |
 | `--dependencies` | Dependency tree (visual) | `library`, `package` |
 | `--source-link-audit` | SourceLink/determinism audit | `library` |
-| `--no-header` | Suppress column headers (use with --oneline) | `api`, `find`, `diff`, `implements` |
+| `--no-header` | Suppress column headers (use with --oneline) | `type`, `member`, `find`, `diff`, `implements` |
 | `--breaking` | Breaking changes only | `diff` |
 | `--prerelease` | Include prerelease versions | `package --versions` |
 | `--json` | JSON output | all |
@@ -97,14 +105,15 @@ dnx dotnet-inspect -y -- api --package Microsoft.Extensions.Options OptionsFacto
 
 ## Syntax Rules
 
-**`api` uses positional arguments** — not flags — for library, type, and member:
+**Use `type` for discovery, `member` for inspection** — the old `api` command is deprecated:
 
 ```bash
-dnx dotnet-inspect -y -- api System.Text.Json JsonSerializer Serialize   # library type member
-dnx dotnet-inspect -y -- api Newtonsoft.Json JsonConvert -m SerializeObject  # -m for member filter
+dnx dotnet-inspect -y -- type --package System.Text.Json                   # Discover types
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json  # Inspect members
+dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
 ```
 
-**Do NOT use `-t` for type selection** — type is always a positional argument.
+**`type` uses `-t` for type filtering** (glob patterns), **`member` uses `-m` for member filtering**.
 
 **`--platform` vs `--package`**: `--platform` is only for SDK libraries (System.\*, Microsoft.AspNetCore.\*). Use `--package` for NuGet packages.
 
@@ -114,7 +123,8 @@ dnx dotnet-inspect -y -- api Newtonsoft.Json JsonConvert -m SerializeObject  # -
 
 | Command | Purpose |
 | ------- | ------- |
-| `api <type>` | **Start here.** Public API surface (table format, or `--shape` for hierarchy) |
+| `type` | **Discover types** — terse output, no docs (use `--shape` for hierarchy) |
+| `member <type>` | **Inspect members** — docs on by default, supports dotted syntax |
 | `diff` | Compare API surfaces between package versions |
 | `find <pattern>` | Search for types across packages, libraries, or frameworks |
 | `extensions <type>` | Find extension methods/properties for a type |

@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf-test", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf-test", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -148,9 +148,17 @@ public static class CommandLineBuilder
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
 
-        // API command
-        var apiCommand = CreateApiCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        // API command (deprecated, hidden)
+        var apiCommand = CreateDeprecatedApiCommand();
         rootCommand.Subcommands.Add(apiCommand);
+
+        // Type command (type discovery, terse)
+        var typeCommand = CreateTypeCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        rootCommand.Subcommands.Add(typeCommand);
+
+        // Member command (member inspection, docs by default)
+        var memberCommand = CreateMemberCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        rootCommand.Subcommands.Add(memberCommand);
 
         // Assembly command
         var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
@@ -253,7 +261,8 @@ public static class CommandLineBuilder
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
                 new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
                 new Tip("-T:d", "", "show more tips per command"),
-                new Tip(ApiCommand.Name, "--package <package>", "view public API surface"),
+                new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
+                new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
                 new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
         });
@@ -479,7 +488,7 @@ public static class CommandLineBuilder
                         var pkgName = versionRange[..atIdx];
                         var toVersion = versionRange[(dotDotIdx + 2)..];
                         if (!options.OneLine && !options.NameOnly)
-                            tips.Add(new(ApiCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
+                            tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
                         if (!options.OneLine)
                             tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --oneline", "summary statistics"));
                     }
@@ -940,7 +949,7 @@ public static class CommandLineBuilder
                 var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform";
 
                 Hints.WriteTips(tipLevel,
-                    new(ApiCommand.Name, $"<TypeName> {sourceFlag} --shape", "view type shape"),
+                    new(MemberCommand.Name, $"<TypeName> {sourceFlag}", "inspect type members"),
                     new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
                     new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results"),
                     new(LlmsTxtCommand.Name, "", "complete usage examples"));
@@ -1310,7 +1319,7 @@ public static class CommandLineBuilder
                     tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
 
                 tips.Add(new("library", pkg, "inspect library"));
-                tips.Add(new(ApiCommand.Name, $"--package {pkg}", "view public API surface"));
+                tips.Add(new(TypeCommand.Name, $"--package {pkg}", "discover types in package"));
                 tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
                 tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
                 tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
@@ -1545,7 +1554,7 @@ public static class CommandLineBuilder
                     tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
 
                 tips.Add(new("library", pkg, "inspect library"));
-                tips.Add(new(ApiCommand.Name, $"--package {pkg}", "view public API surface"));
+                tips.Add(new(TypeCommand.Name, $"--package {pkg}", "discover types in package"));
                 tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
                 tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
                 tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
@@ -1673,7 +1682,33 @@ public static class CommandLineBuilder
         return assemblyCommand;
     }
 
-    private static Command CreateApiCommand(
+    /// <summary>
+    /// Creates a deprecated hidden api command that shows a deprecation message.
+    /// </summary>
+    private static Command CreateDeprecatedApiCommand()
+    {
+        var deprecatedApiCommand = new Command("api", "Deprecated: Use 'type' or 'member' instead") { Hidden = true };
+        deprecatedApiCommand.TreatUnmatchedTokensAsErrors = false;
+        deprecatedApiCommand.SetAction(_ =>
+        {
+            Console.Error.WriteLine("The 'api' command is deprecated. Please use:");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("  type   - Discover types in a package/library (terse, no docs by default)");
+            Console.Error.WriteLine("  member - Inspect type members (docs by default)");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Examples:");
+            Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
+            Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
+            Console.Error.WriteLine("  dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json");
+            return 1;
+        });
+        return deprecatedApiCommand;
+    }
+
+    /// <summary>
+    /// Creates the type command for fast type discovery (terse, no docs by default).
+    /// </summary>
+    private static Command CreateTypeCommand(
         Option<bool> jsonOption,
         Option<bool> markoutOption,
         Option<bool> verboseOption,
@@ -1686,99 +1721,282 @@ public static class CommandLineBuilder
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
     {
-        var apiCommand = new Command(ApiCommand.Name, "Extract public API surface");
+        var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (terse output)");
 
         var argsArg = new Argument<string[]>("args")
         {
-            Description = "Package and type name. When no --package/--library/--platform is given, first arg is the package.",
+            Description = "Package and type pattern. When no --package/--library/--platform is given, first arg is the package.",
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var apiPackageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
-        var apiAssemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
-        var apiPlatformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
-        var apiFrameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
-        var apiTfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
+        var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
+        var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
-        var memberOption = new Option<string[]>("-m")
-        {
-            Description = "Filter members by name (supports globs)",
-            AllowMultipleArgumentsPerToken = true
-        };
-        memberOption.Aliases.Add("--member");
-        var docsOption = new Option<bool>("--docs") { Description = "Include XML doc comments from source" };
-        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Include XML docs from local packs directory (offline, implies --docs)" };
-        var samplesOption = new Option<bool>("--samples") { Description = "Include code samples from source" };
         var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter types to those with SourceLink resolution" };
-        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
-        var apiOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var apiNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
-        var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
-        var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
-        var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
-        var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
-        var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
-        var selectOption = new Option<bool>("--select") { Description = "Show member overload index (Name:N) column" };
+        var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
 
-        apiCommand.Arguments.Add(argsArg);
-        apiCommand.Options.Add(apiPackageOption);
-        apiCommand.Options.Add(apiAssemblyOption);
-        apiCommand.Options.Add(apiPlatformOption);
-        apiCommand.Options.Add(apiFrameworkOption);
-        apiCommand.Options.Add(apiTfmOption);
-        apiCommand.Options.Add(allOption);
-        apiCommand.Options.Add(typeFilterOption);
-        apiCommand.Options.Add(memberOption);
-        apiCommand.Options.Add(ctorOption);
-        apiCommand.Options.Add(limitOption);
-        apiCommand.Options.Add(docsOption);
-        apiCommand.Options.Add(useLocalDocsOption);
-        apiCommand.Options.Add(samplesOption);
-        apiCommand.Options.Add(sourcelinkOnlyOption);
-        apiCommand.Options.Add(browsableUrlsOption);
-        apiCommand.Options.Add(jsonOption);
-        apiCommand.Options.Add(compactOption);
-        apiCommand.Options.Add(apiOneLineOption);
-        apiCommand.Options.Add(apiNoHeaderOption);
-        apiCommand.Options.Add(shapeOption);
-        apiCommand.Options.Add(unsafeOption);
-        apiCommand.Options.Add(indexOption);
-        apiCommand.Options.Add(paramsOption);
-        apiCommand.Options.Add(ofOption);
-        apiCommand.Options.Add(selectOption);
-        apiCommand.Options.Add(includeSectionsOption);
-        apiCommand.Options.Add(excludeSectionsOption);
-        apiCommand.Options.Add(markoutOption);
-        apiCommand.Options.Add(verboseOption);
-        apiCommand.Options.Add(verbosityOption);
-        apiCommand.Options.Add(sourceOption);
-        apiCommand.Options.Add(addSourceOption);
-        apiCommand.Options.Add(nugetConfigOption);
-        apiCommand.Options.Add(tipsOption);
+        typeCommand.Arguments.Add(argsArg);
+        typeCommand.Options.Add(packageOption);
+        typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(platformOption);
+        typeCommand.Options.Add(frameworkOption);
+        typeCommand.Options.Add(tfmOption);
+        typeCommand.Options.Add(allOption);
+        typeCommand.Options.Add(typeFilterOption);
+        typeCommand.Options.Add(limitOption);
+        typeCommand.Options.Add(sourcelinkOnlyOption);
+        typeCommand.Options.Add(jsonOption);
+        typeCommand.Options.Add(compactOption);
+        typeCommand.Options.Add(oneLineOption);
+        typeCommand.Options.Add(noHeaderOption);
+        typeCommand.Options.Add(shapeOption);
+        typeCommand.Options.Add(unsafeOption);
+        typeCommand.Options.Add(includeSectionsOption);
+        typeCommand.Options.Add(excludeSectionsOption);
+        typeCommand.Options.Add(markoutOption);
+        typeCommand.Options.Add(verboseOption);
+        typeCommand.Options.Add(verbosityOption);
+        typeCommand.Options.Add(sourceOption);
+        typeCommand.Options.Add(addSourceOption);
+        typeCommand.Options.Add(nugetConfigOption);
+        typeCommand.Options.Add(tipsOption);
 
-        apiCommand.SetAction(async (parseResult, ct) =>
+        typeCommand.SetAction(async (parseResult, ct) =>
         {
             var args = parseResult.GetValue(argsArg) ?? [];
-            var explicitPackage = parseResult.GetValue(apiPackageOption);
-            var explicitAssembly = parseResult.GetValue(apiAssemblyOption);
-            var explicitPlatform = parseResult.GetValue(apiPlatformOption);
-            // A bare DLL name in --library (no path separators) is a selector within a package, not a standalone source
+            var explicitPackage = parseResult.GetValue(packageOption);
+            var explicitAssembly = parseResult.GetValue(assemblyOption);
+            var explicitPlatform = parseResult.GetValue(platformOption);
             bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
                 && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
                 && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
             bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
 
-            // No args and no explicit source: show help (unless bare -s for section discovery)
             if (args.Length == 0 && !hasExplicitSource)
             {
                 if (parseResult.GetResult(includeSectionsOption) != null && parseResult.GetValue(includeSectionsOption) == null)
                 {
-                    var allApiSections = SectionRegistry.ApiTypeSections.Concat(SectionRegistry.ApiMemberSections).Distinct().ToArray();
-                    SectionRegistry.ListSections(allApiSections);
+                    var allTypeSections = SectionRegistry.ApiTypeSections;
+                    SectionRegistry.ListSections(allTypeSections);
+                    return 0;
+                }
+
+                new HelpAction().Invoke(parseResult);
+                return 0;
+            }
+
+            string? packagePath = explicitPackage;
+            string? typeName = null;
+            string? apiFrameworkOverride = null;
+
+            if (hasExplicitSource)
+            {
+                if (args.Length >= 1) typeName = args[0];
+            }
+            else
+            {
+                if (args.Length >= 1) packagePath = args[0];
+                if (args.Length >= 2) typeName = args[1];
+
+                if (LooksLikeVersionNumber(typeName))
+                {
+                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+                    return 1;
+                }
+
+                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
+                {
+                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
+                    else if (nupkgPath != null) { packagePath = nupkgPath; }
+                }
+                else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
+                    packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
+                {
+                    var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
+                    var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
+
+                    var client = HttpClientFactory.Shared;
+                    bool verbose = parseResult.GetValue(verboseOption);
+                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
+                    await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
+                    {
+                        if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
+                        {
+                            string? frameworkSpec = null;
+                            var (asmPath, framework, _, error) = PlatformResolver.ResolveAssembly(bareName);
+
+                            if (asmPath != null && explicitVersion != null && framework != null)
+                            {
+                                frameworkSpec = $"{framework}@{explicitVersion}";
+                                if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
+                                    await PlatformPackService.EnsurePackAsync(packName, explicitVersion, client, log);
+                                (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
+                            }
+
+                            if (error == null && asmPath != null)
+                            {
+                                explicitPlatform = bareName;
+                                packagePath = null;
+                                apiFrameworkOverride = frameworkSpec;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            var options = new ApiOptions
+            {
+                TypeName = typeName,
+                PackagePath = packagePath,
+                AssemblyPath = explicitAssembly,
+                PlatformAssembly = explicitPlatform,
+                PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
+                Tfm = parseResult.GetValue(tfmOption),
+                IncludeAll = parseResult.GetValue(allOption),
+                TypeFilter = parseResult.GetValue(typeFilterOption),
+                MemberFilter = [],
+                Limit = parseResult.GetValue(limitOption),
+                ShowDocs = false,  // Type command: docs off by default
+                DocsExplicitlySet = false,
+                SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
+                JsonOutput = parseResult.GetValue(jsonOption),
+                CompactJson = parseResult.GetValue(compactOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
+                ShapeOutput = parseResult.GetValue(shapeOption),
+                UnsafeOnly = parseResult.GetValue(unsafeOption),
+                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                Verbose = parseResult.GetValue(verboseOption),
+                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+            };
+
+            options = options with
+            {
+                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
+                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
+            };
+
+            return await TypeCommand.ExecuteAsync(options);
+        });
+
+        return typeCommand;
+    }
+
+    /// <summary>
+    /// Creates the member command for deep member inspection (docs on by default).
+    /// </summary>
+    private static Command CreateMemberCommand(
+        Option<bool> jsonOption,
+        Option<bool> markoutOption,
+        Option<bool> verboseOption,
+        Option<string?> verbosityOption,
+        Option<string?> tipsOption,
+        Option<int?> limitOption,
+        Option<string?> includeSectionsOption,
+        Option<string?> excludeSectionsOption,
+        Option<string[]> sourceOption,
+        Option<string[]> addSourceOption,
+        Option<string?> nugetConfigOption)
+    {
+        var memberCommand = new Command(MemberCommand.Name, "Inspect type members (docs on by default)");
+
+        var argsArg = new Argument<string[]>("args")
+        {
+            Description = "Package, type name, and member filter. When no --package/--library/--platform is given, first arg is the package.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
+        var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
+        var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
+        var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
+        var memberOption = new Option<string[]>("-m")
+        {
+            Description = "Filter members by name (supports globs, Type.Member dotted syntax)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        memberOption.Aliases.Add("--member");
+        var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
+        var docsOption = new Option<bool>("--docs") { Description = "Include XML doc comments (on by default, use --no-docs to suppress)" };
+        var noDocsOption = new Option<bool>("--no-docs") { Description = "Suppress XML doc comments" };
+        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Include XML docs from local packs directory (offline)" };
+        var samplesOption = new Option<bool>("--samples") { Description = "Include code samples from source" };
+        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
+        var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
+        var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
+        var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
+        var selectOption = new Option<bool>("--select") { Description = "Show member overload index (Name:N) column" };
+
+        memberCommand.Arguments.Add(argsArg);
+        memberCommand.Options.Add(packageOption);
+        memberCommand.Options.Add(assemblyOption);
+        memberCommand.Options.Add(platformOption);
+        memberCommand.Options.Add(frameworkOption);
+        memberCommand.Options.Add(tfmOption);
+        memberCommand.Options.Add(allOption);
+        memberCommand.Options.Add(memberOption);
+        memberCommand.Options.Add(ctorOption);
+        memberCommand.Options.Add(limitOption);
+        memberCommand.Options.Add(docsOption);
+        memberCommand.Options.Add(noDocsOption);
+        memberCommand.Options.Add(useLocalDocsOption);
+        memberCommand.Options.Add(samplesOption);
+        memberCommand.Options.Add(browsableUrlsOption);
+        memberCommand.Options.Add(jsonOption);
+        memberCommand.Options.Add(compactOption);
+        memberCommand.Options.Add(oneLineOption);
+        memberCommand.Options.Add(noHeaderOption);
+        memberCommand.Options.Add(unsafeOption);
+        memberCommand.Options.Add(indexOption);
+        memberCommand.Options.Add(paramsOption);
+        memberCommand.Options.Add(ofOption);
+        memberCommand.Options.Add(selectOption);
+        memberCommand.Options.Add(includeSectionsOption);
+        memberCommand.Options.Add(excludeSectionsOption);
+        memberCommand.Options.Add(markoutOption);
+        memberCommand.Options.Add(verboseOption);
+        memberCommand.Options.Add(verbosityOption);
+        memberCommand.Options.Add(sourceOption);
+        memberCommand.Options.Add(addSourceOption);
+        memberCommand.Options.Add(nugetConfigOption);
+        memberCommand.Options.Add(tipsOption);
+
+        memberCommand.SetAction(async (parseResult, ct) =>
+        {
+            var args = parseResult.GetValue(argsArg) ?? [];
+            var explicitPackage = parseResult.GetValue(packageOption);
+            var explicitAssembly = parseResult.GetValue(assemblyOption);
+            var explicitPlatform = parseResult.GetValue(platformOption);
+            bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
+                && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
+                && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+            bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
+
+            if (args.Length == 0 && !hasExplicitSource)
+            {
+                if (parseResult.GetResult(includeSectionsOption) != null && parseResult.GetValue(includeSectionsOption) == null)
+                {
+                    var allMemberSections = SectionRegistry.ApiMemberSections;
+                    SectionRegistry.ListSections(allMemberSections);
                     return 0;
                 }
 
@@ -1793,13 +2011,11 @@ public static class CommandLineBuilder
 
             if (hasExplicitSource)
             {
-                // All positionals are type + member filters
                 if (args.Length >= 1) typeName = args[0];
                 if (args.Length >= 2) positionalMembers.AddRange(args[1..]);
             }
             else
             {
-                // First positional is the package (or platform candidate)
                 if (args.Length >= 1) packagePath = args[0];
                 if (args.Length >= 2) typeName = args[1];
                 if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
@@ -1810,20 +2026,17 @@ public static class CommandLineBuilder
                     return 1;
                 }
 
-                // Route file paths (.dll → --library, .nupkg stays as package path)
                 if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
                 {
                     if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
                     else if (nupkgPath != null) { packagePath = nupkgPath; }
                 }
-                // Platform-preferred routing for System.*/Microsoft.* bare names
                 else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
                     packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
                 {
                     var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
                     var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
 
-                    // Probe at latest to check if the assembly is in a platform pack
                     var client = HttpClientFactory.Shared;
                     bool verbose = parseResult.GetValue(verboseOption);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
@@ -1866,8 +2079,25 @@ public static class CommandLineBuilder
             var allMembers = members.Concat(positionalMembers).ToArray();
             var ctorOnly = parseResult.GetValue(ctorOption);
 
-            // Parse Name:N shorthand (e.g., "Deserialize:6")
-            // A bare member name without :N auto-selects overload 1 (detail page)
+            // Parse dotted syntax (Type.Member) from -m option
+            string? dottedTypeFilter = null;
+            for (int i = 0; i < allMembers.Length; i++)
+            {
+                var memberArg = allMembers[i];
+                var dotIdx = memberArg.LastIndexOf('.');
+                // Only split if: has dot, not a glob pattern, and first segment isn't empty
+                if (dotIdx > 0 && !memberArg.Contains('*') && !memberArg.Contains('?'))
+                {
+                    dottedTypeFilter = memberArg[..dotIdx];
+                    allMembers[i] = memberArg[(dotIdx + 1)..];
+                    // Use the extracted type name if no explicit type was provided
+                    if (string.IsNullOrEmpty(typeName))
+                        typeName = dottedTypeFilter;
+                    break;
+                }
+            }
+
+            // Parse Name:N shorthand
             int? shorthandIndex = null;
             bool hasExplicitIndex = false;
             for (int i = 0; i < allMembers.Length; i++)
@@ -1894,29 +2124,36 @@ public static class CommandLineBuilder
                 memberFilter = new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase);
             }
 
+            // Determine docs behavior: --no-docs suppresses, --docs enables, default is on
+            bool showDocs = !parseResult.GetValue(noDocsOption);
+            bool docsExplicitlySet = parseResult.GetResult(docsOption) is { Implicit: false }
+                || parseResult.GetResult(noDocsOption) is { Implicit: false }
+                || parseResult.GetResult(useLocalDocsOption) is { Implicit: false };
+
+            // If --docs is explicitly set, honor it (overrides --no-docs precedence)
+            if (parseResult.GetResult(docsOption) is { Implicit: false })
+                showDocs = true;
+
             var options = new ApiOptions
             {
                 TypeName = typeName,
                 PackagePath = packagePath,
                 AssemblyPath = explicitAssembly,
                 PlatformAssembly = explicitPlatform,
-                PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(apiFrameworkOption),
-                Tfm = parseResult.GetValue(apiTfmOption),
+                PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
+                Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                TypeFilter = parseResult.GetValue(typeFilterOption),
                 MemberFilter = memberFilter,
                 Limit = parseResult.GetValue(limitOption),
-                ShowDocs = parseResult.GetValue(docsOption) || parseResult.GetValue(useLocalDocsOption),
-                DocsExplicitlySet = parseResult.GetResult(docsOption) is { Implicit: false } || parseResult.GetResult(useLocalDocsOption) is { Implicit: false },
+                ShowDocs = showDocs || parseResult.GetValue(useLocalDocsOption),
+                DocsExplicitlySet = docsExplicitlySet,
                 UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
                 ShowSamples = parseResult.GetValue(samplesOption),
-                SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(apiOneLineOption),
-                NoHeader = parseResult.GetValue(apiNoHeaderOption),
-                ShapeOutput = parseResult.GetValue(shapeOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
                 CtorOnly = ctorOnly,
                 OverloadIndex = parseResult.GetValue(indexOption) ?? shorthandIndex,
@@ -1936,10 +2173,10 @@ public static class CommandLineBuilder
                     ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
             };
 
-            return await ApiCommand.ExecuteAsync(options);
+            return await MemberCommand.ExecuteAsync(options);
         });
 
-        return apiCommand;
+        return memberCommand;
     }
 
     // Parse helpers delegated to OptionParsers
