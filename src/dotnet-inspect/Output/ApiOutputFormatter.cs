@@ -352,7 +352,7 @@ public static class ApiOutputFormatter
                 var kindLabel = GetTreeKindLabel(group.Key, group.Count());
                 var memberSignatures = group
                     .OrderBy(m => m.Name)
-                    .Select(m => m.Signature ?? m.Name)
+                    .Select(m => m.Signature ?? OperatorNames.FormatDisplayName(m.Name))
                     .ToList();
 
                 nodes.Add(new TreeNode(kindLabel, memberSignatures));
@@ -466,7 +466,7 @@ public static class ApiOutputFormatter
                     select = $"`{(hasOverloads ? $"{m.Name}:{idx}" : m.Name)}`";
                 }
 
-                return new MemberRow(select, m.Name, $"`{sig}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
+                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), $"`{sig}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)
