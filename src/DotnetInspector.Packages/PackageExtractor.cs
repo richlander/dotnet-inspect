@@ -630,16 +630,35 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
+        // Cache-first for default nuget.org source
+        bool useCache = sources.Count == 1 && sources[0].IsNuGetOrg();
         List<string>? allVersions = null;
-        foreach (var source in sources)
+
+        if (useCache)
         {
-            allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
-            if (allVersions != null)
-                break;
+            var cached = CoreCache.TryGet(VersionCacheCategory, $"{normalizedName}-all", VersionCacheTtl, extension: "txt");
+            if (cached != null)
+            {
+                log?.Invoke("Using cached version list");
+                allVersions = [.. cached.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
+            }
         }
 
         if (allVersions == null)
-            return null;
+        {
+            foreach (var source in sources)
+            {
+                allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+                if (allVersions != null)
+                    break;
+            }
+
+            if (allVersions == null)
+                return null;
+
+            if (useCache)
+                CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', allVersions), extension: "txt");
+        }
 
         var filtered = includePrerelease
             ? allVersions
