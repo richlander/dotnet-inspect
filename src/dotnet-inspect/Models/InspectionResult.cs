@@ -17,9 +17,14 @@ public class InspectionResult
     public string? Repository { get; set; }
 
     /// <summary>
-    /// When this package version was published to NuGet.
+    /// When this package version was published to NuGet (from NuGet API).
     /// </summary>
     public DateTimeOffset? Published { get; set; }
+
+    /// <summary>
+    /// When this package was built (from nupkg file timestamps).
+    /// </summary>
+    public DateTimeOffset? BuiltDate { get; set; }
 
     /// <summary>
     /// Total downloads across all versions of the package.

@@ -40,7 +40,12 @@ public class InspectionResultView
     public string? Repository => _data.Repository;
 
     [MarkoutFormat("yyyy-MM-dd")]
-    [MarkoutPropertyName("Updated")]
+    [MarkoutPropertyName("Built")]
+    public DateTimeOffset? BuiltDate => _data.BuiltDate;
+
+    [MarkoutFormat("yyyy-MM-dd")]
+    [MarkoutSection(Name = PackageSections.Statistics)]
+    [MarkoutPropertyName("Published")]
     public DateTimeOffset? Published => _data.Published;
 
     [MarkoutSection(Name = PackageSections.Statistics)]
@@ -197,8 +202,10 @@ public class InspectionResultView
 
         if (!string.IsNullOrEmpty(Tfm))
             fields.Add(new("TFM", Tfm));
-        if (_data.Published.HasValue)
-            fields.Add(new("Updated", _data.Published.Value.ToString("yyyy-MM-dd")));
+        if (_data.BuiltDate.HasValue)
+            fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
+        else if (_data.Published.HasValue)
+            fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
         if (_data.Deprecation != null)
             fields.Add(new("Deprecated", "Yes"));
         if (_data.Vulnerabilities is { Count: > 0 })
@@ -217,8 +224,10 @@ public class InspectionResultView
             fields.Add(new("Size", new ByteSizeFormatter().Format(_data.PackageSize.Value)));
         if (!string.IsNullOrEmpty(Tfm))
             fields.Add(new("TFM", Tfm));
+        if (_data.BuiltDate.HasValue)
+            fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
         if (_data.Published.HasValue)
-            fields.Add(new("Updated", _data.Published.Value.ToString("yyyy-MM-dd")));
+            fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
 
         if (_data.Deprecation?.Summary != null)
             fields.Add(new("Deprecated Note", _data.Deprecation.Summary));

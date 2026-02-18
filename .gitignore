@@ -482,3 +482,4 @@ $RECYCLE.BIN/
 *.swp
 *.nettrace
 *.speedscope.json
+docs/field-parser.md

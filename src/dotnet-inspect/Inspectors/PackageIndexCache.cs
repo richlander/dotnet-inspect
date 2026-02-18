@@ -54,6 +54,13 @@ internal static class PackageIndexCache
                 NativeFiles = GetArray(dict, "nativeFiles"),
             };
 
+            // Built date (stored as ISO 8601)
+            if (GetString(dict, "builtDate") is string bd
+                && DateTimeOffset.TryParse(bd, out var builtDate))
+            {
+                result.BuiltDate = builtDate;
+            }
+
             // Dependency groups stored as compact strings: "tfm|name@ver,name@ver"
             var depGroupsRaw = GetArray(dict, "dependencyGroups");
             if (depGroupsRaw != null)
@@ -94,6 +101,8 @@ internal static class PackageIndexCache
         WriteField(sb, "isRidSpecificPointerPackage", result.IsRidSpecificPointerPackage);
         WriteField(sb, "toolFormat", result.ToolFormat);
         WriteField(sb, "runtimeTargetRid", result.RuntimeTargetRid);
+        if (result.BuiltDate.HasValue)
+            WriteField(sb, "builtDate", result.BuiltDate.Value.ToString("o"));
 
         WriteArray(sb, "packageTypes", result.PackageTypes);
         WriteArray(sb, "contentDirs", result.ContentDirectories);

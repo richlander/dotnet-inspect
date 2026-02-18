@@ -205,14 +205,21 @@ public class PackageCommand
                 return await ShowDependencyTreeAsync(client, depResult, options, logger);
             }
 
+            long? packageSize = null;
+            if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
+            {
+                packageSize = new FileInfo(resolution.NupkgPath).Length;
+            }
+
             var result = await PackageInspector.InspectAsync(
                 extractPath, packageName, version, isLocalFile,
                 isLocalFile ? packageArgs[0] : null,
-                nuspec, client, logger, options.ForceLatest);
+                nuspec, client, logger, options.ForceLatest, options.Verbosity,
+                resolution.NupkgPath);
 
-            // Set package size from local .nupkg file
-            if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
-                result.PackageSize = new FileInfo(resolution.NupkgPath).Length;
+            // Apply package size (not cached in index — comes from nupkg file)
+            if (packageSize.HasValue)
+                result.PackageSize = packageSize;
 
             // Filter output based on options
             FilterResultForOutput(result, options);
