@@ -1447,6 +1447,14 @@ public static class CommandLineBuilder
         routerCommand.Options.Add(addSourceOption);
         routerCommand.Options.Add(nugetConfigOption);
 
+        // Version query options for the router
+        var routerVersionOption = new Option<bool>("--version") { Description = "Show resolved version" };
+        routerCommand.Options.Add(routerVersionOption);
+        var routerLatestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest version from nuget.org" };
+        routerCommand.Options.Add(routerLatestVersionOption);
+        var routerVersionsOption = new Option<bool>("--versions") { Description = "List available versions" };
+        routerCommand.Options.Add(routerVersionsOption);
+
         routerCommand.SetAction(async (parseResult, ct) =>
         {
             var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
@@ -1499,7 +1507,12 @@ public static class CommandLineBuilder
             }
 
             // Platform candidate: download ref packs, then resolve
-            if (PlatformResolver.IsPlatformCandidate(bareName))
+            // Skip platform probing for version queries (NuGet package operations)
+            bool showVersion = parseResult.GetValue(routerVersionOption);
+            bool showLatestVersion = parseResult.GetValue(routerLatestVersionOption);
+            bool showVersions = parseResult.GetValue(routerVersionsOption);
+            bool isVersionQuery = showVersion || showLatestVersion || showVersions;
+            if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
             {
                 bool verbose = parseResult.GetValue(verboseOption);
                 Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
@@ -1548,18 +1561,33 @@ public static class CommandLineBuilder
                 }
             }
 
+            // --version: print the resolved version and exit (no package inspection needed)
+            if (showVersion)
+            {
+                // Resolve version using cache-first logic (same as bare name resolution)
+                var resolvedVersion = explicitVersion
+                    ?? NuGetCache.TryGetLatestCachedVersion(bareName);
+                if (resolvedVersion != null)
+                {
+                    Console.WriteLine(resolvedVersion);
+                    return 0;
+                }
+                // No cached version — fall through to package command
+            }
+
             // Fall through to package command (NuGet resolution)
             var options = new InspectionOptions
             {
                 PackageArgs = forceLatest ? [bareName] : packageArgs,
-                Limit = parseResult.GetValue(limitOption),
+                ListVersions = showLatestVersion || showVersions,
+                Limit = showLatestVersion ? 1 : parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
-                ForceLatest = forceLatest
+                ForceLatest = forceLatest || showLatestVersion
             };
 
             var tipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
