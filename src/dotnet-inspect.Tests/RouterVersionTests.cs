@@ -138,18 +138,32 @@ public class RouterVersionTests
     }
 
     [Fact]
-    public async Task Version_WithBogusVersion_DoesNotEchoBogusVersion()
+    public async Task Version_WithBogusVersion_ReportsError()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine@99.99.99", "--version"]);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output.Trim());
+        Assert.Contains("does not exist", error);
+    }
+
+    [Fact]
+    public async Task Version_WithValidUncachedVersion_ReturnsVersion()
+    {
+        // A real version that may not be cached should still return it
+        // after verifying it exists via the version API.
+        var root = CommandLineBuilder.CreateRootCommand();
+        var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine@2.0.1", "--version"]);
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
 
         Assert.Equal(0, exit);
-        var version = output.Trim();
-        Assert.NotEqual("99.99.99", version);
-        Assert.Matches(@"^\d+\.\d+\.\d+", version);
+        Assert.Equal("2.0.1", output.Trim());
     }
 
     /// <summary>
