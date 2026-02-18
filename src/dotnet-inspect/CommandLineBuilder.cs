@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf-test", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -225,6 +225,21 @@ public static class CommandLineBuilder
         var skillCommand = new Command("skill", "Show skill definition");
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
+
+        // Perf command (hidden, for profiling package inspection path)
+        var perfCommand = new Command(PerfCommand.Name, "Run package inspection loop for profiling") { Hidden = true };
+        var perfPackageArg = new Argument<string>("package") { Description = "Package name (e.g., System.CommandLine)" };
+        var perfIterationsOption = new Option<int>("--iterations") { Description = "Number of iterations (default: 100)" };
+        perfIterationsOption.Aliases.Add("-n");
+        perfCommand.Arguments.Add(perfPackageArg);
+        perfCommand.Options.Add(perfIterationsOption);
+        perfCommand.SetAction(async (parseResult) =>
+        {
+            var package = parseResult.GetValue(perfPackageArg)!;
+            var iterations = parseResult.GetValue(perfIterationsOption);
+            return await PerfCommand.ExecuteAsync(package, iterations > 0 ? iterations : 100);
+        });
+        rootCommand.Subcommands.Add(perfCommand);
 
         // Perf-test command (hidden, for profiling)
         var perfTestCommand = new Command(PerfTestCommand.Name, "Run perf test loop for profiling") { Hidden = true };
