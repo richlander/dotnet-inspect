@@ -104,14 +104,15 @@ public static class PlatformPackService
     public static IAsyncEnumerable<PackResult> EnsurePacksAsync(
         IEnumerable<PackRequest> requests,
         HttpClient client,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        bool forceLatest = false)
     {
         var downloader = new Downloader<PackResult>();
         foreach (var req in requests)
         {
             var packName = req.PackName;
             var version = req.Version;
-            downloader.Add(() => ResolveAndDownloadAsync(packName, version, client, log));
+            downloader.Add(() => ResolveAndDownloadAsync(packName, version, client, log, forceLatest));
         }
         return downloader;
     }
@@ -147,13 +148,60 @@ public static class PlatformPackService
         string packName,
         string? version,
         HttpClient client,
-        Action<string>? log)
+        Action<string>? log,
+        bool forceLatest = false)
     {
-        version ??= await GetLatestPackVersionAsync(packName, client, log).ConfigureAwait(false);
+        if (version == null)
+        {
+            if (!forceLatest)
+            {
+                // Cache-first: use already-downloaded pack version if available
+                var cached = TryGetCachedPackVersion(packName);
+                if (cached != null)
+                {
+                    log?.Invoke($"Using cached pack version: {packName} {cached.Value.Version}");
+                    return new PackResult(packName, cached.Value.Version, cached.Value.PackDir);
+                }
+            }
+
+            // No cached pack (or @latest forced) — resolve from network
+            version = await GetLatestPackVersionAsync(packName, client, log).ConfigureAwait(false);
+        }
         if (version == null) return null;
 
         var packDir = await EnsurePackAsync(packName, version, client, log).ConfigureAwait(false);
         return packDir != null ? new PackResult(packName, version, packDir) : null;
+    }
+
+    /// <summary>
+    /// Returns the newest cached pack version on disk, or null if none exists.
+    /// Pure disk I/O — never hits the network.
+    /// </summary>
+    internal static (string Version, string PackDir)? TryGetCachedPackVersion(string packName)
+    {
+        var cachePath = GetPacksCachePath();
+        if (cachePath == null) return null;
+
+        var packRoot = Path.Combine(cachePath, packName);
+        if (!Directory.Exists(packRoot)) return null;
+
+        // Find the newest valid cached version by semver
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestDir = null;
+
+        foreach (var dir in Directory.GetDirectories(packRoot))
+        {
+            var dirName = Path.GetFileName(dir);
+            if (NuGet.Versioning.NuGetVersion.TryParse(dirName, out var parsed)
+                && IsPackValid(dir)
+                && (best == null || parsed > best))
+            {
+                best = parsed;
+                bestDir = dir;
+            }
+        }
+
+        return best != null ? (best.ToNormalizedString(), bestDir!) : null;
     }
 
     /// <summary>

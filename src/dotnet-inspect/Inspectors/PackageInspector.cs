@@ -1,4 +1,6 @@
+using System.IO.Compression;
 using DotnetInspector.Models;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
 
@@ -18,8 +20,28 @@ internal static class PackageInspector
         string? localFilePath,
         NuspecData? nuspec,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool forceLatest = false,
+        Verbosity verbosity = Verbosity.Minimal,
+        string? nupkgPath = null)
     {
+        bool fetchMetadata = !isLocalFile && verbosity >= Verbosity.Detailed;
+
+        // Try package index cache (skips all filesystem scanning)
+        if (!isLocalFile)
+        {
+            var cached = PackageIndexCache.TryGet(packageName, version);
+            if (cached != null)
+            {
+                if (fetchMetadata)
+                {
+                    var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
+                    ApplyMetadata(cached, metadata);
+                }
+                return cached;
+            }
+        }
+
         var result = new InspectionResult
         {
             PackageName = packageName,
@@ -71,19 +93,19 @@ internal static class PackageInspector
         if (result.PackageTypes is not { Count: > 0 })
         {
             // Only classify as tool if tools/ has actual DLLs and there's no lib/ dir.
-            // Packages like AWSSDK.* have tools/ with only .ps1 scripts alongside lib/.
+            // TargetFrameworks populated by AnalyzeToolsDirectory implies DLLs exist.
             result.IsToolPackage = hasToolsDir && !hasLibDir
-                && Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories).Length > 0;
+                && result.TargetFrameworks is { Count: > 0 };
         }
 
         // Analyze content directories and count assemblies
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
 
-        // Parse deps.json files (present in tool packages)
+        // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
+        if (hasToolsDir)
         {
-            string[] depsFiles = Directory.GetFiles(extractPath, "*.deps.json", SearchOption.AllDirectories);
-            foreach (string depsFile in depsFiles)
+            foreach (string depsFile in Directory.GetFiles(toolsDir, "*.deps.json", SearchOption.AllDirectories))
             {
                 ApplyDepsJson(DepsJsonParser.Parse(depsFile), result);
             }
@@ -96,10 +118,22 @@ internal static class PackageInspector
             await RidPackageVerifier.VerifyAsync(httpClient, result, result.Version, localDir, logger);
         }
 
-        // Fetch package metadata from NuGet (only for remote packages)
+        // Extract build date from nupkg (only on cache miss)
+        if (nupkgPath != null && File.Exists(nupkgPath))
+        {
+            result.BuiltDate = GetNupkgBuildDate(nupkgPath);
+        }
+
+        // Cache the filesystem-derived result (before metadata overlay)
         if (!isLocalFile)
         {
-            var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log);
+            PackageIndexCache.Set(packageName, version, result);
+        }
+
+        // Fetch package metadata from NuGet (only at detailed verbosity)
+        if (fetchMetadata)
+        {
+            var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
             ApplyMetadata(result, metadata);
         }
 
@@ -165,6 +199,38 @@ internal static class PackageInspector
         if (files.Count > 0)
         {
             result.Files = files;
+        }
+    }
+
+    /// <summary>
+    /// Extracts the build date from a .nupkg file by finding the newest content file timestamp.
+    /// Excludes NuGet packaging artifacts (.signature.p7s, _rels/, [Content_Types].xml, .psmdcp)
+    /// which may have signing/publish dates rather than build dates.
+    /// </summary>
+    private static DateTimeOffset? GetNupkgBuildDate(string nupkgPath)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(nupkgPath);
+            DateTimeOffset newest = DateTimeOffset.MinValue;
+            foreach (var entry in zip.Entries)
+            {
+                var name = entry.FullName;
+                if (name.Equals(".signature.p7s", StringComparison.OrdinalIgnoreCase) ||
+                    name.StartsWith("_rels/", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("[Content_Types].xml", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith(".psmdcp", StringComparison.OrdinalIgnoreCase) ||
+                    name.StartsWith("package/", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (entry.LastWriteTime > newest)
+                    newest = entry.LastWriteTime;
+            }
+            return newest > DateTimeOffset.MinValue ? newest : null;
+        }
+        catch
+        {
+            return null;
         }
     }
 }

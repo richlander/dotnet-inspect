@@ -19,7 +19,7 @@ public static class CommandLineBuilder
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf-test", "help", "--help", "-h", "-?", "--version"
+        "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version"
     };
 
     /// <summary>
@@ -225,6 +225,21 @@ public static class CommandLineBuilder
         var skillCommand = new Command("skill", "Show skill definition");
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
+
+        // Perf command (hidden, for profiling package inspection path)
+        var perfCommand = new Command(PerfCommand.Name, "Run package inspection loop for profiling") { Hidden = true };
+        var perfPackageArg = new Argument<string>("package") { Description = "Package name (e.g., System.CommandLine)" };
+        var perfIterationsOption = new Option<int>("--iterations") { Description = "Number of iterations (default: 100)" };
+        perfIterationsOption.Aliases.Add("-n");
+        perfCommand.Arguments.Add(perfPackageArg);
+        perfCommand.Options.Add(perfIterationsOption);
+        perfCommand.SetAction(async (parseResult) =>
+        {
+            var package = parseResult.GetValue(perfPackageArg)!;
+            var iterations = parseResult.GetValue(perfIterationsOption);
+            return await PerfCommand.ExecuteAsync(package, iterations > 0 ? iterations : 100);
+        });
+        rootCommand.Subcommands.Add(perfCommand);
 
         // Perf-test command (hidden, for profiling)
         var perfTestCommand = new Command(PerfTestCommand.Name, "Run perf test loop for profiling") { Hidden = true };
@@ -1475,6 +1490,14 @@ public static class CommandLineBuilder
             var bareName = hasExplicitVersion ? name[..name.IndexOf('@')] : name;
             var explicitVersion = hasExplicitVersion ? name[(name.IndexOf('@') + 1)..] : null;
 
+            // @latest forces network resolution, bypassing cache-first
+            bool forceLatest = string.Equals(explicitVersion, "latest", StringComparison.OrdinalIgnoreCase);
+            if (forceLatest)
+            {
+                hasExplicitVersion = false;
+                explicitVersion = null;
+            }
+
             // Platform candidate: download ref packs, then resolve
             if (PlatformResolver.IsPlatformCandidate(bareName))
             {
@@ -1486,7 +1509,7 @@ public static class CommandLineBuilder
                 var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
 
                 // Download with overlapped I/O; check each result as it lands
-                await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
+                await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log, forceLatest: forceLatest))
                 {
                     if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
                     {
@@ -1528,14 +1551,15 @@ public static class CommandLineBuilder
             // Fall through to package command (NuGet resolution)
             var options = new InspectionOptions
             {
-                PackageArgs = packageArgs,
+                PackageArgs = forceLatest ? [bareName] : packageArgs,
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
+                ForceLatest = forceLatest
             };
 
             var tipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet

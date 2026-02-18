@@ -66,6 +66,27 @@ public static class CoreCache
     }
 
     /// <summary>
+    /// Tries to read cached content as raw bytes. Avoids the StreamReader
+    /// overhead of <see cref="TryGet(string, string, string)"/>.
+    /// </summary>
+    public static byte[]? TryGetBytes(string category, string key, string extension = "json")
+    {
+        var path = GetFilePath(category, key, extension);
+        if (File.Exists(path))
+        {
+            try
+            {
+                return File.ReadAllBytes(path);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Tries to read cached content with a maximum age. Returns null if the entry
     /// is missing or older than <paramref name="maxAge"/>.
     /// </summary>

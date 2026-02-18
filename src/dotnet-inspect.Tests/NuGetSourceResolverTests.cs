@@ -10,20 +10,39 @@ public class NuGetSourceResolverTests
     [Fact]
     public void ResolveSources_WithNoOptions_ReturnsNuGetOrg()
     {
-        var sources = NuGetSourceResolver.ResolveSources(null);
+        // Use isolated temp dir to avoid picking up repo nuget.config
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var sources = NuGetSourceResolver.ResolveSources(null, tempDir);
 
-        Assert.Single(sources);
-        Assert.Equal("nuget.org", sources[0].Name);
-        Assert.Contains("api.nuget.org", sources[0].Url);
+            Assert.Single(sources);
+            Assert.Equal("nuget.org", sources[0].Name);
+            Assert.Contains("api.nuget.org", sources[0].Url);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
     public void ResolveSources_WithDefaultOptions_ReturnsNuGetOrg()
     {
-        var sources = NuGetSourceResolver.ResolveSources(NuGetSourceOptions.Default);
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var sources = NuGetSourceResolver.ResolveSources(NuGetSourceOptions.Default, tempDir);
 
-        Assert.Single(sources);
-        Assert.Equal("nuget.org", sources[0].Name);
+            Assert.Single(sources);
+            Assert.Equal("nuget.org", sources[0].Name);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -62,16 +81,25 @@ public class NuGetSourceResolverTests
     [Fact]
     public void ResolveSources_WithAddSource_AddsToDefaults()
     {
-        var options = new NuGetSourceOptions
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
         {
-            AdditionalSources = ["https://extra-feed.example.com/v3/index.json"]
-        };
+            var options = new NuGetSourceOptions
+            {
+                AdditionalSources = ["https://extra-feed.example.com/v3/index.json"]
+            };
 
-        var sources = NuGetSourceResolver.ResolveSources(options);
+            var sources = NuGetSourceResolver.ResolveSources(options, tempDir);
 
-        Assert.Equal(2, sources.Count);
-        Assert.Equal("nuget.org", sources[0].Name);
-        Assert.Contains("extra-feed.example.com", sources[1].Url);
+            Assert.Equal(2, sources.Count);
+            Assert.Equal("nuget.org", sources[0].Name);
+            Assert.Contains("extra-feed.example.com", sources[1].Url);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -237,16 +265,25 @@ public class NuGetSourceResolverTests
     [Fact]
     public void ResolveSources_WithNonExistentConfigFile_FallsBackToDefaults()
     {
-        var options = new NuGetSourceOptions
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
         {
-            ConfigFile = "/nonexistent/path/nuget.config"
-        };
+            var options = new NuGetSourceOptions
+            {
+                ConfigFile = "/nonexistent/path/nuget.config"
+            };
 
-        var sources = NuGetSourceResolver.ResolveSources(options);
+            var sources = NuGetSourceResolver.ResolveSources(options, tempDir);
 
-        // Falls back to nuget.org when config file doesn't exist
-        Assert.Single(sources);
-        Assert.Equal("nuget.org", sources[0].Name);
+            // Falls back to nuget.org when config file doesn't exist
+            Assert.Single(sources);
+            Assert.Equal("nuget.org", sources[0].Name);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
