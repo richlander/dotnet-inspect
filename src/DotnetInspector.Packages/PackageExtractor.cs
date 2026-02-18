@@ -364,11 +364,10 @@ public static class PackageExtractor
     {
         string normalizedName = packageName.ToLowerInvariant();
 
-        // Only use version cache for default (nuget.org-only) sources;
-        // custom feeds may have different latest versions.
-        bool useCache = !skipCache && sources.Count == 1 && sources[0].IsNuGetOrg();
+        // Cache nuget.org results even when additional custom sources are configured.
+        bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg());
 
-        if (useCache)
+        if (canCache)
         {
             var cached = CoreCache.TryGet(VersionCacheCategory, normalizedName, VersionCacheTtl, extension: "txt");
             if (cached != null)
@@ -383,7 +382,7 @@ public static class PackageExtractor
             var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
             if (version != null)
             {
-                if (useCache)
+                if (canCache && source.IsNuGetOrg())
                     CoreCache.Set(VersionCacheCategory, normalizedName, version, extension: "txt");
                 return version;
             }
@@ -630,16 +629,36 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
+        // Cache nuget.org results even when additional custom sources are configured.
+        bool canCache = sources.Any(s => s.IsNuGetOrg());
         List<string>? allVersions = null;
-        foreach (var source in sources)
+
+        if (canCache)
         {
-            allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
-            if (allVersions != null)
-                break;
+            var cached = CoreCache.TryGet(VersionCacheCategory, $"{normalizedName}-all", VersionCacheTtl, extension: "txt");
+            if (cached != null)
+            {
+                log?.Invoke("Using cached version list");
+                allVersions = [.. cached.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
+            }
         }
 
         if (allVersions == null)
-            return null;
+        {
+            foreach (var source in sources)
+            {
+                allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+                if (allVersions != null)
+                {
+                    if (canCache && source.IsNuGetOrg())
+                        CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', allVersions), extension: "txt");
+                    break;
+                }
+            }
+
+            if (allVersions == null)
+                return null;
+        }
 
         var filtered = includePrerelease
             ? allVersions
