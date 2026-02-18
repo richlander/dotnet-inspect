@@ -1,13 +1,23 @@
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
 
 /// <summary>
+/// JSON source generation context for metadata caching (NativeAOT-safe).
+/// </summary>
+[System.Text.Json.Serialization.JsonSerializable(typeof(PackageMetadata))]
+internal partial class MetadataJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
+
+/// <summary>
 /// Fetches NuGet metadata: publish date, downloads, deprecation, vulnerabilities, and package size.
+/// Results are cached on disk with a 1-hour TTL for the default (bare name) case.
 /// </summary>
 public static class PackageMetadataService
 {
+    private const string MetadataCacheCategory = "metadata";
+    private static readonly TimeSpan MetadataCacheTtl = TimeSpan.FromHours(1);
     /// <summary>
     /// Gets the published date for a specific package version.
     /// </summary>
@@ -42,11 +52,56 @@ public static class PackageMetadataService
 
     /// <summary>
     /// Fetches all NuGet metadata for a package: published date, downloads, verified status, deprecation, vulnerabilities.
+    /// Results are cached on disk; use <paramref name="forceLatest"/> to bypass the cache.
     /// </summary>
-    public static async Task<PackageMetadata> FetchAllMetadataAsync(HttpClient client, string packageName, string version, Action<string>? log)
+    public static async Task<PackageMetadata> FetchAllMetadataAsync(
+        HttpClient client, string packageName, string version, Action<string>? log, bool forceLatest = false)
+    {
+        var normalizedName = packageName.ToLowerInvariant();
+        string cacheKey = $"{normalizedName}@{version}";
+
+        // Try cache first (unless @latest forces refresh)
+        if (!forceLatest)
+        {
+            var cached = CoreCache.TryGet(MetadataCacheCategory, cacheKey, MetadataCacheTtl);
+            if (cached != null)
+            {
+                try
+                {
+                    var fromCache = JsonSerializer.Deserialize(cached, MetadataJsonContext.Default.PackageMetadata);
+                    if (fromCache != null)
+                    {
+                        log?.Invoke("Using cached metadata");
+                        return fromCache;
+                    }
+                }
+                catch
+                {
+                    // Corrupted cache entry — fall through to fetch
+                }
+            }
+        }
+
+        var metadata = await FetchAllMetadataFromNetworkAsync(client, normalizedName, version, log).ConfigureAwait(false);
+
+        // Cache the result
+        try
+        {
+            var json = JsonSerializer.Serialize(metadata, MetadataJsonContext.Default.PackageMetadata);
+            CoreCache.Set(MetadataCacheCategory, cacheKey, json);
+        }
+        catch
+        {
+            // Best-effort caching
+        }
+
+        return metadata;
+    }
+
+    private static async Task<PackageMetadata> FetchAllMetadataFromNetworkAsync(
+        HttpClient client, string normalizedName, string version, Action<string>? log)
     {
         var metadata = new PackageMetadata();
-        var normalizedName = packageName.ToLowerInvariant();
 
         // Fetch from registration API (published date, catalog entry URL)
         string? catalogEntryUrl = null;

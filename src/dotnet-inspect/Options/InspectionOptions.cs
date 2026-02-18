@@ -113,6 +113,12 @@ public record InspectionOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
+    /// When true, bypass cache-first version resolution and always query the network.
+    /// Used when the user specifies @latest.
+    /// </summary>
+    public bool ForceLatest { get; init; }
+
+    /// <summary>
     /// Default options: metadata only.
     /// </summary>
     public static InspectionOptions Default => new();

@@ -1475,6 +1475,14 @@ public static class CommandLineBuilder
             var bareName = hasExplicitVersion ? name[..name.IndexOf('@')] : name;
             var explicitVersion = hasExplicitVersion ? name[(name.IndexOf('@') + 1)..] : null;
 
+            // @latest forces network resolution, bypassing cache-first
+            bool forceLatest = string.Equals(explicitVersion, "latest", StringComparison.OrdinalIgnoreCase);
+            if (forceLatest)
+            {
+                hasExplicitVersion = false;
+                explicitVersion = null;
+            }
+
             // Platform candidate: download ref packs, then resolve
             if (PlatformResolver.IsPlatformCandidate(bareName))
             {
@@ -1486,7 +1494,7 @@ public static class CommandLineBuilder
                 var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
 
                 // Download with overlapped I/O; check each result as it lands
-                await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
+                await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log, forceLatest: forceLatest))
                 {
                     if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
                     {
@@ -1528,14 +1536,15 @@ public static class CommandLineBuilder
             // Fall through to package command (NuGet resolution)
             var options = new InspectionOptions
             {
-                PackageArgs = packageArgs,
+                PackageArgs = forceLatest ? [bareName] : packageArgs,
                 Limit = parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
+                ForceLatest = forceLatest
             };
 
             var tipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet

@@ -52,6 +52,7 @@ public static class PackageExtractor
     /// <param name="tempDirPrefix">Prefix for temporary directory name (e.g., "inspect-api")</param>
     /// <param name="sourceOptions">NuGet source configuration (defaults to nuget.org)</param>
     /// <param name="version">Explicit version (overrides any version embedded in packageSource)</param>
+    /// <param name="forceLatest">When true, always resolve version from network (bypass cache-first)</param>
     /// <returns>Extraction outcome carrying result on success or error message on failure</returns>
     public static async Task<PackageExtractionOutcome> ExtractPackageAsync(
         HttpClient client,
@@ -59,7 +60,8 @@ public static class PackageExtractor
         Action<string>? log = null,
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
-        string? version = null)
+        string? version = null,
+        bool forceLatest = false)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
@@ -68,7 +70,7 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version).ConfigureAwait(false);
+        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version, forceLatest).ConfigureAwait(false);
     }
 
     private static PackageExtractionOutcome ExtractLocalPackage(
@@ -97,7 +99,8 @@ public static class PackageExtractor
         Action<string>? log,
         string tempDirPrefix,
         NuGetSourceOptions? sourceOptions,
-        string? explicitVersion = null)
+        string? explicitVersion = null,
+        bool forceLatest = false)
     {
         var (packageName, parsedVersion) = ParsePackageReference(packageSource);
         var version = explicitVersion ?? parsedVersion;
@@ -118,10 +121,24 @@ public static class PackageExtractor
         // Get version if not specified
         if (version == null)
         {
-            version = await GetLatestVersionAsync(client, packageName, sources, log).ConfigureAwait(false);
+            if (!forceLatest)
+            {
+                // Cache-first: use already-cached version if available (no network)
+                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(packageName);
+                if (cachedVersion != null)
+                {
+                    version = cachedVersion;
+                    log?.Invoke($"Using cached version: {version}");
+                }
+            }
+
             if (version == null)
             {
-                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+                version = await GetLatestVersionAsync(client, packageName, sources, log, skipCache: forceLatest).ConfigureAwait(false);
+                if (version == null)
+                {
+                    return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+                }
             }
         }
 
@@ -342,13 +359,14 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         List<NuGetSource> sources,
-        Action<string>? log)
+        Action<string>? log,
+        bool skipCache = false)
     {
         string normalizedName = packageName.ToLowerInvariant();
 
         // Only use version cache for default (nuget.org-only) sources;
         // custom feeds may have different latest versions.
-        bool useCache = sources.Count == 1 && sources[0].IsNuGetOrg();
+        bool useCache = !skipCache && sources.Count == 1 && sources[0].IsNuGetOrg();
 
         if (useCache)
         {

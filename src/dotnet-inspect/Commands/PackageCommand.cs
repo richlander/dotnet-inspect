@@ -150,7 +150,8 @@ public class PackageCommand
                 isLocalFile ? packageArgs[0] : packageName,
                 logger.Log,
                 sourceOptions: options.SourceOptions,
-                version: isLocalFile ? null : (version.Length > 0 ? version : null));
+                version: isLocalFile ? null : (version.Length > 0 ? version : null),
+                forceLatest: options.ForceLatest);
 
             if (!outcome.IsSuccess)
             {
@@ -207,7 +208,7 @@ public class PackageCommand
             var result = await PackageInspector.InspectAsync(
                 extractPath, packageName, version, isLocalFile,
                 isLocalFile ? packageArgs[0] : null,
-                nuspec, client, logger);
+                nuspec, client, logger, options.ForceLatest);
 
             // Set package size from local .nupkg file
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))

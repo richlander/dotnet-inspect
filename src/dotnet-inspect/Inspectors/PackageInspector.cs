@@ -18,7 +18,8 @@ internal static class PackageInspector
         string? localFilePath,
         NuspecData? nuspec,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool forceLatest = false)
     {
         var result = new InspectionResult
         {
@@ -99,7 +100,7 @@ internal static class PackageInspector
         // Fetch package metadata from NuGet (only for remote packages)
         if (!isLocalFile)
         {
-            var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log);
+            var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
             ApplyMetadata(result, metadata);
         }
 

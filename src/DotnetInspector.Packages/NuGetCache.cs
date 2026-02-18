@@ -182,6 +182,55 @@ public static class NuGetCache
     }
 
     /// <summary>
+    /// Returns the newest cached version of a package from the NuGet or app cache.
+    /// Pure disk I/O — never hits the network.
+    /// </summary>
+    public static string? TryGetLatestCachedVersion(string packageName)
+    {
+        var normalizedName = packageName.ToLowerInvariant();
+
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestOriginal = null;
+
+        // Check NuGet global cache
+        ScanCacheDir(Path.Combine(GetNuGetCachePath(), normalizedName), normalizedName, ref best, ref bestOriginal);
+
+        // Check app cache
+        try
+        {
+            ScanCacheDir(Path.Combine(GetAppCachePath(), normalizedName), normalizedName, ref best, ref bestOriginal);
+        }
+        catch (InvalidOperationException)
+        {
+            // App cache not initialized
+        }
+
+        return bestOriginal;
+    }
+
+    private static void ScanCacheDir(
+        string packageDir,
+        string normalizedName,
+        ref NuGet.Versioning.NuGetVersion? best,
+        ref string? bestOriginal)
+    {
+        if (!Directory.Exists(packageDir)) return;
+
+        foreach (var dir in Directory.GetDirectories(packageDir))
+        {
+            var dirName = Path.GetFileName(dir);
+            if (NuGet.Versioning.NuGetVersion.TryParse(dirName, out var parsed)
+                && !parsed.IsPrerelease
+                && (best == null || parsed > best)
+                && IsCachedPackageValid(dir, normalizedName))
+            {
+                best = parsed;
+                bestOriginal = dirName;
+            }
+        }
+    }
+
+    /// <summary>
     /// Checks if a cached package has the expected structure.
     /// </summary>
     public static bool IsCachedPackageValid(string cachedPath) => IsCachedPackageValid(cachedPath, null);
