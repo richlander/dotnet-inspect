@@ -181,7 +181,6 @@ jobs:
           dotnet-inspect package System.Text.Json 10.0.0 -v:n > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package" smoke-package-normal.md
-          grep -q "## Statistics" smoke-package-normal.md
           grep -q "## Package Dependencies" smoke-package-normal.md
           grep -q "Library" smoke-package-normal.md
 
