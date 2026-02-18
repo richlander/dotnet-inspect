@@ -1566,14 +1566,29 @@ public static class CommandLineBuilder
             {
                 if (!forceLatest)
                 {
-                    // Pinned version: only return if it's actually cached locally
                     if (explicitVersion != null)
                     {
+                        // 1. Check app cache and NuGet cache
                         if (NuGetCache.TryGetCachedPackage(bareName, explicitVersion) != null)
                         {
                             Console.WriteLine(explicitVersion);
                             return 0;
                         }
+
+                        // 2. Check NuGet version API
+                        var allVersions = await PackageExtractor.GetVersionsAsync(
+                            HttpClientFactory.Shared, bareName, includePrerelease: true, limit: null,
+                            log: null, sourceOptions: ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption));
+
+                        if (allVersions != null && allVersions.Any(v => string.Equals(v, explicitVersion, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            Console.WriteLine(explicitVersion);
+                            return 0;
+                        }
+
+                        // 3. Version doesn't exist anywhere
+                        Console.Error.WriteLine($"Error: {bareName}@{explicitVersion} does not exist");
+                        return 1;
                     }
                     else
                     {
