@@ -11,74 +11,12 @@ public static class ToolsAnalyzer
 {
     public static void AnalyzeToolsDirectory(string toolsDir, InspectionResult result)
     {
-        // First, check for DotnetToolSettings.xml to detect RID-specific tool format
-        string[] settingsFiles = Directory.GetFiles(toolsDir, "DotnetToolSettings.xml", SearchOption.AllDirectories);
-
-        foreach (string settingsFile in settingsFiles)
+        // Check for DotnetToolSettings.xml: root, one level deep, or two levels deep
+        // Standard locations: tools/, tools/{tfm}/, or tools/{tfm}/{rid}/
+        string? settingsFile = FindSettingsFile(toolsDir);
+        if (settingsFile != null)
         {
-            try
-            {
-                var doc = XDocument.Load(settingsFile);
-                var root = doc.Root;
-
-                // Check for Version="2" (RID-specific tool format)
-                string? version = root?.Attribute("Version")?.Value;
-                if (version == "2")
-                {
-                    result.ToolFormat = "DotNetCliTool Version=\"2\" (RID-specific)";
-                    result.IsRidSpecificPointerPackage = true;
-                    result.IsFrameworkDependent = false; // RID packages are self-contained
-                    result.HasRidSpecificAssets = true;
-
-                    // Extract commands
-                    var commands = root?.Element("Commands")?.Elements("Command");
-                    if (commands != null)
-                    {
-                        result.ToolCommands = commands
-                            .Select(c => c.Attribute("Name")?.Value)
-                            .Where(n => n != null)
-                            .Cast<string>()
-                            .ToList();
-                    }
-
-                    // Extract RuntimeIdentifierPackages
-                    var ridPackages = root?.Element("RuntimeIdentifierPackages")?.Elements("RuntimeIdentifierPackage");
-                    if (ridPackages != null)
-                    {
-                        result.RuntimeIdentifierPackages = ridPackages
-                            .Select(r => new RidPackageReference
-                            {
-                                RuntimeIdentifier = r.Attribute("RuntimeIdentifier")?.Value ?? "",
-                                PackageId = r.Attribute("Id")?.Value ?? ""
-                            })
-                            .ToList();
-
-                        // Also populate SupportedRids from the RuntimeIdentifierPackages
-                        result.SupportedRids = result.RuntimeIdentifierPackages
-                            .Select(r => r.RuntimeIdentifier)
-                            .ToList();
-                    }
-                }
-                else if (version == "1" || version == null)
-                {
-                    result.ToolFormat = "DotNetCliTool Version=\"1\" (portable)";
-
-                    // Extract commands for v1 format too
-                    var commands = root?.Element("Commands")?.Elements("Command");
-                    if (commands != null)
-                    {
-                        result.ToolCommands = commands
-                            .Select(c => c.Attribute("Name")?.Value)
-                            .Where(n => n != null)
-                            .Cast<string>()
-                            .ToList();
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore parse errors for settings files
-            }
+            ParseToolSettings(settingsFile, result);
         }
 
         // Tools directory structure: tools/{tfm}/{rid}/ or tools/{tfm}/any/
@@ -200,6 +138,92 @@ public static class ToolsAnalyzer
                     result.NativeFiles.Add($"{rid}: {Path.GetFileName(file)}");
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Searches for DotnetToolSettings.xml up to 2 levels deep in tools/.
+    /// </summary>
+    private static string? FindSettingsFile(string toolsDir)
+    {
+        const string fileName = "DotnetToolSettings.xml";
+        var path = Path.Combine(toolsDir, fileName);
+        if (File.Exists(path)) return path;
+
+        foreach (var level1 in Directory.GetDirectories(toolsDir))
+        {
+            path = Path.Combine(level1, fileName);
+            if (File.Exists(path)) return path;
+
+            foreach (var level2 in Directory.GetDirectories(level1))
+            {
+                path = Path.Combine(level2, fileName);
+                if (File.Exists(path)) return path;
+            }
+        }
+
+        return null;
+    }
+
+    private static void ParseToolSettings(string settingsFile, InspectionResult result)
+    {
+        try
+        {
+            var doc = XDocument.Load(settingsFile);
+            var root = doc.Root;
+
+            string? version = root?.Attribute("Version")?.Value;
+            if (version == "2")
+            {
+                result.ToolFormat = "DotNetCliTool Version=\"2\" (RID-specific)";
+                result.IsRidSpecificPointerPackage = true;
+                result.IsFrameworkDependent = false;
+                result.HasRidSpecificAssets = true;
+
+                var commands = root?.Element("Commands")?.Elements("Command");
+                if (commands != null)
+                {
+                    result.ToolCommands = commands
+                        .Select(c => c.Attribute("Name")?.Value)
+                        .Where(n => n != null)
+                        .Cast<string>()
+                        .ToList();
+                }
+
+                var ridPackages = root?.Element("RuntimeIdentifierPackages")?.Elements("RuntimeIdentifierPackage");
+                if (ridPackages != null)
+                {
+                    result.RuntimeIdentifierPackages = ridPackages
+                        .Select(r => new RidPackageReference
+                        {
+                            RuntimeIdentifier = r.Attribute("RuntimeIdentifier")?.Value ?? "",
+                            PackageId = r.Attribute("Id")?.Value ?? ""
+                        })
+                        .ToList();
+
+                    result.SupportedRids = result.RuntimeIdentifierPackages
+                        .Select(r => r.RuntimeIdentifier)
+                        .ToList();
+                }
+            }
+            else if (version == "1" || version == null)
+            {
+                result.ToolFormat = "DotNetCliTool Version=\"1\" (portable)";
+
+                var commands = root?.Element("Commands")?.Elements("Command");
+                if (commands != null)
+                {
+                    result.ToolCommands = commands
+                        .Select(c => c.Attribute("Name")?.Value)
+                        .Where(n => n != null)
+                        .Cast<string>()
+                        .ToList();
+                }
+            }
+        }
+        catch
+        {
+            // Ignore parse errors
         }
     }
 

@@ -85,19 +85,19 @@ internal static class PackageInspector
         if (result.PackageTypes is not { Count: > 0 })
         {
             // Only classify as tool if tools/ has actual DLLs and there's no lib/ dir.
-            // Packages like AWSSDK.* have tools/ with only .ps1 scripts alongside lib/.
+            // TargetFrameworks populated by AnalyzeToolsDirectory implies DLLs exist.
             result.IsToolPackage = hasToolsDir && !hasLibDir
-                && Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories).Length > 0;
+                && result.TargetFrameworks is { Count: > 0 };
         }
 
         // Analyze content directories and count assemblies
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
 
-        // Parse deps.json files (present in tool packages)
+        // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
+        if (hasToolsDir)
         {
-            string[] depsFiles = Directory.GetFiles(extractPath, "*.deps.json", SearchOption.AllDirectories);
-            foreach (string depsFile in depsFiles)
+            foreach (string depsFile in Directory.GetFiles(toolsDir, "*.deps.json", SearchOption.AllDirectories))
             {
                 ApplyDepsJson(DepsJsonParser.Parse(depsFile), result);
             }
