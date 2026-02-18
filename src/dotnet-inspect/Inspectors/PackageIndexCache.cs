@@ -22,47 +22,47 @@ internal static class PackageIndexCache
     public static InspectionResult? TryGet(string packageName, string version)
     {
         string key = $"{packageName.ToLowerInvariant()}@{version}";
-        var content = CoreCache.TryGet(Category, key, extension: "md");
-        if (content == null) return null;
+        var bytes = CoreCache.TryGetBytes(Category, key, extension: "md");
+        if (bytes == null) return null;
 
         try
         {
-            var dict = FieldParser.ParseToDictionary(content);
+            using var doc = FieldDocument.Parse(bytes);
             var result = new InspectionResult
             {
-                PackageName = GetString(dict, "packageName") ?? packageName,
-                Version = GetString(dict, "version") ?? version,
-                Description = GetString(dict, "description"),
-                Authors = GetString(dict, "authors"),
-                License = GetString(dict, "license"),
-                Repository = GetString(dict, "repository"),
-                ReadmeFile = GetString(dict, "readmeFile"),
-                HasReadme = GetBool(dict, "hasReadme"),
-                IsToolPackage = GetBool(dict, "isToolPackage"),
-                AssemblyCount = GetInt(dict, "assemblyCount"),
-                IsFrameworkDependent = GetBool(dict, "isFrameworkDependent"),
-                HasRidSpecificAssets = GetBool(dict, "hasRidSpecificAssets"),
-                HasNativeDependencies = GetBool(dict, "hasNativeDependencies"),
-                IsRidSpecificPointerPackage = GetBool(dict, "isRidSpecificPointerPackage"),
-                ToolFormat = GetString(dict, "toolFormat"),
-                RuntimeTargetRid = GetString(dict, "runtimeTargetRid"),
-                PackageTypes = GetArray(dict, "packageTypes"),
-                ContentDirectories = GetArray(dict, "contentDirs"),
-                TargetFrameworks = GetArray(dict, "targetFrameworks"),
-                SupportedRids = GetArray(dict, "supportedRids"),
-                ToolCommands = GetArray(dict, "toolCommands"),
-                NativeFiles = GetArray(dict, "nativeFiles"),
+                PackageName = doc.GetString("packageName") ?? packageName,
+                Version = doc.GetString("version") ?? version,
+                Description = doc.GetString("description"),
+                Authors = doc.GetString("authors"),
+                License = doc.GetString("license"),
+                Repository = doc.GetString("repository"),
+                ReadmeFile = doc.GetString("readmeFile"),
+                HasReadme = doc.GetBool("hasReadme"),
+                IsToolPackage = doc.GetBool("isToolPackage"),
+                AssemblyCount = doc.GetInt32("assemblyCount"),
+                IsFrameworkDependent = doc.GetBool("isFrameworkDependent"),
+                HasRidSpecificAssets = doc.GetBool("hasRidSpecificAssets"),
+                HasNativeDependencies = doc.GetBool("hasNativeDependencies"),
+                IsRidSpecificPointerPackage = doc.GetBool("isRidSpecificPointerPackage"),
+                ToolFormat = doc.GetString("toolFormat"),
+                RuntimeTargetRid = doc.GetString("runtimeTargetRid"),
+                PackageTypes = doc.GetArrayList("packageTypes"),
+                ContentDirectories = doc.GetArrayList("contentDirs"),
+                TargetFrameworks = doc.GetArrayList("targetFrameworks"),
+                SupportedRids = doc.GetArrayList("supportedRids"),
+                ToolCommands = doc.GetArrayList("toolCommands"),
+                NativeFiles = doc.GetArrayList("nativeFiles"),
             };
 
             // Built date (stored as ISO 8601)
-            if (GetString(dict, "builtDate") is string bd
+            if (doc.GetString("builtDate") is string bd
                 && DateTimeOffset.TryParse(bd, out var builtDate))
             {
                 result.BuiltDate = builtDate;
             }
 
             // Dependency groups stored as compact strings: "tfm|name@ver,name@ver"
-            var depGroupsRaw = GetArray(dict, "dependencyGroups");
+            var depGroupsRaw = doc.GetArrayList("dependencyGroups");
             if (depGroupsRaw != null)
             {
                 result.DependencyGroups = depGroupsRaw.Select(ParseDependencyGroup).ToList();
@@ -78,6 +78,7 @@ internal static class PackageIndexCache
 
     /// <summary>
     /// Caches an InspectionResult (filesystem-derived fields only).
+    /// Uses plain field format (key: value) with fields ordered by access frequency.
     /// </summary>
     public static void Set(string packageName, string version, InspectionResult result)
     {
@@ -85,25 +86,27 @@ internal static class PackageIndexCache
 
         var sb = new System.Text.StringBuilder(512);
 
+        // Scalars first, ordered by access frequency and display priority
         WriteField(sb, "packageName", result.PackageName);
         WriteField(sb, "version", result.Version);
         WriteField(sb, "description", result.Description);
         WriteField(sb, "authors", result.Authors);
         WriteField(sb, "license", result.License);
-        WriteField(sb, "repository", result.Repository);
-        WriteField(sb, "readmeFile", result.ReadmeFile);
+        WriteField(sb, "assemblyCount", result.AssemblyCount);
         WriteField(sb, "hasReadme", result.HasReadme);
         WriteField(sb, "isToolPackage", result.IsToolPackage);
-        WriteField(sb, "assemblyCount", result.AssemblyCount);
         WriteField(sb, "isFrameworkDependent", result.IsFrameworkDependent);
         WriteField(sb, "hasRidSpecificAssets", result.HasRidSpecificAssets);
         WriteField(sb, "hasNativeDependencies", result.HasNativeDependencies);
         WriteField(sb, "isRidSpecificPointerPackage", result.IsRidSpecificPointerPackage);
+        WriteField(sb, "repository", result.Repository);
+        WriteField(sb, "readmeFile", result.ReadmeFile);
         WriteField(sb, "toolFormat", result.ToolFormat);
         WriteField(sb, "runtimeTargetRid", result.RuntimeTargetRid);
         if (result.BuiltDate.HasValue)
             WriteField(sb, "builtDate", result.BuiltDate.Value.ToString("o"));
 
+        // Arrays last
         WriteArray(sb, "packageTypes", result.PackageTypes);
         WriteArray(sb, "contentDirs", result.ContentDirectories);
         WriteArray(sb, "targetFrameworks", result.TargetFrameworks);
@@ -111,7 +114,7 @@ internal static class PackageIndexCache
         WriteArray(sb, "toolCommands", result.ToolCommands);
         WriteArray(sb, "nativeFiles", result.NativeFiles);
 
-        // Serialize dependency groups compactly: "tfm|name@ver,name@ver"
+        // Dependency groups stored as compact strings: "tfm|name@ver,name@ver"
         if (result.DependencyGroups is { Count: > 0 })
         {
             var groupStrings = result.DependencyGroups.Select(FormatDependencyGroup).ToList();
@@ -121,48 +124,34 @@ internal static class PackageIndexCache
         CoreCache.Set(Category, key, sb.ToString(), extension: "md");
     }
 
-    // ── Field serialization ──
+    // ── Field serialization (plain format: "key: value") ──
 
     private static void WriteField(System.Text.StringBuilder sb, string key, string? value)
     {
         if (value != null)
-            sb.AppendLine($"**{key}:** {value}");
+            sb.AppendLine($"{key}: {value}");
     }
 
     private static void WriteField(System.Text.StringBuilder sb, string key, bool value)
     {
         if (value)
-            sb.AppendLine($"**{key}:** true");
+            sb.AppendLine($"{key}: true");
     }
 
     private static void WriteField(System.Text.StringBuilder sb, string key, int value)
     {
         if (value != 0)
-            sb.AppendLine($"**{key}:** {value}");
+            sb.AppendLine($"{key}: {value}");
     }
 
     private static void WriteArray(System.Text.StringBuilder sb, string key, List<string>? items)
     {
         if (items is not { Count: > 0 }) return;
         sb.AppendLine();
-        sb.AppendLine($"**{key}:**");
+        sb.AppendLine($"{key}:");
         foreach (var item in items)
             sb.AppendLine($"- {item}");
     }
-
-    // ── Field deserialization helpers ──
-
-    private static string? GetString(Dictionary<string, FieldValue> dict, string key)
-        => dict.TryGetValue(key, out var v) ? v.Text : null;
-
-    private static bool GetBool(Dictionary<string, FieldValue> dict, string key)
-        => dict.TryGetValue(key, out var v) && v.Text.Equals("true", StringComparison.OrdinalIgnoreCase);
-
-    private static int GetInt(Dictionary<string, FieldValue> dict, string key)
-        => dict.TryGetValue(key, out var v) && int.TryParse(v.Text, out var i) ? i : 0;
-
-    private static List<string>? GetArray(Dictionary<string, FieldValue> dict, string key)
-        => dict.TryGetValue(key, out var v) && v.IsArray ? [.. v.Items] : null;
 
     // ── Dependency group serialization ──
 
