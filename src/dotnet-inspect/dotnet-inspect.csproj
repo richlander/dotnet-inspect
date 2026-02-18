@@ -64,12 +64,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\markout\src\Markout\Markout.csproj" />
     <ProjectReference Include="..\..\..\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
   </ItemGroup>
   -->
   <!-- PackageReference: Use for releases after new Markout version is published -->
   <ItemGroup>
     <PackageReference Include="Markout" Version="0.7.0" />
-    <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
+    <PackageReference Include="MarkdownTable.Formatting" Version="0.2.0" />
   </ItemGroup>
 
   <ItemGroup>
