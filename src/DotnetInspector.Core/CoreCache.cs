@@ -131,6 +131,28 @@ public static class CoreCache
     }
 
     /// <summary>
+    /// Stores raw byte content in the cache. Avoids the string encoding
+    /// overhead of <see cref="Set(string, string, string, string)"/>.
+    /// </summary>
+    public static void SetBytes(string category, string key, byte[] content, string extension = "json")
+    {
+        try
+        {
+            var path = GetFilePath(category, key, extension);
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+            File.WriteAllBytes(path, content);
+        }
+        catch
+        {
+            // Caching is best-effort
+        }
+    }
+
+    /// <summary>
     /// Clears a specific cache category, or all categories if none specified.
     /// </summary>
     /// <returns>The number of bytes freed.</returns>

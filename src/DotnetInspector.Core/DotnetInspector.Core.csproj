@@ -11,4 +11,9 @@
     <Description>Core utilities for dotnet-inspect, including caching infrastructure</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
+  </ItemGroup>
 </Project>

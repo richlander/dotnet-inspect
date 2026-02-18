@@ -1564,21 +1564,37 @@ public static class CommandLineBuilder
             // --version: print the resolved version and exit (no package inspection needed)
             if (showVersion)
             {
-                // Resolve version using cache-first logic (same as bare name resolution)
-                var resolvedVersion = explicitVersion
-                    ?? NuGetCache.TryGetLatestCachedVersion(bareName);
-                if (resolvedVersion != null)
+                if (!forceLatest)
                 {
-                    Console.WriteLine(resolvedVersion);
-                    return 0;
+                    // Pinned version: only return if it's actually cached locally
+                    if (explicitVersion != null)
+                    {
+                        if (NuGetCache.TryGetCachedPackage(bareName, explicitVersion) != null)
+                        {
+                            Console.WriteLine(explicitVersion);
+                            return 0;
+                        }
+                    }
+                    else
+                    {
+                        // Bare name: use newest cached version
+                        var cachedVersion = NuGetCache.TryGetLatestCachedVersion(bareName);
+                        if (cachedVersion != null)
+                        {
+                            Console.WriteLine(cachedVersion);
+                            return 0;
+                        }
+                    }
                 }
-                // No cached version — fall through to package command
+                // No cache hit, or @latest: fall through to --latest-version (version API query)
+                showLatestVersion = true;
             }
 
             // Fall through to package command (NuGet resolution)
+            bool useBareName = forceLatest || showLatestVersion;
             var options = new InspectionOptions
             {
-                PackageArgs = forceLatest ? [bareName] : packageArgs,
+                PackageArgs = useBareName ? [bareName] : packageArgs,
                 ListVersions = showLatestVersion || showVersions,
                 Limit = showLatestVersion ? 1 : parseResult.GetValue(limitOption),
                 JsonOutput = parseResult.GetValue(jsonOption),

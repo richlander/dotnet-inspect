@@ -922,4 +922,60 @@ public class CommandLineTests
             Console.SetError(originalErr);
         }
     }
+
+    // ── router --version / --latest-version / --versions parsing ─────
+
+    [Fact]
+    public void Router_VersionFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--version"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Router_LatestVersionFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--latest-version"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Router_VersionsFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--versions"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Router_VersionsWithLimit_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--versions", "-n", "5"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Router_PinnedVersionWithVersionFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json@9.0.0", "--version"]));
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Router_LatestTagWithVersionFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json@latest", "--version"]));
+
+        Assert.Empty(result.Errors);
+    }
 }

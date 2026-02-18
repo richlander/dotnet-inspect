@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
@@ -78,79 +80,105 @@ internal static class PackageIndexCache
 
     /// <summary>
     /// Caches an InspectionResult (filesystem-derived fields only).
-    /// Uses plain field format (key: value) with fields ordered by access frequency.
+    /// Uses plain field format (key: value) written as UTF-8 bytes directly.
     /// </summary>
     public static void Set(string packageName, string version, InspectionResult result)
     {
         string key = $"{packageName.ToLowerInvariant()}@{version}";
 
-        var sb = new System.Text.StringBuilder(512);
+        var buf = new ArrayBufferWriter<byte>(1024);
 
         // Scalars first, ordered by access frequency and display priority
-        WriteField(sb, "packageName", result.PackageName);
-        WriteField(sb, "version", result.Version);
-        WriteField(sb, "description", result.Description);
-        WriteField(sb, "authors", result.Authors);
-        WriteField(sb, "license", result.License);
-        WriteField(sb, "assemblyCount", result.AssemblyCount);
-        WriteField(sb, "hasReadme", result.HasReadme);
-        WriteField(sb, "isToolPackage", result.IsToolPackage);
-        WriteField(sb, "isFrameworkDependent", result.IsFrameworkDependent);
-        WriteField(sb, "hasRidSpecificAssets", result.HasRidSpecificAssets);
-        WriteField(sb, "hasNativeDependencies", result.HasNativeDependencies);
-        WriteField(sb, "isRidSpecificPointerPackage", result.IsRidSpecificPointerPackage);
-        WriteField(sb, "repository", result.Repository);
-        WriteField(sb, "readmeFile", result.ReadmeFile);
-        WriteField(sb, "toolFormat", result.ToolFormat);
-        WriteField(sb, "runtimeTargetRid", result.RuntimeTargetRid);
+        WriteField(buf, "packageName"u8, result.PackageName);
+        WriteField(buf, "version"u8, result.Version);
+        WriteField(buf, "description"u8, result.Description);
+        WriteField(buf, "authors"u8, result.Authors);
+        WriteField(buf, "license"u8, result.License);
+        WriteField(buf, "assemblyCount"u8, result.AssemblyCount);
+        WriteField(buf, "hasReadme"u8, result.HasReadme);
+        WriteField(buf, "isToolPackage"u8, result.IsToolPackage);
+        WriteField(buf, "isFrameworkDependent"u8, result.IsFrameworkDependent);
+        WriteField(buf, "hasRidSpecificAssets"u8, result.HasRidSpecificAssets);
+        WriteField(buf, "hasNativeDependencies"u8, result.HasNativeDependencies);
+        WriteField(buf, "isRidSpecificPointerPackage"u8, result.IsRidSpecificPointerPackage);
+        WriteField(buf, "repository"u8, result.Repository);
+        WriteField(buf, "readmeFile"u8, result.ReadmeFile);
+        WriteField(buf, "toolFormat"u8, result.ToolFormat);
+        WriteField(buf, "runtimeTargetRid"u8, result.RuntimeTargetRid);
         if (result.BuiltDate.HasValue)
-            WriteField(sb, "builtDate", result.BuiltDate.Value.ToString("o"));
+            WriteField(buf, "builtDate"u8, result.BuiltDate.Value.ToString("o"));
 
         // Arrays last
-        WriteArray(sb, "packageTypes", result.PackageTypes);
-        WriteArray(sb, "contentDirs", result.ContentDirectories);
-        WriteArray(sb, "targetFrameworks", result.TargetFrameworks);
-        WriteArray(sb, "supportedRids", result.SupportedRids);
-        WriteArray(sb, "toolCommands", result.ToolCommands);
-        WriteArray(sb, "nativeFiles", result.NativeFiles);
+        WriteArray(buf, "packageTypes"u8, result.PackageTypes);
+        WriteArray(buf, "contentDirs"u8, result.ContentDirectories);
+        WriteArray(buf, "targetFrameworks"u8, result.TargetFrameworks);
+        WriteArray(buf, "supportedRids"u8, result.SupportedRids);
+        WriteArray(buf, "toolCommands"u8, result.ToolCommands);
+        WriteArray(buf, "nativeFiles"u8, result.NativeFiles);
 
         // Dependency groups stored as compact strings: "tfm|name@ver,name@ver"
         if (result.DependencyGroups is { Count: > 0 })
         {
             var groupStrings = result.DependencyGroups.Select(FormatDependencyGroup).ToList();
-            WriteArray(sb, "dependencyGroups", groupStrings);
+            WriteArray(buf, "dependencyGroups"u8, groupStrings);
         }
 
-        CoreCache.Set(Category, key, sb.ToString(), extension: "md");
+        CoreCache.SetBytes(Category, key, buf.WrittenSpan.ToArray(), extension: "md");
     }
 
-    // ── Field serialization (plain format: "key: value") ──
+    // ── Field serialization (plain format: "key: value", UTF-8 bytes) ──
 
-    private static void WriteField(System.Text.StringBuilder sb, string key, string? value)
+    private static void WriteField(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, string? value)
     {
-        if (value != null)
-            sb.AppendLine($"{key}: {value}");
+        if (value is null) return;
+        Write(buf, key);
+        Write(buf, ": "u8);
+        Write(buf, value);
+        Write(buf, "\n"u8);
     }
 
-    private static void WriteField(System.Text.StringBuilder sb, string key, bool value)
+    private static void WriteField(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, bool value)
     {
-        if (value)
-            sb.AppendLine($"{key}: true");
+        if (!value) return;
+        Write(buf, key);
+        Write(buf, ": true\n"u8);
     }
 
-    private static void WriteField(System.Text.StringBuilder sb, string key, int value)
+    private static void WriteField(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, int value)
     {
-        if (value != 0)
-            sb.AppendLine($"{key}: {value}");
+        if (value == 0) return;
+        Write(buf, key);
+        Write(buf, ": "u8);
+        Write(buf, value.ToString());
+        Write(buf, "\n"u8);
     }
 
-    private static void WriteArray(System.Text.StringBuilder sb, string key, List<string>? items)
+    private static void WriteArray(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, List<string>? items)
     {
         if (items is not { Count: > 0 }) return;
-        sb.AppendLine();
-        sb.AppendLine($"{key}:");
+        Write(buf, "\n"u8);
+        Write(buf, key);
+        Write(buf, ":\n"u8);
         foreach (var item in items)
-            sb.AppendLine($"- {item}");
+        {
+            Write(buf, "- "u8);
+            Write(buf, item);
+            Write(buf, "\n"u8);
+        }
+    }
+
+    private static void Write(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> utf8)
+    {
+        utf8.CopyTo(buf.GetSpan(utf8.Length));
+        buf.Advance(utf8.Length);
+    }
+
+    private static void Write(ArrayBufferWriter<byte> buf, string text)
+    {
+        var maxBytes = Encoding.UTF8.GetMaxByteCount(text.Length);
+        var span = buf.GetSpan(maxBytes);
+        int written = Encoding.UTF8.GetBytes(text, span);
+        buf.Advance(written);
     }
 
     // ── Dependency group serialization ──
