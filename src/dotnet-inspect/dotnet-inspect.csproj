@@ -69,6 +69,7 @@
   <!-- PackageReference: Use for releases after new Markout version is published -->
   <ItemGroup>
     <PackageReference Include="Markout" Version="0.7.0" />
+    <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

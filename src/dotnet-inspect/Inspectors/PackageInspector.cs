@@ -21,6 +21,19 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool forceLatest = false)
     {
+        // Try package index cache (skips all filesystem scanning)
+        if (!isLocalFile)
+        {
+            var cached = PackageIndexCache.TryGet(packageName, version);
+            if (cached != null)
+            {
+                // Apply live metadata (cached separately with its own TTL)
+                var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
+                ApplyMetadata(cached, metadata);
+                return cached;
+            }
+        }
+
         var result = new InspectionResult
         {
             PackageName = packageName,
@@ -100,6 +113,9 @@ internal static class PackageInspector
         // Fetch package metadata from NuGet (only for remote packages)
         if (!isLocalFile)
         {
+            // Cache the filesystem-derived result before applying metadata
+            PackageIndexCache.Set(packageName, version, result);
+
             var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
             ApplyMetadata(result, metadata);
         }
