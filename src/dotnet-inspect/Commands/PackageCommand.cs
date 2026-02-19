@@ -225,6 +225,8 @@ public class PackageCommand
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
+            result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
+
             // Filter output based on options
             FilterResultForOutput(result, options);
 
