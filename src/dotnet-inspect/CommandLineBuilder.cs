@@ -1643,7 +1643,7 @@ public static class CommandLineBuilder
                 }
             }
 
-            // Qualified type name: e.g., System.Text.Json.JsonSerializer → type JsonSerializer --platform System.Text.Json
+            // Qualified type name: e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
             if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName)
                 && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAssembly, out var qtType))
             {

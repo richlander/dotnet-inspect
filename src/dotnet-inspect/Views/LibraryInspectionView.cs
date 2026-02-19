@@ -33,18 +33,18 @@ public class LibraryInspectionView
     public string? PdbPath => _data.PdbPath;
 
     [MarkoutPropertyName("Embedded PDB")]
-    [MarkoutBoolFormat("✓", "✗")]
+    [MarkoutBoolFormat("Yes", "No")]
     public bool HasEmbeddedPdb => _data.HasEmbeddedPdb;
 
     [MarkoutPropertyName("Reproducible Flag")]
-    [MarkoutBoolFormat("✓", "✗")]
+    [MarkoutBoolFormat("Yes", "No")]
     public bool HasReproducibleFlag => _data.HasReproducibleFlag;
 
     [MarkoutIgnore]
     public bool? HasNormalizedPaths => _data.HasNormalizedPaths;
 
     [MarkoutPropertyName("SourceLink")]
-    [MarkoutBoolFormat("✓", "✗")]
+    [MarkoutBoolFormat("Yes", "No")]
     public bool HasSourceLink => _data.HasSourceLink;
 
     [MarkoutIgnore]
@@ -52,12 +52,12 @@ public class LibraryInspectionView
 
     [MarkoutPropertyName("SourceLink Status")]
     public string SourceLinkStatus => _data.HasSourceLink
-        ? "✓"
+        ? "Yes"
         : _data.SourceLinkUnavailableReason != null
-            ? $"✗ ({_data.SourceLinkUnavailableReason})"
-            : "✗";
+            ? $"No ({_data.SourceLinkUnavailableReason})"
+            : "No";
 
-    [MarkoutBoolFormat("✓", "✗")]
+    [MarkoutBoolFormat("Yes", "No")]
     public bool IsDeterministic => _data.IsDeterministic;
 
     [MarkoutPropertyName("Repository URL")]
@@ -301,8 +301,8 @@ public class LibraryInspectionView
             fields.Add(new("Signed", "Yes"));
         if (!string.IsNullOrEmpty(info.PublicKeyToken))
             fields.Add(new("Public Key Token", info.PublicKeyToken));
-        fields.Add(new("Deterministic", _data.IsDeterministic ? "✓" : "✗"));
-        fields.Add(new("Reproducible", _data.HasReproducibleFlag ? "✓" : "✗"));
+        fields.Add(new("Deterministic", _data.IsDeterministic ? "Yes" : "No"));
+        fields.Add(new("Reproducible", _data.HasReproducibleFlag ? "Yes" : "No"));
         if (_data.FileSize > 0)
             fields.Add(new("File Size", FormatFileSize(_data.FileSize)));
         if (info.TypeDefinitionCount > 0)
@@ -363,7 +363,7 @@ public class LibraryInspectionView
         if (_data.TotalSourceFiles <= 0) return fields;
 
         int accessible = _data.AccessibleSourceFiles + _data.EmbeddedSourceFiles;
-        string status = _data.AllSourcesAccessible == true ? "✓" : "✗";
+        string status = _data.AllSourcesAccessible == true ? "Yes" : "No";
         fields.Add(new("Status", $"{status} {accessible}/{_data.TotalSourceFiles} files accessible"));
 
         if (_data.EmbeddedSourceFiles > 0)
@@ -400,9 +400,9 @@ public class LibraryInspectionView
         {
             var badge = node.ResolvedFrom switch
             {
-                "local" => "📁",
-                "platform" => "🚢",
-                _ => "❓"
+                "local" => "local",
+                "platform" => "platform",
+                _ => "?"
             };
             var suffix = node.IsCyclic ? " (circular)" : "";
             result.Add(new TreeNode($"{node.Name} {node.Version}{suffix}", badge));
@@ -468,7 +468,6 @@ public record PInvokeMethodRow(
 [MarkoutSerializable]
 public record ResourceRow(
     string Name,
-    [property: MarkoutValueMap("public=🔓", "private=🔒")]
     string Visibility,
     string Size);
 

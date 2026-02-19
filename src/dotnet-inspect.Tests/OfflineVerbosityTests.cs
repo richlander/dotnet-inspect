@@ -119,7 +119,7 @@ public class OfflineVerbosityTests : IDisposable
         Assert.DoesNotContain("Converts the provided value", output);
     }
 
-    // ── router → qualified type name ─────────────────────────────────
+    // ── router -> qualified type name ─────────────────────────────────
 
     [Fact]
     public async Task Router_QualifiedType_Quiet_Offline_Succeeds()
