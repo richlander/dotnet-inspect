@@ -148,7 +148,7 @@ public class RouterVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output.Trim());
-        Assert.Contains("does not exist", error);
+        Assert.Contains("Version '99.99.99' of package", error);
     }
 
     [Fact]

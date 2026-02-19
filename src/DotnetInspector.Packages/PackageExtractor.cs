@@ -190,7 +190,13 @@ public static class PackageExtractor
         if (packageBytes == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
-            return PackageExtractionOutcome.Error($"{packageName}@{version} does not exist");
+
+            // Differentiate "package doesn't exist" from "version doesn't exist"
+            var knownVersions = await GetVersionsAsync(client, packageName, includePrerelease: true, limit: null, log: null, sourceOptions: sourceOptions).ConfigureAwait(false);
+            if (knownVersions == null || knownVersions.Count == 0)
+                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+
+            return PackageExtractionOutcome.Error($"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
         }
 
         string? nupkgPath = null;

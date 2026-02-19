@@ -1586,8 +1586,11 @@ public static class CommandLineBuilder
                             return 0;
                         }
 
-                        // 3. Version doesn't exist anywhere
-                        Console.Error.WriteLine($"Error: {bareName}@{explicitVersion} does not exist");
+                        // 3. Differentiate bad package from bad version
+                        if (allVersions == null || allVersions.Count == 0)
+                            Console.Error.WriteLine($"Error: Package '{bareName}' not found.");
+                        else
+                            Console.Error.WriteLine($"Error: Version '{explicitVersion}' of package '{bareName}' not found. Use --versions to see available versions.");
                         return 1;
                     }
                     else
