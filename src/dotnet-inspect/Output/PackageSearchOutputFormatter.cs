@@ -21,11 +21,11 @@ public static class PackageSearchOutputFormatter
         maxId = Math.Min(maxId, 50);
 
         sb.AppendLine($"{"Package".PadRight(maxId)}  {"Version".PadRight(maxVer)}  {"Downloads".PadLeft(12)}  Description");
-        sb.AppendLine($"{new string('─', maxId)}  {new string('─', maxVer)}  {new string('─', 12)}  {new string('─', 40)}");
+        sb.AppendLine($"{new string('-', maxId)}  {new string('-', maxVer)}  {new string('-', 12)}  {new string('-', 40)}");
 
         foreach (var r in results)
         {
-            string id = r.PackageId.Length > maxId ? r.PackageId[..(maxId - 1)] + "…" : r.PackageId;
+            string id = r.PackageId.Length > maxId ? r.PackageId[..(maxId - 1)] + "..." : r.PackageId;
             string downloads = FormatDownloads(r.TotalDownloads);
             string desc = TruncateDescription(r.Description, 60);
 
@@ -60,6 +60,6 @@ public static class PackageSearchOutputFormatter
         if (description.Length <= maxLength)
             return description;
 
-        return description[..(maxLength - 1)] + "…";
+        return description[..(maxLength - 1)] + "...";
     }
 }

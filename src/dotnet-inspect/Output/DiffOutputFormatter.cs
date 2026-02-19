@@ -44,7 +44,7 @@ public static class DiffOutputFormatter
             }
             else if (td.BreakingCount > 0)
             {
-                symbol = "\u2717"; // ✗
+                symbol = "x";
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
             else
@@ -59,7 +59,7 @@ public static class DiffOutputFormatter
         return new DiffOneLineView
         {
             Title = $"API Diff: {name}",
-            Versions = $"{fromVersion} → {toVersion}",
+            Versions = $"{fromVersion} -> {toVersion}",
             Summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking),
             Rows = rows.Count > 0 ? rows : null
         };
@@ -70,7 +70,7 @@ public static class DiffOutputFormatter
         var view = new DiffFullView
         {
             Title = $"API Diff: {name}",
-            Versions = $"**{fromVersion}** → **{toVersion}**",
+            Versions = $"**{fromVersion}** -> **{toVersion}**",
         };
 
         if (typeDiffs.Count == 0)
@@ -126,7 +126,7 @@ public static class DiffOutputFormatter
                 if (change.Kind == ChangeKind.MemberSignatureChanged &&
                     change.OldValue != null && change.NewValue != null)
                 {
-                    message += $": `{change.OldValue}` → `{change.NewValue}`";
+                    message += $": `{change.OldValue}` -> `{change.NewValue}`";
                 }
                 rows.Add(new DiffChangeRow(typeName, message));
             }

@@ -13,7 +13,7 @@ public class ApiTypeView
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
 
-    [MarkoutValueMap("class=📦", "struct=🔲", "interface=🔌", "enum=🔢", "delegate=⚡")]
+    [MarkoutValueMap("class=cls", "struct=str", "interface=ifc", "enum=enm", "delegate=del")]
     public string Kind { get; set; } = "";
 
     [MarkoutSkipNull]
@@ -399,7 +399,7 @@ public class TypeShapeView
     [MarkoutIgnore]
     public string FullName { get; set; } = "";
 
-    [MarkoutValueMap("class=📦", "struct=🔲", "interface=🔌", "enum=🔢", "delegate=⚡")]
+    [MarkoutValueMap("class=cls", "struct=str", "interface=ifc", "enum=enm", "delegate=del")]
     public string Kind { get; set; } = "";
 
     [MarkoutSkipNull]

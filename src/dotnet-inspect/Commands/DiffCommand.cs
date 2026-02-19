@@ -107,7 +107,7 @@ public class DiffCommand
             return (null, null, null, null, null, "Error: Invalid version range. Use format: Package@v1..v2");
         }
 
-        logger.Log($"Comparing {packageName} v{fromVersion} → v{toVersion}");
+        logger.Log($"Comparing {packageName} v{fromVersion} -> v{toVersion}");
 
         var fromOptions = new ApiOptions
         {
@@ -146,7 +146,7 @@ public class DiffCommand
         }
 
         var framework = options.Framework ?? "runtime";
-        logger.Log($"Comparing {assemblyName} in {framework} v{fromVersion} → v{toVersion}");
+        logger.Log($"Comparing {assemblyName} in {framework} v{fromVersion} -> v{toVersion}");
 
         // Resolve assemblies for both versions (downloads ref packs as needed)
         var (fromPath, _, _, fromError) = await PlatformResolver.ResolveAssemblyAsync(
