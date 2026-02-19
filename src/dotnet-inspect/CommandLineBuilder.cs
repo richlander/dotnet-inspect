@@ -1594,6 +1594,26 @@ public static class CommandLineBuilder
                 }
             }
 
+            // Qualified type name: e.g., System.Text.Json.JsonSerializer → type JsonSerializer --platform System.Text.Json
+            if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName)
+                && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAssembly, out var qtType))
+            {
+                var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+                var typeOptions = new ApiOptions
+                {
+                    TypeName = qtType,
+                    PlatformAssembly = qtAssembly,
+                    JsonOutput = parseResult.GetValue(jsonOption),
+                    Verbose = parseResult.GetValue(verboseOption),
+                    Verbosity = verbosity,
+                    IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                    ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
+                    TipLevel = ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
+                };
+
+                return await ApiCommand.ExecuteAsync(typeOptions);
+            }
+
             // --version: print the resolved version and exit (no package inspection needed)
             if (showVersion)
             {
@@ -1972,6 +1992,15 @@ public static class CommandLineBuilder
                                 break;
                             }
                         }
+                    }
+
+                    // Assembly not found — try qualified type name (e.g., System.Text.Json.JsonSerializer)
+                    if (explicitPlatform == null && typeName == null
+                        && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAsm, out var qtTyp))
+                    {
+                        explicitPlatform = qtAsm;
+                        typeName = qtTyp;
+                        packagePath = null;
                     }
                 }
             }

@@ -19,6 +19,50 @@ public static class PlatformResolver
            name.Equals("WindowsBase", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Tries to parse a fully qualified type name (e.g., "System.Text.Json.JsonSerializer")
+    /// into a platform assembly name and type name by probing installed packs.
+    /// Splits at each '.' from right to left, checking if the left part resolves as a platform assembly.
+    /// </summary>
+    public static bool TryParseQualifiedTypeName(string qualifiedName, out string assemblyName, out string typeName)
+    {
+        assemblyName = null!;
+        typeName = null!;
+
+        // Must have at least 3 dots: e.g., System.Text.Json.JsonSerializer
+        // (System.X is an assembly, System.X.Y could be assembly or type — need at least System.X.Y.Z)
+        int dotCount = 0;
+        for (int i = 0; i < qualifiedName.Length; i++)
+            if (qualifiedName[i] == '.') dotCount++;
+        if (dotCount < 2) return false;
+
+        // Try splitting from right to left
+        for (int i = qualifiedName.Length - 1; i >= 0; i--)
+        {
+            if (qualifiedName[i] != '.') continue;
+
+            var candidateAssembly = qualifiedName[..i];
+            var candidateType = qualifiedName[(i + 1)..];
+
+            if (string.IsNullOrEmpty(candidateAssembly) || string.IsNullOrEmpty(candidateType))
+                continue;
+
+            if (!IsPlatformCandidate(candidateAssembly))
+                continue;
+
+            // Check if this assembly exists in installed packs (pure disk, no network)
+            var result = ResolveAssembly(candidateAssembly);
+            if (result.AssemblyPath != null)
+            {
+                assemblyName = candidateAssembly;
+                typeName = candidateType;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Framework short names mapped to ref pack directory names.
     /// </summary>
     public static readonly Dictionary<string, string> FrameworkMappings = new(StringComparer.OrdinalIgnoreCase)
