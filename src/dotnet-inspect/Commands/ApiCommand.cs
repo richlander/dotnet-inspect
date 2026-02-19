@@ -342,9 +342,9 @@ public class ApiCommand
 
                     var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
 
-                    // Default --docs on for single-type view unless explicitly disabled
+                    // Default --docs on for single-type view at Normal+ unless explicitly disabled
                     var effectiveOptions = options;
-                    if (!options.DocsExplicitlySet)
+                    if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                         effectiveOptions = options with { ShowDocs = true };
 
                     // --index: select a specific overload and show IL
@@ -437,12 +437,19 @@ public class ApiCommand
                         };
                     }
 
-                    // Always enrich with SourceLink info for single-type view (Sources section).
-                    // Doc comment fetching is gated by ShowDocs inside the enricher.
+                    // Enrich with source/doc info. Network-dependent enrichment (PDB download,
+                    // SourceLink) limited to Detailed verbosity. Local XML docs at Normal+ for platform.
                     {
-                        var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                        if (pdbLookupPath != null)
-                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
+                        bool isPlatformLocal = !string.IsNullOrEmpty(effectiveOptions.PlatformAssembly)
+                            && effectiveOptions.ShowDocs;
+                        bool shouldEnrich = effectiveOptions.Verbosity >= Verbosity.Detailed || isPlatformLocal;
+
+                        if (shouldEnrich)
+                        {
+                            var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
+                            if (pdbLookupPath != null)
+                                await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
+                        }
                     }
 
                     // Resolve method source code for --index view (after PDB acquisition)
@@ -778,6 +785,10 @@ public class ApiCommand
                 && type.Members.Any(m => m.Kind == "constructor"))
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
+            }
+            else if (options.Verbosity == Verbosity.Minimal)
+            {
+                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
             else
             {
