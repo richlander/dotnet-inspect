@@ -1317,7 +1317,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
+            var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
             options = options with { TipLevel = tipLevel };
 
@@ -1624,7 +1624,7 @@ public static class CommandLineBuilder
                 ForceLatest = forceLatest || showLatestVersion
             };
 
-            var tipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
+            var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
             options = options with { TipLevel = tipLevel };
 
