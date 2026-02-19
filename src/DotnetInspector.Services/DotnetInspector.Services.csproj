@@ -22,4 +22,8 @@
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="MarkdownTable.Formatting" Version="0.3.0" />
+  </ItemGroup>
+
 </Project>
