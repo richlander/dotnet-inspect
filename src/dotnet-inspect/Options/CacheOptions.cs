@@ -5,4 +5,5 @@ namespace DotnetInspector.Options;
 /// </summary>
 public record CacheOptions(
     bool Clean,
-    bool Verbose);
+    bool Verbose,
+    string? Session = null);

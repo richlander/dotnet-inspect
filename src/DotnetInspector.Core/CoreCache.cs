@@ -37,6 +37,16 @@ public static class CoreCache
         if (_basePathOverride != null)
             return _basePathOverride;
 
+        return GetDefaultBasePath();
+    }
+
+    /// <summary>
+    /// Gets the default (non-overridden) base path for caches.
+    /// Always returns the platform-default local application data directory,
+    /// ignoring any base path override.
+    /// </summary>
+    public static string GetDefaultBasePath()
+    {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(localAppData, AppName);
     }

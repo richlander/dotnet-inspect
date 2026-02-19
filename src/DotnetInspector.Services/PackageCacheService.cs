@@ -20,6 +20,7 @@ public static class PackageCacheService
 
     /// <summary>
     /// Returns cache location and per-category statistics.
+    /// Reports on the active cache (session cache if isolated, default otherwise).
     /// </summary>
     public static CacheInfo GetCacheInfo()
     {
@@ -45,7 +46,8 @@ public static class PackageCacheService
     }
 
     /// <summary>
-    /// Clears the app cache. Returns the number of bytes freed.
+    /// Clears the active app cache (session cache if isolated, default otherwise).
+    /// Returns the number of bytes freed.
     /// </summary>
     public static long ClearCache()
     {

@@ -13,6 +13,8 @@ public class CacheCommand
     {
         if (options.Clean)
         {
+            if (options.Session != null)
+                return Task.FromResult(ClearSession(options.Session));
             return Task.FromResult(CleanCache());
         }
 
@@ -49,6 +51,31 @@ public class CacheCommand
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error clearing cache: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static int ClearSession(string sessionName)
+    {
+        var sessionPath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
+        if (!Directory.Exists(sessionPath))
+        {
+            Console.WriteLine($"Session '{sessionName}' not found.");
+            return 0;
+        }
+
+        try
+        {
+            var size = new DirectoryInfo(sessionPath)
+                .EnumerateFiles("*", SearchOption.AllDirectories)
+                .Sum(f => f.Length);
+            Directory.Delete(sessionPath, recursive: true);
+            Console.WriteLine($"Cleared session '{sessionName}' ({CacheOutputFormatter.FormatSize(size)}).");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error clearing session '{sessionName}': {ex.Message}");
             return 1;
         }
     }
