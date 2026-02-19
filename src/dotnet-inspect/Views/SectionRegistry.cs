@@ -79,10 +79,11 @@ public static class SectionRegistry
         string[] knownSections,
         HashSet<string>? includeRequested,
         HashSet<string>? excludeRequested,
-        out bool hasError)
+        out bool hasError,
+        TextWriter? errorWriter = null)
     {
-        var include = Resolve(knownSections, includeRequested, out var includeError);
-        var exclude = Resolve(knownSections, excludeRequested, out var excludeError);
+        var include = Resolve(knownSections, includeRequested, out var includeError, errorWriter);
+        var exclude = Resolve(knownSections, excludeRequested, out var excludeError, errorWriter);
         hasError = includeError || excludeError;
         return (include, exclude);
     }
@@ -100,7 +101,7 @@ public static class SectionRegistry
     /// On unresolvable names, writes an error to stderr and returns <c>null</c> with
     /// <paramref name="hasError"/> set to <c>true</c>.
     /// </returns>
-    public static HashSet<string>? Resolve(string[] knownSections, HashSet<string>? requested, out bool hasError)
+    public static HashSet<string>? Resolve(string[] knownSections, HashSet<string>? requested, out bool hasError, TextWriter? errorWriter = null)
     {
         hasError = false;
         if (requested == null)
@@ -151,11 +152,12 @@ public static class SectionRegistry
         if (unmatched.Count > 0)
         {
             hasError = true;
-            Console.Error.WriteLine($"Error: Unknown section{(unmatched.Count > 1 ? "s" : "")}: {string.Join(", ", unmatched)}");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Available sections:");
+            var err = errorWriter ?? Console.Error;
+            err.WriteLine($"Error: Unknown section{(unmatched.Count > 1 ? "s" : "")}: {string.Join(", ", unmatched)}");
+            err.WriteLine();
+            err.WriteLine("Available sections:");
             foreach (var section in knownSections)
-                Console.Error.WriteLine($"  {section}");
+                err.WriteLine($"  {section}");
             return null;
         }
 
