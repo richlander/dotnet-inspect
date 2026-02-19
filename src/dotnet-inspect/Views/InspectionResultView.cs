@@ -206,6 +206,8 @@ public class InspectionResultView
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
         else if (_data.Published.HasValue)
             fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
+        if (!string.IsNullOrEmpty(_data.Source))
+            fields.Add(new("Source", _data.Source));
         if (_data.Deprecation != null)
             fields.Add(new("Deprecated", "Yes"));
         if (_data.Vulnerabilities is { Count: > 0 })
@@ -228,6 +230,8 @@ public class InspectionResultView
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
         if (_data.Published.HasValue)
             fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
+        if (!string.IsNullOrEmpty(_data.Source))
+            fields.Add(new("Source", _data.Source));
 
         if (_data.Deprecation?.Summary != null)
             fields.Add(new("Deprecated Note", _data.Deprecation.Summary));

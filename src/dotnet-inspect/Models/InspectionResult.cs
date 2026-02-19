@@ -10,6 +10,11 @@ public class InspectionResult
 
     public string Version { get; set; } = "";
 
+    /// <summary>
+    /// Where this package was resolved from (e.g., NuGet, Platform, File).
+    /// </summary>
+    public string? Source { get; set; }
+
     public string? Description { get; set; }
 
     public string? Authors { get; set; }
