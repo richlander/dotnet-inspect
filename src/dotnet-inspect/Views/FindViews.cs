@@ -25,7 +25,6 @@ public record FindRow(
     string Pattern,
     string Type,
     string Namespace,
-    [property: MarkoutValueMap("class=cls", "struct=str", "interface=ifc", "enum=enm", "delegate=del")]
     string Kind,
     string Library,
     string Source);
