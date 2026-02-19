@@ -11,15 +11,17 @@ namespace DotnetInspector.Core;
 public static class CoreCache
 {
     private static string? _appName;
+    private static string? _basePathOverride;
 
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
     /// Must be called before any cache operations.
     /// </summary>
-    public static void Initialize(string appName)
+    public static void Initialize(string appName, string? basePath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
         _appName = appName;
+        _basePathOverride = basePath;
     }
 
     private static string AppName => _appName
@@ -27,11 +29,14 @@ public static class CoreCache
 
     /// <summary>
     /// Gets the base path for all caches.
-    /// Windows: %LOCALAPPDATA%\{appName}
-    /// macOS/Linux: ~/.local/share/{appName}
+    /// Returns the override path if set via <see cref="Initialize"/>,
+    /// otherwise uses the platform-default local application data directory.
     /// </summary>
     public static string GetBasePath()
     {
+        if (_basePathOverride != null)
+            return _basePathOverride;
+
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(localAppData, AppName);
     }

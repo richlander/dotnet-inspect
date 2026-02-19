@@ -14,6 +14,7 @@ namespace DotnetInspector.Packages;
 public static class NuGetCache
 {
     private static string? _appName;
+    private static bool _skipNuGetCache;
 
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
@@ -21,11 +22,14 @@ public static class NuGetCache
     /// Also initializes <see cref="CoreCache"/> with the same app name.
     /// </summary>
     /// <param name="appName">Application name used as the cache subdirectory (e.g., "dotnet-inspect")</param>
-    public static void Initialize(string appName)
+    /// <param name="basePath">Optional override for the cache base directory</param>
+    /// <param name="skipNuGetCache">When true, skip the NuGet global cache (~/.nuget/packages)</param>
+    public static void Initialize(string appName, string? basePath = null, bool skipNuGetCache = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
         _appName = appName;
-        CoreCache.Initialize(appName);
+        _skipNuGetCache = skipNuGetCache;
+        CoreCache.Initialize(appName, basePath);
     }
 
     private static string AppName => _appName
@@ -95,14 +99,17 @@ public static class NuGetCache
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
-        // Check NuGet cache first (more likely to have packages)
-        var nugetCachePath = GetNuGetCachePath();
-        if (Directory.Exists(nugetCachePath))
+        // Check NuGet cache first (more likely to have packages) — skip in isolated mode
+        if (!_skipNuGetCache)
         {
-            var nugetPackageDir = Path.Combine(nugetCachePath, normalizedName, normalizedVersion);
-            if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
+            var nugetCachePath = GetNuGetCachePath();
+            if (Directory.Exists(nugetCachePath))
             {
-                return nugetPackageDir;
+                var nugetPackageDir = Path.Combine(nugetCachePath, normalizedName, normalizedVersion);
+                if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
+                {
+                    return nugetPackageDir;
+                }
             }
         }
 
@@ -192,8 +199,11 @@ public static class NuGetCache
         NuGet.Versioning.NuGetVersion? best = null;
         string? bestOriginal = null;
 
-        // Check NuGet global cache
-        ScanCacheDir(Path.Combine(GetNuGetCachePath(), normalizedName), normalizedName, ref best, ref bestOriginal);
+        // Check NuGet global cache — skip in isolated mode
+        if (!_skipNuGetCache)
+        {
+            ScanCacheDir(Path.Combine(GetNuGetCachePath(), normalizedName), normalizedName, ref best, ref bestOriginal);
+        }
 
         // Check app cache
         try
