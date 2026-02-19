@@ -1322,6 +1322,8 @@ public static class CommandLineBuilder
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show latest)", Arity = ArgumentArity.ZeroOrOne };
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
@@ -1337,6 +1339,8 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(outOption);
         packageCommand.Options.Add(limitOption);
+        packageCommand.Options.Add(oneLineOption);
+        packageCommand.Options.Add(noHeaderOption);
         packageCommand.Options.Add(jsonOption);
         packageCommand.Options.Add(markoutOption);
         packageCommand.Options.Add(verboseOption);
@@ -1382,6 +1386,8 @@ public static class CommandLineBuilder
                 OutputPath = parseResult.GetValue(outOption),
                 Limit = bareVersion ? 1 : versionsValue,
                 JsonOutput = parseResult.GetValue(jsonOption),
+                OneLine = parseResult.GetValue(oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = verbosity,
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
@@ -1520,6 +1526,11 @@ public static class CommandLineBuilder
         routerCommand.Options.Add(sourceOption);
         routerCommand.Options.Add(addSourceOption);
         routerCommand.Options.Add(nugetConfigOption);
+
+        var routerOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var routerNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        routerCommand.Options.Add(routerOneLineOption);
+        routerCommand.Options.Add(routerNoHeaderOption);
 
         // Version query options for the router
         var routerVersionOption = new Option<bool>("--version") { Description = "Show resolved version" };
@@ -1733,6 +1744,8 @@ public static class CommandLineBuilder
                 ListVersions = showLatestVersion || showVersions,
                 Limit = showLatestVersion ? 1 : routerVersionsValue,
                 JsonOutput = parseResult.GetValue(jsonOption),
+                OneLine = parseResult.GetValue(routerOneLineOption),
+                NoHeader = parseResult.GetValue(routerNoHeaderOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
                 IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
@@ -1948,6 +1961,12 @@ public static class CommandLineBuilder
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
+        var memberOption = new Option<string[]>("-m")
+        {
+            Description = "Filter members by name or limit count (-m 5)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        memberOption.Aliases.Add("--member");
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
@@ -1965,6 +1984,7 @@ public static class CommandLineBuilder
         typeCommand.Options.Add(noHeaderOption);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
+        typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(includeSectionsOption);
         typeCommand.Options.Add(excludeSectionsOption);
         typeCommand.Options.Add(markoutOption);
@@ -2078,6 +2098,19 @@ public static class CommandLineBuilder
                 typeFilter = null;
             }
 
+            // Parse -m: number = member limit, glob = member filter
+            var memberValues = parseResult.GetValue(memberOption) ?? [];
+            HashSet<string> memberFilter = [];
+            int? memberLimit = null;
+            if (memberValues.Length == 1 && int.TryParse(memberValues[0], out var mNum))
+            {
+                memberLimit = mNum;
+            }
+            else if (memberValues.Length > 0)
+            {
+                memberFilter = new HashSet<string>(memberValues, StringComparer.OrdinalIgnoreCase);
+            }
+
             var options = new ApiOptions
             {
                 TypeName = typeName,
@@ -2088,8 +2121,8 @@ public static class CommandLineBuilder
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 TypeFilter = typeFilter,
-                MemberFilter = [],
-                Limit = typeLimit,
+                MemberFilter = memberFilter,
+                Limit = memberLimit ?? typeLimit,
                 ShowDocs = false,  // Type command: docs off by default
                 DocsExplicitlySet = false,
                 SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),

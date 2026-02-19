@@ -124,9 +124,19 @@ public record InspectionOptions
     public static InspectionOptions Default => new();
 
     /// <summary>
+    /// One result per line, columnar output.
+    /// </summary>
+    public bool OneLine { get; init; }
+
+    /// <summary>
+    /// Suppress column headers (use with --oneline).
+    /// </summary>
+    public bool NoHeader { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
+    public bool IsRawOutput => JsonOutput || OneLine || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
 
     /// <summary>
     /// All inspection features enabled.

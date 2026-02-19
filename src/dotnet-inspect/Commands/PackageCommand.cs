@@ -238,14 +238,23 @@ public class PackageCommand
             }
 
             // Output results
-            var output = OutputFormatter.FormatResult(result, options, pipeline);
-            if (!string.IsNullOrEmpty(options.OutputPath))
+            if (options.OneLine)
             {
-                File.WriteAllText(options.OutputPath, output);
+                var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
+                var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+                new MarkoutContext().Serialize(oneLineView, writer);
             }
             else
             {
-                Console.WriteLine(output);
+                var output = OutputFormatter.FormatResult(result, options, pipeline);
+                if (!string.IsNullOrEmpty(options.OutputPath))
+                {
+                    File.WriteAllText(options.OutputPath, output);
+                }
+                else
+                {
+                    Console.WriteLine(output);
+                }
             }
 
             return 0;

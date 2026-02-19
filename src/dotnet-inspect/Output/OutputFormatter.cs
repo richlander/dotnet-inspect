@@ -23,6 +23,15 @@ public static class OutputFormatter
         return RenderMarkout(result, options, pipeline);
     }
 
+    public static PackageOneLineView BuildPackageOneLineView(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult>? pipeline = null)
+    {
+        var view = new InspectionResultView(result);
+        var fields = view.Metadata;
+        var rows = fields.Select(f => new PackageOneLineRow(f.Key, f.Value ?? "")).ToList();
+        return new PackageOneLineView { Rows = rows };
+    }
+
     private static string RenderMarkout(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult>? pipeline)
     {

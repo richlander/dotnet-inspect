@@ -417,6 +417,34 @@ public class TypeShapeView
     public List<TreeNode> Members { get; set; } = [];
 }
 
+/// <summary>
+/// View model for --oneline single-type output: one unified table of all members.
+/// </summary>
+[MarkoutSerializable]
+public class ApiTypeOneLineView
+{
+    [MarkoutSection(Name = "Members")]
+    public List<ApiOneLineRow>? Rows { get; set; }
+}
+
+/// <summary>
+/// View model for --oneline full-API output: one unified table of all types.
+/// </summary>
+[MarkoutSerializable]
+public class ApiSurfaceOneLineView
+{
+    [MarkoutSection(Name = "Types")]
+    public List<ApiSurfaceOneLineRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record ApiOneLineRow(string Kind, string Name,
+    [property: MarkoutPropertyName("Return Type")] string ReturnType,
+    string Detail);
+
+[MarkoutSerializable]
+public record ApiSurfaceOneLineRow(string Kind, string Type, string Members);
+
 [MarkoutContext(typeof(TypeShapeView))]
 public partial class TypeViewContext : MarkoutSerializerContext
 {
