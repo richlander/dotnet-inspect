@@ -1577,6 +1577,7 @@ public static class CommandLineBuilder
                         if (assemblyPath != null)
                         {
                             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+                            var includeSections = ParseIncludeSections(parseResult, includeSectionsOption);
                             var assemblyOptions = new AssemblyOptions
                             {
                                 PlatformAssembly = bareName,
@@ -1584,11 +1585,31 @@ public static class CommandLineBuilder
                                 JsonOutput = parseResult.GetValue(jsonOption),
                                 Verbose = parseResult.GetValue(verboseOption),
                                 Verbosity = verbosity,
-                                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
+                                IncludeSections = includeSections,
                                 ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
                             };
 
-                            return await AssemblyCommand.ExecuteAsync(assemblyOptions);
+                            var assemblyExitCode = await AssemblyCommand.ExecuteAsync(assemblyOptions);
+
+                            if (assemblyExitCode == 0 && !assemblyOptions.JsonOutput)
+                            {
+                                var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null
+                                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+
+                                List<Tip> tips = [];
+
+                                if (verbosity < Verbosity.Detailed)
+                                    tips.Add(new($"{bareName}", "-v:d", "detailed metadata"));
+
+                                tips.Add(new(PackageCommand.Name, bareName, "inspect as NuGet package"));
+                                tips.Add(new(TypeCommand.Name, $"--platform {bareName}", "discover types"));
+                                tips.Add(new(FindCommand.Name, $"<pattern> --platform {bareName}", "search for types"));
+                                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+                                Hints.WriteTips(platformTipLevel, [.. tips]);
+                            }
+
+                            return assemblyExitCode;
                         }
                     }
                 }
