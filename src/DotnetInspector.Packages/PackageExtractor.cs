@@ -190,7 +190,7 @@ public static class PackageExtractor
         if (packageBytes == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
-            return PackageExtractionOutcome.Error($"Failed to download package '{packageName}@{version}'.");
+            return PackageExtractionOutcome.Error($"{packageName}@{version} does not exist");
         }
 
         string? nupkgPath = null;
