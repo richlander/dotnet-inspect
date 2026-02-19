@@ -20,10 +20,11 @@ public static class PackageCacheService
 
     /// <summary>
     /// Returns cache location and per-category statistics.
+    /// Always reports on the default (non-isolated) app cache.
     /// </summary>
     public static CacheInfo GetCacheInfo()
     {
-        var basePath = NuGetCache.GetAppCacheBasePath();
+        var basePath = NuGetCache.GetDefaultAppCacheBasePath();
         List<CacheCategoryInfo> categories = [];
         long totalSize = 0;
 
@@ -45,11 +46,11 @@ public static class PackageCacheService
     }
 
     /// <summary>
-    /// Clears the app cache. Returns the number of bytes freed.
+    /// Clears the default (non-isolated) app cache. Returns the number of bytes freed.
     /// </summary>
     public static long ClearCache()
     {
-        var basePath = NuGetCache.GetAppCacheBasePath();
+        var basePath = NuGetCache.GetDefaultAppCacheBasePath();
 
         if (!Directory.Exists(basePath))
             return 0;

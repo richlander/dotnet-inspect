@@ -335,9 +335,12 @@ public static class CommandLineBuilder
 
         // Subcommand: clear
         var clearCommand = new Command("clear", "Clear the cache");
+        var sessionOption = new Option<string?>("--session") { Description = "Clear a named isolated session cache" };
+        clearCommand.Options.Add(sessionOption);
         clearCommand.SetAction(async (parseResult, cancellationToken) =>
         {
-            var options = new CacheOptions(Clean: true, Verbose: false);
+            var session = parseResult.GetValue(sessionOption);
+            var options = new CacheOptions(Clean: true, Verbose: false, Session: session);
             return await CacheCommand.ExecuteAsync(options);
         });
         cacheCommand.Subcommands.Add(clearCommand);

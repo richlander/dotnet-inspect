@@ -8,23 +8,35 @@ bool offline = args.Contains("--offline")
 if (offline)
     args = args.Where(a => a != "--offline").ToArray();
 
-// Parse --isolated and --no-nuget-cache early
-bool isolated = args.Contains("--isolated")
-    || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_ISOLATED"), "1");
-if (isolated)
-    args = args.Where(a => a != "--isolated").ToArray();
+// Parse --isolated <name> and --no-nuget-cache early
+string? sessionName = null;
+var argList = new List<string>(args);
+int isolatedIdx = argList.IndexOf("--isolated");
+if (isolatedIdx >= 0 && isolatedIdx + 1 < argList.Count)
+{
+    sessionName = argList[isolatedIdx + 1];
+    argList.RemoveAt(isolatedIdx + 1);
+    argList.RemoveAt(isolatedIdx);
+}
+else if (isolatedIdx >= 0)
+{
+    argList.RemoveAt(isolatedIdx);
+}
+sessionName ??= Environment.GetEnvironmentVariable("DOTNET_INSPECT_ISOLATED");
+if (string.IsNullOrWhiteSpace(sessionName))
+    sessionName = null;
+bool isolated = sessionName != null;
+args = argList.ToArray();
 
 bool noNuGetCache = args.Contains("--no-nuget-cache") || isolated;
 if (args.Contains("--no-nuget-cache"))
     args = args.Where(a => a != "--no-nuget-cache").ToArray();
 
-// Resolve cache base path: explicit env var > isolated temp dir > default
+// Resolve cache base path: explicit env var > named session dir > default
 string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE_DIR");
-string? isolatedTempDir = null;
 if (isolated && cacheBasePath == null)
 {
-    isolatedTempDir = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{Path.GetRandomFileName()}");
-    cacheBasePath = isolatedTempDir;
+    cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
 }
 
 // Initialize library configuration
@@ -49,11 +61,5 @@ if (CommandLineBuilder.HeadLines is int headLines)
 var rootCommand = CommandLineBuilder.CreateRootCommand();
 var result = rootCommand.Parse(args);
 var exitCode = await result.InvokeAsync();
-
-// Clean up isolated temp dir
-if (isolatedTempDir != null && Directory.Exists(isolatedTempDir))
-{
-    try { Directory.Delete(isolatedTempDir, recursive: true); } catch { }
-}
 
 return exitCode;

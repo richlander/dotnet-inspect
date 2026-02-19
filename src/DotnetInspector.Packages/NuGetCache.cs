@@ -70,6 +70,12 @@ public static class NuGetCache
     public static string GetAppCacheBasePath() => CoreCache.GetBasePath();
 
     /// <summary>
+    /// Gets the default (non-overridden) base path for application caches.
+    /// Always returns the platform-default directory, ignoring isolation overrides.
+    /// </summary>
+    public static string GetDefaultAppCacheBasePath() => CoreCache.GetDefaultBasePath();
+
+    /// <summary>
     /// Gets the path to the application package cache (read-write).
     /// </summary>
     public static string GetAppCachePath()
