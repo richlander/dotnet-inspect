@@ -306,7 +306,7 @@ public static class CommandLineBuilder
             Console.WriteLine(sw.ToString().TrimEnd());
 
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-            var tipLevel = verbosity == Verbosity.Quiet
+            var tipLevel = verbosity == Verbosity.Quiet || HeadLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
@@ -537,7 +537,7 @@ public static class CommandLineBuilder
             var exitCode = await DiffCommand.ExecuteAsync(options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
+            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || HeadLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             if (exitCode == 0)
@@ -1018,7 +1018,7 @@ public static class CommandLineBuilder
             var exitCode = await FindCommand.ExecuteAsync(options);
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet
+            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || HeadLines != null || options.Limit != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
             if (exitCode == 0 && !options.IsRawOutput)
@@ -1395,7 +1395,7 @@ public static class CommandLineBuilder
                 SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
             };
 
-            var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null
+            var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null || HeadLines != null || options.Limit != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
             options = options with { TipLevel = tipLevel };
 
@@ -1647,7 +1647,7 @@ public static class CommandLineBuilder
 
                             if (assemblyExitCode == 0 && !assemblyOptions.JsonOutput)
                             {
-                                var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null
+                                var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null || HeadLines != null
                                     ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
                                 List<Tip> tips = [];
@@ -1683,7 +1683,7 @@ public static class CommandLineBuilder
                     Verbosity = verbosity,
                     IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
                     ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                    TipLevel = ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
+                    TipLevel = HeadLines != null ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
                 };
 
                 return await ApiCommand.ExecuteAsync(typeOptions);
@@ -1754,7 +1754,7 @@ public static class CommandLineBuilder
                 ForceLatest = forceLatest || showLatestVersion
             };
 
-            var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null
+            var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || HeadLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
             options = options with { TipLevel = tipLevel };
 
@@ -2141,7 +2141,7 @@ public static class CommandLineBuilder
 
             options = options with
             {
-                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
+                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || HeadLines != null || typeLimit != null
                     ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
             };
 
@@ -2431,7 +2431,7 @@ public static class CommandLineBuilder
 
             options = options with
             {
-                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet
+                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || HeadLines != null || memberLimit != null
                     ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
             };
 
