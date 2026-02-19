@@ -130,7 +130,11 @@ public class PackageCommand
             }
 
             // Validate version looks like a NuGet version (allow wildcard patterns like 11.0.0-preview*)
-            if (version.Length > 0 && !version.Contains('*') && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+            // "latest" is handled as a special tag by PackageExtractor
+            if (version.Length > 0
+                && !string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase)
+                && !version.Contains('*')
+                && !NuGet.Versioning.NuGetVersion.TryParse(version, out _))
             {
                 string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
                 Console.Error.WriteLine($"Error: '{badVersion}' is not a valid package version.");

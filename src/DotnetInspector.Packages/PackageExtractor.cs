@@ -105,6 +105,13 @@ public static class PackageExtractor
         var (packageName, parsedVersion) = ParsePackageReference(packageSource);
         var version = explicitVersion ?? parsedVersion;
 
+        // @latest is a special tag: resolve to newest version via network
+        if (string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase))
+        {
+            version = null;
+            forceLatest = true;
+        }
+
         // Resolve NuGet sources
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
