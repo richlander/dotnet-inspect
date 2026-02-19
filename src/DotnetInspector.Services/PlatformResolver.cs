@@ -147,11 +147,64 @@ public static class PlatformResolver
 
     private static IEnumerable<string> GetPacksDirectoryCandidates()
     {
-        // Only use downloaded packs from the app cache
+        // App cache packs first (always preferred)
         var appCachePacks = PlatformPackService.GetPacksCachePath();
         if (appCachePacks != null)
         {
             yield return appCachePacks;
+        }
+
+        // SDK-installed packs (same paths as shared, but "packs" instead of "shared")
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrEmpty(dotnetRoot))
+        {
+            yield return Path.Combine(dotnetRoot, "packs");
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            var installLocation = ReadInstallLocation();
+            if (!string.IsNullOrEmpty(installLocation))
+            {
+                yield return Path.Combine(installLocation, "packs");
+            }
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            yield return @"C:\Program Files\dotnet\packs";
+            yield return @"C:\Program Files (x86)\dotnet\packs";
+
+            var programFiles = Environment.GetEnvironmentVariable("ProgramFiles");
+            if (!string.IsNullOrEmpty(programFiles))
+            {
+                yield return Path.Combine(programFiles, "dotnet", "packs");
+            }
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            yield return "/usr/local/share/dotnet/packs";
+            yield return "/opt/homebrew/share/dotnet/packs";
+
+            var home = Environment.GetEnvironmentVariable("HOME");
+            if (!string.IsNullOrEmpty(home))
+            {
+                yield return Path.Combine(home, ".dotnet", "packs");
+            }
+        }
+        else // Linux and others
+        {
+            yield return "/usr/lib/dotnet/packs";
+            yield return "/usr/share/dotnet/packs";
+            yield return "/usr/local/share/dotnet/packs";
+            yield return "/opt/dotnet/packs";
+
+            var home = Environment.GetEnvironmentVariable("HOME");
+            if (!string.IsNullOrEmpty(home))
+            {
+                yield return Path.Combine(home, ".dotnet", "packs");
+                yield return Path.Combine(home, "dotnet", "packs");
+            }
         }
     }
 
@@ -196,7 +249,15 @@ public static class PlatformResolver
                     var allVersions = existing.AllVersions.Union(versions).Distinct()
                         .OrderByDescending(v => ParseVersion(v)).ToList();
                     existing.AllVersions = allVersions;
-                    existing.LatestVersion = allVersions[0];
+                    
+                    // Update path if the newest version comes from this directory
+                    if (allVersions[0] != existing.LatestVersion)
+                    {
+                        existing.LatestVersion = allVersions[0];
+                        existing.Path = refPackPath;
+                        var latestRefPath = GetRefAssemblyPath(refPackPath, existing.LatestVersion);
+                        existing.AssemblyCount = latestRefPath != null ? CountAssemblies(latestRefPath) : 0;
+                    }
                 }
                 else
                 {
@@ -386,6 +447,14 @@ public static class PlatformResolver
         string? frameworkSpec = null,
         bool useRuntimeAssemblies = false)
     {
+        // Try resolving from already-installed packs first (SDK + app cache, no network)
+        var local = ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies);
+        if (local.AssemblyPath != null)
+        {
+            log?.Invoke($"Resolved from installed packs: {local.Framework} {local.Version}");
+            return local;
+        }
+
         if (!useRuntimeAssemblies)
         {
             // Parse explicit version from frameworkSpec (e.g., "runtime@9.0.12")

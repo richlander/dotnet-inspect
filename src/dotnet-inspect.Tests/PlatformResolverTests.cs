@@ -201,15 +201,15 @@ public class PlatformResolverTests
     /// Verifies GetPacksDirectory returns the app cache packs path.
     /// </summary>
     [Fact]
-    public void GetPacksDirectory_ReturnsAppCachePath()
+    public void GetPacksDirectory_ReturnsValidPath()
     {
         var result = PlatformResolver.GetPacksDirectory();
-        var expectedSuffix = Path.Combine("dotnet-inspect", "packs");
 
-        // App cache packs dir is the only candidate; it exists if we've downloaded packs
+        // Must return a packs directory (app cache or SDK-installed)
         if (result != null)
         {
-            Assert.EndsWith(expectedSuffix, result);
+            Assert.EndsWith("packs", result);
+            Assert.True(Directory.Exists(result), $"Packs directory should exist: {result}");
         }
     }
 
