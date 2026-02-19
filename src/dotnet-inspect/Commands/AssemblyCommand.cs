@@ -106,7 +106,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                inspection.Source = $"Platform ({framework})";
+                inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
@@ -152,7 +152,7 @@ public class AssemblyCommand
                 }
 
                 foreach (var insp in inspections)
-                    insp.Source = "NuGet";
+                    insp.Source = SourceKind.NuGet;
 
                 if (discoverSections)
                 {
@@ -186,7 +186,7 @@ public class AssemblyCommand
                     return 1;
                 }
 
-                inspection.Source = "File";
+                inspection.Source = SourceKind.File;
 
                 if (discoverSections)
                 {

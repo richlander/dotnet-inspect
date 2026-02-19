@@ -395,7 +395,7 @@ public class OutputFormatterTests
             FileType = "dll",
             AssemblyInfo = assemblyInfo,
             FileSize = 1024,
-            Source = "Platform (runtime)",
+            Source = SourceKind.Platform,
             PlatformVersion = "10.0.1",
             LastModified = modified
         };
