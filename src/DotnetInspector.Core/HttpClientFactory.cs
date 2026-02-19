@@ -22,6 +22,12 @@ public static class HttpClientFactory
     }
 
     /// <summary>
+    /// Resets the shared instance so the next access creates a fresh one.
+    /// Test-only: allows toggling offline mode between tests.
+    /// </summary>
+    internal static void ResetSharedForTesting() => _shared = null;
+
+    /// <summary>
     /// Gets the shared HttpClient instance for the application.
     /// This instance should be used throughout the app lifetime and not disposed.
     /// </summary>

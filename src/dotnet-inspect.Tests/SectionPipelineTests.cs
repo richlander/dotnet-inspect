@@ -939,6 +939,10 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
+        // Remote Source section requires Normal+ verbosity (no network at Minimal)
+        Assert.DoesNotContain("Remote Source", effective);
+
+        effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
         Assert.Contains("Remote Source", effective);
     }
 }

@@ -177,6 +177,35 @@ public class ApiTypeView
     [JsonIgnore]
     public List<ConstructorOverloadView>? ConstructorOverloads { get; set; }
 
+    // Compact member summary sections (Minimal verbosity, matching old QuietMemberFormatter)
+    [MarkoutSection(Name = "Constructors", IgnoreProperty = nameof(ConstructorSummaryRow.Overloads))]
+    [JsonIgnore]
+    public List<ConstructorSummaryRow>? ConstructorSummaryRows { get; set; }
+
+    [MarkoutSection(Name = "Constructors")]
+    [JsonIgnore]
+    public List<ConstructorSummaryRow>? ConstructorSummaryRowsWithOverloads { get; set; }
+
+    [MarkoutSection(Name = "Fields")]
+    [JsonIgnore]
+    public List<FieldSummaryRow>? FieldSummaryRows { get; set; }
+
+    [MarkoutSection(Name = "Properties")]
+    [JsonIgnore]
+    public List<PropertySummaryRow>? PropertySummaryRows { get; set; }
+
+    [MarkoutSection(Name = "Methods", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
+    [JsonIgnore]
+    public List<MethodSummaryRow>? MethodSummaryRows { get; set; }
+
+    [MarkoutSection(Name = "Methods")]
+    [JsonIgnore]
+    public List<MethodSummaryRow>? MethodSummaryRowsWithOverloads { get; set; }
+
+    [MarkoutSection(Name = "Events")]
+    [JsonIgnore]
+    public List<EventSummaryRow>? EventSummaryRows { get; set; }
+
     // Index mode sections (--index path)
     [MarkoutSection(Name = "Custom Attributes")]
     [JsonIgnore]
@@ -312,6 +341,32 @@ public record MemberRow(
     public MemberRow(string name, string signature, string? description)
         : this(null, name, signature, description) { }
 }
+
+/// <summary>
+/// Compact summary row for Minimal verbosity: one row per unique member name with overload count.
+/// </summary>
+[MarkoutSerializable]
+public record MethodSummaryRow(
+    string Name,
+    [property: MarkoutPropertyName("Return Type")] string ReturnType,
+    string Overloads);
+
+[MarkoutSerializable]
+public record ConstructorSummaryRow(string Name, string Overloads);
+
+[MarkoutSerializable]
+public record PropertySummaryRow(
+    string Name,
+    [property: MarkoutPropertyName("Return Type")] string ReturnType,
+    string Accessors);
+
+[MarkoutSerializable]
+public record FieldSummaryRow(
+    string Name,
+    [property: MarkoutPropertyName("Return Type")] string ReturnType);
+
+[MarkoutSerializable]
+public record EventSummaryRow(string Name, string Type);
 
 [MarkoutSerializable]
 public record MethodAttributeRow(string Name, string Value);

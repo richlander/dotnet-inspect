@@ -155,6 +155,10 @@ public static class ApiOutputFormatter
             {
                 PopulateConstructorOverloads(view, type, options);
             }
+            else if (options.Verbosity == Verbosity.Minimal)
+            {
+                (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
+            }
             else
             {
                 (truncatedCount, truncatedNoun) = PopulateMemberSections(view, type, options);
@@ -501,6 +505,104 @@ public static class ApiOutputFormatter
                     else
                     { if (hasDocs) view.EventRowsWithDocs = rows; else view.EventRows = rows; }
                     break;
+            }
+        }
+
+        return (truncated, "members");
+    }
+
+    /// <summary>
+    /// Populates compact member summary sections for Minimal verbosity.
+    /// Groups members by name within each kind, with kind-specific columns
+    /// matching the old QuietMemberFormatter design.
+    /// </summary>
+    internal static (int truncated, string noun) PopulateMemberSummarySections(ApiTypeView view, ApiType type, ApiOptions options)
+    {
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        if (grouped.Count == 0) return (0, "");
+
+        // Flatten all unique-name entries across kinds for --limit
+        var allEntries = grouped
+            .OrderBy(g => GetMemberSortOrder(g.Key))
+            .SelectMany(kindGroup =>
+                kindGroup.Value
+                    .GroupBy(m => m.Name)
+                    .OrderBy(g => g.Key)
+                    .Select(g => (kind: kindGroup.Key, members: g.ToList()))
+            )
+            .ToList();
+
+        int truncated = 0;
+        if (options.Limit.HasValue && options.Limit.Value < allEntries.Count)
+        {
+            truncated = allEntries.Count - options.Limit.Value;
+            allEntries = allEntries.Take(options.Limit.Value).ToList();
+        }
+
+        // Re-group by kind after truncation
+        foreach (var kindGroup in allEntries.GroupBy(e => e.kind).OrderBy(g => GetMemberSortOrder(g.Key)))
+        {
+            var kind = kindGroup.Key;
+            var byName = kindGroup.ToList();
+            bool hasOverloads = byName.Any(e => e.members.Count > 1);
+
+            switch (kind)
+            {
+                case "constructor":
+                {
+                    var rows = byName.Select(e =>
+                        new ConstructorSummaryRow(
+                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            e.members.Count.ToString())).ToList();
+                    if (hasOverloads)
+                        view.ConstructorSummaryRowsWithOverloads = rows;
+                    else
+                        view.ConstructorSummaryRows = rows;
+                    break;
+                }
+                case "method":
+                {
+                    var rows = byName.Select(e =>
+                        new MethodSummaryRow(
+                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            SignatureParser.ExtractReturnType(e.members[0].Signature),
+                            e.members.Count.ToString())).ToList();
+                    if (hasOverloads)
+                        view.MethodSummaryRowsWithOverloads = rows;
+                    else
+                        view.MethodSummaryRows = rows;
+                    break;
+                }
+                case "property":
+                {
+                    var rows = byName.Select(e =>
+                    {
+                        var m = e.members[0];
+                        return new PropertySummaryRow(
+                            m.Name,
+                            SignatureParser.ExtractReturnType(m.Signature),
+                            SignatureParser.ExtractAccessors(m.Signature));
+                    }).ToList();
+                    view.PropertySummaryRows = rows;
+                    break;
+                }
+                case "field":
+                {
+                    var rows = byName.Select(e =>
+                        new FieldSummaryRow(e.members[0].Name, e.members[0].ReturnType ?? "")).ToList();
+                    view.FieldSummaryRows = rows;
+                    break;
+                }
+                case "event":
+                {
+                    var rows = byName.Select(e =>
+                    {
+                        var m = e.members[0];
+                        return new EventSummaryRow(m.Name, m.ReturnType ?? m.Signature ?? "");
+                    }).ToList();
+                    view.EventSummaryRows = rows;
+                    break;
+                }
             }
         }
 

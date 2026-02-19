@@ -95,46 +95,30 @@ public class SectionRegistryTests
     public void Resolve_UnknownSection_ReturnsNullWithError()
     {
         var requested = new HashSet<string> { "NotReal" };
-
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var result = SectionRegistry.Resolve(TestSections, requested, out var hasError);
 
-            Assert.Null(result);
-            Assert.True(hasError);
+        var result = SectionRegistry.Resolve(TestSections, requested, out var hasError, stderr);
 
-            var output = stderr.ToString();
-            Assert.Contains("Unknown section: NotReal", output);
-            Assert.Contains("Available sections:", output);
-            Assert.Contains("Library Info", output);
-        }
-        finally
-        {
-            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
-        }
+        Assert.Null(result);
+        Assert.True(hasError);
+
+        var output = stderr.ToString();
+        Assert.Contains("Unknown section: NotReal", output);
+        Assert.Contains("Available sections:", output);
+        Assert.Contains("Library Info", output);
     }
 
     [Fact]
     public void Resolve_MixedValidAndInvalid_ReportsOnlyInvalid()
     {
         var requested = new HashSet<string> { "Symbols", "FakeSection" };
-
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var result = SectionRegistry.Resolve(TestSections, requested, out var hasError);
 
-            Assert.Null(result);
-            Assert.True(hasError);
-            Assert.Contains("FakeSection", stderr.ToString());
-        }
-        finally
-        {
-            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
-        }
+        var result = SectionRegistry.Resolve(TestSections, requested, out var hasError, stderr);
+
+        Assert.Null(result);
+        Assert.True(hasError);
+        Assert.Contains("FakeSection", stderr.ToString());
     }
 
     [Fact]
