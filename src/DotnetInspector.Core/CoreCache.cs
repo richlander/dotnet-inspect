@@ -87,6 +87,28 @@ public static class CoreCache
     }
 
     /// <summary>
+    /// Tries to read cached content as raw bytes with a maximum age.
+    /// Returns null if the entry is missing or older than <paramref name="maxAge"/>.
+    /// </summary>
+    public static byte[]? TryGetBytes(string category, string key, TimeSpan maxAge, string extension = "json")
+    {
+        var path = GetFilePath(category, key, extension);
+        try
+        {
+            var info = new FileInfo(path);
+            if (info.Exists && (DateTime.UtcNow - info.LastWriteTimeUtc) < maxAge)
+            {
+                return File.ReadAllBytes(path);
+            }
+        }
+        catch
+        {
+            // Best-effort
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Tries to read cached content with a maximum age. Returns null if the entry
     /// is missing or older than <paramref name="maxAge"/>.
     /// </summary>
