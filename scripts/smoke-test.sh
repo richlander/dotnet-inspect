@@ -53,11 +53,11 @@ run_test "help flag" $TOOL_NAME --help || FAILED=$((FAILED + 1))
 # Package command
 run_test "package info (quiet)" $TOOL_NAME System.Text.Json 10.0.0 -v:q || FAILED=$((FAILED + 1))
 run_test "package info (normal)" $TOOL_NAME System.Text.Json 10.0.0 || FAILED=$((FAILED + 1))
-run_test_output "package versions" "10.0" $TOOL_NAME System.Text.Json --versions -n 5 || FAILED=$((FAILED + 1))
+run_test_output "package versions" "10.0" $TOOL_NAME System.Text.Json --versions 5 || FAILED=$((FAILED + 1))
 
 # API command
-run_test "api types list" $TOOL_NAME api --package System.Text.Json@10.0.0 -n 5 || FAILED=$((FAILED + 1))
-run_test_output "api type details" "Serialize" $TOOL_NAME api JsonSerializer --package System.Text.Json@10.0.0 -n 5 || FAILED=$((FAILED + 1))
+run_test "api types list" $TOOL_NAME type --package System.Text.Json@10.0.0 -t 5 || FAILED=$((FAILED + 1))
+run_test_output "api type details" "Serialize" $TOOL_NAME member JsonSerializer --package System.Text.Json@10.0.0 -m 5 || FAILED=$((FAILED + 1))
 
 # Assembly command
 run_test "assembly info" $TOOL_NAME assembly --package System.Text.Json@10.0.0 --tfm net10.0 || FAILED=$((FAILED + 1))

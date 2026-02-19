@@ -94,6 +94,19 @@ public static class CommandLineBuilder
             }
         }
 
+        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
+        if (HeadLines == null)
+        {
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
+                {
+                    HeadLines = n;
+                    break;
+                }
+            }
+        }
+
         // Find the first positional argument, skipping any leading options
         int firstPositional = -1;
         for (int i = 0; i < args.Length; i++)
@@ -137,7 +150,7 @@ public static class CommandLineBuilder
         var verbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
         var includeSectionsOption = new Option<string?>("-s") { Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.", Arity = ArgumentArity.ZeroOrOne };
         var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)" };
-        var limitOption = new Option<int?>("-n") { Description = "Limit number of results" };
+        var limitOption = new Option<int?>("-n") { Description = "Limit output lines (like head -n)" };
         var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         tipsOption.Aliases.Add("-T");
 
@@ -736,6 +749,9 @@ public static class CommandLineBuilder
         extCommand.Options.Add(tfmOption);
         extCommand.Options.Add(allOption);
         extCommand.Options.Add(limitOption);
+        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
+        extCommand.Options.Add(typeFilterOption);
         extCommand.Options.Add(jsonOption);
         extCommand.Options.Add(compactOption);
         extCommand.Options.Add(packagePrefixOption);
@@ -813,7 +829,7 @@ public static class CommandLineBuilder
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = parseResult.GetValue(limitOption),
+                Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(verboseOption),
@@ -877,6 +893,8 @@ public static class CommandLineBuilder
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
@@ -889,6 +907,7 @@ public static class CommandLineBuilder
         findCommand.Options.Add(tfmOption);
         findCommand.Options.Add(allOption);
         findCommand.Options.Add(limitOption);
+        findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(jsonOption);
         findCommand.Options.Add(compactOption);
         findCommand.Options.Add(oneLineOption);
@@ -971,7 +990,7 @@ public static class CommandLineBuilder
                 BinPaths = binPaths,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = parseResult.GetValue(limitOption),
+                Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
@@ -1157,6 +1176,9 @@ public static class CommandLineBuilder
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
         implCommand.Options.Add(limitOption);
+        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
+        implCommand.Options.Add(typeFilterOption);
         implCommand.Options.Add(jsonOption);
         implCommand.Options.Add(compactOption);
         implCommand.Options.Add(oneLineOption);
@@ -1234,7 +1256,7 @@ public static class CommandLineBuilder
                 PlatformFrameworks = frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = parseResult.GetValue(limitOption),
+                Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
@@ -1277,7 +1299,8 @@ public static class CommandLineBuilder
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
         var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --files or --layout)" };
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --files or --layout)" };
-        var versionsOption = new Option<bool>("--versions") { Description = "List available versions from nuget.org" };
+        var versionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
+        versionsOption.DefaultValueFactory = _ => null;
         var prereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
         prereleaseOption.Aliases.Add("--prerelease");
         var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
@@ -1319,8 +1342,11 @@ public static class CommandLineBuilder
             var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
             var explicitVersion = parseResult.GetValue(versionOption);
 
-            // Bare --version (no value): treat as --versions -n 1
+            // Bare --version (no value): treat as --versions 1
             bool bareVersion = explicitVersion == null && parseResult.GetResult(versionOption) is { Implicit: false };
+
+            var versionsValue = parseResult.GetValue(versionsOption);
+            bool showVersions = bareVersion || parseResult.GetResult(versionsOption) is { Implicit: false };
 
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
 
@@ -1335,11 +1361,11 @@ public static class CommandLineBuilder
                 ListTfms = parseResult.GetValue(tfmsOption),
                 ScopeLib = parseResult.GetValue(libOption),
                 ScopeTools = parseResult.GetValue(toolsOption),
-                ListVersions = bareVersion || parseResult.GetValue(versionsOption),
+                ListVersions = showVersions,
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 ShowReadme = parseResult.GetValue(readmeOption),
                 OutputPath = parseResult.GetValue(outOption),
-                Limit = bareVersion ? 1 : parseResult.GetValue(limitOption),
+                Limit = bareVersion ? 1 : versionsValue,
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = verbosity,
@@ -1485,7 +1511,8 @@ public static class CommandLineBuilder
         routerCommand.Options.Add(routerVersionOption);
         var routerLatestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest version from nuget.org" };
         routerCommand.Options.Add(routerLatestVersionOption);
-        var routerVersionsOption = new Option<bool>("--versions") { Description = "List available versions" };
+        var routerVersionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
+        routerVersionsOption.DefaultValueFactory = _ => null;
         routerCommand.Options.Add(routerVersionsOption);
 
         routerCommand.SetAction(async (parseResult, ct) =>
@@ -1543,7 +1570,8 @@ public static class CommandLineBuilder
             // Skip platform probing for version queries (NuGet package operations)
             bool showVersion = parseResult.GetValue(routerVersionOption);
             bool showLatestVersion = parseResult.GetValue(routerLatestVersionOption);
-            bool showVersions = parseResult.GetValue(routerVersionsOption);
+            var routerVersionsValue = parseResult.GetValue(routerVersionsOption);
+            bool showVersions = parseResult.GetResult(routerVersionsOption) is { Implicit: false };
             bool isVersionQuery = showVersion || showLatestVersion || showVersions;
             if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
             {
@@ -1688,7 +1716,7 @@ public static class CommandLineBuilder
             {
                 PackageArgs = useBareName ? [bareName] : packageArgs,
                 ListVersions = showLatestVersion || showVersions,
-                Limit = showLatestVersion ? 1 : parseResult.GetValue(limitOption),
+                Limit = showLatestVersion ? 1 : routerVersionsValue,
                 JsonOutput = parseResult.GetValue(jsonOption),
                 Verbose = parseResult.GetValue(verboseOption),
                 Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
@@ -2026,6 +2054,15 @@ public static class CommandLineBuilder
                 }
             }
 
+            var typeFilterValue = parseResult.GetValue(typeFilterOption);
+            int? typeLimit = null;
+            string? typeFilter = typeFilterValue;
+            if (typeFilterValue != null && int.TryParse(typeFilterValue, out var tNum))
+            {
+                typeLimit = tNum;
+                typeFilter = null;
+            }
+
             var options = new ApiOptions
             {
                 TypeName = typeName,
@@ -2035,9 +2072,9 @@ public static class CommandLineBuilder
                 PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                TypeFilter = parseResult.GetValue(typeFilterOption),
+                TypeFilter = typeFilter,
                 MemberFilter = [],
-                Limit = parseResult.GetValue(limitOption),
+                Limit = typeLimit,
                 ShowDocs = false,  // Type command: docs off by default
                 DocsExplicitlySet = false,
                 SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
@@ -2286,9 +2323,15 @@ public static class CommandLineBuilder
                 shorthandIndex = 1;
 
             HashSet<string> memberFilter = [];
+            int? memberLimit = null;
             if (ctorOnly)
             {
                 memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
+            }
+            else if (allMembers.Length == 1 && int.TryParse(allMembers[0], out var mNum))
+            {
+                memberLimit = mNum;
+                shorthandIndex = null;
             }
             else if (allMembers.Length > 0)
             {
@@ -2315,7 +2358,7 @@ public static class CommandLineBuilder
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 MemberFilter = memberFilter,
-                Limit = parseResult.GetValue(limitOption),
+                Limit = memberLimit,
                 ShowDocs = showDocs || parseResult.GetValue(useLocalDocsOption),
                 DocsExplicitlySet = docsExplicitlySet,
                 UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
@@ -2360,6 +2403,12 @@ public static class CommandLineBuilder
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
         => OptionParsers.ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
+
+    /// <summary>
+    /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
+    /// </summary>
+    internal static int? ParseTypeLimit(string? value)
+        => value != null && int.TryParse(value, out var n) ? n : null;
 
     /// <summary>
     /// Classifies a positional argument by file extension.

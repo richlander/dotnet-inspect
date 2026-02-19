@@ -186,13 +186,13 @@ jobs:
 
       - name: Smoke test - type command
         run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -n 5 > smoke-type.md
+          dotnet-inspect type --package System.Text.Json@10.0.0 -t 5 > smoke-type.md
           cat smoke-type.md
           grep -q "JsonSerializer" smoke-type.md
 
       - name: Smoke test - member command
         run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -n 5 > smoke-member.md
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m 5 > smoke-member.md
           cat smoke-member.md
           grep -q "JsonSerializer" smoke-member.md
           grep -q "Serialize" smoke-member.md
