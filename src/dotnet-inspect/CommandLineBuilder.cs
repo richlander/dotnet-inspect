@@ -15,6 +15,12 @@ namespace DotnetInspector;
 public static class CommandLineBuilder
 {
     /// <summary>
+    /// When the -NN shorthand is used (e.g. -30), stores the line limit.
+    /// Regular -n N does not set this — only the shorthand triggers line limiting.
+    /// </summary>
+    public static int? HeadLines { get; private set; }
+
+    /// <summary>
     /// Known commands for implicit package command detection.
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -76,12 +82,26 @@ public static class CommandLineBuilder
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
     {
+        // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
+                && int.TryParse(args[i].AsSpan(1), out var headN))
+            {
+                HeadLines = headN;
+                args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
+                break;
+            }
+        }
+
         // Find the first positional argument, skipping any leading options
         int firstPositional = -1;
         for (int i = 0; i < args.Length; i++)
         {
             if (!args[i].StartsWith('-'))
             {
+                // Skip the value token that follows -n (it's a number, not a command)
+                if (i > 0 && args[i - 1] == "-n") continue;
                 firstPositional = i;
                 break;
             }
@@ -161,23 +181,23 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(memberCommand);
 
         // Assembly command
-        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(assemblyCommand);
 
         // Cache command
-        var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption, tipsOption);
+        var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption, tipsOption, limitOption);
         rootCommand.Subcommands.Add(cacheCommand);
 
         // Demo command
-        var demoCommand = CreateDemoCommand(rootCommand);
+        var demoCommand = CreateDemoCommand(rootCommand, limitOption);
         rootCommand.Subcommands.Add(demoCommand);
 
         // Diff command
-        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(diffCommand);
 
         // Depends command
-        var dependsCommand = CreateDependsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var dependsCommand = CreateDependsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(dependsCommand);
 
         // Extensions command
@@ -201,7 +221,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(routerCommand);
 
         // Samples command
-        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, tipsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
         rootCommand.Subcommands.Add(samplesCommand);
 
         // CLI command (meta command)
@@ -209,6 +229,7 @@ public static class CommandLineBuilder
         var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
         schemaCommand.Arguments.Add(schemaCommandArg);
         schemaCommand.Options.Add(verbosityOption);
+        schemaCommand.Options.Add(limitOption);
         schemaCommand.SetAction((parseResult) =>
         {
             var commandFilter = parseResult.GetValue(schemaCommandArg);
@@ -219,10 +240,12 @@ public static class CommandLineBuilder
 
         // LLMs.txt command (meta command, listed last)
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
+        llmsTxtCommand.Options.Add(limitOption);
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
 
         var skillCommand = new Command("skill", "Show skill definition");
+        skillCommand.Options.Add(limitOption);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
 
@@ -285,7 +308,7 @@ public static class CommandLineBuilder
         return rootCommand;
     }
 
-    private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption, Option<string?> tipsOption)
+    private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption, Option<string?> tipsOption, Option<int?> limitOption)
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
 
@@ -295,6 +318,7 @@ public static class CommandLineBuilder
         cacheCommand.Options.Add(verboseOption);
         cacheCommand.Options.Add(verbosityOption);
         cacheCommand.Options.Add(tipsOption);
+        cacheCommand.Options.Add(limitOption);
 
         cacheCommand.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -309,12 +333,13 @@ public static class CommandLineBuilder
         return cacheCommand;
     }
 
-    private static Command CreateDemoCommand(RootCommand rootCommand)
+    private static Command CreateDemoCommand(RootCommand rootCommand, Option<int?> limitOption)
     {
         var demoCommand = new Command("demo", "Run curated demo queries that showcase the tool");
 
         var feelingLuckyOption = new Option<bool>("--feeling-lucky") { Description = "Pick a random demo and run it" };
         demoCommand.Options.Add(feelingLuckyOption);
+        demoCommand.Options.Add(limitOption);
 
         var indexArg = new Argument<int?>("index")
         {
@@ -360,6 +385,7 @@ public static class CommandLineBuilder
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
         Option<string?> tipsOption,
+        Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -413,6 +439,7 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(verboseOption);
         diffCommand.Options.Add(verbosityOption);
         diffCommand.Options.Add(tipsOption);
+        diffCommand.Options.Add(limitOption);
         diffCommand.Options.Add(sourceOption);
         diffCommand.Options.Add(addSourceOption);
         diffCommand.Options.Add(nugetConfigOption);
@@ -524,6 +551,7 @@ public static class CommandLineBuilder
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
         Option<string?> tipsOption,
+        Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -569,6 +597,7 @@ public static class CommandLineBuilder
         dependsCommand.Options.Add(addSourceOption);
         dependsCommand.Options.Add(nugetConfigOption);
         dependsCommand.Options.Add(tipsOption);
+        dependsCommand.Options.Add(limitOption);
 
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
@@ -980,6 +1009,7 @@ public static class CommandLineBuilder
         Option<bool> verboseOption,
         Option<string?> verbosityOption,
         Option<string?> tipsOption,
+        Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -1020,6 +1050,7 @@ public static class CommandLineBuilder
         samplesCommand.Options.Add(addSourceOption);
         samplesCommand.Options.Add(nugetConfigOption);
         samplesCommand.Options.Add(tipsOption);
+        samplesCommand.Options.Add(limitOption);
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1280,7 +1311,7 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(nugetConfigOption);
 
         // Search subcommand
-        var searchCommand = CreatePackageSearchCommand(jsonOption, verboseOption);
+        var searchCommand = CreatePackageSearchCommand(jsonOption, verboseOption, limitOption);
         packageCommand.Subcommands.Add(searchCommand);
 
         packageCommand.SetAction(async (parseResult, ct) =>
@@ -1353,7 +1384,8 @@ public static class CommandLineBuilder
 
     private static Command CreatePackageSearchCommand(
         Option<bool> jsonOption,
-        Option<bool> verboseOption)
+        Option<bool> verboseOption,
+        Option<int?> limitOption)
     {
         var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
 
@@ -1378,6 +1410,7 @@ public static class CommandLineBuilder
         searchCommand.Options.Add(jsonOption);
         searchCommand.Options.Add(compactOption);
         searchCommand.Options.Add(verboseOption);
+        searchCommand.Options.Add(limitOption);
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1665,6 +1698,7 @@ public static class CommandLineBuilder
         Option<string?> tipsOption,
         Option<string?> includeSectionsOption,
         Option<string?> excludeSectionsOption,
+        Option<int?> limitOption,
         Option<string[]> sourceOption,
         Option<string[]> addSourceOption,
         Option<string?> nugetConfigOption)
@@ -1706,6 +1740,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(addSourceOption);
         assemblyCommand.Options.Add(nugetConfigOption);
         assemblyCommand.Options.Add(tipsOption);
+        assemblyCommand.Options.Add(limitOption);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
