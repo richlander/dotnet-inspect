@@ -325,7 +325,7 @@ public static class CommandLineBuilder
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
 
-        var cleanOption = new Option<bool>("--clean") { Description = "Clear the cache" };
+        var cleanOption = new Option<bool>("--clean", "--clear") { Hidden = true };
 
         cacheCommand.Options.Add(cleanOption);
         cacheCommand.Options.Add(verboseOption);
@@ -333,11 +333,26 @@ public static class CommandLineBuilder
         cacheCommand.Options.Add(tipsOption);
         cacheCommand.Options.Add(limitOption);
 
+        // Subcommand: clear
+        var clearCommand = new Command("clear", "Clear the cache");
+        clearCommand.SetAction(async (parseResult, cancellationToken) =>
+        {
+            var options = new CacheOptions(Clean: true, Verbose: false);
+            return await CacheCommand.ExecuteAsync(options);
+        });
+        cacheCommand.Subcommands.Add(clearCommand);
+
         cacheCommand.SetAction(async (parseResult, cancellationToken) =>
         {
+            var clean = parseResult.GetValue(cleanOption);
+            if (clean)
+            {
+                Console.Error.WriteLine("hint: use 'dotnet-inspect cache clear' instead of --clean/--clear");
+            }
+
             var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
             var options = new CacheOptions(
-                Clean: parseResult.GetValue(cleanOption),
+                Clean: clean,
                 Verbose: parseResult.GetValue(verboseOption) || verbosity >= Verbosity.Detailed);
 
             return await CacheCommand.ExecuteAsync(options);
