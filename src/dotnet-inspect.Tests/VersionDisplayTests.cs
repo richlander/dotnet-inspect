@@ -161,7 +161,7 @@ public class VersionDisplayTests
         var inspection = new LibraryInspection
         {
             FileName = "System.Text.Json.dll", FileType = "dll", FileSize = 1024,
-            Source = "Platform (runtime)",
+            Source = SourceKind.Platform,
             PlatformVersion = version,
             AssemblyInfo = new AssemblyInfo
             {

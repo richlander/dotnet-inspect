@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -85,7 +86,7 @@ public class ApiCommand
                 }
                 var extracted = outcome.Result!;
                 (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
-                apiSource = "NuGet";
+                apiSource = SourceKind.NuGet;
                 apiVersion = packageVersion;
 
                 if (!string.IsNullOrEmpty(options.Tfm))
@@ -124,7 +125,7 @@ public class ApiCommand
                     return 1;
                 }
                 searchPath = options.AssemblyPath;
-                apiSource = "Library";
+                apiSource = SourceKind.Library;
             }
             else if (!string.IsNullOrEmpty(options.PlatformAssembly))
             {
@@ -141,7 +142,7 @@ public class ApiCommand
                 }
 
                 searchPath = assemblyPath!;
-                apiSource = $"Platform ({framework})";
+                apiSource = SourceKind.Platform;
                 apiVersion = version;
                 logger.Log($"Using platform ref library: {framework} {version}");
 
@@ -170,7 +171,7 @@ public class ApiCommand
             string? selectedTfm = null;
 
             // Derive TFM for platform assemblies from the version
-            if (apiSource?.StartsWith("Platform") == true && apiVersion != null)
+            if (apiSource == SourceKind.Platform && apiVersion != null)
             {
                 var dotIndex = apiVersion.IndexOf('.');
                 if (dotIndex > 0)
