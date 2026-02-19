@@ -767,6 +767,81 @@ public static class ApiOutputFormatter
         return index >= 0 ? index : MemberKinds.Length;
     }
 
+    // ===== One-Line View Builders =====
+
+    /// <summary>
+    /// Builds a unified one-line view for a single type's members.
+    /// All member kinds are merged into one table with a Kind column.
+    /// </summary>
+    internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
+    {
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        if (grouped.Count == 0) return (new ApiTypeOneLineView(), 0);
+
+        var allEntries = grouped
+            .OrderBy(g => GetMemberSortOrder(g.Key))
+            .SelectMany(kindGroup =>
+                kindGroup.Value
+                    .GroupBy(m => m.Name)
+                    .OrderBy(g => g.Key)
+                    .Select(g => (kind: kindGroup.Key, members: g.ToList()))
+            )
+            .ToList();
+
+        int truncated = 0;
+        if (options.Limit.HasValue && options.Limit.Value < allEntries.Count)
+        {
+            truncated = allEntries.Count - options.Limit.Value;
+            allEntries = allEntries.Take(options.Limit.Value).ToList();
+        }
+
+        var rows = allEntries.Select(e =>
+        {
+            var m = e.members[0];
+            var returnType = e.kind switch
+            {
+                "constructor" => "",
+                "event" => m.ReturnType ?? m.Signature ?? "",
+                _ => SignatureParser.ExtractReturnType(m.Signature)
+            };
+            var detail = e.kind switch
+            {
+                "property" => SignatureParser.ExtractAccessors(m.Signature),
+                "constructor" or "method" => e.members.Count > 1 ? e.members.Count.ToString() : "",
+                _ => ""
+            };
+            return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
+        }).ToList();
+
+        return (new ApiTypeOneLineView { Rows = rows }, truncated);
+    }
+
+    /// <summary>
+    /// Builds a unified one-line view for a full API surface (all types).
+    /// All type kinds are merged into one table with a Kind column.
+    /// </summary>
+    internal static (ApiSurfaceOneLineView view, int truncated) BuildSurfaceOneLineView(ApiSurface api, ApiOptions options)
+    {
+        int truncated = 0;
+        var types = api.Types;
+        if (options.Limit.HasValue && options.Limit.Value < types.Count)
+        {
+            truncated = types.Count - options.Limit.Value;
+            types = types.Take(options.Limit.Value).ToList();
+        }
+
+        var rows = types
+            .OrderBy(t => GetTypeKindSortOrder(t.Kind))
+            .ThenBy(t => t.FullName)
+            .Select(t => new ApiSurfaceOneLineRow(
+                t.Kind,
+                FormatGenericFullName(t),
+                t.Members.Count.ToString()))
+            .ToList();
+
+        return (new ApiSurfaceOneLineView { Rows = rows }, truncated);
+    }
+
     private static int GetTypeKindSortOrder(string kind) => kind switch
     {
         "class" => 0,

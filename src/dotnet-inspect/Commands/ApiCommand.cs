@@ -624,8 +624,9 @@ public class ApiCommand
 
         if (options.OneLine)
         {
+            var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
             var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
-            new MarkoutContext().Serialize(view, writer);
+            new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
         {
@@ -812,8 +813,9 @@ public class ApiCommand
 
         if (options.OneLine)
         {
+            var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
             var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
-            new MarkoutContext().Serialize(view, writer);
+            new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
         {
