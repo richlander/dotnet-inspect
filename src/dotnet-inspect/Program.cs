@@ -57,6 +57,13 @@ if (args.Length == 1 && args[0] == "--version")
     return 0;
 }
 
+// Handle --flavor to show build type (CoreCLR or NativeAOT)
+if (args.Length == 1 && args[0] == "--flavor")
+{
+    Console.WriteLine(VersionInfo.Flavor);
+    return 0;
+}
+
 // Pre-process args for implicit package command (also expands -NN → -n NN)
 args = CommandLineBuilder.PreprocessArgs(args);
 
