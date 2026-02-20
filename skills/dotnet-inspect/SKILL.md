@@ -60,7 +60,7 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 - **(no flags)** — platform frameworks + Microsoft.Extensions.AI
 - **`--platform`** — all platform frameworks
 - **`--extensions`** — curated Microsoft.Extensions.* packages
-- **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages 
+- **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages
 - **`--package Foo`** — specific NuGet package (combinable with scope flags)
 
 `type`, `member`, `library`, `diff` accept `--platform <name>` as a string for a specific platform library.
