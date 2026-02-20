@@ -157,7 +157,7 @@ No extension methods found.
 
 ## 6. Platform-scoped extensions
 
-> Goal: The `--platform` flag searches all platform frameworks (runtime, aspnetcore, netstandard).
+> Goal: The `--platform` flag searches all platform frameworks (runtime, ASP.NET Core, netstandard).
 
 ```bash
 dotnet-inspect extensions IServiceCollection --platform -v:q

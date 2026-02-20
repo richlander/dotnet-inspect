@@ -135,7 +135,6 @@
 | `--project` scope | acef0e1 | 0.2.x | Search project dependencies |
 | `--bin` scope | acef0e1 | 0.2.x | Search build output directory |
 | `--extensions` scope | 55f2ecf | 0.2.x | Search Microsoft.Extensions.* packages |
-| `--aspnetcore` scope | — | 0.2.x | Search Microsoft.AspNetCore.* packages |
 | `--package-prefix` | — | 0.2.x | Search packages by ID prefix |
 | `--reachable` flag | b635e4b | 0.2.x | Include reachable type extensions |
 | `--hierarchy` flag | a98eb01 | 0.2.x | Show type hierarchy |

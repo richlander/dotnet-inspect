@@ -143,16 +143,15 @@ Search commands support scope flags to control where to search:
 | Flag | What it searches |
 | ---- | ---------------- |
 | *(no flags)* | Default scope (all platform frameworks + Microsoft.Extensions.AI) |
-| `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
+| `--platform` | All platform frameworks (runtime, ASP.NET Core, netstandard) |
 | `--extensions` | Curated Microsoft.Extensions.* NuGet packages |
-| `--aspnetcore` | Curated Microsoft.AspNetCore.* NuGet packages |
 
 ```bash
 # Search all platform frameworks
 dnx dotnet-inspect -y -- find "*Logger*" --platform
 
-# Search ASP.NET Core packages
-dnx dotnet-inspect -y -- find "*Controller*" --aspnetcore
+# Search ASP.NET Core types (included in --platform)
+dnx dotnet-inspect -y -- find "*Controller*" --platform
 ```
 
 ## When to Use Each

@@ -322,7 +322,7 @@ dotnet-inspect find HttpClient                           # Search default scope 
 dotnet-inspect find "*Stream*" -n 10                     # Glob pattern, limit results
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
 dotnet-inspect find "*Serializer*" --package System.Text.Json --package Newtonsoft.Json  # Multiple packages
-dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
+dotnet-inspect find ILogger --platform                   # All platform frameworks (includes ASP.NET Core)
 dotnet-inspect find "ChatClient*" --oneline                # Search default scope, columnar output
 dotnet-inspect find "*Logger*" --platform                # All platform frameworks
 dotnet-inspect find "*Host*" --extensions                # Microsoft.Extensions packages
@@ -340,9 +340,8 @@ dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --
 | Scope | Description |
 | ----- | ----------- |
 | (none) | Default scope (all platform frameworks + Microsoft.Extensions.AI) |
-| `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
+| `--platform` | All platform frameworks (runtime, ASP.NET Core, netstandard) |
 | `--extensions` | Curated Microsoft.Extensions.* packages |
-| `--aspnetcore` | Curated Microsoft.AspNetCore.* packages |
 | `--package` | NuGet package (name or name@version). Repeatable. |
 | `--package-prefix` | All packages matching a NuGet ID prefix (e.g., `Azure.AI`). Resolves via search. |
 | `--library` | Local library file |
@@ -517,7 +516,6 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--package-prefix` | All packages matching NuGet ID prefix | find, extensions, implements |
 | `--platform` | Platform library source (string) / all platform frameworks (bool) | type, member, library, diff (string) / find, extensions, implements, depends (bool) |
 | `--extensions` | Curated Microsoft.Extensions.* packages | find, extensions, implements, depends |
-| `--aspnetcore` | Curated Microsoft.AspNetCore.* packages | find, extensions, implements, depends |
 | `--library` | Local library file | type, member, find, extensions, implements |
 | `--tfm net8.0` | Select target framework | package, library, type, member, extensions |
 | `-t Pattern` | Filter types by glob pattern | type |
@@ -564,7 +562,6 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--package-prefix` | — | — | ✓ | ✓ | ✓ | — | — | — | — |
 | `--platform` | ✓ (string) | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
 | `--extensions` | — | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
-| `--aspnetcore` | — | — | ✓ | ✓ | ✓ | ✓ | — | — | — |
 | `--library` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
 | `--framework` | ✓ | ✓ | — | — | — | — | ✓ | ✓ | — |
 | `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
