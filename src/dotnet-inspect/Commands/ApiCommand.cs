@@ -364,7 +364,7 @@ public class ApiCommand
                         int idx = options.OverloadIndex.Value;
                         if (idx < 1 || idx > overloads.Count)
                         {
-                            Console.Error.WriteLine($"Error: {memberName}:{idx} is out of range. {memberName} has {overloads.Count} overload(s).");
+                            Console.Error.WriteLine($"Error: {memberName}:{idx} is out of range. Use {memberName}:1 through {memberName}:{overloads.Count}.");
                             return 1;
                         }
 
