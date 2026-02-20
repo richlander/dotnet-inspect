@@ -27,7 +27,7 @@ Build the main project:
 dotnet build src/dotnet-inspect -c Release
 ```
 
-Tests use **xunit v3** with `OutputType Exe`. Run them with `dotnet run`, not `dotnet test`:
+**IMPORTANT: Tests use xunit v3 with `OutputType Exe`. You MUST use `dotnet run`, NOT `dotnet test`. Using `dotnet test` will silently produce no output.**
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests -c Release
