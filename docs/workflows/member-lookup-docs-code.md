@@ -1,0 +1,394 @@
+---
+id: member-lookup-docs-code
+description: Look up type members with documentation and source code
+commands: [member, samples]
+areas: [members, documentation, source, decompilation, nullability, overloads]
+---
+
+# Member Lookup with Docs and Code
+
+> Drill into type members to see documentation, source code, and decompiled IL. The `member` command shows docs by default and can decompile to original source (via SourceLink), lowered C#, and IL. Use overload addressing (`Name:N`) to target specific overloads.
+
+## Preconditions
+
+Named isolated session ensures reproducible results (no shared state, no NuGet cache).
+
+```bash
+export DOTNET_INSPECT_ISOLATED=member-lookup
+```
+
+```bash
+dotnet-inspect cache clear
+```
+
+Prime the cache with test packages:
+
+```bash
+dotnet-inspect System.CommandLine@2.0.3 -v:q
+```
+
+```bash
+dotnet-inspect Microsoft.Extensions.Options@10.0.2 -v:q
+```
+
+```bash
+dotnet-inspect System.Collections@4.3.0 -v:q
+```
+
+## 1. List all members of a type
+
+> Goal: See all public members with their signatures.
+
+### 1a. Default verbosity
+
+```bash
+dotnet-inspect member --package System.CommandLine Command
+```
+
+```expect
+# System.CommandLine.Command
+## Constructors
+## Properties
+## Methods
+```
+
+```expect-not
+Tips:
+```
+
+```query
+grep -c '| ---- |'
+```
+
+### 1b. Quiet mode (summary only)
+
+```bash
+dotnet-inspect member --package System.CommandLine Command -v:q
+```
+
+```expect
+# System.CommandLine.Command
+Kind: class
+Properties: 8
+Methods: 10
+```
+
+```expect-not
+## Constructors
+Tips:
+```
+
+### 1c. Detailed verbosity (with descriptions)
+
+```bash
+dotnet-inspect member --package System.CommandLine Command -v:d
+```
+
+```expect
+| Name | Signature | Description |
+Represents a specific action
+Initializes a new instance
+```
+
+```expect-not
+Tips:
+```
+
+## 2. Filter members by name
+
+> Goal: Show only members matching a specific name (including all overloads).
+
+### 2a. Using positional member name
+
+```bash
+dotnet-inspect member --package System.CommandLine Command SetAction
+```
+
+```expect
+# System.CommandLine.Command
+## Methods
+SetAction
+```
+
+```expect-not
+Add
+Parse
+Tips:
+```
+
+### 2b. Using `-m` flag with glob
+
+```bash
+dotnet-inspect member System.Text.Json JsonSerializer -m 'Deseri*' -v:q
+```
+
+```expect
+# System.Text.Json.JsonSerializer
+Methods: 1
+```
+
+```expect-not
+Serialize
+Tips:
+```
+
+## 3. View member source code
+
+> Goal: When selecting a specific member, see original source (via SourceLink), lowered C#, and IL.
+
+### 3a. Single member (no overloads)
+
+```bash
+dotnet-inspect member --package System.CommandLine Command Add -n 30
+```
+
+```expect
+## Source
+public void Add(Argument argument)
+## Lowered C#
+```
+
+```expect-not
+Tips:
+```
+
+### 3b. Member with overloads (first overload)
+
+```bash
+dotnet-inspect member --package System.CommandLine Command SetAction:1 -n 30
+```
+
+```expect
+## Source
+public void SetAction(Action<ParseResult> action)
+```
+
+```expect-not
+Tips:
+```
+
+## 4. Select specific overload by index
+
+> Goal: Use `--select` to see overload indices, then use `Name:N` to target a specific one.
+
+### 4a. Show select column
+
+```bash
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --select -v:d -n 25
+```
+
+```expect
+## Constructors
+| Select | Name | Signature |
+.ctor:1
+.ctor:2
+```
+
+### 4b. Select constructor overload
+
+```bash
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -n 30
+```
+
+```expect
+## Source
+public OptionsFactory(IEnumerable<IConfigureOptions<TOptions>> setups
+```
+
+```expect-not
+Tips:
+```
+
+## 5. Select overload by parameter types
+
+> Goal: Use `--params` or `-of` to select a specific overload by its parameter types instead of by index.
+
+### 5a. Using `--params` for exact match
+
+```bash
+dotnet-inspect member --package System.CommandLine Command SetAction --params 'Action' -n 20
+```
+
+```expect
+## Source
+public void SetAction(Action<ParseResult> action)
+```
+
+### 5b. Using `-of` for first parameter type
+
+```bash
+dotnet-inspect member --package System.CommandLine Command SetAction -of Func -n 20
+```
+
+```expect
+## Source
+SetAction
+```
+
+## 6. View constructors only
+
+> Goal: Filter to constructors using `--ctor` shorthand.
+
+```bash
+dotnet-inspect member --package System.CommandLine Command --ctor -v:q
+```
+
+```expect
+# System.CommandLine.Command
+Constructors: 1
+```
+
+```expect-not
+## Methods
+Tips:
+```
+
+## 7. Platform library members
+
+> Goal: View members from platform assemblies (no `--package` needed for System.* in platform).
+
+### 6a. List members
+
+```bash
+dotnet-inspect member System.Text.Json JsonSerializer -v:q
+```
+
+```expect
+# System.Text.Json.JsonSerializer
+Kind: class
+Source: Platform
+Methods: 103
+```
+
+### 6b. Filter to specific method
+
+```bash
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 50
+```
+
+```expect
+# System.Text.Json.JsonSerializer
+## Methods
+Deserialize
+## Source
+```
+
+```expect-not
+Tips:
+```
+
+## 8. View IL disassembly
+
+> Goal: See raw IL with resolved tokens and annotated stack state.
+
+```bash
+dotnet-inspect member --package System.CommandLine Command SetAction:2 -n 60
+```
+
+```expect
+## IL
+IL_0000:
+call
+newobj
+```
+
+```expect
+## IL (Annotated)
+Block_0:
+```
+
+```expect-not
+Tips:
+```
+
+## 9. Suppress documentation
+
+> Goal: Use `--no-docs` to skip XML doc fetching for faster output.
+
+```bash
+dotnet-inspect member --package System.CommandLine Command -v:d --no-docs -n 30
+```
+
+```expect
+## Constructors
+| Name | Signature |
+```
+
+```expect-not
+| Description |
+```
+
+## 10. Generic type members
+
+> Goal: Address generic types using backtick notation or quoted names.
+
+### 9a. Using backtick notation
+
+```bash
+dotnet-inspect member --package Microsoft.Extensions.Options 'OptionsFactory`1' -v:q
+```
+
+```expect
+# Microsoft.Extensions.Options.OptionsFactory<TOptions>
+Kind: class
+```
+
+### 9b. Using quoted generic syntax
+
+```bash
+dotnet-inspect member --package System.Collections 'HashSet<T>' -v:q
+```
+
+```expect
+# System.Collections.Generic.HashSet<T>
+Kind: class
+Type Parameters: T
+```
+
+## 11. Nullability annotations in signatures
+
+> Goal: Member signatures include C# nullability annotations (`?` suffix) — verify they appear in shape and member views.
+
+### 10a. Nullable parameters in shape view
+
+```bash
+dotnet-inspect type --package System.CommandLine Command --shape -n 10
+```
+
+```expect
+void .ctor(string name, string? description = null)
+CommandLineAction? Action { get; set; }
+```
+
+### 10b. Nullable return types in member view
+
+```bash
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 10
+```
+
+```expect
+TValue?
+```
+
+## 12. Oneline output for scripting
+
+> Goal: Get columnar output suitable for piping to other tools.
+
+```bash
+dotnet-inspect member --package System.CommandLine Command --oneline --no-header -n 10
+```
+
+```expect
+constructor
+property
+method
+```
+
+```expect-not
+Tips:
+| Name |
+```
+
+```query
+wc -l | tr -d ' '
+```

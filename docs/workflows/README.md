@@ -22,27 +22,56 @@ After the workflow docs are in place, an agent can use the workflows as a smoke 
 
 Some of these tools are intended to be used as part of an agent workflows, like an MCP or a tool that is referenced in a skill. Much of their purpose is making an agent more capable and/or efficient. It would be very useful to validate any hypothesis of agent improvement. The scenarios can be used by an eval/judge harness to validate efficacy.
 
+## Front Matter
+
+Each workflow document begins with YAML front matter for discoverability and agent queries.
+
+```yaml
+---
+id: bare-name-routing
+description: How bare names route to platform vs NuGet
+commands: [type, package]
+areas: [routing, resolution]
+---
+```
+
+| Field | Purpose |
+| ----- | ------- |
+| `id` | Unique identifier for the workflow |
+| `description` | Brief summary (one line) |
+| `commands` | CLI commands exercised — agents can query "which workflows test the `type` command?" |
+| `areas` | Code areas or components — agents can query "which workflows apply to my routing change?" |
+
+This enables queries like: *"Before shipping, run all workflows where `areas` includes `routing`."*
+
 ## Structure
 
 The format uses plain Markdown with semantic code fences. Each document describes **user goals** (H2 headings) that someone — human or agent — would accomplish with the tool. When there are multiple ways to achieve the same goal, each **variant** is an H3 under the goal.
 
 ```text
-## Goal name                          ← H2: category of task
+## Preconditions                      ← H2: optional setup section (must be first)
+<bash blocks to establish state>
+
+## 1. Goal name                       ← H2: category of task (numbered)
 > Goal: description                   ← blockquote: why this matters
 
-### Variant name                      ← H3: one way to do it (optional)
+### 1a. Variant name                  ← H3: one way to do it (numbered)
 ```
+
+The optional **Preconditions** section runs setup commands before any scenarios — clearing caches, downloading packages, or establishing known state. It must appear before numbered goals.
+
+Goals and variants are numbered (1, 2, 3... and 1a, 1b, 2a...) to make them addressable in reports and discussions.
 
 Within each goal or variant, code fences define the executable scenario:
 
 - **`prompt`** — The natural language request an agent or user would make. Essential for eval systems; the H2/H3 headings are categories, not prompts.
+- **`setup`** — Commands to run before this specific scenario (scenario-level, unlike file-level Preconditions).
 - **`bash`** — The exact command to run.
 - **`expect`** — Substrings that must appear in stdout.
 - **`expect-not`** — Substrings that must NOT appear (stdout or stderr).
 - **`expect-error`** — Like `expect`, but command must exit nonzero.
 - **`expect-stderr`** — Substrings that must appear in stderr.
 - **`expect-not-stderr`** — Substrings that must NOT appear in stderr.
-- **`precondition`** — Setup command to run before the scenario.
 - **`query`** — Shell pipeline to extract a specific value from stdout.
 - **`perf`** — Latency and exit code constraints.
 
@@ -135,6 +164,16 @@ What public types are in System.Text.Json?
 ```
 ````
 
+### `setup` — scenario-level setup
+
+Commands to run before this specific scenario. Unlike file-level Preconditions (which run once), `setup` runs immediately before the `bash` command in its scenario.
+
+````markdown
+```setup
+dotnet-inspect cache clear
+```
+````
+
 ### `bash` — the command to run
 
 The exact `dotnet-inspect` invocation. Run it as-is.
@@ -198,16 +237,6 @@ Deprecated:
 ```
 ````
 
-### `precondition` — setup command to run before scenarios
-
-A command that must run first to establish the required state (e.g., downloading a package so it's cached). Not a test itself — just setup.
-
-````markdown
-```precondition
-dotnet-inspect System.CommandLine #this will cause package to download
-```
-````
-
 ### `query` — extraction pipeline
 
 A shell pipeline applied to stdout. Used to isolate a specific value for comparison. Useful for building dashboards or feeding results into other tools.
@@ -236,15 +265,17 @@ exit_code: 1
 
 ## Evaluation rules
 
-1. Parse the `prompt` block as the input request (for eval systems, this is what the agent receives).
-2. Run the `bash` block and capture stdout, stderr, and exit code.
-3. For each `expect` line, check that it appears as a substring in stdout.
-4. For each `expect-not` line, check that it does **not** appear in stdout or stderr.
-5. For each `expect-error` line, check that exit code ≠ 0 and the line appears in stdout+stderr.
-6. For each `expect-stderr` line, check that it appears as a substring in stderr.
-7. For each `expect-not-stderr` line, check that it does **not** appear in stderr.
-8. If a `query` block exists, pipe stdout through it and report the extracted value.
-9. If a `perf` block exists, compare wall-clock time against `max_ms` and exit code against `exit_code`.
+1. **Report tool version first**: Run `dotnet-inspect --version` and include the output in your report. This establishes which build was tested.
+2. Parse the `prompt` block as the input request (for eval systems, this is what the agent receives).
+3. If a `setup` block exists, run it first to establish scenario state.
+4. Run the `bash` block and capture stdout, stderr, and exit code.
+5. For each `expect` line, check that it appears as a substring in stdout.
+6. For each `expect-not` line, check that it does **not** appear in stdout or stderr.
+7. For each `expect-error` line, check that exit code ≠ 0 and the line appears in stdout+stderr.
+8. For each `expect-stderr` line, check that it appears as a substring in stderr.
+9. For each `expect-not-stderr` line, check that it does **not** appear in stderr.
+10. If a `query` block exists, pipe stdout through it and report the extracted value.
+11. If a `perf` block exists, compare wall-clock time against `max_ms` and exit code against `exit_code`.
 
 Commands are expected to exit 0 unless `expect-error` is used.
 
