@@ -74,7 +74,7 @@ public static class NullabilityReader
     /// Sequence 0 = return type, 1+ = parameters.
     /// </summary>
     public static byte[]? GetParameterNullableBytes(
-        MetadataReader reader, List<ParameterHandle> paramHandles, int sequenceNumber)
+        MetadataReader reader, ParameterHandleCollection paramHandles, int sequenceNumber)
     {
         foreach (var handle in paramHandles)
         {
