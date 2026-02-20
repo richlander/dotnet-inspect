@@ -263,26 +263,15 @@ exit_code: 1
 | `max_ms` | Maximum wall-clock time in milliseconds (warm, steady-state) |
 | `exit_code` | Expected exit code (default: 0 if omitted) |
 
-## Evaluation rules
+## Running and evaluating workflows
 
-1. **Report tool version first**: Run `dotnet-inspect --version` and include the output in your report. This establishes which build was tested.
-2. Parse the `prompt` block as the input request (for eval systems, this is what the agent receives).
-3. If a `setup` block exists, run it first to establish scenario state.
-4. Run the `bash` block and capture stdout, stderr, and exit code.
-5. For each `expect` line, check that it appears as a substring in stdout.
-6. For each `expect-not` line, check that it does **not** appear in stdout or stderr.
-7. For each `expect-error` line, check that exit code ≠ 0 and the line appears in stdout+stderr.
-8. For each `expect-stderr` line, check that it appears as a substring in stderr.
-9. For each `expect-not-stderr` line, check that it does **not** appear in stderr.
-10. If a `query` block exists, pipe stdout through it and report the extracted value.
-11. If a `perf` block exists, compare wall-clock time against `max_ms` and exit code against `exit_code`.
+See the [validating workflows skill](../../skills/workflow-scenarios/validating-workflows.md) for evaluation rules, preconditions, parallelization strategies, and the eval pattern.
 
-Commands are expected to exit 0 unless `expect-error` is used.
+## Related skills
 
-A scenario **passes** when all assertions hold. A variant passes independently — not every variant needs to pass for the goal to be considered covered, but failures should be investigated.
-
-## Preconditions
-
-- **NativeAOT build**: Performance numbers assume `./install.sh` has been run.
-- **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
-- **Network**: Some commands require network access (e.g., `--latest-version`). Others are fully offline (e.g., `--version` with cached data).
+| Skill | What it covers |
+| --- | --- |
+| [Validating workflows](../../skills/workflow-scenarios/validating-workflows.md) | How to run workflows solo or with agent teams, evaluation rules, the eval pattern |
+| [Writing workflows](../../skills/workflow-scenarios/writing-workflows.md) | How to author good workflow documents — conventions and best practices |
+| [Performance testing](../../skills/workflow-scenarios/performance-testing.md) | Using perf workflows as a pre-ship gate, profiling regressions |
+| [Network guard](../../skills/workflow-scenarios/network-guard.md) | DEBUG-only network guard, implementation details, offline mode |

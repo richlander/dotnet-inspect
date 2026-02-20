@@ -104,46 +104,6 @@ Source: Platform
 Network guard violation
 ```
 
-## Implementation Details
+## Implementation and background
 
-The network guard is implemented in `HttpClientFactory.cs`:
-
-```csharp
-internal sealed class NetworkGuardHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
-{
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-#if DEBUG
-        if (HttpClientFactory.IsNetworkDenied)
-        {
-            var message = $"Network guard violation: {request.Method} {request.RequestUri}";
-            Debug.Fail(message);
-            throw new NetworkGuardException(message);
-        }
-#endif
-        return base.SendAsync(request, cancellationToken);
-    }
-}
-```
-
-The guard is enabled by default in `Program.cs`:
-
-```csharp
-#if DEBUG
-// Network guard is always on to catch unintended network access.
-// Disabled for offline mode (OfflineHandler handles it) and detailed verbosity.
-if (!offline)
-    DotnetInspector.Core.HttpClientFactory.DenyNetwork();
-#endif
-```
-
-Commands opt-out when they legitimately need network (`AssemblyCommand.cs`):
-
-```csharp
-#if DEBUG
-// Detailed verbosity legitimately needs network for PDB/SourceLink
-if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)
-    DotnetInspector.Core.HttpClientFactory.AllowNetwork();
-#endif
-```
+See the [network guard skill](../../../skills/workflow-scenarios/network-guard.md) for implementation details, `dotnet run` usage, and the distinction between the network guard and `--offline` mode.

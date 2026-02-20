@@ -20,21 +20,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dorny/paths-filter@v3
+      - name: Detect changes
         id: filter
-        with:
-          filters: |
-            code:
-              - 'src/**'
-              - '!src/**/*.md'
-              - '!src/**/*.txt'
-              - '*.props'
-              - '*.sln'
-              - '.github/workflows/**'
-            docs:
-              - '**/*.md'
-              - '**/*.txt'
-              - 'docs/**'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only)
+          else
+            FILES=$(git diff --name-only ${{ github.event.before }}...${{ github.sha }})
+          fi
+          CODE=false
+          DOCS=false
+          while IFS= read -r file; do
+            case "$file" in
+              src/*)
+                case "$file" in
+                  *.md|*.txt) ;;
+                  *) CODE=true ;;
+                esac ;;
+              *.props|*.sln) CODE=true ;;
+              .github/workflows/*) CODE=true ;;
+            esac
+            case "$file" in
+              *.md|*.txt|docs/*|skills/*) DOCS=true ;;
+            esac
+          done <<< "$FILES"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
+          echo "Changed files:"
+          echo "$FILES"
+          echo "code=$CODE docs=$DOCS"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # Lint markdown files
   markdownlint:
