@@ -291,4 +291,4 @@ grep 'not found'
 
 ## Profiling
 
-See [profiling.md](profiling.md) for dotnet-trace profiling, the `perf` command, and diagnosing unexpected network access.
+See the [performance testing skill](../../../skills/workflow-scenarios/performance-testing.md) for dotnet-trace profiling, the `perf` command, and diagnosing unexpected network access.
