@@ -28,54 +28,11 @@ public static class CommandLineBuilder
         "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
-    /// <summary>
-    /// Platform framework names for --platform scope.
-    /// </summary>
-    internal static readonly string[] PlatformFrameworkNames = ["runtime", "aspnetcore", "netstandard"];
-
-    /// <summary>
-    /// Curated Microsoft.Extensions.* packages for --extensions scope.
-    /// </summary>
-    internal static readonly string[] ExtensionsScopePackages =
-    [
-        "Microsoft.Extensions.DependencyInjection",
-        "Microsoft.Extensions.DependencyInjection.Abstractions",
-        "Microsoft.Extensions.Logging",
-        "Microsoft.Extensions.Logging.Abstractions",
-        "Microsoft.Extensions.Configuration",
-        "Microsoft.Extensions.Configuration.Abstractions",
-        "Microsoft.Extensions.Options",
-        "Microsoft.Extensions.Hosting",
-        "Microsoft.Extensions.Hosting.Abstractions",
-        "Microsoft.Extensions.FileProviders.Abstractions",
-        "Microsoft.Extensions.Http",
-        "Microsoft.Extensions.Caching.Memory",
-        "Microsoft.Extensions.Caching.Abstractions",
-        "Microsoft.Extensions.Telemetry.Abstractions",
-        "Microsoft.Extensions.AI",
-        "Microsoft.Extensions.AI.Abstractions",
-    ];
-
-    /// <summary>
-    /// Curated Microsoft.AspNetCore.* packages for --aspnetcore scope.
-    /// </summary>
-    internal static readonly string[] AspNetCoreScopePackages =
-    [
-        "Microsoft.AspNetCore.Authentication",
-        "Microsoft.AspNetCore.Authorization",
-        "Microsoft.AspNetCore.Components",
-        "Microsoft.AspNetCore.Mvc.Core",
-        "Microsoft.AspNetCore.SignalR",
-    ];
-
-    /// <summary>
-    /// Small default package set for --curated scope (the implicit default).
-    /// </summary>
-    internal static readonly string[] CuratedScopePackages =
-    [
-        "Microsoft.Extensions.AI",
-        "Microsoft.Extensions.AI.Abstractions",
-    ];
+    // Scope constants delegated to ScopeConstants for backward compatibility
+    internal static string[] PlatformFrameworkNames => ScopeConstants.PlatformFrameworks;
+    internal static string[] ExtensionsScopePackages => ScopeConstants.ExtensionsPackages;
+    internal static string[] AspNetCoreScopePackages => ScopeConstants.AspNetCorePackages;
+    internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
@@ -143,36 +100,10 @@ public static class CommandLineBuilder
         var rootCommand = new RootCommand(
             $"{VersionInfo.ToolName} {VersionInfo.Version} - A CLI tool for inspecting .NET libraries and NuGet packages");
 
-        // Shared options (defined once, reused across commands)
-        var jsonOption = new Option<bool>("--json") { Description = "Output as JSON" };
-        var markoutOption = new Option<bool>("--markout") { Description = "Output as Markout (default)" };
-        var verboseOption = new Option<bool>("--verbose") { Description = "Show progress messages on stderr" };
-        var verbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
-        var includeSectionsOption = new Option<string?>("-s") { Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.", Arity = ArgumentArity.ZeroOrOne };
-        var excludeSectionsOption = new Option<string?>("-x") { Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)" };
-        var limitOption = new Option<int?>("-n") { Description = "Limit output lines (like head -n)" };
-        var tipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
-        tipsOption.Aliases.Add("-T");
+        // Shared options container (defined once, reused across commands)
+        var opts = new SharedOptions();
 
-        // NuGet source options (shared across package-consuming commands)
-        var sourceOption = new Option<string[]>("--source")
-        {
-            Description = "NuGet source URL (replaces defaults, can repeat)",
-            AllowMultipleArgumentsPerToken = true
-        };
-        var addSourceOption = new Option<string[]>("--add-source")
-        {
-            Description = "NuGet source URL to add (can repeat)",
-            AllowMultipleArgumentsPerToken = true
-        };
-        var nugetConfigOption = new Option<string?>("--nugetconfig")
-        {
-            Description = "Path to nuget.config file"
-        };
-
-        // Commands in alphabetical order (llmstxt last as meta command)
-
-        // Root-level display option (distinct instance so it appears in root help)
+        // Root-level display options (distinct instances so they appear in root help)
         var rootVerbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
         rootCommand.Options.Add(rootVerbosityOption);
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
@@ -186,79 +117,79 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(apiCommand);
 
         // Type command (type discovery, terse)
-        var typeCommand = CreateTypeCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var typeCommand = CreateTypeCommand(opts);
         rootCommand.Subcommands.Add(typeCommand);
 
         // Member command (member inspection, docs by default)
-        var memberCommand = CreateMemberCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, limitOption, includeSectionsOption, excludeSectionsOption, sourceOption, addSourceOption, nugetConfigOption);
+        var memberCommand = CreateMemberCommand(opts);
         rootCommand.Subcommands.Add(memberCommand);
 
         // Assembly command
-        var assemblyCommand = CreateAssemblyCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var assemblyCommand = CreateAssemblyCommand(opts);
         rootCommand.Subcommands.Add(assemblyCommand);
 
         // Cache command
-        var cacheCommand = CreateCacheCommand(verboseOption, verbosityOption, tipsOption, limitOption);
+        var cacheCommand = CreateCacheCommand(opts);
         rootCommand.Subcommands.Add(cacheCommand);
 
         // Demo command
-        var demoCommand = CreateDemoCommand(rootCommand, limitOption);
+        var demoCommand = CreateDemoCommand(rootCommand, opts);
         rootCommand.Subcommands.Add(demoCommand);
 
         // Diff command
-        var diffCommand = CreateDiffCommand(verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var diffCommand = CreateDiffCommand(opts);
         rootCommand.Subcommands.Add(diffCommand);
 
         // Depends command
-        var dependsCommand = CreateDependsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var dependsCommand = CreateDependsCommand(opts);
         rootCommand.Subcommands.Add(dependsCommand);
 
         // Extensions command
-        var extensionsCommand = CreateExtensionsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var extensionsCommand = CreateExtensionsCommand(opts);
         rootCommand.Subcommands.Add(extensionsCommand);
 
         // Find command
-        var findCommand = CreateFindCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var findCommand = CreateFindCommand(opts);
         rootCommand.Subcommands.Add(findCommand);
 
         // Implements command
-        var implementsCommand = CreateImplementsCommand(jsonOption, verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var implementsCommand = CreateImplementsCommand(opts);
         rootCommand.Subcommands.Add(implementsCommand);
 
         // Package command
-        var packageCommand = CreatePackageCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var packageCommand = CreatePackageCommand(opts);
         rootCommand.Subcommands.Add(packageCommand);
 
         // Router command (hidden, implicit default for bare names)
-        var routerCommand = CreateRouterCommand(jsonOption, markoutOption, verboseOption, verbosityOption, tipsOption, includeSectionsOption, excludeSectionsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var routerCommand = CreateRouterCommand(opts);
         rootCommand.Subcommands.Add(routerCommand);
 
         // Samples command
-        var samplesCommand = CreateSamplesCommand(verboseOption, verbosityOption, tipsOption, limitOption, sourceOption, addSourceOption, nugetConfigOption);
+        var samplesCommand = CreateSamplesCommand(opts);
         rootCommand.Subcommands.Add(samplesCommand);
 
         // CLI command (meta command)
         var schemaCommand = new Command("cli", "Show CLI command structure as API listing");
         var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
         schemaCommand.Arguments.Add(schemaCommandArg);
-        schemaCommand.Options.Add(verbosityOption);
-        schemaCommand.Options.Add(limitOption);
+        schemaCommand.Options.Add(opts.Verbosity);
+        schemaCommand.Options.Add(opts.Limit);
         schemaCommand.SetAction((parseResult) =>
         {
             var commandFilter = parseResult.GetValue(schemaCommandArg);
-            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var verbosity = ParseVerbosity(parseResult.GetValue(opts.Verbosity));
             return CliSchemaCommand.Execute(rootCommand, commandFilter, verbosity);
         });
         rootCommand.Subcommands.Add(schemaCommand);
 
         // LLMs.txt command (meta command, listed last)
         var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
-        llmsTxtCommand.Options.Add(limitOption);
+        llmsTxtCommand.Options.Add(opts.Limit);
         llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
         rootCommand.Subcommands.Add(llmsTxtCommand);
 
         var skillCommand = new Command("skill", "Show skill definition");
-        skillCommand.Options.Add(limitOption);
+        skillCommand.Options.Add(opts.Limit);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
 
@@ -328,17 +259,14 @@ public static class CommandLineBuilder
         return rootCommand;
     }
 
-    private static Command CreateCacheCommand(Option<bool> verboseOption, Option<string?> verbosityOption, Option<string?> tipsOption, Option<int?> limitOption)
+    private static Command CreateCacheCommand(SharedOptions opts)
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
 
         var cleanOption = new Option<bool>("--clean", "--clear") { Hidden = true };
 
         cacheCommand.Options.Add(cleanOption);
-        cacheCommand.Options.Add(verboseOption);
-        cacheCommand.Options.Add(verbosityOption);
-        cacheCommand.Options.Add(tipsOption);
-        cacheCommand.Options.Add(limitOption);
+        opts.AddOutputOptionsTo(cacheCommand);
 
         // Subcommand: clear
         var clearCommand = new Command("clear", "Clear the cache");
@@ -360,10 +288,10 @@ public static class CommandLineBuilder
                 Console.Error.WriteLine("hint: use 'dotnet-inspect cache clear' instead of --clean/--clear");
             }
 
-            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var verbosity = ParseVerbosity(parseResult.GetValue(opts.Verbosity));
             var options = new CacheOptions(
                 Clean: clean,
-                Verbose: parseResult.GetValue(verboseOption) || verbosity >= Verbosity.Detailed);
+                Verbose: parseResult.GetValue(opts.Verbose) || verbosity >= Verbosity.Detailed);
 
             return await CacheCommand.ExecuteAsync(options);
         });
@@ -371,13 +299,13 @@ public static class CommandLineBuilder
         return cacheCommand;
     }
 
-    private static Command CreateDemoCommand(RootCommand rootCommand, Option<int?> limitOption)
+    private static Command CreateDemoCommand(RootCommand rootCommand, SharedOptions opts)
     {
         var demoCommand = new Command("demo", "Run curated demo queries that showcase the tool");
 
         var feelingLuckyOption = new Option<bool>("--feeling-lucky") { Description = "Pick a random demo and run it" };
         demoCommand.Options.Add(feelingLuckyOption);
-        demoCommand.Options.Add(limitOption);
+        demoCommand.Options.Add(opts.Limit);
 
         var indexArg = new Argument<int?>("index")
         {
@@ -419,14 +347,7 @@ public static class CommandLineBuilder
         return demoCommand;
     }
 
-    private static Command CreateDiffCommand(
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateDiffCommand(SharedOptions opts)
     {
         var diffCommand = new Command(DiffCommand.Name, "Compare API surfaces between package or platform versions");
 
@@ -474,13 +395,8 @@ public static class CommandLineBuilder
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
-        diffCommand.Options.Add(verboseOption);
-        diffCommand.Options.Add(verbosityOption);
-        diffCommand.Options.Add(tipsOption);
-        diffCommand.Options.Add(limitOption);
-        diffCommand.Options.Add(sourceOption);
-        diffCommand.Options.Add(addSourceOption);
-        diffCommand.Options.Add(nugetConfigOption);
+        opts.AddOutputOptionsTo(diffCommand);
+        opts.AddNuGetOptionsTo(diffCommand);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -534,21 +450,21 @@ public static class CommandLineBuilder
                 Framework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Verbose = parseResult.GetValue(verboseOption),
+                Verbose = parseResult.GetValue(opts.Verbose),
                 TypeFilter = typeFilter,
                 OneLine = parseResult.GetValue(oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
                 NameOnly = parseResult.GetValue(nameOnlyOption),
                 Breaking = parseResult.GetValue(breakingOption),
                 Additive = parseResult.GetValue(additiveOption),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             var exitCode = await DiffCommand.ExecuteAsync(options);
 
-            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var verbosity = opts.ParseVerbosity(parseResult);
             var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || HeadLines != null
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
             if (exitCode == 0)
             {
@@ -584,15 +500,7 @@ public static class CommandLineBuilder
         return diffCommand;
     }
 
-    private static Command CreateDependsCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateDependsCommand(SharedOptions opts)
     {
         var dependsCommand = new Command("depends", "Walk dependency graphs upward (type hierarchy, library references, or package dependencies)");
 
@@ -627,15 +535,10 @@ public static class CommandLineBuilder
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(curatedOption);
         dependsCommand.Options.Add(tfmOption);
-        dependsCommand.Options.Add(jsonOption);
+        dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
-        dependsCommand.Options.Add(verboseOption);
-        dependsCommand.Options.Add(verbosityOption);
-        dependsCommand.Options.Add(sourceOption);
-        dependsCommand.Options.Add(addSourceOption);
-        dependsCommand.Options.Add(nugetConfigOption);
-        dependsCommand.Options.Add(tipsOption);
-        dependsCommand.Options.Add(limitOption);
+        opts.AddOutputOptionsTo(dependsCommand);
+        opts.AddNuGetOptionsTo(dependsCommand);
 
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
@@ -649,10 +552,10 @@ public static class CommandLineBuilder
                 var commonOptions = new DependsOptions
                 {
                     Tfm = parseResult.GetValue(tfmOption),
-                    JsonOutput = parseResult.GetValue(jsonOption),
+                    JsonOutput = parseResult.GetValue(opts.Json),
                     CompactJson = parseResult.GetValue(compactOption),
-                    Verbose = parseResult.GetValue(verboseOption),
-                    SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
 
                 if (assemblies.Length == 1 && packages.Length == 0)
@@ -661,54 +564,31 @@ public static class CommandLineBuilder
                 if (packages.Length == 1 && assemblies.Length == 0)
                     return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
 
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  depends IFloatingPointIeee754 --platform   # type hierarchy");
-                Console.Error.WriteLine("  depends --library Microsoft.Extensions.AI   # assembly references");
-                Console.Error.WriteLine("  depends --package System.Text.Json          # NuGet dependencies");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "depends IFloatingPointIeee754 --platform   # type hierarchy",
+                    "depends --library Microsoft.Extensions.AI   # assembly references",
+                    "depends --package System.Text.Json          # NuGet dependencies");
             }
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0;
-
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [.. packages, .. CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [.. packages, .. ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [.. packages, .. AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [.. frameworks, .. PlatformFrameworkNames];
-                    packages = [.. packages, .. CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies);
 
             var options = new DependsOptions
             {
                 TargetType = targetType,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                Verbose = parseResult.GetValue(opts.Verbose),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             return await DependsCommand.ExecuteTypeDependsAsync(options);
@@ -717,15 +597,7 @@ public static class CommandLineBuilder
         return dependsCommand;
     }
 
-    private static Command CreateExtensionsCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateExtensionsCommand(SharedOptions opts)
     {
         var extCommand = new Command("extensions", "Find extension methods for a type");
 
@@ -762,6 +634,9 @@ public static class CommandLineBuilder
         var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
+
         extCommand.Arguments.Add(targetTypeArg);
         extCommand.Options.Add(packageOption);
         extCommand.Options.Add(assemblyOption);
@@ -773,19 +648,12 @@ public static class CommandLineBuilder
         extCommand.Options.Add(depthOption);
         extCommand.Options.Add(tfmOption);
         extCommand.Options.Add(allOption);
-        extCommand.Options.Add(limitOption);
-        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
-        typeFilterOption.Aliases.Add("--type");
         extCommand.Options.Add(typeFilterOption);
-        extCommand.Options.Add(jsonOption);
+        extCommand.Options.Add(opts.Json);
         extCommand.Options.Add(compactOption);
         extCommand.Options.Add(packagePrefixOption);
-        extCommand.Options.Add(verboseOption);
-        extCommand.Options.Add(verbosityOption);
-        extCommand.Options.Add(sourceOption);
-        extCommand.Options.Add(addSourceOption);
-        extCommand.Options.Add(nugetConfigOption);
-        extCommand.Options.Add(tipsOption);
+        opts.AddOutputOptionsTo(extCommand);
+        opts.AddNuGetOptionsTo(extCommand);
 
         extCommand.SetAction(async (parseResult, ct) =>
         {
@@ -793,74 +661,45 @@ public static class CommandLineBuilder
 
             if (string.IsNullOrEmpty(targetType))
             {
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  extensions HttpClient                     # search default scope");
-                Console.Error.WriteLine("  extensions HttpClient --platform          # platform libraries only");
-                Console.Error.WriteLine("  extensions HttpClient --extensions         # Microsoft.Extensions packages");
-                Console.Error.WriteLine("  extensions HttpClient --aspnetcore         # ASP.NET Core packages");
-                Console.Error.WriteLine("  extensions HttpClient --package Foo        # specific package");
-                Console.Error.WriteLine("  extensions HttpClient --platform --extensions  # combine scopes");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "extensions HttpClient                     # search default scope",
+                    "extensions HttpClient --platform          # platform libraries only",
+                    "extensions HttpClient --extensions         # Microsoft.Extensions packages",
+                    "extensions HttpClient --aspnetcore         # ASP.NET Core packages",
+                    "extensions HttpClient --package Foo        # specific package",
+                    "extensions HttpClient --platform --extensions  # combine scopes");
             }
 
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
+            var packages = await MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || packagePrefix != null;
-
-            // Resolve --package-prefix to package list
-            if (packagePrefix != null)
-            {
-                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(verboseOption));
-                packages = [..packages, ..prefixPackages];
-            }
-
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [..packages, ..CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [..frameworks, ..PlatformFrameworkNames];
-                    packages = [..packages, ..CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix);
 
             var options = new ExtensionsOptions
             {
                 TargetType = targetType,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
+                Verbose = parseResult.GetValue(opts.Verbose),
+                Verbosity = opts.ParseVerbosity(parseResult),
                 PackagePrefix = packagePrefix,
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             return await ExtensionsCommand.ExecuteAsync(options);
@@ -869,15 +708,7 @@ public static class CommandLineBuilder
         return extCommand;
     }
 
-    private static Command CreateFindCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateFindCommand(SharedOptions opts)
     {
         var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");
         findCommand.Aliases.Add("search");
@@ -920,6 +751,7 @@ public static class CommandLineBuilder
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
+
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
@@ -931,19 +763,14 @@ public static class CommandLineBuilder
         findCommand.Options.Add(binOption);
         findCommand.Options.Add(tfmOption);
         findCommand.Options.Add(allOption);
-        findCommand.Options.Add(limitOption);
         findCommand.Options.Add(typeFilterOption);
-        findCommand.Options.Add(jsonOption);
+        findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
         findCommand.Options.Add(oneLineOption);
         findCommand.Options.Add(noHeaderOption);
         findCommand.Options.Add(packagePrefixOption);
-        findCommand.Options.Add(verboseOption);
-        findCommand.Options.Add(verbosityOption);
-        findCommand.Options.Add(tipsOption);
-        findCommand.Options.Add(sourceOption);
-        findCommand.Options.Add(addSourceOption);
-        findCommand.Options.Add(nugetConfigOption);
+        opts.AddOutputOptionsTo(findCommand);
+        opts.AddNuGetOptionsTo(findCommand);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -951,85 +778,56 @@ public static class CommandLineBuilder
 
             if (string.IsNullOrEmpty(pattern))
             {
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  find Chat*                                # search default scope");
-                Console.Error.WriteLine("  find Chat* --platform                     # platform libraries only");
-                Console.Error.WriteLine("  find Chat* --extensions                   # Microsoft.Extensions packages");
-                Console.Error.WriteLine("  find Chat* --aspnetcore                   # ASP.NET Core packages");
-                Console.Error.WriteLine("  find Chat* --package Newtonsoft.Json       # specific package");
-                Console.Error.WriteLine("  find Chat* --platform --extensions         # combine scopes");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "find Chat*                                # search default scope",
+                    "find Chat* --platform                     # platform libraries only",
+                    "find Chat* --extensions                   # Microsoft.Extensions packages",
+                    "find Chat* --aspnetcore                   # ASP.NET Core packages",
+                    "find Chat* --package Newtonsoft.Json       # specific package",
+                    "find Chat* --platform --extensions         # combine scopes");
             }
 
-            var packages = parseResult.GetValue(packageOption) ?? [];
+            var packagePrefix = parseResult.GetValue(packagePrefixOption);
+            var packages = await MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
             var binPaths = parseResult.GetValue(binOption) ?? [];
-            var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || projects.Length > 0 || binPaths.Length > 0
-                || packagePrefix != null;
-
-            // Resolve --package-prefix to package list
-            if (packagePrefix != null)
-            {
-                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(verboseOption));
-                packages = [..packages, ..prefixPackages];
-            }
-
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [..packages, ..CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [..frameworks, ..PlatformFrameworkNames];
-                    packages = [..packages, ..CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
+                hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0);
 
             var options = new FindOptions
             {
                 Pattern = pattern!,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Projects = projects,
                 BinPaths = binPaths,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
-                Verbose = parseResult.GetValue(verboseOption),
+                Verbose = parseResult.GetValue(opts.Verbose),
                 PackagePrefix = packagePrefix,
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             var exitCode = await FindCommand.ExecuteAsync(options);
 
-            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var verbosity = opts.ParseVerbosity(parseResult);
             var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || HeadLines != null || options.Limit != null
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
             if (exitCode == 0 && !options.IsRawOutput)
             {
@@ -1049,14 +847,7 @@ public static class CommandLineBuilder
         return findCommand;
     }
 
-    private static Command CreateSamplesCommand(
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateSamplesCommand(SharedOptions opts)
     {
         var samplesCommand = new Command("samples", "Show sample code references for a type or library");
 
@@ -1088,13 +879,8 @@ public static class CommandLineBuilder
         samplesCommand.Options.Add(printOption);
         samplesCommand.Options.Add(fileOption);
         samplesCommand.Options.Add(regionOption);
-        samplesCommand.Options.Add(verboseOption);
-        samplesCommand.Options.Add(verbosityOption);
-        samplesCommand.Options.Add(sourceOption);
-        samplesCommand.Options.Add(addSourceOption);
-        samplesCommand.Options.Add(nugetConfigOption);
-        samplesCommand.Options.Add(tipsOption);
-        samplesCommand.Options.Add(limitOption);
+        opts.AddOutputOptionsTo(samplesCommand);
+        opts.AddNuGetOptionsTo(samplesCommand);
 
         samplesCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1139,12 +925,12 @@ public static class CommandLineBuilder
                 PlatformFramework = parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
-                Verbose = parseResult.GetValue(verboseOption),
+                Verbose = parseResult.GetValue(opts.Verbose),
                 ListOnly = parseResult.GetValue(listOption),
                 PrintSample = parseResult.GetValue(printOption),
                 FilePath = parseResult.GetValue(fileOption),
                 Region = parseResult.GetValue(regionOption),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             return await SamplesCommand.ExecuteAsync(options);
@@ -1153,15 +939,7 @@ public static class CommandLineBuilder
         return samplesCommand;
     }
 
-    private static Command CreateImplementsCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateImplementsCommand(SharedOptions opts)
     {
         var implCommand = new Command("implements", "Find types implementing an interface or extending a base class");
 
@@ -1191,6 +969,9 @@ public static class CommandLineBuilder
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        typeFilterOption.Aliases.Add("--type");
+
         implCommand.Arguments.Add(targetTypeArg);
         implCommand.Options.Add(packageOption);
         implCommand.Options.Add(assemblyOption);
@@ -1200,21 +981,14 @@ public static class CommandLineBuilder
         implCommand.Options.Add(curatedOption);
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
-        implCommand.Options.Add(limitOption);
-        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
-        typeFilterOption.Aliases.Add("--type");
         implCommand.Options.Add(typeFilterOption);
-        implCommand.Options.Add(jsonOption);
+        implCommand.Options.Add(opts.Json);
         implCommand.Options.Add(compactOption);
         implCommand.Options.Add(oneLineOption);
         implCommand.Options.Add(noHeaderOption);
         implCommand.Options.Add(packagePrefixOption);
-        implCommand.Options.Add(verboseOption);
-        implCommand.Options.Add(verbosityOption);
-        implCommand.Options.Add(sourceOption);
-        implCommand.Options.Add(addSourceOption);
-        implCommand.Options.Add(nugetConfigOption);
-        implCommand.Options.Add(tipsOption);
+        opts.AddOutputOptionsTo(implCommand);
+        opts.AddNuGetOptionsTo(implCommand);
 
         implCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1222,73 +996,44 @@ public static class CommandLineBuilder
 
             if (string.IsNullOrEmpty(targetType))
             {
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  implements Stream                         # search default scope");
-                Console.Error.WriteLine("  implements Stream --platform              # platform libraries only");
-                Console.Error.WriteLine("  implements Stream --extensions             # Microsoft.Extensions packages");
-                Console.Error.WriteLine("  implements Stream --aspnetcore             # ASP.NET Core packages");
-                Console.Error.WriteLine("  implements Stream --package Foo            # specific package");
-                Console.Error.WriteLine("  implements Stream --platform --extensions  # combine scopes");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "implements Stream                         # search default scope",
+                    "implements Stream --platform              # platform libraries only",
+                    "implements Stream --extensions             # Microsoft.Extensions packages",
+                    "implements Stream --aspnetcore             # ASP.NET Core packages",
+                    "implements Stream --package Foo            # specific package",
+                    "implements Stream --platform --extensions  # combine scopes");
             }
 
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
+            var packages = await MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || packagePrefix != null;
-
-            // Resolve --package-prefix to package list
-            if (packagePrefix != null)
-            {
-                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(verboseOption));
-                packages = [..packages, ..prefixPackages];
-            }
-
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [..packages, ..CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [..frameworks, ..PlatformFrameworkNames];
-                    packages = [..packages, ..CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix);
 
             var options = new ImplementsOptions
             {
                 TargetType = targetType,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
-                Verbose = parseResult.GetValue(verboseOption),
+                Verbose = parseResult.GetValue(opts.Verbose),
                 PackagePrefix = packagePrefix,
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             return await ImplementsCommand.ExecuteAsync(options);
@@ -1297,18 +1042,7 @@ public static class CommandLineBuilder
         return implCommand;
     }
 
-    private static Command CreatePackageCommand(
-        Option<bool> jsonOption,
-        Option<bool> markoutOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreatePackageCommand(SharedOptions opts)
     {
         var packageCommand = new Command(PackageCommand.Name, "Inspect a NuGet package");
 
@@ -1348,22 +1082,16 @@ public static class CommandLineBuilder
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(outOption);
-        packageCommand.Options.Add(limitOption);
         packageCommand.Options.Add(oneLineOption);
         packageCommand.Options.Add(noHeaderOption);
-        packageCommand.Options.Add(jsonOption);
-        packageCommand.Options.Add(markoutOption);
-        packageCommand.Options.Add(verboseOption);
-        packageCommand.Options.Add(verbosityOption);
-        packageCommand.Options.Add(tipsOption);
-        packageCommand.Options.Add(includeSectionsOption);
-        packageCommand.Options.Add(excludeSectionsOption);
-        packageCommand.Options.Add(sourceOption);
-        packageCommand.Options.Add(addSourceOption);
-        packageCommand.Options.Add(nugetConfigOption);
+        packageCommand.Options.Add(opts.Json);
+        packageCommand.Options.Add(opts.Markout);
+        opts.AddOutputOptionsTo(packageCommand);
+        opts.AddSectionOptionsTo(packageCommand);
+        opts.AddNuGetOptionsTo(packageCommand);
 
         // Search subcommand
-        var searchCommand = CreatePackageSearchCommand(jsonOption, verboseOption, limitOption);
+        var searchCommand = CreatePackageSearchCommand(opts);
         packageCommand.Subcommands.Add(searchCommand);
 
         packageCommand.SetAction(async (parseResult, ct) =>
@@ -1377,7 +1105,7 @@ public static class CommandLineBuilder
             var versionsValue = parseResult.GetValue(versionsOption);
             bool showVersions = bareVersion || parseResult.GetResult(versionsOption) is { Implicit: false };
 
-            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+            var verbosity = opts.ParseVerbosity(parseResult);
 
             var options = new InspectionOptions
             {
@@ -1395,18 +1123,18 @@ public static class CommandLineBuilder
                 ShowReadme = parseResult.GetValue(readmeOption),
                 OutputPath = parseResult.GetValue(outOption),
                 Limit = bareVersion ? 1 : versionsValue,
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 OneLine = parseResult.GetValue(oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
-                Verbose = parseResult.GetValue(verboseOption),
+                Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = verbosity,
-                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                IncludeSections = opts.ParseIncludeSections(parseResult),
+                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null || HeadLines != null || options.Limit != null
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
             options = options with { TipLevel = tipLevel };
 
             var exitCode = await PackageCommand.ExecuteAsync(options);
@@ -1415,22 +1143,7 @@ public static class CommandLineBuilder
             {
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
-
-                List<Tip> tips = [];
-
-                if (options.Verbosity < Verbosity.Detailed)
-                    tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
-
-                tips.Add(new("library", pkg, "inspect library"));
-                tips.Add(new(TypeCommand.Name, $"--package {pkg}", "discover types in package"));
-                tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
-                tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --layout", "show file tree"));
-                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                Hints.WriteTips(tipLevel, [.. tips]);
+                WritePackageTips(pkg, tipLevel, options.Verbosity);
             }
 
             return exitCode;
@@ -1439,10 +1152,7 @@ public static class CommandLineBuilder
         return packageCommand;
     }
 
-    private static Command CreatePackageSearchCommand(
-        Option<bool> jsonOption,
-        Option<bool> verboseOption,
-        Option<int?> limitOption)
+    private static Command CreatePackageSearchCommand(SharedOptions opts)
     {
         var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
 
@@ -1464,10 +1174,10 @@ public static class CommandLineBuilder
         searchCommand.Arguments.Add(queryArg);
         searchCommand.Options.Add(takeOption);
         searchCommand.Options.Add(prereleaseOption);
-        searchCommand.Options.Add(jsonOption);
+        searchCommand.Options.Add(opts.Json);
         searchCommand.Options.Add(compactOption);
-        searchCommand.Options.Add(verboseOption);
-        searchCommand.Options.Add(limitOption);
+        searchCommand.Options.Add(opts.Verbose);
+        searchCommand.Options.Add(opts.Limit);
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1489,9 +1199,9 @@ public static class CommandLineBuilder
                 Query = query,
                 Take = parseResult.GetValue(takeOption),
                 Prerelease = parseResult.GetValue(prereleaseOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(verboseOption)
+                Verbose = parseResult.GetValue(opts.Verbose)
             };
 
             return await PackageSearchCommand.ExecuteAsync(options);
@@ -1503,18 +1213,7 @@ public static class CommandLineBuilder
     /// <summary>
     /// Hidden command that routes bare names: platform-preferred for System.*/Microsoft.*, NuGet fallback.
     /// </summary>
-    private static Command CreateRouterCommand(
-        Option<bool> jsonOption,
-        Option<bool> markoutOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateRouterCommand(SharedOptions opts)
     {
         var routerCommand = new Command("router", "Auto-resolve package or platform library") { Hidden = true };
 
@@ -1525,17 +1224,7 @@ public static class CommandLineBuilder
         };
 
         routerCommand.Arguments.Add(packageNameArg);
-        routerCommand.Options.Add(jsonOption);
-        routerCommand.Options.Add(markoutOption);
-        routerCommand.Options.Add(verboseOption);
-        routerCommand.Options.Add(verbosityOption);
-        routerCommand.Options.Add(tipsOption);
-        routerCommand.Options.Add(limitOption);
-        routerCommand.Options.Add(includeSectionsOption);
-        routerCommand.Options.Add(excludeSectionsOption);
-        routerCommand.Options.Add(sourceOption);
-        routerCommand.Options.Add(addSourceOption);
-        routerCommand.Options.Add(nugetConfigOption);
+        opts.AddAllOptionsTo(routerCommand);
 
         var routerOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var routerNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
@@ -1579,11 +1268,11 @@ public static class CommandLineBuilder
                     {
                         AssemblyName = dllPath,
                         IncludeMetadata = true,
-                        JsonOutput = parseResult.GetValue(jsonOption),
-                        Verbose = parseResult.GetValue(verboseOption),
-                        Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                        IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                        ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                        JsonOutput = parseResult.GetValue(opts.Json),
+                        Verbose = parseResult.GetValue(opts.Verbose),
+                        Verbosity = opts.ParseVerbosity(parseResult),
+                        IncludeSections = opts.ParseIncludeSections(parseResult),
+                        ExcludeSections = opts.ParseExcludeSections(parseResult)
                     };
                     return await AssemblyCommand.ExecuteAsync(assemblyOptions);
                 }
@@ -1611,7 +1300,7 @@ public static class CommandLineBuilder
             bool isVersionQuery = showVersion || showLatestVersion || showVersions;
             if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
             {
-                bool verbose = parseResult.GetValue(verboseOption);
+                bool verbose = parseResult.GetValue(opts.Verbose);
                 Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
                 var client = HttpClientFactory.Shared;
 
@@ -1630,17 +1319,17 @@ public static class CommandLineBuilder
 
                 if (resolvedPath != null && resolvedError == null)
                 {
-                    var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-                    var includeSections = ParseIncludeSections(parseResult, includeSectionsOption);
+                    var verbosity = opts.ParseVerbosity(parseResult);
+                    var includeSections = opts.ParseIncludeSections(parseResult);
                     var assemblyOptions = new AssemblyOptions
                     {
                         PlatformAssembly = bareName,
                         PlatformFramework = platformFrameworkSpec,
-                        JsonOutput = parseResult.GetValue(jsonOption),
-                        Verbose = parseResult.GetValue(verboseOption),
+                        JsonOutput = parseResult.GetValue(opts.Json),
+                        Verbose = parseResult.GetValue(opts.Verbose),
                         Verbosity = verbosity,
                         IncludeSections = includeSections,
-                        ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                        ExcludeSections = opts.ParseExcludeSections(parseResult)
                     };
 
                     var assemblyExitCode = await AssemblyCommand.ExecuteAsync(assemblyOptions);
@@ -1648,19 +1337,8 @@ public static class CommandLineBuilder
                     if (assemblyExitCode == 0 && !assemblyOptions.JsonOutput)
                     {
                         var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null || HeadLines != null
-                            ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
-
-                        List<Tip> tips = [];
-
-                        if (verbosity < Verbosity.Detailed)
-                            tips.Add(new($"{bareName}", "-v:d", "detailed metadata"));
-
-                        tips.Add(new(PackageCommand.Name, bareName, "inspect as NuGet package"));
-                        tips.Add(new(TypeCommand.Name, $"--platform {bareName}", "discover types"));
-                        tips.Add(new(FindCommand.Name, $"<pattern> --platform {bareName}", "search for types"));
-                        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                        Hints.WriteTips(platformTipLevel, [.. tips]);
+                            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+                        WritePlatformTips(bareName, platformTipLevel, verbosity);
                     }
 
                     return assemblyExitCode;
@@ -1671,17 +1349,17 @@ public static class CommandLineBuilder
             if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName)
                 && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAssembly, out var qtType))
             {
-                var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+                var verbosity = opts.ParseVerbosity(parseResult);
                 var typeOptions = new ApiOptions
                 {
                     TypeName = qtType,
                     PlatformAssembly = qtAssembly,
-                    JsonOutput = parseResult.GetValue(jsonOption),
-                    Verbose = parseResult.GetValue(verboseOption),
+                    JsonOutput = parseResult.GetValue(opts.Json),
+                    Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = verbosity,
-                    IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                    ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                    TipLevel = HeadLines != null ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
+                    IncludeSections = opts.ParseIncludeSections(parseResult),
+                    ExcludeSections = opts.ParseExcludeSections(parseResult),
+                    TipLevel = HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
                 };
 
                 return await ApiCommand.ExecuteAsync(typeOptions);
@@ -1704,7 +1382,7 @@ public static class CommandLineBuilder
                         // 2. Check NuGet version API
                         var allVersions = await PackageExtractor.GetVersionsAsync(
                             HttpClientFactory.Shared, bareName, includePrerelease: true, limit: null,
-                            log: null, sourceOptions: ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption));
+                            log: null, sourceOptions: opts.ParseNuGetSourceOptions(parseResult));
 
                         if (allVersions != null && allVersions.Any(v => string.Equals(v, explicitVersion, StringComparison.OrdinalIgnoreCase)))
                         {
@@ -1741,43 +1419,25 @@ public static class CommandLineBuilder
                 PackageArgs = useBareName ? [bareName] : packageArgs,
                 ListVersions = showLatestVersion || showVersions,
                 Limit = showLatestVersion ? 1 : routerVersionsValue,
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 OneLine = parseResult.GetValue(routerOneLineOption),
                 NoHeader = parseResult.GetValue(routerNoHeaderOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
+                Verbose = parseResult.GetValue(opts.Verbose),
+                Verbosity = opts.ParseVerbosity(parseResult),
+                IncludeSections = opts.ParseIncludeSections(parseResult),
+                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ForceLatest = forceLatest || showLatestVersion
             };
 
             var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || HeadLines != null
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
             options = options with { TipLevel = tipLevel };
 
             var exitCode = await PackageCommand.ExecuteAsync(options);
 
             if (exitCode == 0 && !options.IsRawOutput)
-            {
-                var pkg = bareName;
-
-                List<Tip> tips = [];
-
-                if (options.Verbosity < Verbosity.Detailed)
-                    tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
-
-                tips.Add(new("library", pkg, "inspect library"));
-                tips.Add(new(TypeCommand.Name, $"--package {pkg}", "discover types in package"));
-                tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
-                tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --layout", "show file tree"));
-                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                Hints.WriteTips(tipLevel, [.. tips]);
-            }
+                WritePackageTips(bareName, tipLevel, options.Verbosity);
 
             return exitCode;
         });
@@ -1785,18 +1445,7 @@ public static class CommandLineBuilder
         return routerCommand;
     }
 
-    private static Command CreateAssemblyCommand(
-        Option<bool> jsonOption,
-        Option<bool> markoutOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption,
-        Option<int?> limitOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateAssemblyCommand(SharedOptions opts)
     {
         var assemblyCommand = new Command("library", "Inspect a .NET library file");
 
@@ -1825,17 +1474,7 @@ public static class CommandLineBuilder
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(extractResourcesOption);
-        assemblyCommand.Options.Add(jsonOption);
-        assemblyCommand.Options.Add(markoutOption);
-        assemblyCommand.Options.Add(verboseOption);
-        assemblyCommand.Options.Add(verbosityOption);
-        assemblyCommand.Options.Add(includeSectionsOption);
-        assemblyCommand.Options.Add(excludeSectionsOption);
-        assemblyCommand.Options.Add(sourceOption);
-        assemblyCommand.Options.Add(addSourceOption);
-        assemblyCommand.Options.Add(nugetConfigOption);
-        assemblyCommand.Options.Add(tipsOption);
-        assemblyCommand.Options.Add(limitOption);
+        opts.AddAllOptionsTo(assemblyCommand);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1855,7 +1494,7 @@ public static class CommandLineBuilder
                 else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
                 {
                     // Platform-preferred routing for System.*/Microsoft.* bare names
-                    bool verbose = parseResult.GetValue(verboseOption);
+                    bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(source, HttpClientFactory.Shared, log);
                     if (error == null && asmPath != null)
@@ -1883,12 +1522,12 @@ public static class CommandLineBuilder
                 PlatformAssembly = platformAssembly,
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
+                Verbose = parseResult.GetValue(opts.Verbose),
+                Verbosity = opts.ParseVerbosity(parseResult),
+                IncludeSections = opts.ParseIncludeSections(parseResult),
+                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
@@ -1924,18 +1563,7 @@ public static class CommandLineBuilder
     /// <summary>
     /// Creates the type command for fast type discovery (terse, no docs by default).
     /// </summary>
-    private static Command CreateTypeCommand(
-        Option<bool> jsonOption,
-        Option<bool> markoutOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateTypeCommand(SharedOptions opts)
     {
         var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (terse output)");
 
@@ -1974,24 +1602,19 @@ public static class CommandLineBuilder
         typeCommand.Options.Add(tfmOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
-        typeCommand.Options.Add(limitOption);
+        typeCommand.Options.Add(opts.Limit);
         typeCommand.Options.Add(sourcelinkOnlyOption);
-        typeCommand.Options.Add(jsonOption);
+        typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(oneLineOption);
         typeCommand.Options.Add(noHeaderOption);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(memberOption);
-        typeCommand.Options.Add(includeSectionsOption);
-        typeCommand.Options.Add(excludeSectionsOption);
-        typeCommand.Options.Add(markoutOption);
-        typeCommand.Options.Add(verboseOption);
-        typeCommand.Options.Add(verbosityOption);
-        typeCommand.Options.Add(sourceOption);
-        typeCommand.Options.Add(addSourceOption);
-        typeCommand.Options.Add(nugetConfigOption);
-        typeCommand.Options.Add(tipsOption);
+        opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Markout);
+        opts.AddOutputOptionsTo(typeCommand);
+        opts.AddNuGetOptionsTo(typeCommand);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -1999,14 +1622,12 @@ public static class CommandLineBuilder
             var explicitPackage = parseResult.GetValue(packageOption);
             var explicitAssembly = parseResult.GetValue(assemblyOption);
             var explicitPlatform = parseResult.GetValue(platformOption);
-            bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
-                && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
-                && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-            bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
+            bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
+            bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
             if (args.Length == 0 && !hasExplicitSource)
             {
-                if (parseResult.GetResult(includeSectionsOption) != null && parseResult.GetValue(includeSectionsOption) == null)
+                if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 {
                     var allTypeSections = SectionRegistry.ApiTypeSections;
                     SectionRegistry.ListSections(allTypeSections);
@@ -2017,68 +1638,19 @@ public static class CommandLineBuilder
                 return 0;
             }
 
-            string? packagePath = explicitPackage;
-            string? typeName = null;
-            string? apiFrameworkOverride = null;
+            var source = await SourceResolver.ResolveAsync(
+                args, explicitPackage, explicitAssembly, explicitPlatform,
+                parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
 
-            if (hasExplicitSource)
+            if (source.VersionError)
             {
-                if (args.Length >= 1) typeName = args[0];
+                Console.Error.WriteLine(source.VersionErrorMessage);
+                return 1;
             }
-            else
-            {
-                if (args.Length >= 1) packagePath = args[0];
-                if (args.Length >= 2) typeName = args[1];
 
-                if (LooksLikeVersionNumber(typeName))
-                {
-                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
-                    return 1;
-                }
-
-                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
-                {
-                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
-                    else if (nupkgPath != null) { packagePath = nupkgPath; }
-                }
-                else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
-                    packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
-                {
-                    var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
-                    var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
-
-                    var client = HttpClientFactory.Shared;
-                    bool verbose = parseResult.GetValue(verboseOption);
-                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-
-                    // Build framework spec if explicit version given
-                    string? frameworkSpec = null;
-                    if (explicitVersion != null)
-                    {
-                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-                        if (discoveredFramework != null)
-                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
-                    }
-
-                    // Resolve assembly (local-first, then network if needed)
-                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                        bareName, client, log, frameworkSpec);
-
-                    if (resolvedPath != null && resolvedError == null)
-                    {
-                        explicitPlatform = bareName;
-                        packagePath = null;
-                        apiFrameworkOverride = frameworkSpec;
-                    }
-                    // Assembly not found — try qualified type name (e.g., System.Text.Json.JsonSerializer)
-                    else if (typeName == null && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAsm, out var qtTyp))
-                    {
-                        explicitPlatform = qtAsm;
-                        typeName = qtTyp;
-                        packagePath = null;
-                    }
-                }
-            }
+            var packagePath = source.PackagePath;
+            var typeName = source.TypeName;
+            var apiFrameworkOverride = source.FrameworkOverride;
 
             var typeFilterValue = parseResult.GetValue(typeFilterOption);
             int? typeLimit = null;
@@ -2106,8 +1678,8 @@ public static class CommandLineBuilder
             {
                 TypeName = typeName,
                 PackagePath = packagePath,
-                AssemblyPath = explicitAssembly,
-                PlatformAssembly = explicitPlatform,
+                AssemblyPath = source.AssemblyPath,
+                PlatformAssembly = source.PlatformAssembly,
                 PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
@@ -2117,23 +1689,23 @@ public static class CommandLineBuilder
                 ShowDocs = false,  // Type command: docs off by default
                 DocsExplicitlySet = false,
                 SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
                 ShapeOutput = parseResult.GetValue(shapeOption),
                 UnsafeOnly = parseResult.GetValue(unsafeOption),
-                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                IncludeSections = opts.ParseIncludeSections(parseResult),
+                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                Verbose = parseResult.GetValue(opts.Verbose),
+                Verbosity = opts.ParseVerbosity(parseResult),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             options = options with
             {
                 TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || HeadLines != null || typeLimit != null
-                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
+                    ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
             return await TypeCommand.ExecuteAsync(options);
@@ -2145,18 +1717,7 @@ public static class CommandLineBuilder
     /// <summary>
     /// Creates the member command for deep member inspection (docs on by default).
     /// </summary>
-    private static Command CreateMemberCommand(
-        Option<bool> jsonOption,
-        Option<bool> markoutOption,
-        Option<bool> verboseOption,
-        Option<string?> verbosityOption,
-        Option<string?> tipsOption,
-        Option<int?> limitOption,
-        Option<string?> includeSectionsOption,
-        Option<string?> excludeSectionsOption,
-        Option<string[]> sourceOption,
-        Option<string[]> addSourceOption,
-        Option<string?> nugetConfigOption)
+    private static Command CreateMemberCommand(SharedOptions opts)
     {
         var memberCommand = new Command(MemberCommand.Name, "Inspect type members (docs on by default)");
 
@@ -2202,13 +1763,13 @@ public static class CommandLineBuilder
         memberCommand.Options.Add(allOption);
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
-        memberCommand.Options.Add(limitOption);
+        memberCommand.Options.Add(opts.Limit);
         memberCommand.Options.Add(docsOption);
         memberCommand.Options.Add(noDocsOption);
         memberCommand.Options.Add(useLocalDocsOption);
         memberCommand.Options.Add(samplesOption);
         memberCommand.Options.Add(browsableUrlsOption);
-        memberCommand.Options.Add(jsonOption);
+        memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
         memberCommand.Options.Add(oneLineOption);
         memberCommand.Options.Add(noHeaderOption);
@@ -2217,15 +1778,10 @@ public static class CommandLineBuilder
         memberCommand.Options.Add(paramsOption);
         memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
-        memberCommand.Options.Add(includeSectionsOption);
-        memberCommand.Options.Add(excludeSectionsOption);
-        memberCommand.Options.Add(markoutOption);
-        memberCommand.Options.Add(verboseOption);
-        memberCommand.Options.Add(verbosityOption);
-        memberCommand.Options.Add(sourceOption);
-        memberCommand.Options.Add(addSourceOption);
-        memberCommand.Options.Add(nugetConfigOption);
-        memberCommand.Options.Add(tipsOption);
+        opts.AddSectionOptionsTo(memberCommand);
+        memberCommand.Options.Add(opts.Markout);
+        opts.AddOutputOptionsTo(memberCommand);
+        opts.AddNuGetOptionsTo(memberCommand);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
@@ -2233,14 +1789,12 @@ public static class CommandLineBuilder
             var explicitPackage = parseResult.GetValue(packageOption);
             var explicitAssembly = parseResult.GetValue(assemblyOption);
             var explicitPlatform = parseResult.GetValue(platformOption);
-            bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
-                && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
-                && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-            bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
+            bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
+            bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
             if (args.Length == 0 && !hasExplicitSource)
             {
-                if (parseResult.GetResult(includeSectionsOption) != null && parseResult.GetValue(includeSectionsOption) == null)
+                if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 {
                     var allMemberSections = SectionRegistry.ApiMemberSections;
                     SectionRegistry.ListSections(allMemberSections);
@@ -2251,64 +1805,26 @@ public static class CommandLineBuilder
                 return 0;
             }
 
-            string? packagePath = explicitPackage;
-            string? typeName = null;
+            // Member command needs to extract positional members separately
             List<string> positionalMembers = [];
-            string? apiFrameworkOverride = null;
+            if (hasExplicitSource && args.Length >= 2)
+                positionalMembers.AddRange(args[1..]);
+            else if (!hasExplicitSource && args.Length >= 3)
+                positionalMembers.AddRange(args[2..]);
 
-            if (hasExplicitSource)
+            var source = await SourceResolver.ResolveAsync(
+                args, explicitPackage, explicitAssembly, explicitPlatform,
+                parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+
+            if (source.VersionError)
             {
-                if (args.Length >= 1) typeName = args[0];
-                if (args.Length >= 2) positionalMembers.AddRange(args[1..]);
+                Console.Error.WriteLine(source.VersionErrorMessage);
+                return 1;
             }
-            else
-            {
-                if (args.Length >= 1) packagePath = args[0];
-                if (args.Length >= 2) typeName = args[1];
-                if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
-                if (LooksLikeVersionNumber(typeName))
-                {
-                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
-                    return 1;
-                }
-
-                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
-                {
-                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
-                    else if (nupkgPath != null) { packagePath = nupkgPath; }
-                }
-                else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
-                    packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
-                {
-                    var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
-                    var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
-
-                    var client = HttpClientFactory.Shared;
-                    bool verbose = parseResult.GetValue(verboseOption);
-                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-
-                    // Build framework spec if explicit version given
-                    string? frameworkSpec = null;
-                    if (explicitVersion != null)
-                    {
-                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-                        if (discoveredFramework != null)
-                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
-                    }
-
-                    // Resolve assembly (local-first, then network if needed)
-                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                        bareName, client, log, frameworkSpec);
-
-                    if (resolvedPath != null && resolvedError == null)
-                    {
-                        explicitPlatform = bareName;
-                        packagePath = null;
-                        apiFrameworkOverride = frameworkSpec;
-                    }
-                }
-            }
+            var packagePath = source.PackagePath;
+            var typeName = source.TypeName;
+            var apiFrameworkOverride = source.FrameworkOverride;
 
             var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
             if (badOption != null)
@@ -2386,8 +1902,8 @@ public static class CommandLineBuilder
             {
                 TypeName = typeName,
                 PackagePath = packagePath,
-                AssemblyPath = explicitAssembly,
-                PlatformAssembly = explicitPlatform,
+                AssemblyPath = source.AssemblyPath,
+                PlatformAssembly = source.PlatformAssembly,
                 PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
@@ -2398,7 +1914,7 @@ public static class CommandLineBuilder
                 UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
                 ShowSamples = parseResult.GetValue(samplesOption),
                 BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
-                JsonOutput = parseResult.GetValue(jsonOption),
+                JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
@@ -2408,17 +1924,17 @@ public static class CommandLineBuilder
                 ParamTypes = parseResult.GetValue(paramsOption)?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
                 FirstParamType = parseResult.GetValue(ofOption),
                 ShowSelect = parseResult.GetValue(selectOption),
-                IncludeSections = ParseIncludeSections(parseResult, includeSectionsOption),
-                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption)),
-                Verbose = parseResult.GetValue(verboseOption),
-                Verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption)),
-                SourceOptions = ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption)
+                IncludeSections = opts.ParseIncludeSections(parseResult),
+                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                Verbose = parseResult.GetValue(opts.Verbose),
+                Verbosity = opts.ParseVerbosity(parseResult),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             options = options with
             {
                 TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || HeadLines != null || memberLimit != null
-                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null)
+                    ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
             return await MemberCommand.ExecuteAsync(options);
@@ -2488,6 +2004,71 @@ public static class CommandLineBuilder
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Shows help action followed by command-specific tips.
+    /// </summary>
+    private static int ShowHelpWithTips(ParseResult parseResult, params string[] tips)
+    {
+        new HelpAction().Invoke(parseResult);
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Tips:");
+        foreach (var tip in tips)
+            Console.Error.WriteLine($"  {tip}");
+        return 0;
+    }
+
+    /// <summary>
+    /// Writes package-related tips after successful package inspection.
+    /// </summary>
+    private static void WritePackageTips(string packageName, TipLevel tipLevel, Verbosity verbosity)
+    {
+        List<Tip> tips = [];
+
+        if (verbosity < Verbosity.Detailed)
+            tips.Add(new(PackageCommand.Name, $"{packageName} -v:d", "detailed metadata"));
+
+        tips.Add(new("library", packageName, "inspect library"));
+        tips.Add(new(TypeCommand.Name, $"--package {packageName}", "discover types in package"));
+        tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search for types"));
+        tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
+        tips.Add(new(PackageCommand.Name, $"{packageName} --readme", "view README"));
+        tips.Add(new(PackageCommand.Name, $"{packageName} --files", "list package files"));
+        tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
+        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+        Hints.WriteTips(tipLevel, [.. tips]);
+    }
+
+    /// <summary>
+    /// Writes platform library-related tips after successful assembly inspection.
+    /// </summary>
+    private static void WritePlatformTips(string assemblyName, TipLevel tipLevel, Verbosity verbosity)
+    {
+        List<Tip> tips = [];
+
+        if (verbosity < Verbosity.Detailed)
+            tips.Add(new(assemblyName, "-v:d", "detailed metadata"));
+
+        tips.Add(new(PackageCommand.Name, assemblyName, "inspect as NuGet package"));
+        tips.Add(new(TypeCommand.Name, $"--platform {assemblyName}", "discover types"));
+        tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search for types"));
+        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+        Hints.WriteTips(tipLevel, [.. tips]);
+    }
+
+    /// <summary>
+    /// Resolves a package ID prefix and merges with existing packages.
+    /// </summary>
+    private static async Task<string[]> MergeWithPrefixPackagesAsync(string[] packages, string? prefix, bool verbose)
+    {
+        if (prefix == null)
+            return packages;
+
+        var prefixPackages = await ResolvePrefixPackagesAsync(prefix, verbose);
+        return [.. packages, .. prefixPackages];
     }
 
     /// <summary>
