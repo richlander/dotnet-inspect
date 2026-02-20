@@ -331,7 +331,7 @@ CLI args explorer — tree view of command structure.
 dotnet-inspect cli                                  # Tree view (single level)
 dotnet-inspect cli -v:d                             # Deep view (all levels)
 dotnet-inspect cli -v:q                             # Command names only (oneliner)
-dotnet-inspect cli api                              # Explore args for specific command
+dotnet-inspect cli type                             # Explore args for specific command
 ```
 
 ## Output Control
