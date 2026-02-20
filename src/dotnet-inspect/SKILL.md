@@ -1,157 +1,162 @@
 ---
 name: dotnet-inspect
-description: Inspect .NET libraries and NuGet packages. Use when you need to understand package contents, view public API surfaces, compare APIs between versions, or audit libraries for SourceLink/determinism. Essential for .NET development tasks involving package exploration or API discovery.
+description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
 # dotnet-inspect
 
-A CLI tool for inspecting .NET libraries and NuGet packages. It operates on platform libraries (e.g., `System.Collections`), NuGet packages (e.g., `Microsoft.Extensions.AI`), and local files.
+Query .NET library APIs — the same commands work across NuGet packages, platform libraries (System.*, Microsoft.AspNetCore.*), and local .dll/.nupkg files.
 
-## Requirements
+## When to Use This Skill
 
-- .NET 10+ SDK
+- **"What types are in this package?"** — `type` discovers types (terse), `find` searches by pattern
+- **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
+- **"What changed between versions?"** — `diff` classifies breaking/additive changes
+- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member --oneline` to see the new API
+- **"What extends this type?"** — `extensions` finds extension methods/properties
+- **"What implements this interface?"** — `implements` finds concrete types
+- **"What does this type depend on?"** — `depends` walks the type hierarchy upward
+- **"What version/metadata does this have?"** — `package` and `library` inspect metadata
+- **"Show me something cool"** — `demo` runs curated showcase queries
 
-## Installation
+## Search Scope
 
-Use `dnx` to run without global installation (like `npx` for Node):
+Search commands (`find`, `extensions`, `implements`, `depends`) work across all of .NET:
 
 ```bash
-dnx dotnet-inspect -y -- <command>
+dnx dotnet-inspect -y -- find "Chat*"                    # default scope (platform + curated)
+dnx dotnet-inspect -y -- find "Chat*" --platform         # platform frameworks only
+dnx dotnet-inspect -y -- find "Chat*" --extensions       # Microsoft.Extensions.* packages
+dnx dotnet-inspect -y -- find "Chat*" --aspnetcore       # Microsoft.AspNetCore.* packages
+dnx dotnet-inspect -y -- find "Chat*" --platform --extensions  # combine scopes
+dnx dotnet-inspect -y -- find "Chat*" --package Foo      # specific NuGet package
+dnx dotnet-inspect -y -- find "Chat*" --platform --package Foo  # platform + a specific package
 ```
 
-**Important**:
+Scope flags are combinable — use multiple flags to widen the search. `--package` works on all commands. `type`, `member`, `library`, `diff` also accept `--platform <name>` for a specific platform library.
 
-- Always use `-y` to skip the interactive confirmation prompt (which breaks LLM tool use). New package versions also trigger this prompt.
-- Always use `--` to separate dnx options from tool arguments. Without it, `--help` shows dnx help, not dotnet-inspect help.
+## Examples by Task
 
-## Quick Patterns
-
-Start with these common workflows:
+### Discover types
 
 ```bash
-# Understand a type's API shape (start here - most useful for learning APIs)
-dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
+dnx dotnet-inspect -y -- type --package System.Text.Json                   # all types in package
+dnx dotnet-inspect -y -- type -t "*Serializer*" --package System.Text.Json # filter by glob
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape  # type shape diagram
+```
 
-# Inspect type members with documentation
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
+### Inspect members
 
-# Bare names — routes automatically (platform for System.*/Microsoft.*, NuGet for others)
-dnx dotnet-inspect -y -- Microsoft.Extensions.AI
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json         # members with docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --no-docs  # suppress docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize  # filter to member
+dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json  # dotted syntax
+```
 
-# Compare API changes between versions (essential for migrations)
-dnx dotnet-inspect -y -- diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3
-dnx dotnet-inspect -y -- diff "*Json*" --package System.Text.Json@9.0.0..10.0.0
+### Search for types
 
-# Search for types by pattern (single or batch with comma-separated patterns)
+```bash
 dnx dotnet-inspect -y -- find "*Handler*" --package System.CommandLine
-dnx dotnet-inspect -y -- find "Chat*,Diction*" --oneline
-
-# Find extension methods for a type (detects C# 14 extension properties too)
-dnx dotnet-inspect -y -- extensions HttpClient --framework runtime --reachable
-dnx dotnet-inspect -y -- extensions DbContext
-
-# Find types implementing an interface or extending a class
-dnx dotnet-inspect -y -- implements Stream
-
-# Package metadata and versions
-dnx dotnet-inspect -y -- package System.Text.Json -v:d
-dnx dotnet-inspect -y -- package System.Text.Json --versions
-dnx dotnet-inspect -y -- package System.Text.Json --version
-
-# Library metadata, SourceLink audit, dependency tree
-dnx dotnet-inspect -y -- library --package System.Text.Json --source-link-audit
-dnx dotnet-inspect -y -- library Microsoft.Extensions.AI.OpenAI --dependencies
-
-# Code samples
-dnx dotnet-inspect -y -- samples Markout MarkoutWriter --list
-
-# Get XML documentation for a type (member command has docs on by default)
-dnx dotnet-inspect -y -- member Option --package System.CommandLine
-
-# Dotted syntax — specify Type.Member in -m flag
-dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json
-
-# Drill into a specific method — get source, decompiled C#, and IL
-dnx dotnet-inspect -y -- member OptionsFactory --package Microsoft.Extensions.Options --select  # See Name:N shorthand
-dnx dotnet-inspect -y -- member OptionsFactory --package Microsoft.Extensions.Options Create:1  # Member doc
+dnx dotnet-inspect -y -- find "Option*,Argument*,Command*" --package System.CommandLine --oneline
+dnx dotnet-inspect -y -- find "*Logger*"
 ```
 
-## Key Flags
-
-| Flag | Purpose | Commands |
-| ---- | ------- | -------- |
-| `-v:d` | Detailed output (full signatures, all sections) | all |
-| `--shape` | Type shape diagram (hierarchy + members) | `type` |
-| `-t Pattern` | Filter types by glob pattern | `type` |
-| `--docs` | Include XML documentation (on by default for member) | `member` |
-| `--no-docs` | Suppress XML documentation | `member` |
-| `-m Name` | Filter to specific member(s), supports globs and Type.Member syntax | `member` |
-| `--select` | Show Select column with Name:N shorthand | `member` |
-| `--index N` | Target Nth overload (or use Name:N shorthand) | `member` |
-| `-n 10` | Limit results | `find`, `extensions`, `package --versions` |
-| `--oneline` | One result per line, columnar output | `type`, `member`, `find`, `diff`, `implements` |
-| `--reachable` | Include extensions on reachable types | `extensions` |
-| `--dependencies` | Dependency tree (visual) | `library`, `package` |
-| `--source-link-audit` | SourceLink/determinism audit | `library` |
-| `--no-header` | Suppress column headers (use with --oneline) | `type`, `member`, `find`, `diff`, `implements` |
-| `--breaking` | Breaking changes only | `diff` |
-| `--prerelease` | Include prerelease versions | `package --versions` |
-| `--json` | JSON output | all |
-| `-s Name` | Include section (glob-capable) | all |
-
-**Signatures include `params` and default values** — you can determine calling conventions directly from output.
-
-**Generic types:** Use quotes: `'Option<T>'`, `'IEnumerable<T>'`
-
-## Syntax Rules
-
-**Use `type` for discovery, `member` for inspection** — the old `api` command is deprecated:
+### Compare versions (migrations)
 
 ```bash
-dnx dotnet-inspect -y -- type --package System.Text.Json                   # Discover types
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json  # Inspect members
-dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
+dnx dotnet-inspect -y -- diff --package System.Text.Json@9.0.0..10.0.0 --breaking
+dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 ```
 
-**`type` uses `-t` for type filtering** (glob patterns), **`member` uses `-m` for member filtering**.
+### Fix broken code (API migration workflow)
 
-**`--platform` vs `--package`**: `--platform` is only for SDK libraries (System.\*, Microsoft.AspNetCore.\*). Use `--package` for NuGet packages.
+When code doesn't compile due to API changes, use `diff` first to see all changes, then `member --oneline` to explore the new API:
 
-**`diff` uses `..` range**: `diff System.Text.Json@8.0.0..9.0.0` (not two separate args).
+```bash
+# Step 1: See what changed between versions
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
+
+# Step 2: Scan the new API surface (--oneline is token-efficient)
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 --oneline
+
+# Step 3: Drill into a specific member when you need full signatures
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 -m SetAction -v:d
+```
+
+### Find extensions, implementors, and dependencies
+
+```bash
+dnx dotnet-inspect -y -- extensions HttpClient                   # what extends HttpClient?
+dnx dotnet-inspect -y -- extensions IServiceCollection           # across default scope
+dnx dotnet-inspect -y -- implements Stream                       # what extends Stream?
+dnx dotnet-inspect -y -- implements IDisposable --platform       # across all platform frameworks
+dnx dotnet-inspect -y -- depends 'INumber<TSelf>'                # type dependency hierarchy
+```
+
+### Explore with demo
+
+```bash
+dnx dotnet-inspect -y -- demo list                               # list curated demos
+dnx dotnet-inspect -y -- demo 1                                # run a specific demo
+dnx dotnet-inspect -y -- demo --feeling-lucky                    # random pick
+```
+
+### Inspect packages and libraries
+
+```bash
+dnx dotnet-inspect -y -- package System.Text.Json                # metadata, latest version
+dnx dotnet-inspect -y -- package System.Text.Json --versions     # available versions
+dnx dotnet-inspect -y -- package search "Azure.AI"               # search NuGet for packages
+dnx dotnet-inspect -y -- library System.Text.Json                # library metadata, symbols
+dnx dotnet-inspect -y -- library ./bin/MyLib.dll                 # local file
+```
+
+### Search with prefix scoping
+
+```bash
+dnx dotnet-inspect -y -- find "Chat*" --package-prefix Azure.AI  # search all Azure.AI.* packages
+dnx dotnet-inspect -y -- extensions IChatClient --package-prefix Microsoft.Extensions.AI
+```
 
 ## Command Reference
 
 | Command | Purpose |
 | ------- | ------- |
-| `type` | **Discover types** — terse output, no docs (use `--shape` for hierarchy) |
-| `member <type>` | **Inspect members** — docs on by default, supports dotted syntax |
-| `diff` | Compare API surfaces between package versions |
-| `find <pattern>` | Search for types across packages, libraries, or frameworks |
-| `extensions <type>` | Find extension methods/properties for a type |
-| `implements <type>` | Find types implementing an interface or extending a class |
-| `package <name>` | Package metadata, files, versions, dependencies |
-| `library <name>` | Library info, symbols, dependencies, SourceLink audit |
-| `samples <pkg> <type>` | Fetch and display code samples |
-| `platform` | List installed frameworks |
-| `cli` | CLI args explorer |
-| `llmstxt` | Complete usage examples for all commands |
+| `type` | **Discover types** — terse output, no docs, use `--shape` for hierarchy |
+| `member` | **Inspect members** — docs on by default, supports dotted syntax (`-m Type.Member`) |
+| `find` | Search for types by glob pattern across any scope |
+| `diff` | Compare API surfaces between versions — breaking/additive classification |
+| `extensions` | Find extension methods/properties for a type |
+| `implements` | Find types implementing an interface or extending a base class |
+| `depends` | Walk the type dependency hierarchy upward (interfaces, base classes) |
+| `package` | Package metadata, files, versions, dependencies, `search` for NuGet discovery |
+| `library` | Library metadata, symbols, references, dependencies |
+| `demo` | Run curated showcase queries — list, invoke, or feeling-lucky |
+
+## Key Syntax
+
+- **Generic types** need quotes: `'Option<T>'`, `'IEnumerable<T>'`
+- **Use `<T>` not `<>`** for generic types — `"Option<>"` resolves to the abstract base, `'Option<T>'` resolves to the concrete generic with constructors
+- **`type` uses `-t`** for type filtering, **`member` uses `-m`** for member filtering (not `--filter`)
+- **Dotted syntax** for `member`: `-m JsonSerializer.Deserialize`
+- **Diff ranges** use `..`: `--package System.Text.Json@9.0.0..10.0.0`
+- **Signatures** include `params` and default values from metadata
+- **Derived types** only show their own members — query the base type too (e.g., `RootCommand` inherits `Add()` and `SetAction()` from `Command`)
+
+## Installation
+
+Use `dnx` (like `npx`). Always use `-y` and `--` to prevent interactive prompts:
+
+```bash
+dnx dotnet-inspect -y -- <command>
+```
 
 ## Full Documentation
 
-For comprehensive examples and edge cases:
+For comprehensive syntax, edge cases, and the flag compatibility matrix:
 
 ```bash
 dnx dotnet-inspect -y -- llmstxt
 ```
-
-## When to Use This Skill
-
-- Exploring what types/APIs a NuGet package provides
-- Understanding method signatures, overloads, and type shape
-- Searching for types by pattern across packages or frameworks
-- Finding types that implement an interface or extend a base class
-- Comparing API changes between package versions
-- Viewing library dependency trees
-- Auditing libraries for SourceLink and determinism
-- Getting documentation from source (`--docs`)
-- Viewing decompiled source, IL, and annotated IL for methods
