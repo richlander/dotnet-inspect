@@ -17,6 +17,8 @@ Verbosity levels:
 | Minimal (default) | (none) | H1, description, oneline field list, one section table | Yes |
 | Detailed | `-v:d` | H1, description, oneline field list, all sections | No |
 
+The `member` command has its own scale: quiet shows summary tables (Name + Return Type), default shows full signatures with docs, detailed adds Source/Lowered C#/IL.
+
 Section selection (`-s`) lists available sections or filters to specific ones. Tips are suppressed when sections are selected.
 
 ## Preconditions

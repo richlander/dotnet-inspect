@@ -11,8 +11,8 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 - **Code broken?** → `diff --package Foo@old..new` first, then `member --oneline`
 - **Need API surface?** → `member Type --package Foo --oneline` (token-efficient)
-- **Need signatures?** → `member Type --package Foo -m Method` (default verbosity)
-- **Need source/IL?** → `member Type --package Foo -m Method -v:d` (verbose, one overload at a time)
+- **Need signatures?** → `member Type --package Foo -m Method` (default shows full signatures + docs)
+- **Need source/IL?** → `member Type --package Foo -m Method -v:d` (adds Source, Lowered C#, IL)
 - **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
 - **Need all overloads?** → `member Type --package Foo --select` (shows `Name:N` indices)
 

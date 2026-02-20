@@ -345,6 +345,14 @@ dotnet-inspect cli type                             # Explore args for specific 
 | `-v:n` | Normal | + metadata table, type parameters |
 | `-v:d` | Detailed | + all sections, full signatures |
 
+The `member` command has its own verbosity scale (it's a deep-dive, not an entry point):
+
+| Flag | Level | Member output |
+| ---- | ----- | ------------- |
+| `-v:q` | Quiet | Summary tables (Name + Return Type) |
+| (default) | Minimal | Full signature tables with docs |
+| `-v:d` | Detailed | + Source, Lowered C#, IL, IL (Annotated) |
+
 Every verbosity level includes a **compact summary line**:
 
 ```text
@@ -435,10 +443,10 @@ Use `--oneline` as the default format for scanning APIs. It is far more token-ef
 ```bash
 dotnet-inspect member Command --package System.CommandLine --oneline       # scan all members
 dotnet-inspect type --package System.CommandLine --oneline                  # scan all types
-dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d  # then drill in
+dotnet-inspect member Command --package System.CommandLine -m SetAction     # then drill in (full signatures + docs)
 ```
 
-Only switch to `-v:d` when you need full signatures, docs, or source for a specific member.
+Default `member` output shows full signatures with docs. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables (Name + Return Type).
 
 ### Migration Workflow (fixing build errors from API changes)
 
@@ -462,7 +470,7 @@ dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:3 
 
 Start with `diff` — it immediately shows all removed/changed/added members. This avoids guessing which APIs changed.
 
-**Verbosity tip:** Default verbosity is usually sufficient for migration. Use `-v:d` only when you need source code or IL — it shows one overload at a time and generates much more output. Use `--select` or overload index (`SetAction:2`) to see all overloads efficiently.
+**Verbosity tip:** Default `member` output shows full signatures with docs — usually sufficient for migration. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables. Use `--select` or overload index (`SetAction:2`) to enumerate overloads efficiently.
 
 ### Important: New type and member Commands
 
@@ -482,17 +490,18 @@ dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  
 ### Common Mistakes to Avoid
 
 ```bash
-# WRONG: Using -v:d for initial scanning (wastes tokens)
+# WRONG: Using -v:d for initial scanning (wastes tokens with source/IL)
 dotnet-inspect member Command --package System.CommandLine -v:d              # ✗
-# CORRECT: Use --oneline for scanning, -v:d only for specific members
+# CORRECT: Use --oneline for scanning, default for signatures+docs, -v:d only for source/IL
 dotnet-inspect member Command --package System.CommandLine --oneline         # ✓
-dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✓ (drill in)
+dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (full signatures + docs)
+dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✓ (source/IL)
 
-# WRONG: Using -v:d to see all overloads (only shows one at a time)
-dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✗ (shows first overload only)
-# CORRECT: Use --select to see overload indices, then drill into specific ones
+# WRONG: Using -v:d just to see all overloads
+dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✗ (default already shows all)
+# CORRECT: Default member shows all overloads with full signatures; use --select for indices
+dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (all overloads, full sigs)
 dotnet-inspect member Command --package System.CommandLine --select          # ✓ (shows Name:N for each)
-dotnet-inspect member Command --package System.CommandLine -m SetAction:3    # ✓ (async overload)
 
 # WRONG: Not using diff when fixing API migration errors
 # CORRECT: Start with diff to see all changes at once
