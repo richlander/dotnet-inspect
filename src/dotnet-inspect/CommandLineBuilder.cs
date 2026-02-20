@@ -1926,7 +1926,8 @@ public static class CommandLineBuilder
                 ExcludeSections = opts.ParseExcludeSections(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                IsMemberCommand = true
             };
 
             options = options with

@@ -203,7 +203,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class MethodSource : ISectionDescriptor<ApiType>
     {
         public static string Name => "Source";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
@@ -212,7 +212,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
         public static string Name => "IL";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
@@ -221,7 +221,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class AnnotatedIL : ISectionDescriptor<ApiType>
     {
         public static string Name => "IL (Annotated)";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
@@ -230,7 +230,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class LoweredCSharp : ISectionDescriptor<ApiType>
     {
         public static string Name => "Lowered C#";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");

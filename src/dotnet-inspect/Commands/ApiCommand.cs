@@ -779,7 +779,9 @@ public class ApiCommand
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
         // Determine if we can use the full serializer for member tables
-        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
+        // Member command always shows tables: quiet gets summary, minimal+ gets full signatures
+        // Type command: quiet gets no tables, minimal gets summary, normal+ gets full
+        bool fullSerializer = options.IsMemberCommand || options.Verbosity != Verbosity.Quiet;
 
         int truncatedCount = 0;
         string truncatedNoun = "";
@@ -791,7 +793,11 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
             }
-            else if (options.Verbosity == Verbosity.Minimal)
+            else if (options.IsMemberCommand && options.Verbosity == Verbosity.Quiet)
+            {
+                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
+            }
+            else if (options.Verbosity == Verbosity.Minimal && !options.IsMemberCommand)
             {
                 (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }

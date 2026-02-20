@@ -53,6 +53,11 @@ public record ApiOptions
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>
+    /// True when invoked via the member command. Member always shows tables (quiet gets summary, minimal+ gets full).
+    /// </summary>
+    public bool IsMemberCommand { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || ShapeOutput;

@@ -115,8 +115,8 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize", output);
-        // No documentation at minimal
-        Assert.DoesNotContain("Converts the provided value", output);
+        // Minimal now shows full signatures with docs
+        Assert.Contains("Signature", output);
     }
 
     // ── router -> qualified type name ─────────────────────────────────
