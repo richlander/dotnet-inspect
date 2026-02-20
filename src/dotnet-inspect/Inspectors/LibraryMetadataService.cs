@@ -122,7 +122,9 @@ internal static class LibraryMetadataService
             inspection.FileSize = AssemblyDetailScanner.GetFileSize(path);
             inspection.LastModified = File.GetLastWriteTimeUtc(path);
 
-            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit);
+            // Skip PDB download for quiet/minimal verbosity (no SourceLink info displayed)
+            bool skipPdbDownload = options.Verbosity < Options.Verbosity.Detailed && !options.IncludeSourcelinkAudit;
+            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit, skipPdbDownload);
 
             return inspection;
         }
@@ -136,6 +138,7 @@ internal static class LibraryMetadataService
     /// <summary>
     /// PDB acquisition, SourceLink detection, and builder inference.
     /// </summary>
+    /// <param name="skipPdbDownload">Skip downloading PDB from symbol servers (for quiet/minimal verbosity).</param>
     public static async Task AuditAsync(
         SourceLinkService service,
         LibraryInspection inspection,
@@ -145,7 +148,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        bool includeSourcelinkAudit = false)
+        bool includeSourcelinkAudit = false,
+        bool skipPdbDownload = false)
     {
         var pdbContext = service.Context;
 
@@ -164,8 +168,8 @@ internal static class LibraryMetadataService
             inspection.PdbLocation = pdbContext.PdbLocation;
         }
 
-        // If no local PDB, try downloading
-        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected)
+        // If no local PDB, try downloading (unless skipped for perf)
+        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && !skipPdbDownload)
         {
             await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
 

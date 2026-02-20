@@ -262,18 +262,25 @@ public static class CommandLineBuilder
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
         rootCommand.Subcommands.Add(skillCommand);
 
-        // Perf command (hidden, for profiling package inspection path)
-        var perfCommand = new Command(PerfCommand.Name, "Run package inspection loop for profiling") { Hidden = true };
-        var perfPackageArg = new Argument<string>("package") { Description = "Package name (e.g., System.CommandLine)" };
+        // Perf command (hidden, for profiling various code paths)
+        var perfCommand = new Command(PerfCommand.Name, "Run operations in a loop for profiling") { Hidden = true };
+        var perfTargetArg = new Argument<string>("target") { Description = "Package or library name (e.g., System.CommandLine, System.Text.Json)" };
         var perfIterationsOption = new Option<int>("--iterations") { Description = "Number of iterations (default: 100)" };
         perfIterationsOption.Aliases.Add("-n");
-        perfCommand.Arguments.Add(perfPackageArg);
+        var perfModeOption = new Option<PerfCommand.Mode>("--mode") { Description = "Test mode: package, version, library, type (default: package)" };
+        perfModeOption.Aliases.Add("-m");
+        var perfSkipWarmupOption = new Option<bool>("--skip-warmup") { Description = "Skip warmup iteration (test cold start)" };
+        perfCommand.Arguments.Add(perfTargetArg);
         perfCommand.Options.Add(perfIterationsOption);
+        perfCommand.Options.Add(perfModeOption);
+        perfCommand.Options.Add(perfSkipWarmupOption);
         perfCommand.SetAction(async (parseResult) =>
         {
-            var package = parseResult.GetValue(perfPackageArg)!;
+            var target = parseResult.GetValue(perfTargetArg)!;
             var iterations = parseResult.GetValue(perfIterationsOption);
-            return await PerfCommand.ExecuteAsync(package, iterations > 0 ? iterations : 100);
+            var mode = parseResult.GetValue(perfModeOption);
+            var skipWarmup = parseResult.GetValue(perfSkipWarmupOption);
+            return await PerfCommand.ExecuteAsync(target, iterations > 0 ? iterations : 100, mode, skipWarmup);
         });
         rootCommand.Subcommands.Add(perfCommand);
 
@@ -1608,67 +1615,55 @@ public static class CommandLineBuilder
                 Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
                 var client = HttpClientFactory.Shared;
 
-                // Probe at latest to check if the assembly is in a platform pack
-                var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
-
-                // Download with overlapped I/O; check each result as it lands
-                await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log, forceLatest: forceLatest))
+                // Build framework spec if explicit version given (e.g., System.Text.Json@9.0.0 -> runtime@9.0.0)
+                string? platformFrameworkSpec = null;
+                if (hasExplicitVersion)
                 {
-                    if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
+                    var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
+                    if (discoveredFramework != null)
+                        platformFrameworkSpec = $"{discoveredFramework}@{explicitVersion}";
+                }
+
+                // Resolve assembly (local-first, then network if needed)
+                var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+                    bareName, client, log, platformFrameworkSpec);
+
+                if (resolvedPath != null && resolvedError == null)
+                {
+                    var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
+                    var includeSections = ParseIncludeSections(parseResult, includeSectionsOption);
+                    var assemblyOptions = new AssemblyOptions
                     {
-                        // Found it — remaining downloads continue for cache warming
-                        string? frameworkSpec = null;
-                        var (assemblyPath, framework, version, error) =
-                            PlatformResolver.ResolveAssembly(bareName);
+                        PlatformAssembly = bareName,
+                        PlatformFramework = platformFrameworkSpec,
+                        JsonOutput = parseResult.GetValue(jsonOption),
+                        Verbose = parseResult.GetValue(verboseOption),
+                        Verbosity = verbosity,
+                        IncludeSections = includeSections,
+                        ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
+                    };
 
-                        if (assemblyPath != null && hasExplicitVersion && framework != null)
-                        {
-                            // Now download the specific version of this pack
-                            frameworkSpec = $"{framework}@{explicitVersion}";
-                            if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
-                                await PlatformPackService.EnsurePackAsync(packName, explicitVersion!, client, log);
-                            (assemblyPath, framework, version, error) =
-                                PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
-                        }
+                    var assemblyExitCode = await AssemblyCommand.ExecuteAsync(assemblyOptions);
 
-                        if (assemblyPath != null)
-                        {
-                            var verbosity = ParseVerbosity(parseResult.GetValue(verbosityOption));
-                            var includeSections = ParseIncludeSections(parseResult, includeSectionsOption);
-                            var assemblyOptions = new AssemblyOptions
-                            {
-                                PlatformAssembly = bareName,
-                                PlatformFramework = frameworkSpec,
-                                JsonOutput = parseResult.GetValue(jsonOption),
-                                Verbose = parseResult.GetValue(verboseOption),
-                                Verbosity = verbosity,
-                                IncludeSections = includeSections,
-                                ExcludeSections = ParseSectionList(parseResult.GetValue(excludeSectionsOption))
-                            };
+                    if (assemblyExitCode == 0 && !assemblyOptions.JsonOutput)
+                    {
+                        var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null || HeadLines != null
+                            ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
 
-                            var assemblyExitCode = await AssemblyCommand.ExecuteAsync(assemblyOptions);
+                        List<Tip> tips = [];
 
-                            if (assemblyExitCode == 0 && !assemblyOptions.JsonOutput)
-                            {
-                                var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null || HeadLines != null
-                                    ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(tipsOption), parseResult.GetResult(tipsOption) != null);
+                        if (verbosity < Verbosity.Detailed)
+                            tips.Add(new($"{bareName}", "-v:d", "detailed metadata"));
 
-                                List<Tip> tips = [];
+                        tips.Add(new(PackageCommand.Name, bareName, "inspect as NuGet package"));
+                        tips.Add(new(TypeCommand.Name, $"--platform {bareName}", "discover types"));
+                        tips.Add(new(FindCommand.Name, $"<pattern> --platform {bareName}", "search for types"));
+                        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
 
-                                if (verbosity < Verbosity.Detailed)
-                                    tips.Add(new($"{bareName}", "-v:d", "detailed metadata"));
-
-                                tips.Add(new(PackageCommand.Name, bareName, "inspect as NuGet package"));
-                                tips.Add(new(TypeCommand.Name, $"--platform {bareName}", "discover types"));
-                                tips.Add(new(FindCommand.Name, $"<pattern> --platform {bareName}", "search for types"));
-                                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                                Hints.WriteTips(platformTipLevel, [.. tips]);
-                            }
-
-                            return assemblyExitCode;
-                        }
+                        Hints.WriteTips(platformTipLevel, [.. tips]);
                     }
+
+                    return assemblyExitCode;
                 }
             }
 
@@ -2055,35 +2050,28 @@ public static class CommandLineBuilder
                     var client = HttpClientFactory.Shared;
                     bool verbose = parseResult.GetValue(verboseOption);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
-                    await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
+
+                    // Build framework spec if explicit version given
+                    string? frameworkSpec = null;
+                    if (explicitVersion != null)
                     {
-                        if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
-                        {
-                            string? frameworkSpec = null;
-                            var (asmPath, framework, _, error) = PlatformResolver.ResolveAssembly(bareName);
-
-                            if (asmPath != null && explicitVersion != null && framework != null)
-                            {
-                                frameworkSpec = $"{framework}@{explicitVersion}";
-                                if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
-                                    await PlatformPackService.EnsurePackAsync(packName, explicitVersion, client, log);
-                                (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
-                            }
-
-                            if (error == null && asmPath != null)
-                            {
-                                explicitPlatform = bareName;
-                                packagePath = null;
-                                apiFrameworkOverride = frameworkSpec;
-                                break;
-                            }
-                        }
+                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
+                        if (discoveredFramework != null)
+                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
                     }
 
+                    // Resolve assembly (local-first, then network if needed)
+                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+                        bareName, client, log, frameworkSpec);
+
+                    if (resolvedPath != null && resolvedError == null)
+                    {
+                        explicitPlatform = bareName;
+                        packagePath = null;
+                        apiFrameworkOverride = frameworkSpec;
+                    }
                     // Assembly not found — try qualified type name (e.g., System.Text.Json.JsonSerializer)
-                    if (explicitPlatform == null && typeName == null
-                        && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAsm, out var qtTyp))
+                    else if (typeName == null && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAsm, out var qtTyp))
                     {
                         explicitPlatform = qtAsm;
                         typeName = qtTyp;
@@ -2299,30 +2287,25 @@ public static class CommandLineBuilder
                     var client = HttpClientFactory.Shared;
                     bool verbose = parseResult.GetValue(verboseOption);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                    var requests = PlatformPackService.BuildPackRequests(bareName, explicitVersion: null);
-                    await foreach (var pack in PlatformPackService.EnsurePacksAsync(requests, client, log))
+
+                    // Build framework spec if explicit version given
+                    string? frameworkSpec = null;
+                    if (explicitVersion != null)
                     {
-                        if (PlatformPackService.ContainsAssembly(pack.PackDir, bareName))
-                        {
-                            string? frameworkSpec = null;
-                            var (asmPath, framework, _, error) = PlatformResolver.ResolveAssembly(bareName);
+                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
+                        if (discoveredFramework != null)
+                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
+                    }
 
-                            if (asmPath != null && explicitVersion != null && framework != null)
-                            {
-                                frameworkSpec = $"{framework}@{explicitVersion}";
-                                if (PlatformResolver.FrameworkMappings.TryGetValue(framework, out var packName))
-                                    await PlatformPackService.EnsurePackAsync(packName, explicitVersion, client, log);
-                                (asmPath, _, _, error) = PlatformResolver.ResolveAssembly(bareName, frameworkSpec);
-                            }
+                    // Resolve assembly (local-first, then network if needed)
+                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+                        bareName, client, log, frameworkSpec);
 
-                            if (error == null && asmPath != null)
-                            {
-                                explicitPlatform = bareName;
-                                packagePath = null;
-                                apiFrameworkOverride = frameworkSpec;
-                                break;
-                            }
-                        }
+                    if (resolvedPath != null && resolvedError == null)
+                    {
+                        explicitPlatform = bareName;
+                        packagePath = null;
+                        apiFrameworkOverride = frameworkSpec;
                     }
                 }
             }

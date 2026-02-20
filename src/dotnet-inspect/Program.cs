@@ -43,6 +43,13 @@ if (isolated && cacheBasePath == null)
 DotnetInspector.Core.HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
 
+#if DEBUG
+// DEBUG-only: network guard is always on to catch unintended network access.
+// Disabled for offline mode (OfflineHandler handles it) and detailed verbosity (legitimate need).
+if (!offline)
+    DotnetInspector.Core.HttpClientFactory.DenyNetwork();
+#endif
+
 // Handle --version explicitly to show short commit hash
 if (args.Length == 1 && args[0] == "--version")
 {

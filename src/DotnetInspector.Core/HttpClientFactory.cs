@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 
 namespace DotnetInspector.Core;
@@ -10,6 +11,7 @@ public static class HttpClientFactory
 {
     private const string UserAgent = "dotnet-inspect";
     private static bool _offline;
+    private static bool _denyNetwork;
     private static HttpClient? _shared;
 
     /// <summary>
@@ -20,6 +22,23 @@ public static class HttpClientFactory
     {
         _offline = offline;
     }
+
+    /// <summary>
+    /// Denies all network access through managed HttpClient instances.
+    /// Any HTTP request will throw <see cref="NetworkGuardException"/>.
+    /// Use this to assert that a code path is fully offline.
+    /// </summary>
+    public static void DenyNetwork() => _denyNetwork = true;
+
+    /// <summary>
+    /// Re-allows network access after a prior <see cref="DenyNetwork"/> call.
+    /// </summary>
+    public static void AllowNetwork() => _denyNetwork = false;
+
+    /// <summary>
+    /// Whether network access is currently denied.
+    /// </summary>
+    internal static bool IsNetworkDenied => _denyNetwork;
 
     /// <summary>
     /// Resets the shared instance so the next access creates a fresh one.
@@ -37,6 +56,7 @@ public static class HttpClientFactory
     /// Creates a new HttpClient with standard configuration including User-Agent header
     /// and automatic decompression for gzip/deflate/brotli responses.
     /// In offline mode, all requests will throw <see cref="OfflineException"/>.
+    /// When network is denied, all requests will throw <see cref="NetworkGuardException"/>.
     /// </summary>
     public static HttpClient CreateNew(TimeSpan? timeout = null)
     {
@@ -47,6 +67,8 @@ public static class HttpClientFactory
 
         if (_offline)
             handler = new OfflineHandler(handler);
+
+        handler = new NetworkGuardHandler(handler);
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
@@ -69,6 +91,35 @@ internal sealed class OfflineHandler(HttpMessageHandler inner) : DelegatingHandl
 }
 
 /// <summary>
+/// A handler that rejects all HTTP requests when network access has been denied
+/// via <see cref="HttpClientFactory.DenyNetwork"/>.
+/// Unlike <see cref="OfflineHandler"/>, this is a runtime toggle — arm it to assert
+/// that a code path makes no network calls, then disarm with <see cref="HttpClientFactory.AllowNetwork"/>.
+/// DEBUG-only: the check is compiled out in Release builds.
+/// </summary>
+internal sealed class NetworkGuardHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+#if DEBUG
+        if (HttpClientFactory.IsNetworkDenied)
+        {
+            var message = $"Network guard violation: {request.Method} {request.RequestUri}";
+            Debug.Fail(message);
+            throw new NetworkGuardException(message);
+        }
+#endif
+        return base.SendAsync(request, cancellationToken);
+    }
+}
+
+/// <summary>
 /// Thrown when a network request is attempted in offline mode.
 /// </summary>
 public sealed class OfflineException(string message) : InvalidOperationException(message);
+
+/// <summary>
+/// Thrown when a network request is attempted while network access is denied.
+/// </summary>
+public sealed class NetworkGuardException(string message) : InvalidOperationException(message);
