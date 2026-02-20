@@ -171,7 +171,7 @@ dotnet-inspect find HttpClient                           # Runtime (default scop
 dotnet-inspect find "*Stream*" -n 10                     # Glob, limit results
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
 dotnet-inspect find "ChatClient*" --oneline                # Columnar output
-dotnet-inspect find ILogger --platform                   # All platform frameworks
+dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
 ```
 

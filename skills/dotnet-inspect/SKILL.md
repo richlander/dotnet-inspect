@@ -56,8 +56,9 @@ dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 --one
 Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 
 - **(no flags)** — platform frameworks + Microsoft.Extensions.AI
-- **`--platform`** — all platform frameworks (runtime, ASP.NET Core, netstandard)
+- **`--platform`** — all platform frameworks
 - **`--extensions`** — curated Microsoft.Extensions.* packages
+- **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages
 - **`--package Foo`** — specific NuGet package (combinable with scope flags)
 
 `type`, `member`, `library`, `diff` accept `--platform <name>` as a string for a specific platform library.
