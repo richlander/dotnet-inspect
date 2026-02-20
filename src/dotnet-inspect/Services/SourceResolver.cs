@@ -1,3 +1,4 @@
+using DotnetInspector.CommandLine;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Services;
@@ -74,7 +75,7 @@ public static class SourceResolver
             if (args.Length >= 2) typeName = args[1];
 
             // Check for version number passed as separate argument
-            if (LooksLikeVersionNumber(typeName))
+            if (CommandLineHelpers.LooksLikeVersionNumber(typeName))
             {
                 return new ResolvedSource(
                     packagePath, assemblyPath, platformAssembly, null, null,
@@ -83,7 +84,7 @@ public static class SourceResolver
             }
 
             // Classify file paths
-            if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
+            if (CommandLineHelpers.TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
             {
                 if (dllPath != null)
                 {
@@ -136,41 +137,5 @@ public static class SourceResolver
         }
 
         return new ResolvedSource(packagePath, assemblyPath, platformAssembly, frameworkOverride, typeName);
-    }
-
-    /// <summary>
-    /// Checks if a string looks like a semantic version number.
-    /// </summary>
-    private static bool LooksLikeVersionNumber(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return false;
-        // Matches patterns like "1.0", "1.0.0", "1.0.0-preview"
-        return char.IsDigit(value[0]) && value.Contains('.');
-    }
-
-    /// <summary>
-    /// Classifies a positional argument by file extension.
-    /// </summary>
-    private static bool TryClassifyAsFilePath(string? positional, out string? libraryPath, out string? packagePath)
-    {
-        libraryPath = null;
-        packagePath = null;
-
-        if (string.IsNullOrEmpty(positional))
-            return false;
-
-        if (positional.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-        {
-            libraryPath = positional;
-            return true;
-        }
-
-        if (positional.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-        {
-            packagePath = positional;
-            return true;
-        }
-
-        return false;
     }
 }
