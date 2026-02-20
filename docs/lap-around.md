@@ -57,7 +57,7 @@ Version: 10.3.0 | Type: Library | TFM: net10.0 | Updated: 2026-02-10
 Tips:
 package Microsoft.Extensions.AI -v:d    # detailed metadata
 library Microsoft.Extensions.AI         # inspect library
-api --package Microsoft.Extensions.AI   # view public API surface
+type --package Microsoft.Extensions.AI  # list public types
 ```
 
 Quiet verbosity, targeting local assets:
@@ -145,7 +145,7 @@ dotnet-inspect                                     # No args launch; basic tool 
 dotnet-inspect cli                                 # CLI args explorer -- tree view; single level)
 dotnet-inspect cli -v:d                            # CLI args explorer -- tree view; deep view, all levels)
 dotnet-inspect cli -v:q                            # CLI args explorer -- oneliner
-dotnet-inspect cli api                             # Explore args for a particular agument (this is full depth; does't go deeper)
+dotnet-inspect cli type                            # Explore args for a particular command (this is full depth; doesn't go deeper)
 dotnet-inspect llmstxt                             # Prints llmstxt, intended for LLMs
 dotnet-inspect skill                               # Prints SKILL.md for anyone that wants it
 dotnet-inspect cache                               # How to clean the cache
@@ -239,41 +239,41 @@ Matches: 5
 | DictionaryModelBinderProvider | Microsoft.AspNetCore.Mvc.ModelBinding.Binders | class | Microsoft.AspNetCore.Mvc.Core | aspnetcore@10.0.3 |
 ```
 
-## API Lists
+## Type and Member Lists
 
-The `api` command loads and queries libraries for API metadata, including type and member lists. This command supports bare names as well.
+The `type` command lists types in a library. The `member` command inspects members of a specific type, with docs on by default. These commands support bare names as well.
 
-Inspect APIs from multiple sources.
+Inspect types from multiple sources.
 
 ```bash
-dotnet-inspect api System.Text.Json@10.0.2              # Lists System.Text.Json types from platform at a specific version
-dotnet-inspect api --platform System.Text.Json          # Lists System.Text.Json from the platform (equivalent, modulo version difference)
-dotnet-inspect api --package System.Text.Json@10.0.2    # Lists System.Text.Json types from platform at a specific version
-dotnet-inspect api Newtonsoft.Json                      # Lists Newtonsoft.Json types
-dotnet-inspect api --library artifacts/bin/DotnetInspector.Metadata/debug/DotnetInspector.Metadata.dll     # Inspect library directly
+dotnet-inspect type System.Text.Json@10.0.2              # Lists System.Text.Json types from platform at a specific version
+dotnet-inspect type --platform System.Text.Json          # Lists System.Text.Json from the platform (equivalent, modulo version difference)
+dotnet-inspect type --package System.Text.Json@10.0.2    # Lists System.Text.Json types from package at a specific version
+dotnet-inspect type Newtonsoft.Json                      # Lists Newtonsoft.Json types
+dotnet-inspect type --library artifacts/bin/DotnetInspector.Metadata/debug/DotnetInspector.Metadata.dll     # Inspect library directly
 ```
 
 Type lists:
 
 ```bash
-dotnet-inspect api System.Text.Json                     # Lists all public types in kind-specific sections (Classes, Enums, ...)
-dotnet-inspect api System.Text.Json -s "Classes"        # Lists a specific section, excluding all others
-dotnet-inspect api System.Text.Json JsonS*              # List public types that match a specific glob
-dotnet-inspect api System.Text.Json --docs              # Show docs for types
+dotnet-inspect type System.Text.Json                     # Lists all public types in kind-specific sections (Classes, Enums, ...)
+dotnet-inspect type System.Text.Json -s "Classes"        # Lists a specific section, excluding all others
+dotnet-inspect type System.Text.Json JsonS*              # List public types that match a specific glob
+dotnet-inspect type System.Text.Json -v:d                # Show types with documentation
 ```
 
 Notes:
 
-- `--docs` can be slow on type scope (result is cached for second used)
-- `--docs` is enabled for member scope; can be disabled with `--docs false`
+- Docs are off by default for `type` (use `-v:d` to include them)
+- Docs are on by default for `member`; disable with `--no-docs`
 
 Member lists:
 
 ```bash
-dotnet-inspect api System.Text.Json JsonSerializer               # Lists all public members 
-dotnet-inspect api System.Text.Json JsonSerializer Deserialize   # Lists all overloads for a name
-dotnet-inspect api System.Text.Json JsonSerializer Deserial*     # Lists all members matching glob
-dotnet-inspect api System.Text.Json JsonSerializer Deserial      # "Did you mean: ..." (stderr)
+dotnet-inspect member System.Text.Json JsonSerializer               # Lists all public members 
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize   # Lists all overloads for a name
+dotnet-inspect member System.Text.Json JsonSerializer Deserial*     # Lists all members matching glob
+dotnet-inspect member System.Text.Json JsonSerializer Deserial      # "Did you mean: ..." (stderr)
 ```
 
 Packages with multiple libraries:
@@ -285,11 +285,11 @@ netstandard2.0
 $ dotnet-inspect package Microsoft.Azure.SignalR --files --tfm net8.0 | grep dll
 Microsoft.Azure.SignalR.Common.dll
 Microsoft.Azure.SignalR.dll
-$ dotnet-inspect api Microsoft.Azure.SignalR -v:q
+$ dotnet-inspect type Microsoft.Azure.SignalR -v:q
 # Microsoft.Azure.SignalR
 
 Library: Microsoft.Azure.SignalR.dll | Types: 9 | Methods: 20 | Properties: 23 | Source: NuGet | Version: 1.32.0 | TFM: net8.0
-$ dotnet-inspect api Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll
+$ dotnet-inspect type Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll
 # Microsoft.Azure.SignalR
 
 Library: Microsoft.Azure.SignalR.Common.dll | Types: 38 | Methods: 36 | Properties: 18 | Source: NuGet | Version: 1.32.0
@@ -298,7 +298,7 @@ Library: Microsoft.Azure.SignalR.Common.dll | Types: 38 | Methods: 36 | Properti
 The `--shape` flag enables printing a diagram for a type, with quite a lot of type information packed in:
 
 ```bash=
-$ dotnet-inspect api System.Collections "HashSet<T>" --shape
+$ dotnet-inspect type System.Collections "HashSet<T>" --shape
 # System.Collections.Generic.HashSet`1
 
 Kind: class | Library: System.Collections
@@ -362,11 +362,11 @@ BTW: `HashSet<T>` is quite underrated.
 There are a few libraries with samples. This a capability to develop more in future.
 
 ```bash=
-$ dotnet-inspect api Markout MarkoutWriter --samples -v:q
+$ dotnet-inspect member Markout MarkoutWriter -v:q
 # Markout.MarkoutWriter (Markout 0.5.1)
 
 Kind: class | Modifiers: sealed | Library: Markout | Package: Markout | Version: 0.5.1 | Source: NuGet | Samples: 5 available | Constructors: 6 | Properties: 6 | Methods: 27
-$ dotnet-inspect api Newtonsoft.Json JObject --samples -v:q
+$ dotnet-inspect member Newtonsoft.Json JObject -v:q
 # Newtonsoft.Json.Linq.JObject (Newtonsoft.Json 13.0.4)
 
 Kind: class | Base: Newtonsoft.Json.Linq.JContainer | Library: Newtonsoft.Json | Package: Newtonsoft.Json | Version: 13.0.4 | Source: NuGet | TFM: net6.0 | Samples: 1 available | Constructors: 4 | Properties: 3 | Methods: 22 | Events: 2
@@ -377,7 +377,7 @@ You can also print detailed member pages, with code, using the following techniq
 Member docs normally show docs. You can opt them into the `--select` mode, which adds a `Select` column to the member tables. This column includes the argument that is needed for the detailed member doc to correctly identify/address that member.
 
 ```bash
-$ dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+$ dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --select
 # Microsoft.Extensions.Options.OptionsFactory`1 (Microsoft.Extensions.Options 10.0.3)
 
 Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.Options | Package: Microsoft.Extensions.Options | Version: 10.0.3 | Source: NuGet | TFM: net10.0
@@ -399,8 +399,8 @@ Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.
 For create method, there is just one, so we can use the member name as a positional argument. It will print a member document.
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create | head -6
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory Create
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory Create | head -6
 # Microsoft.Extensions.Options.OptionsFactory`1 (Microsoft.Extensions.Options 10.0.3)
 
 Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.Options | Package: Microsoft.Extensions.Options | Version: 10.0.3 | Source: NuGet | TFM: net10.0
@@ -411,7 +411,7 @@ Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.
 The constructors use the `Name:N` shorthand from the Select column:
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory .ctor:1
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1
 ```
 
 The output has four sections:
@@ -936,7 +936,7 @@ $ dotnet-inspect library Aspire.Hosting -s Ex* --json | \
     "count": 16
   }
 ]
-$ dotnet-inspect api --package Aspire.Hosting -t 'IDistributedApplicationBuilder'
+$ dotnet-inspect type --package Aspire.Hosting -t 'IDistributedApplicationBuilder'
 # Aspire.Hosting
 
 Library: Aspire.Hosting.dll | Types: 1 | Methods: 757 | Properties: 583 | Source: NuGet | Version: 13.1.0 | TFM: net8.0
@@ -1005,14 +1005,14 @@ Each demo prints the equivalent CLI invocation to stderr so you can repeat and m
 $ dotnet-inspect demo list
 # Demo Queries
 
-   1. [api] Shape: INumber<TSelf> — generic math interface
-      dotnet-inspect api System.Runtime "INumber<TSelf>" --shape
-   2. [api] Shape: Int128 — generic math concrete type
-      dotnet-inspect api System.Runtime Int128 --shape
-   3. [api] API: JsonSerializer members
-      dotnet-inspect api System.Text.Json JsonSerializer
-   4. [api] Code: OptionsFactory.Create — source, lowered C#, and IL
-      dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
+   1. [type] Shape: INumber<TSelf> — generic math interface
+      dotnet-inspect type System.Runtime "INumber<TSelf>" --shape
+   2. [type] Shape: Int128 — generic math concrete type
+      dotnet-inspect type System.Runtime Int128 --shape
+   3. [member] Members: JsonSerializer
+      dotnet-inspect member System.Text.Json JsonSerializer
+   4. [member] Code: OptionsFactory.Create — source, lowered C#, and IL
+      dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory Create
    5. [depends] Depends: IFloatingPointIeee754 interface hierarchy
       dotnet-inspect depends "IFloatingPointIeee754<TSelf>"
    6. [diff] Diff: System.CommandLine breaking changes (beta→stable)
