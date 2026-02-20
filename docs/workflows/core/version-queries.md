@@ -1,8 +1,8 @@
 ---
 id: version-queries
-description: Query package versions from cache and NuGet
-commands: [--version, --versions, --latest-version]
-areas: [versioning, cache, nuget]
+description: Query package versions, wildcard patterns, and custom NuGet sources
+commands: [--version, --versions, --latest-version, --add-source, --nugetconfig]
+areas: [versioning, cache, nuget, wildcards, sources]
 ---
 
 # Version Queries
@@ -185,4 +185,68 @@ Package 'system.commandline2' not found.
 
 ```query
 grep 'not found'
+```
+
+## 6. Wildcard version patterns
+
+> Goal: Match the latest version within a pattern, useful for tracking patch releases or preview builds.
+
+### 6a. Patch wildcard
+
+```bash
+dotnet-inspect package System.Text.Json --version '9.0.*' -v:q
+```
+
+```expect
+# System.Text.Json
+Source: NuGet
+```
+
+```query
+grep -oE 'Version: 9\.0\.[0-9]+'
+```
+
+### 6b. Preview wildcard
+
+```bash
+dotnet-inspect package System.Text.Json --version '11.0.0-preview*' -v:q
+```
+
+```expect
+# System.Text.Json
+Source: NuGet
+```
+
+```query
+grep -oE 'Version: 11\.0\.0-preview[^ |]+'
+```
+
+## 7. Custom NuGet sources
+
+> Goal: Access packages from private feeds or nightly builds using `--add-source`.
+
+### 7a. Add a feed for preview packages
+
+```bash
+dotnet-inspect package System.Text.Json --version '11.0.0-preview*' --add-source 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json' -v:q
+```
+
+```expect
+# System.Text.Json
+Source: NuGet
+```
+
+```query
+grep -oE 'Version: [^ |]+'
+```
+
+### 7b. Using nuget.config file
+
+```bash
+dotnet-inspect package System.CommandLine --nugetconfig ./nuget.config -v:q
+```
+
+```expect
+# System.CommandLine
+Source: NuGet
 ```

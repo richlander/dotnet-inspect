@@ -1,13 +1,13 @@
 ---
 id: type-queries
-description: Discover and inspect types in packages and platform libraries
+description: Discover, inspect, and document types in packages and platform libraries
 commands: [type, find, --package-prefix]
-areas: [types, discovery, inspection, package-prefix, unsafe, sourcelink, platform-version]
+areas: [types, discovery, inspection, documentation, shape, generics, package-prefix, unsafe, sourcelink, platform-version]
 ---
 
 # Type Queries
 
-> Find and inspect types across NuGet packages and platform libraries. These are core workflows for understanding APIs — listing types, filtering by pattern, and drilling into specific types.
+> Find and inspect types across NuGet packages and platform libraries. These are core workflows for understanding APIs — listing types, filtering by pattern, drilling into specific types, and viewing documentation.
 
 ## Preconditions
 
@@ -25,7 +25,15 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
+DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine@2.0.3 -v:q
+```
+
+```bash
+DOTNET_INSPECT_OFFLINE=0 dotnet-inspect Microsoft.Extensions.Options@10.0.2 -v:q
+```
+
+```bash
+DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.Collections@4.3.0 -v:q
 ```
 
 ## 1. List types in a package
@@ -232,7 +240,28 @@ DETAIL
 grep -o 'KIND\|NAME\|RETURN TYPE\|DETAIL' | wc -l | tr -d ' '
 ```
 
-## 5. View type shape
+## 5. View type with documentation
+
+> Goal: See type description and member documentation at detailed verbosity.
+
+### 5a. Detailed verbosity (with descriptions)
+
+```bash
+dotnet-inspect type --package System.CommandLine Command -v:d -n 30
+```
+
+```expect
+# System.CommandLine.Command
+Represents a specific action that the application performs.
+| Name | Signature | Description |
+Initializes a new instance
+```
+
+```expect-not
+Tips:
+```
+
+## 6. View type shape
 
 > Goal: See inheritance, interfaces, and member signatures in a tree view.
 
@@ -282,7 +311,7 @@ Tips:
 grep -E '(Inherits|Properties|Methods)'
 ```
 
-## 6. Search for types across packages
+## 7. Search for types across packages
 
 > Goal: Find types by name pattern across multiple sources.
 
@@ -350,7 +379,7 @@ Tips:
 grep -oE 'Matches: [0-9]+'
 ```
 
-## 7. Compare platform vs package types
+## 8. Compare platform vs package types
 
 > Goal: Understand when the same name resolves differently.
 
@@ -390,7 +419,120 @@ Tips:
 grep -o 'Source: [A-Za-z]*'
 ```
 
-## 8. List types with member counts
+## 9. Generic types
+
+> Goal: Look up generic types using angle bracket or backtick notation.
+
+### 9a. Using quoted generic syntax
+
+```bash
+dotnet-inspect type --package System.Collections 'HashSet<T>' -v:q
+```
+
+```expect
+# System.Collections.Generic.HashSet<T>
+Type Parameters: T
+```
+
+### 9b. Using backtick notation
+
+```bash
+dotnet-inspect type --package Microsoft.Extensions.Options 'OptionsFactory`1' -v:q
+```
+
+```expect
+# Microsoft.Extensions.Options.OptionsFactory<TOptions>
+Type Parameters: TOptions
+```
+
+## 10. Type sections
+
+> Goal: Discover and filter to specific sections of a type view.
+
+### 10a. List available sections
+
+```bash
+dotnet-inspect type --package System.CommandLine Command -s
+```
+
+```expect
+Interfaces
+Baseclass
+Constructors
+Properties
+Methods
+```
+
+### 10b. Filter to specific sections
+
+```bash
+dotnet-inspect type --package System.CommandLine Command -v:d -s Interfaces,Baseclass -n 15
+```
+
+```expect
+## Interfaces
+## Baseclass
+```
+
+```expect-not
+## Properties
+```
+
+## 11. View type with member filter
+
+> Goal: Limit which members are shown in the type view.
+
+### 11a. Filter members by name pattern
+
+```bash
+dotnet-inspect type System.Text.Json JsonSerializer -m 'Deseri*'
+```
+
+```expect
+# System.Text.Json.JsonSerializer
+## Methods
+Deserialize
+DeserializeAsync
+```
+
+```expect-not
+Serialize
+SerializeAsync
+```
+
+### 11b. Limit member count
+
+```bash
+dotnet-inspect type --package System.CommandLine Command -m 3
+```
+
+```expect
+## Constructors
+## Properties
+more members
+```
+
+## 12. Remote source information
+
+> Goal: View where source code for a type can be found.
+
+```bash
+dotnet-inspect type --package System.CommandLine Command -v:d -s "Remote Source" -n 10
+```
+
+```expect
+## Remote Source
+| File | Url |
+Command.cs
+github.com
+```
+
+```expect-not
+## Properties
+Tips:
+```
+
+## 13. List types with member counts
 
 > Goal: See types ranked by member count for API surface overview.
 
@@ -410,7 +552,7 @@ JsonNode
 head -3 | awk '{print $2}'
 ```
 
-## 9. Filter types with unsafe signatures
+## 14. Filter types with unsafe signatures
 
 > Goal: The `--unsafe` flag filters to types that have members with pointer signatures.
 
@@ -427,7 +569,7 @@ System.Runtime.CompilerServices.Unsafe
 wc -l | tr -d ' '
 ```
 
-## 10. Filter types with SourceLink
+## 15. Filter types with SourceLink
 
 > Goal: The `--sourcelink-only` flag filters to types that have SourceLink resolution — useful for knowing which types have browsable source.
 
@@ -445,7 +587,7 @@ Source: NuGet
 grep -oE 'Types: [0-9]+'
 ```
 
-## 11. Platform library at specific runtime version
+## 16. Platform library at specific runtime version
 
 > Goal: Use `--framework runtime@version` to inspect a platform library from a specific .NET version.
 
