@@ -41,7 +41,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="llms.txt" />
-    <EmbeddedResource Include="SKILL.md" />
+    <EmbeddedResource Include="../../skills/dotnet-inspect/SKILL.md" LogicalName="dotnet-inspect.SKILL.md" />
   </ItemGroup>
 
   <ItemGroup>
