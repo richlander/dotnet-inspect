@@ -126,7 +126,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json | head -20      
 dotnet-inspect member JsonSerializer --package System.Text.Json | Select-Object -First 20  # ✗
 # CORRECT: Use built-in limiting — preserves headers and formatting
 dotnet-inspect member JsonSerializer --package System.Text.Json --oneline -20    # ✓ (line limit)
-dotnet-inspect find "*Logger*" -n 5                                              # ✓ (result limit)
+dotnet-inspect find "*Logger*" -n 5                                              # ✓ (line limit)
 dotnet-inspect member JsonSerializer --package System.Text.Json -s Methods       # ✓ (section filter)
 ```
 

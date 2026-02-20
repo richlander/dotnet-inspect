@@ -82,16 +82,15 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 
 ## Output Limiting
 
-**Do not pipe output through `head`, `tail`, or `Select-Object`.** The tool has built-in limiting that preserves headers and formatting:
+**Do not pipe output through `head`, `tail`, or `Select-Object`.** The tool has built-in line limiting that preserves headers and formatting:
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline -10  # first 10 lines (like head)
-dnx dotnet-inspect -y -- find "*Logger*" -n 5                                            # first 5 results
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline -10  # first 10 lines
+dnx dotnet-inspect -y -- find "*Logger*" -n 5                                            # first 5 lines
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -s Methods  # select specific section
 ```
 
-- **`-NN`** (e.g. `-10`, `-30`) — line limit, like `head`. Keeps headers, truncates cleanly.
-- **`-n N`** — result limit on search commands (`find`, `extensions`, `package`).
+- **`-n N` or `-N`** — line limit, like `head`. Keeps headers, truncates cleanly.
 - **`-s Section`** — show only a specific section (glob-capable). Use `-s` alone to list available sections.
 - **`-v:q`** — quiet verbosity for compact summary output.
 
