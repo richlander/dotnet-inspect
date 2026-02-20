@@ -9,9 +9,10 @@ It operates on three types of content:
 - **Local paths** — e.g., `path/to/library.dll` or `path/to/package.nupkg`
 
 ```bash
-dotnet-inspect Microsoft.Extensions.AI              # Bare name — routes to best source
+dotnet-inspect Microsoft.Extensions.AI              # Bare name — routes to best source and command
 dotnet-inspect package System.Text.Json             # Package metadata
 dotnet-inspect library System.Text.Json             # Library metadata
+dotnet-inspect library --package System.Text.Json   # Library metadata for a package
 dotnet-inspect type --package System.Text.Json      # Discover types (terse)
 dotnet-inspect member JsonSerializer --package System.Text.Json  # Inspect members (docs)
 dotnet-inspect find "Chat*,Diction*"                # Search types across scopes
@@ -23,6 +24,136 @@ dotnet-inspect samples Markout MarkoutWriter        # Code samples
 dotnet-inspect demo list                            # Curated showcase queries
 dotnet-inspect cli                                  # CLI args explorer
 ```
+
+## LLM Usage Guide
+
+### Prefer --oneline for Discovery
+
+Use `--oneline` as the default format for scanning APIs. It is far more token-efficient than the default markdown tables, shows overload counts in the DETAIL column, and includes constructors that may be missing from other views for generic types.
+
+```bash
+dotnet-inspect member Command --package System.CommandLine --oneline       # scan all members
+dotnet-inspect type --package System.CommandLine --oneline                  # scan all types
+dotnet-inspect member Command --package System.CommandLine -m SetAction     # then drill in (full signatures + docs)
+```
+
+Default `member` output shows full signatures with docs. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables (Name + Return Type).
+
+### Migration Workflow (fixing build errors from API changes)
+
+When code fails to compile because it uses an outdated API:
+
+```bash
+# 1. Identify the version gap (check .csproj PackageReference versions)
+# 2. Diff the old and new versions to see all breaking/additive changes
+dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3
+
+# 3. Scan the new type surface with --oneline
+dotnet-inspect member Command --package System.CommandLine@2.0.3 --oneline
+
+# 4. Enumerate overloads for a method (--select shows Name:N indices)
+dotnet-inspect member Command --package System.CommandLine@2.0.3 --select
+
+# 5. Drill into a specific overload by index
+dotnet-inspect member Command --package System.CommandLine@2.0.3 -m SetAction:1
+dotnet-inspect member Command --package System.CommandLine@2.0.3 -m SetAction:3  # async overload
+```
+
+Start with `diff` — it immediately shows all removed/changed/added members. This avoids guessing which APIs changed.
+
+**Verbosity tip:** Default `member` output shows full signatures with docs — usually sufficient for migration. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables. Use `--select` or overload index (`SetAction:2`) to enumerate overloads efficiently.
+
+### Common Mistakes to Avoid
+
+```bash
+# WRONG: Using -v:d for initial scanning (wastes tokens with source/IL)
+dotnet-inspect member Command --package System.CommandLine -v:d              # ✗
+# CORRECT: Use --oneline for scanning, default for signatures+docs, -v:d only for source/IL
+dotnet-inspect member Command --package System.CommandLine --oneline         # ✓
+dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (full signatures + docs)
+dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✓ (source/IL)
+
+# WRONG: Using -v:d just to see all overloads
+dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✗ (default already shows all)
+# CORRECT: Default member shows all overloads with full signatures; use --select for indices
+dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (all overloads, full sigs)
+dotnet-inspect member Command --package System.CommandLine --select          # ✓ (shows Name:N for each)
+
+# WRONG: Not using diff when fixing API migration errors
+# CORRECT: Start with diff to see all changes at once
+dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 # ✓
+
+# WRONG: Using --filter to filter members (doesn't exist)
+dotnet-inspect member Command --package System.CommandLine --filter .ctor    # ✗
+# CORRECT: Use -m flag or positional arg for member filtering
+dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓
+dotnet-inspect member Command --package System.CommandLine .ctor             # ✓ (constructors)
+
+# WRONG: Using empty angle brackets for generic types (resolves to abstract base)
+dotnet-inspect member "Option<>" --package System.CommandLine                # ✗ (shows Option, not Option<T>)
+# CORRECT: Use <T> to get the concrete generic type with constructors
+dotnet-inspect member 'Option<T>' --package System.CommandLine               # ✓ (shows Option<T> with .ctor)
+
+# WRONG: Expecting RootCommand to show inherited members from Command
+dotnet-inspect member RootCommand --package System.CommandLine               # only shows RootCommand's own members
+# WORKAROUND: Also query the base type to see inherited methods like Add() and SetAction()
+dotnet-inspect member Command --package System.CommandLine --oneline         # shows Add(), SetAction(), Parse()
+
+# WRONG: --platform on search commands doesn't take a library name (it's a bool flag)
+dotnet-inspect find "IHost*" --platform Microsoft.Extensions.Hosting   # ✗
+# CORRECT: Use --package for specific NuGet packages, --extensions for curated set
+dotnet-inspect find "IHost*" --package Microsoft.Extensions.Hosting    # ✓
+dotnet-inspect find "IHost*" --extensions                              # ✓ (curated set)
+
+# WRONG: Two separate version args for diff
+dotnet-inspect diff System.Text.Json@8.0.0 System.Text.Json@9.0.0     # ✗
+# CORRECT: Single arg with .. range separator
+dotnet-inspect diff System.Text.Json@8.0.0..9.0.0                     # ✓
+
+# WRONG: Running --help to learn syntax (wastes tokens)
+dotnet-inspect type --help                                              # ✗
+# CORRECT: Use llmstxt for complete syntax reference
+dotnet-inspect llmstxt                                                 # ✓
+
+# WRONG: Using -m without the type name
+dotnet-inspect member --package Newtonsoft.Json -m SerializeObject     # ✗
+# CORRECT: Provide type as positional arg, or use dotted syntax
+dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject  # ✓
+dotnet-inspect member -m JsonConvert.SerializeObject --package Newtonsoft.Json  # ✓
+
+# WRONG: Piping through head/tail/Select-Object to limit output (breaks formatting, wastes tokens)
+dotnet-inspect member JsonSerializer --package System.Text.Json | head -20       # ✗
+dotnet-inspect member JsonSerializer --package System.Text.Json | Select-Object -First 20  # ✗
+# CORRECT: Use built-in limiting — preserves headers and formatting
+dotnet-inspect member JsonSerializer --package System.Text.Json --oneline -20    # ✓ (line limit)
+dotnet-inspect find "*Logger*" -n 5                                              # ✓ (line limit)
+dotnet-inspect member JsonSerializer --package System.Text.Json -s Methods       # ✓ (section filter)
+```
+
+### Important: New type and member Commands
+
+The `api` command is deprecated. Use `type` for discovery and `member` for inspection:
+
+```bash
+# Type discovery (terse, no docs)
+dotnet-inspect type --package System.Text.Json                  # All types
+dotnet-inspect type -t "*Serializer*" --package System.Text.Json  # Filter by glob
+
+# Member inspection (docs on by default)
+dotnet-inspect member JsonSerializer --package System.Text.Json   # All members
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
+dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
+```
+
+### Generic Type Syntax
+
+Use C# generic syntax — the tool auto-converts to metadata format:
+- `"List<T>"` → `List\`1`
+- `"Dictionary<TKey, TValue>"` → `Dictionary\`2`
+
+Quote the type name to prevent shell interpretation: `'Option<T>'`
+
+**Important:** Use `<T>` (not `<>`) to target the concrete generic type. `"Option<>"` resolves to the abstract base `Option`, which hides constructors and generic-specific members. `"Option<T>"` resolves to the actual `Option<T>` class with its constructor and `DefaultValueFactory` property.
 
 ## Bare Names
 
@@ -433,198 +564,6 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--prerelease` | Include prerelease versions | package --versions |
 | `--add-source URL` | Add NuGet source | package |
 | `--source URL` | Use specific NuGet source | package |
-
-## LLM Usage Guide
-
-### Prefer --oneline for Discovery
-
-Use `--oneline` as the default format for scanning APIs. It is far more token-efficient than the default markdown tables, shows overload counts in the DETAIL column, and includes constructors that may be missing from other views for generic types.
-
-```bash
-dotnet-inspect member Command --package System.CommandLine --oneline       # scan all members
-dotnet-inspect type --package System.CommandLine --oneline                  # scan all types
-dotnet-inspect member Command --package System.CommandLine -m SetAction     # then drill in (full signatures + docs)
-```
-
-Default `member` output shows full signatures with docs. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables (Name + Return Type).
-
-### Migration Workflow (fixing build errors from API changes)
-
-When code fails to compile because it uses an outdated API:
-
-```bash
-# 1. Identify the version gap (check .csproj PackageReference versions)
-# 2. Diff the old and new versions to see all breaking/additive changes
-dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
-
-# 3. Scan the new type surface with --oneline
-dotnet-inspect member Command --package System.CommandLine@2.0.2 --oneline
-
-# 4. Enumerate overloads for a method (--select shows Name:N indices)
-dotnet-inspect member Command --package System.CommandLine@2.0.2 --select
-
-# 5. Drill into a specific overload by index
-dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:1
-dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:3  # async overload
-```
-
-Start with `diff` — it immediately shows all removed/changed/added members. This avoids guessing which APIs changed.
-
-**Verbosity tip:** Default `member` output shows full signatures with docs — usually sufficient for migration. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables. Use `--select` or overload index (`SetAction:2`) to enumerate overloads efficiently.
-
-### Important: New type and member Commands
-
-The `api` command is deprecated. Use `type` for discovery and `member` for inspection:
-
-```bash
-# Type discovery (terse, no docs)
-dotnet-inspect type --package System.Text.Json                  # All types
-dotnet-inspect type -t "*Serializer*" --package System.Text.Json  # Filter by glob
-
-# Member inspection (docs on by default)
-dotnet-inspect member JsonSerializer --package System.Text.Json   # All members
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize  # Filter to member
-dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  # Dotted syntax
-```
-
-### Common Mistakes to Avoid
-
-```bash
-# WRONG: Using -v:d for initial scanning (wastes tokens with source/IL)
-dotnet-inspect member Command --package System.CommandLine -v:d              # ✗
-# CORRECT: Use --oneline for scanning, default for signatures+docs, -v:d only for source/IL
-dotnet-inspect member Command --package System.CommandLine --oneline         # ✓
-dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (full signatures + docs)
-dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✓ (source/IL)
-
-# WRONG: Using -v:d just to see all overloads
-dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✗ (default already shows all)
-# CORRECT: Default member shows all overloads with full signatures; use --select for indices
-dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (all overloads, full sigs)
-dotnet-inspect member Command --package System.CommandLine --select          # ✓ (shows Name:N for each)
-
-# WRONG: Not using diff when fixing API migration errors
-# CORRECT: Start with diff to see all changes at once
-dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2 # ✓
-
-# WRONG: Using --filter to filter members (doesn't exist)
-dotnet-inspect member Command --package System.CommandLine --filter .ctor    # ✗
-# CORRECT: Use -m flag or positional arg for member filtering
-dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓
-dotnet-inspect member Command --package System.CommandLine .ctor             # ✓ (constructors)
-
-# WRONG: Using empty angle brackets for generic types (resolves to abstract base)
-dotnet-inspect member "Option<>" --package System.CommandLine                # ✗ (shows Option, not Option<T>)
-# CORRECT: Use <T> to get the concrete generic type with constructors
-dotnet-inspect member 'Option<T>' --package System.CommandLine               # ✓ (shows Option<T> with .ctor)
-
-# WRONG: Expecting RootCommand to show inherited members from Command
-dotnet-inspect member RootCommand --package System.CommandLine               # only shows RootCommand's own members
-# WORKAROUND: Also query the base type to see inherited methods like Add() and SetAction()
-dotnet-inspect member Command --package System.CommandLine --oneline         # shows Add(), SetAction(), Parse()
-
-# WRONG: --platform on search commands doesn't take a library name (it's a bool flag)
-dotnet-inspect find "IHost*" --platform Microsoft.Extensions.Hosting   # ✗
-# CORRECT: Use --package for specific NuGet packages, --extensions for curated set
-dotnet-inspect find "IHost*" --package Microsoft.Extensions.Hosting    # ✓
-dotnet-inspect find "IHost*" --extensions                              # ✓ (curated set)
-
-# WRONG: Two separate version args for diff
-dotnet-inspect diff System.Text.Json@8.0.0 System.Text.Json@9.0.0     # ✗
-# CORRECT: Single arg with .. range separator
-dotnet-inspect diff System.Text.Json@8.0.0..9.0.0                     # ✓
-
-# WRONG: Running --help to learn syntax (wastes tokens)
-dotnet-inspect type --help                                              # ✗
-# CORRECT: Use llmstxt for complete syntax reference
-dotnet-inspect llmstxt                                                 # ✓
-
-# WRONG: Using -m without the type name
-dotnet-inspect member --package Newtonsoft.Json -m SerializeObject     # ✗
-# CORRECT: Provide type as positional arg, or use dotted syntax
-dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject  # ✓
-dotnet-inspect member -m JsonConvert.SerializeObject --package Newtonsoft.Json  # ✓
-```
-
-### Scope Flags on Search Commands (find, extensions, implements, depends)
-
-- **`--platform`** (bool): All platform frameworks (runtime, aspnetcore, netstandard ref packs).
-- **`--extensions`**: Curated Microsoft.Extensions.* packages (DI, Logging, Configuration, etc.).
-- **`--aspnetcore`**: Curated Microsoft.AspNetCore.* packages (Authentication, Mvc, SignalR, etc.).
-- **(no flags)**: Default scope — all platform frameworks + Microsoft.Extensions.AI.
-- **`--package`**: Specific NuGet packages. Combinable with scope flags.
-
-Note: `type`, `member`, `library`, `diff` still use `--platform <name>` as a string option for specific platform libraries.
-
-- **Bare names**: The tool auto-routes. `System.Text.Json` → platform; `Newtonsoft.Json` → package.
-
-### Generic Type Syntax
-
-Use C# generic syntax — the tool auto-converts to metadata format:
-- `"List<T>"` → `List\`1`
-- `"Dictionary<TKey, TValue>"` → `Dictionary\`2`
-
-Quote the type name to prevent shell interpretation: `'Option<T>'`
-
-**Important:** Use `<T>` (not `<>`) to target the concrete generic type. `"Option<>"` resolves to the abstract base `Option`, which hides constructors and generic-specific members. `"Option<T>"` resolves to the actual `Option<T>` class with its constructor and `DefaultValueFactory` property.
-
-### Method Signatures
-
-Signatures include `params` and default values from metadata:
-
-```text
-void .ctor(string name, params string[] aliases)
-ParseResult Parse(Command command, IReadOnlyList<string> args, ParserConfiguration? configuration = null)
-```
-
-### Common Library Names
-
-| Types | Platform Library |
-| ----- | ---------------- |
-| List, Dictionary, Queue, HashSet | System.Collections |
-| String, Int32, Object, Span | System.Runtime |
-| JsonSerializer, JsonDocument | System.Text.Json |
-| HttpClient, HttpRequestMessage | System.Net.Http |
-| Regex, Match | System.Text.RegularExpressions |
-| Task, ValueTask | System.Threading.Tasks |
-| File, Stream, Path | System.IO |
-
-### Discovery Workflow
-
-```bash
-# Step 1: Find the type
-dotnet-inspect find "JsonSerializer"
-# Shows: System.Text.Json.JsonSerializer in System.Text.Json.dll
-
-# Step 2: Scan the type surface (--oneline for efficiency)
-dotnet-inspect type JsonSerializer --platform System.Text.Json --oneline
-
-# Step 3: Get type shape
-dotnet-inspect type JsonSerializer --platform System.Text.Json --shape
-
-# Step 4: Scan members (--oneline shows overload counts in DETAIL column)
-dotnet-inspect member JsonSerializer --platform System.Text.Json --oneline
-
-# Step 5: Drill into specific members when you need full signatures
-dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -v:d
-
-# Step 6: View decompiled source for a specific overload
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1
-
-# Or use dotted syntax (no type positional needed)
-dotnet-inspect member -m JsonSerializer.Serialize --package System.Text.Json
-```
-
-### Test Packages
-
-| Package | Version | Scenario |
-| ------- | ------- | -------- |
-| System.Text.Json | (latest) | Multi-TFM, SourceLink, resources |
-| System.Text.Json | 8.0.0 | Vulnerabilities |
-| System.Text.Json | 5.0.0 | Deprecated |
-| dotnet-ef | | Tool package |
-| Microsoft.Azure.SignalR | | Multi-library package |
-| Markout | | Samples, C# 14 extensions |
 
 ### Flag Compatibility Matrix
 
