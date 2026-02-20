@@ -29,6 +29,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 
 ### Using bare name
 
+```prompt
+What sections are available when inspecting System.Collections?
+```
+
 ```bash
 dotnet-inspect System.Collections -s
 ```
@@ -56,6 +60,10 @@ Type Forwarders
 > Goal: List sections for a NuGet package via both bare name and explicit `package`.
 
 ### Using bare name
+
+```prompt
+What sections can I see for System.CommandLine?
+```
 
 ```bash
 dotnet-inspect System.CommandLine -s

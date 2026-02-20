@@ -24,6 +24,10 @@ export DOTNET_INSPECT_OFFLINE=1
 
 ### 1a. Using `--oneline`
 
+```prompt
+List JsonSerializer members in a compact one-per-line format.
+```
+
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer --oneline -m 3 --no-header
 ```

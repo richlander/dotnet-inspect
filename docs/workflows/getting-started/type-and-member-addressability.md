@@ -29,6 +29,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 
 ### Platform library
 
+```prompt
+What types are in System.Text.Json?
+```
+
 ```bash
 dotnet-inspect type System.Text.Json -v:q
 ```
@@ -66,6 +70,10 @@ Types: 66
 > Goal: Get the type summary for a specific type by name.
 
 ### Assembly + type name
+
+```prompt
+Show me the JsonSerializer type.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer -v:q
@@ -160,6 +168,10 @@ dotnet-inspect type System.Text.Json JsonSerializer --shape
 
 > Goal: See all members for a type with docs.
 
+```prompt
+What methods does JsonSerializer have?
+```
+
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer -v:q
 ```
@@ -173,6 +185,10 @@ Methods: 103
 ## Address a specific member by name
 
 > Goal: Filter members to a single name (all overloads).
+
+```prompt
+Show me all Deserialize overloads on JsonSerializer.
+```
 
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer Deserialize -v:q

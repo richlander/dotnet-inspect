@@ -39,6 +39,10 @@ dotnet-inspect System.CommandLine --versions > /dev/null
 
 > Target: ≤ 15ms. No network, no NuGet index — just app cache or NuGet cache on disk.
 
+```prompt
+How fast is a cached version lookup?
+```
+
 ```bash
 dotnet-inspect System.CommandLine --version
 ```

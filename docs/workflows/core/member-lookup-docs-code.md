@@ -41,6 +41,10 @@ dotnet-inspect System.Collections@4.3.0 -v:q
 
 ### 1a. Default verbosity
 
+```prompt
+What members does the Command type in System.CommandLine have?
+```
+
 ```bash
 dotnet-inspect member --package System.CommandLine Command
 ```
@@ -100,6 +104,10 @@ Tips:
 
 ### 2a. Using positional member name
 
+```prompt
+Show me the SetAction method on Command in System.CommandLine.
+```
+
 ```bash
 dotnet-inspect member --package System.CommandLine Command SetAction
 ```
@@ -137,6 +145,10 @@ Tips:
 > Goal: When selecting a specific member, see original source (via SourceLink), lowered C#, and IL.
 
 ### 3a. Single member (no overloads)
+
+```prompt
+Show me the source code for Command.Add in System.CommandLine.
+```
 
 ```bash
 dotnet-inspect member --package System.CommandLine Command Add -n 30

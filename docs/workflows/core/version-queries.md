@@ -40,6 +40,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine --versions > /dev/nul
 
 ### 1a. Using `--version` (cached)
 
+```prompt
+What version of System.CommandLine do I have cached?
+```
+
 ```bash
 dotnet-inspect System.CommandLine --version
 ```
@@ -75,6 +79,10 @@ head -1
 > Goal: Check the latest version available on NuGet.
 
 ### 2a. Using `--latest-version`
+
+```prompt
+What is the latest version of System.CommandLine on NuGet?
+```
 
 ```bash
 dotnet-inspect System.CommandLine --latest-version
@@ -192,6 +200,10 @@ grep 'not found'
 > Goal: Match the latest version within a pattern, useful for tracking patch releases or preview builds.
 
 ### 6a. Patch wildcard
+
+```prompt
+What is the latest 9.0.x version of System.Text.Json?
+```
 
 ```bash
 dotnet-inspect package System.Text.Json --version '9.0.*' -v:q

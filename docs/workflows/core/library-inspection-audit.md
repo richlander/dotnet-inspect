@@ -41,6 +41,10 @@ dotnet-inspect Newtonsoft.Json@13.0.3 -v:q
 
 ### 1a. Default verbosity
 
+```prompt
+Show me the metadata for the System.CommandLine library.
+```
+
 ```bash
 dotnet-inspect library --package System.CommandLine
 ```
@@ -120,6 +124,10 @@ files accessible
 ## 3. View symbols information
 
 > Goal: See PDB format, location, and SourceLink status.
+
+```prompt
+Does System.CommandLine have SourceLink? What PDB format does it use?
+```
 
 ```bash
 dotnet-inspect library --package System.CommandLine -v:d -s Symbols

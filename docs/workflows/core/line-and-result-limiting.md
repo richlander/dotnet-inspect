@@ -34,6 +34,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 
 ### 1a. Using `-n`
 
+```prompt
+Show me just the first 4 lines about System.Text.Json.
+```
+
 ```bash
 dotnet-inspect System.Text.Json -n 4
 ```
@@ -83,6 +87,10 @@ Tips:
 > Goal: Return only the first N types from a type listing.
 
 ### 2a. Using `type -t N`
+
+```prompt
+Show me just 3 types from System.Text.Json.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json -t 3 -v:q

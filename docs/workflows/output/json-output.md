@@ -34,6 +34,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine@2.0.3 -v:q
 
 ### 1a. Pretty-printed JSON
 
+```prompt
+Get System.CommandLine package info as JSON.
+```
+
 ```bash
 dotnet-inspect package System.CommandLine -v:q --json -n 10
 ```
@@ -62,6 +66,10 @@ python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d))"
 ## 2. Type information as JSON
 
 > Goal: Get type details in a structured format for agent consumption.
+
+```prompt
+Get the JsonSerializer type info as structured JSON.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer --json -v:q -n 15

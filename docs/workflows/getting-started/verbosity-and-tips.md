@@ -42,6 +42,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 
 > Goal: Default shows H1, description, oneline fields, one section table, and tips on stderr.
 
+```prompt
+Tell me about System.CommandLine.
+```
+
 ```bash
 dotnet-inspect System.CommandLine
 ```
@@ -88,6 +92,10 @@ grep '^## '
 
 > Goal: Quiet shows only H1 and oneline field list. No sections, no tips.
 
+```prompt
+Give me a quick summary of System.CommandLine with minimal output.
+```
+
 ```bash
 dotnet-inspect System.CommandLine -v:q
 ```
@@ -133,6 +141,10 @@ grep -o 'Source: [A-Za-z]*'
 ## 5. Detailed verbosity (package)
 
 > Goal: Detailed shows all sections. No tips.
+
+```prompt
+Show me everything about System.CommandLine — all sections.
+```
 
 ```bash
 dotnet-inspect System.CommandLine -v:d

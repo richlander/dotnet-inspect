@@ -34,6 +34,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 
 ### 1a. Using bare name
 
+```prompt
+What library is System.Text.Json and where does it come from?
+```
+
 ```bash
 dotnet-inspect System.Text.Json -v:q
 ```
@@ -71,6 +75,10 @@ grep -oE 'Properties: [0-9]+'
 
 ### 2a. Using `package`
 
+```prompt
+Show me the NuGet package for System.Text.Json, not the platform version.
+```
+
 ```bash
 dotnet-inspect package System.Text.Json -v:q
 ```
@@ -102,6 +110,10 @@ grep -o 'Source: [A-Za-z]*'
 > Goal: A name that only exists on NuGet (not in the platform) routes to the package automatically.
 
 ### 3a. Using bare name
+
+```prompt
+What is System.CommandLine?
+```
 
 ```bash
 dotnet-inspect System.CommandLine -v:q

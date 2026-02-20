@@ -44,6 +44,10 @@ export DOTNET_INSPECT_ISOLATED=networkguard
 
 > Goal: `-v:q` completes without network access.
 
+```prompt
+Verify that a quiet library inspection works offline.
+```
+
 ```bash
 dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -c Debug -- library System.Text.Json -v:q
 ```

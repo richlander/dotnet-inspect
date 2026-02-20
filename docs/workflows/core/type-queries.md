@@ -42,6 +42,10 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.Collections@4.3.0 -v:q
 
 ### 1a. Using `type` with package name
 
+```prompt
+What types are in the System.CommandLine package?
+```
+
 ```bash
 dotnet-inspect type System.CommandLine -v:q
 ```
@@ -125,6 +129,10 @@ grep -o 'Source: [A-Za-z]*'
 
 > Goal: Find types matching a glob pattern within a package.
 
+```prompt
+Find all types starting with "Json" in System.Text.Json.
+```
+
 ### 3a. Using `-t` with glob pattern
 
 ```bash
@@ -165,6 +173,10 @@ wc -l | tr -d ' '
 > Goal: Get details about a specific type by name.
 
 ### 4a. Using type name positional argument
+
+```prompt
+Tell me about the JsonSerializer class.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer -v:q
