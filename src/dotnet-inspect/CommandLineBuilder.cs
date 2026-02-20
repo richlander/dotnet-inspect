@@ -564,13 +564,10 @@ public static class CommandLineBuilder
                 if (packages.Length == 1 && assemblies.Length == 0)
                     return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
 
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  depends IFloatingPointIeee754 --platform   # type hierarchy");
-                Console.Error.WriteLine("  depends --library Microsoft.Extensions.AI   # assembly references");
-                Console.Error.WriteLine("  depends --package System.Text.Json          # NuGet dependencies");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "depends IFloatingPointIeee754 --platform   # type hierarchy",
+                    "depends --library Microsoft.Extensions.AI   # assembly references",
+                    "depends --package System.Text.Json          # NuGet dependencies");
             }
 
             var scopeFlags = new ScopeResolver.ScopeFlags(
@@ -664,28 +661,19 @@ public static class CommandLineBuilder
 
             if (string.IsNullOrEmpty(targetType))
             {
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  extensions HttpClient                     # search default scope");
-                Console.Error.WriteLine("  extensions HttpClient --platform          # platform libraries only");
-                Console.Error.WriteLine("  extensions HttpClient --extensions         # Microsoft.Extensions packages");
-                Console.Error.WriteLine("  extensions HttpClient --aspnetcore         # ASP.NET Core packages");
-                Console.Error.WriteLine("  extensions HttpClient --package Foo        # specific package");
-                Console.Error.WriteLine("  extensions HttpClient --platform --extensions  # combine scopes");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "extensions HttpClient                     # search default scope",
+                    "extensions HttpClient --platform          # platform libraries only",
+                    "extensions HttpClient --extensions         # Microsoft.Extensions packages",
+                    "extensions HttpClient --aspnetcore         # ASP.NET Core packages",
+                    "extensions HttpClient --package Foo        # specific package",
+                    "extensions HttpClient --platform --extensions  # combine scopes");
             }
 
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
-
-            // Resolve --package-prefix to package list
-            if (packagePrefix != null)
-            {
-                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(opts.Verbose));
-                packages = [..packages, ..prefixPackages];
-            }
+            var packages = await MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
             var scopeFlags = new ScopeResolver.ScopeFlags(
                 Platform: parseResult.GetValue(platformOption),
@@ -790,30 +778,21 @@ public static class CommandLineBuilder
 
             if (string.IsNullOrEmpty(pattern))
             {
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  find Chat*                                # search default scope");
-                Console.Error.WriteLine("  find Chat* --platform                     # platform libraries only");
-                Console.Error.WriteLine("  find Chat* --extensions                   # Microsoft.Extensions packages");
-                Console.Error.WriteLine("  find Chat* --aspnetcore                   # ASP.NET Core packages");
-                Console.Error.WriteLine("  find Chat* --package Newtonsoft.Json       # specific package");
-                Console.Error.WriteLine("  find Chat* --platform --extensions         # combine scopes");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "find Chat*                                # search default scope",
+                    "find Chat* --platform                     # platform libraries only",
+                    "find Chat* --extensions                   # Microsoft.Extensions packages",
+                    "find Chat* --aspnetcore                   # ASP.NET Core packages",
+                    "find Chat* --package Newtonsoft.Json       # specific package",
+                    "find Chat* --platform --extensions         # combine scopes");
             }
 
-            var packages = parseResult.GetValue(packageOption) ?? [];
+            var packagePrefix = parseResult.GetValue(packagePrefixOption);
+            var packages = await MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
             var binPaths = parseResult.GetValue(binOption) ?? [];
-            var packagePrefix = parseResult.GetValue(packagePrefixOption);
-
-            // Resolve --package-prefix to package list
-            if (packagePrefix != null)
-            {
-                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(opts.Verbose));
-                packages = [..packages, ..prefixPackages];
-            }
 
             var scopeFlags = new ScopeResolver.ScopeFlags(
                 Platform: parseResult.GetValue(platformOption),
@@ -1017,28 +996,19 @@ public static class CommandLineBuilder
 
             if (string.IsNullOrEmpty(targetType))
             {
-                new HelpAction().Invoke(parseResult);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Tips:");
-                Console.Error.WriteLine("  implements Stream                         # search default scope");
-                Console.Error.WriteLine("  implements Stream --platform              # platform libraries only");
-                Console.Error.WriteLine("  implements Stream --extensions             # Microsoft.Extensions packages");
-                Console.Error.WriteLine("  implements Stream --aspnetcore             # ASP.NET Core packages");
-                Console.Error.WriteLine("  implements Stream --package Foo            # specific package");
-                Console.Error.WriteLine("  implements Stream --platform --extensions  # combine scopes");
-                return 0;
+                return ShowHelpWithTips(parseResult,
+                    "implements Stream                         # search default scope",
+                    "implements Stream --platform              # platform libraries only",
+                    "implements Stream --extensions             # Microsoft.Extensions packages",
+                    "implements Stream --aspnetcore             # ASP.NET Core packages",
+                    "implements Stream --package Foo            # specific package",
+                    "implements Stream --platform --extensions  # combine scopes");
             }
 
-            var packages = parseResult.GetValue(packageOption) ?? [];
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
-
-            // Resolve --package-prefix to package list
-            if (packagePrefix != null)
-            {
-                var prefixPackages = await ResolvePrefixPackagesAsync(packagePrefix, parseResult.GetValue(opts.Verbose));
-                packages = [..packages, ..prefixPackages];
-            }
+            var packages = await MergeWithPrefixPackagesAsync(
+                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
 
             var scopeFlags = new ScopeResolver.ScopeFlags(
                 Platform: parseResult.GetValue(platformOption),
@@ -1173,22 +1143,7 @@ public static class CommandLineBuilder
             {
                 var pkg = packageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
-
-                List<Tip> tips = [];
-
-                if (options.Verbosity < Verbosity.Detailed)
-                    tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
-
-                tips.Add(new("library", pkg, "inspect library"));
-                tips.Add(new(TypeCommand.Name, $"--package {pkg}", "discover types in package"));
-                tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
-                tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --layout", "show file tree"));
-                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                Hints.WriteTips(tipLevel, [.. tips]);
+                WritePackageTips(pkg, tipLevel, options.Verbosity);
             }
 
             return exitCode;
@@ -1383,18 +1338,7 @@ public static class CommandLineBuilder
                     {
                         var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null || HeadLines != null
                             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-
-                        List<Tip> tips = [];
-
-                        if (verbosity < Verbosity.Detailed)
-                            tips.Add(new($"{bareName}", "-v:d", "detailed metadata"));
-
-                        tips.Add(new(PackageCommand.Name, bareName, "inspect as NuGet package"));
-                        tips.Add(new(TypeCommand.Name, $"--platform {bareName}", "discover types"));
-                        tips.Add(new(FindCommand.Name, $"<pattern> --platform {bareName}", "search for types"));
-                        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                        Hints.WriteTips(platformTipLevel, [.. tips]);
+                        WritePlatformTips(bareName, platformTipLevel, verbosity);
                     }
 
                     return assemblyExitCode;
@@ -1493,25 +1437,7 @@ public static class CommandLineBuilder
             var exitCode = await PackageCommand.ExecuteAsync(options);
 
             if (exitCode == 0 && !options.IsRawOutput)
-            {
-                var pkg = bareName;
-
-                List<Tip> tips = [];
-
-                if (options.Verbosity < Verbosity.Detailed)
-                    tips.Add(new(PackageCommand.Name, $"{pkg} -v:d", "detailed metadata"));
-
-                tips.Add(new("library", pkg, "inspect library"));
-                tips.Add(new(TypeCommand.Name, $"--package {pkg}", "discover types in package"));
-                tips.Add(new(FindCommand.Name, $"<pattern> --package {pkg}", "search for types"));
-                tips.Add(new(DiffCommand.Name, $"--package {pkg}@<prev>..<cur>", "diff versions"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --readme", "view README"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --files", "list package files"));
-                tips.Add(new(PackageCommand.Name, $"{pkg} --layout", "show file tree"));
-                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-
-                Hints.WriteTips(tipLevel, [.. tips]);
-            }
+                WritePackageTips(bareName, tipLevel, options.Verbosity);
 
             return exitCode;
         });
@@ -1696,10 +1622,8 @@ public static class CommandLineBuilder
             var explicitPackage = parseResult.GetValue(packageOption);
             var explicitAssembly = parseResult.GetValue(assemblyOption);
             var explicitPlatform = parseResult.GetValue(platformOption);
-            bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
-                && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
-                && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-            bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
+            bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
+            bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
             if (args.Length == 0 && !hasExplicitSource)
             {
@@ -1714,68 +1638,19 @@ public static class CommandLineBuilder
                 return 0;
             }
 
-            string? packagePath = explicitPackage;
-            string? typeName = null;
-            string? apiFrameworkOverride = null;
+            var source = await SourceResolver.ResolveAsync(
+                args, explicitPackage, explicitAssembly, explicitPlatform,
+                parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
 
-            if (hasExplicitSource)
+            if (source.VersionError)
             {
-                if (args.Length >= 1) typeName = args[0];
+                Console.Error.WriteLine(source.VersionErrorMessage);
+                return 1;
             }
-            else
-            {
-                if (args.Length >= 1) packagePath = args[0];
-                if (args.Length >= 2) typeName = args[1];
 
-                if (LooksLikeVersionNumber(typeName))
-                {
-                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
-                    return 1;
-                }
-
-                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
-                {
-                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
-                    else if (nupkgPath != null) { packagePath = nupkgPath; }
-                }
-                else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
-                    packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
-                {
-                    var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
-                    var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
-
-                    var client = HttpClientFactory.Shared;
-                    bool verbose = parseResult.GetValue(opts.Verbose);
-                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-
-                    // Build framework spec if explicit version given
-                    string? frameworkSpec = null;
-                    if (explicitVersion != null)
-                    {
-                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-                        if (discoveredFramework != null)
-                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
-                    }
-
-                    // Resolve assembly (local-first, then network if needed)
-                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                        bareName, client, log, frameworkSpec);
-
-                    if (resolvedPath != null && resolvedError == null)
-                    {
-                        explicitPlatform = bareName;
-                        packagePath = null;
-                        apiFrameworkOverride = frameworkSpec;
-                    }
-                    // Assembly not found — try qualified type name (e.g., System.Text.Json.JsonSerializer)
-                    else if (typeName == null && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAsm, out var qtTyp))
-                    {
-                        explicitPlatform = qtAsm;
-                        typeName = qtTyp;
-                        packagePath = null;
-                    }
-                }
-            }
+            var packagePath = source.PackagePath;
+            var typeName = source.TypeName;
+            var apiFrameworkOverride = source.FrameworkOverride;
 
             var typeFilterValue = parseResult.GetValue(typeFilterOption);
             int? typeLimit = null;
@@ -1803,8 +1678,8 @@ public static class CommandLineBuilder
             {
                 TypeName = typeName,
                 PackagePath = packagePath,
-                AssemblyPath = explicitAssembly,
-                PlatformAssembly = explicitPlatform,
+                AssemblyPath = source.AssemblyPath,
+                PlatformAssembly = source.PlatformAssembly,
                 PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
@@ -1914,10 +1789,8 @@ public static class CommandLineBuilder
             var explicitPackage = parseResult.GetValue(packageOption);
             var explicitAssembly = parseResult.GetValue(assemblyOption);
             var explicitPlatform = parseResult.GetValue(platformOption);
-            bool isLibrarySelector = explicitAssembly != null && explicitPackage == null
-                && !explicitAssembly.Contains('/') && !explicitAssembly.Contains('\\')
-                && explicitAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-            bool hasExplicitSource = explicitPackage != null || (explicitAssembly != null && !isLibrarySelector) || explicitPlatform != null;
+            bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
+            bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
             if (args.Length == 0 && !hasExplicitSource)
             {
@@ -1932,64 +1805,26 @@ public static class CommandLineBuilder
                 return 0;
             }
 
-            string? packagePath = explicitPackage;
-            string? typeName = null;
+            // Member command needs to extract positional members separately
             List<string> positionalMembers = [];
-            string? apiFrameworkOverride = null;
+            if (hasExplicitSource && args.Length >= 2)
+                positionalMembers.AddRange(args[1..]);
+            else if (!hasExplicitSource && args.Length >= 3)
+                positionalMembers.AddRange(args[2..]);
 
-            if (hasExplicitSource)
+            var source = await SourceResolver.ResolveAsync(
+                args, explicitPackage, explicitAssembly, explicitPlatform,
+                parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+
+            if (source.VersionError)
             {
-                if (args.Length >= 1) typeName = args[0];
-                if (args.Length >= 2) positionalMembers.AddRange(args[1..]);
+                Console.Error.WriteLine(source.VersionErrorMessage);
+                return 1;
             }
-            else
-            {
-                if (args.Length >= 1) packagePath = args[0];
-                if (args.Length >= 2) typeName = args[1];
-                if (args.Length >= 3) positionalMembers.AddRange(args[2..]);
 
-                if (LooksLikeVersionNumber(typeName))
-                {
-                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
-                    return 1;
-                }
-
-                if (TryClassifyAsFilePath(packagePath, out var dllPath, out var nupkgPath))
-                {
-                    if (dllPath != null) { explicitAssembly = dllPath; packagePath = null; }
-                    else if (nupkgPath != null) { packagePath = nupkgPath; }
-                }
-                else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
-                    packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
-                {
-                    var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
-                    var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
-
-                    var client = HttpClientFactory.Shared;
-                    bool verbose = parseResult.GetValue(opts.Verbose);
-                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-
-                    // Build framework spec if explicit version given
-                    string? frameworkSpec = null;
-                    if (explicitVersion != null)
-                    {
-                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-                        if (discoveredFramework != null)
-                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
-                    }
-
-                    // Resolve assembly (local-first, then network if needed)
-                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                        bareName, client, log, frameworkSpec);
-
-                    if (resolvedPath != null && resolvedError == null)
-                    {
-                        explicitPlatform = bareName;
-                        packagePath = null;
-                        apiFrameworkOverride = frameworkSpec;
-                    }
-                }
-            }
+            var packagePath = source.PackagePath;
+            var typeName = source.TypeName;
+            var apiFrameworkOverride = source.FrameworkOverride;
 
             var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
             if (badOption != null)
@@ -2067,8 +1902,8 @@ public static class CommandLineBuilder
             {
                 TypeName = typeName,
                 PackagePath = packagePath,
-                AssemblyPath = explicitAssembly,
-                PlatformAssembly = explicitPlatform,
+                AssemblyPath = source.AssemblyPath,
+                PlatformAssembly = source.PlatformAssembly,
                 PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
@@ -2169,6 +2004,71 @@ public static class CommandLineBuilder
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Shows help action followed by command-specific tips.
+    /// </summary>
+    private static int ShowHelpWithTips(ParseResult parseResult, params string[] tips)
+    {
+        new HelpAction().Invoke(parseResult);
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Tips:");
+        foreach (var tip in tips)
+            Console.Error.WriteLine($"  {tip}");
+        return 0;
+    }
+
+    /// <summary>
+    /// Writes package-related tips after successful package inspection.
+    /// </summary>
+    private static void WritePackageTips(string packageName, TipLevel tipLevel, Verbosity verbosity)
+    {
+        List<Tip> tips = [];
+
+        if (verbosity < Verbosity.Detailed)
+            tips.Add(new(PackageCommand.Name, $"{packageName} -v:d", "detailed metadata"));
+
+        tips.Add(new("library", packageName, "inspect library"));
+        tips.Add(new(TypeCommand.Name, $"--package {packageName}", "discover types in package"));
+        tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search for types"));
+        tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
+        tips.Add(new(PackageCommand.Name, $"{packageName} --readme", "view README"));
+        tips.Add(new(PackageCommand.Name, $"{packageName} --files", "list package files"));
+        tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
+        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+        Hints.WriteTips(tipLevel, [.. tips]);
+    }
+
+    /// <summary>
+    /// Writes platform library-related tips after successful assembly inspection.
+    /// </summary>
+    private static void WritePlatformTips(string assemblyName, TipLevel tipLevel, Verbosity verbosity)
+    {
+        List<Tip> tips = [];
+
+        if (verbosity < Verbosity.Detailed)
+            tips.Add(new(assemblyName, "-v:d", "detailed metadata"));
+
+        tips.Add(new(PackageCommand.Name, assemblyName, "inspect as NuGet package"));
+        tips.Add(new(TypeCommand.Name, $"--platform {assemblyName}", "discover types"));
+        tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search for types"));
+        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
+
+        Hints.WriteTips(tipLevel, [.. tips]);
+    }
+
+    /// <summary>
+    /// Resolves a package ID prefix and merges with existing packages.
+    /// </summary>
+    private static async Task<string[]> MergeWithPrefixPackagesAsync(string[] packages, string? prefix, bool verbose)
+    {
+        if (prefix == null)
+            return packages;
+
+        var prefixPackages = await ResolvePrefixPackagesAsync(prefix, verbose);
+        return [.. packages, .. prefixPackages];
     }
 
     /// <summary>
