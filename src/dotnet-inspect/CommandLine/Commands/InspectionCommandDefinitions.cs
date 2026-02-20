@@ -62,103 +62,34 @@ public static class InspectionCommandDefinitions
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
 
+        var commandArgs = new DiffOptionsParser.DiffCommandArgs(
+            argsArg, packageOption, platformOption, frameworkOption, tfmOption, allOption,
+            typeFilterOption, oneLineOption, noHeaderOption, nameOnlyOption, breakingOption, additiveOption);
+
         diffCommand.SetAction(async (parseResult, ct) =>
         {
-            var args = parseResult.GetValue(argsArg) ?? [];
-            var explicitPackage = parseResult.GetValue(packageOption);
-            var explicitPlatform = parseResult.GetValue(platformOption);
-            bool hasExplicitSource = explicitPackage != null || explicitPlatform != null;
+            var result = DiffOptionsParser.Parse(parseResult, opts, commandArgs);
 
-            string? packageVersionRange = explicitPackage;
-            string? platformVersionRange = explicitPlatform;
-            string? typeName = null;
-
-            if (hasExplicitSource)
+            switch (result)
             {
-                // All positionals are type filters
-                if (args.Length >= 1) typeName = args[0];
-            }
-            else
-            {
-                // First positional is the package version range
-                if (args.Length >= 1) packageVersionRange = args[0];
-                if (args.Length >= 2) typeName = args[1];
-
-                if (CommandLineHelpers.LooksLikeVersionNumber(typeName))
-                {
-                    Console.Error.WriteLine($"Error: '{typeName}' looks like a version number. Use '{packageVersionRange}@{typeName}' to specify a version.");
+                case DiffOptionsParser.VersionNumberError error:
+                    Console.Error.WriteLine($"Error: '{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
                     return 1;
-                }
-            }
 
-            var typeFilterValues = parseResult.GetValue(typeFilterOption);
+                case DiffOptionsParser.Success success:
+                    var exitCode = await DiffCommand.ExecuteAsync(success.Options);
 
-            // Merge positional type name with -t filter
-            HashSet<string> typeFilter = [];
-            if (typeFilterValues?.Length > 0 || !string.IsNullOrEmpty(typeName))
-            {
-                typeFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (!string.IsNullOrEmpty(typeName))
-                    typeFilter.Add(typeName);
-                if (typeFilterValues != null)
-                {
-                    foreach (var t in typeFilterValues)
-                        typeFilter.Add(t);
-                }
-            }
-
-            var options = new DiffOptions
-            {
-                PackageVersionRange = packageVersionRange,
-                PlatformVersionRange = platformVersionRange,
-                Framework = parseResult.GetValue(frameworkOption),
-                Tfm = parseResult.GetValue(tfmOption),
-                IncludeAll = parseResult.GetValue(allOption),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                TypeFilter = typeFilter,
-                OneLine = parseResult.GetValue(oneLineOption),
-                NoHeader = parseResult.GetValue(noHeaderOption),
-                NameOnly = parseResult.GetValue(nameOnlyOption),
-                Breaking = parseResult.GetValue(breakingOption),
-                Additive = parseResult.GetValue(additiveOption),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-            };
-
-            var exitCode = await DiffCommand.ExecuteAsync(options);
-
-            var verbosity = opts.ParseVerbosity(parseResult);
-            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-
-            if (exitCode == 0)
-            {
-                List<Tip> tips = [];
-                var versionRange = options.PackageVersionRange ?? options.PlatformVersionRange;
-                var sourceFlag = options.PackageVersionRange != null ? "--package" : "--platform";
-
-                if (typeFilter != null)
-                    tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange}", "diff all types"));
-
-                if (versionRange != null)
-                {
-                    var atIdx = versionRange.IndexOf('@');
-                    var dotDotIdx = versionRange.IndexOf("..", StringComparison.Ordinal);
-                    if (atIdx > 0 && dotDotIdx > atIdx)
+                    if (exitCode == 0)
                     {
-                        var pkgName = versionRange[..atIdx];
-                        var toVersion = versionRange[(dotDotIdx + 2)..];
-                        if (!options.OneLine && !options.NameOnly)
-                            tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
-                        if (!options.OneLine)
-                            tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --oneline", "summary statistics"));
+                        var tips = DiffOptionsParser.BuildTips(success.Options, success.Options.TypeFilter);
+                        Hints.WriteTips(success.TipLevel, [.. tips]);
                     }
-                }
 
-                tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
-                Hints.WriteTips(tipLevel, [.. tips]);
+                    return exitCode;
+
+                default:
+                    return 1;
             }
-
-            return exitCode;
         });
 
         return diffCommand;

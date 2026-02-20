@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Help;
+using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -43,208 +44,182 @@ public static class RouterCommandDefinition
         routerVersionsOption.DefaultValueFactory = _ => null;
         routerCommand.Options.Add(routerVersionsOption);
 
+        var commandArgs = new RouterOptionsParser.RouterCommandArgs(
+            packageNameArg, routerVersionOption, routerLatestVersionOption, routerVersionsOption,
+            routerOneLineOption, routerNoHeaderOption);
+
         routerCommand.SetAction(async (parseResult, ct) =>
         {
-            var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
+            var result = RouterOptionsParser.Parse(parseResult, opts, commandArgs);
 
-            if (packageArgs.Length < 1)
+            switch (result)
             {
-                new HelpAction().Invoke(parseResult);
-                return 0;
+                case RouterOptionsParser.ShowHelp:
+                    new HelpAction().Invoke(parseResult);
+                    return 0;
+
+                case RouterOptionsParser.ParseError error:
+                    Console.Error.WriteLine(error.Message);
+                    return 1;
+
+                case RouterOptionsParser.RouteToAssemblyFile route:
+                    return await AssemblyCommand.ExecuteAsync(route.Options);
+
+                case RouterOptionsParser.RouteToPlatformAssembly route:
+                    return await ExecutePlatformAssemblyAsync(route, opts, parseResult);
+
+                case RouterOptionsParser.HandleVersionQuery query:
+                    return await ExecuteVersionQueryAsync(query, opts, parseResult, routerVersionsOption);
+
+                case RouterOptionsParser.RouteToPackage route:
+                    return await ExecutePackageCommandAsync(route);
+
+                default:
+                    return 1;
             }
-
-            var name = packageArgs[0];
-
-            // Detect version number passed as a separate positional argument
-            if (packageArgs.Length >= 2 && CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
-            {
-                Console.Error.WriteLine($"Error: '{packageArgs[1]}' looks like a version number. Use '{name}@{packageArgs[1]}' to specify a version.");
-                return 1;
-            }
-
-            // Route file paths to the appropriate command
-            if (CommandLineHelpers.TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
-            {
-                if (dllPath != null)
-                {
-                    var assemblyOptions = new AssemblyOptions
-                    {
-                        AssemblyName = dllPath,
-                        IncludeMetadata = true,
-                        JsonOutput = parseResult.GetValue(opts.Json),
-                        Verbose = parseResult.GetValue(opts.Verbose),
-                        Verbosity = opts.ParseVerbosity(parseResult),
-                        IncludeSections = opts.ParseIncludeSections(parseResult),
-                        ExcludeSections = opts.ParseExcludeSections(parseResult)
-                    };
-                    return await AssemblyCommand.ExecuteAsync(assemblyOptions);
-                }
-                // .nupkg falls through to package command below
-            }
-
-            bool hasExplicitVersion = name.Contains('@');
-            var bareName = hasExplicitVersion ? name[..name.IndexOf('@')] : name;
-            var explicitVersion = hasExplicitVersion ? name[(name.IndexOf('@') + 1)..] : null;
-
-            // @latest forces network resolution, bypassing cache-first
-            bool forceLatest = string.Equals(explicitVersion, "latest", StringComparison.OrdinalIgnoreCase);
-            if (forceLatest)
-            {
-                hasExplicitVersion = false;
-                explicitVersion = null;
-            }
-
-            // Platform candidate: download ref packs, then resolve
-            // Skip platform probing for version queries (NuGet package operations)
-            bool showVersion = parseResult.GetValue(routerVersionOption);
-            bool showLatestVersion = parseResult.GetValue(routerLatestVersionOption);
-            var routerVersionsValue = parseResult.GetValue(routerVersionsOption);
-            bool showVersions = parseResult.GetResult(routerVersionsOption) is { Implicit: false };
-            bool isVersionQuery = showVersion || showLatestVersion || showVersions;
-            if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
-            {
-                bool verbose = parseResult.GetValue(opts.Verbose);
-                Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                var client = HttpClientFactory.Shared;
-
-                // Build framework spec if explicit version given (e.g., System.Text.Json@9.0.0 -> runtime@9.0.0)
-                string? platformFrameworkSpec = null;
-                if (hasExplicitVersion)
-                {
-                    var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-                    if (discoveredFramework != null)
-                        platformFrameworkSpec = $"{discoveredFramework}@{explicitVersion}";
-                }
-
-                // Resolve assembly (local-first, then network if needed)
-                var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                    bareName, client, log, platformFrameworkSpec);
-
-                if (resolvedPath != null && resolvedError == null)
-                {
-                    var verbosity = opts.ParseVerbosity(parseResult);
-                    var includeSections = opts.ParseIncludeSections(parseResult);
-                    var assemblyOptions = new AssemblyOptions
-                    {
-                        PlatformAssembly = bareName,
-                        PlatformFramework = platformFrameworkSpec,
-                        JsonOutput = parseResult.GetValue(opts.Json),
-                        Verbose = parseResult.GetValue(opts.Verbose),
-                        Verbosity = verbosity,
-                        IncludeSections = includeSections,
-                        ExcludeSections = opts.ParseExcludeSections(parseResult)
-                    };
-
-                    var assemblyExitCode = await AssemblyCommand.ExecuteAsync(assemblyOptions);
-
-                    if (assemblyExitCode == 0 && !assemblyOptions.JsonOutput)
-                    {
-                        var platformTipLevel = verbosity != Verbosity.Minimal || includeSections != null || ArgumentPreprocessor.HeadLines != null
-                            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-                        TipWriter.WritePlatformTips(bareName, platformTipLevel, verbosity);
-                    }
-
-                    return assemblyExitCode;
-                }
-            }
-
-            // Qualified type name: e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
-            if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName)
-                && PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAssembly, out var qtType))
-            {
-                var verbosity = opts.ParseVerbosity(parseResult);
-                var typeOptions = new ApiOptions
-                {
-                    TypeName = qtType,
-                    PlatformAssembly = qtAssembly,
-                    JsonOutput = parseResult.GetValue(opts.Json),
-                    Verbose = parseResult.GetValue(opts.Verbose),
-                    Verbosity = verbosity,
-                    IncludeSections = opts.ParseIncludeSections(parseResult),
-                    ExcludeSections = opts.ParseExcludeSections(parseResult),
-                    TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
-                };
-
-                return await ApiCommand.ExecuteAsync(typeOptions);
-            }
-
-            // --version: print the resolved version and exit (no package inspection needed)
-            if (showVersion)
-            {
-                if (!forceLatest)
-                {
-                    if (explicitVersion != null)
-                    {
-                        // 1. Check app cache and NuGet cache
-                        if (NuGetCache.TryGetCachedPackage(bareName, explicitVersion) != null)
-                        {
-                            Console.WriteLine(explicitVersion);
-                            return 0;
-                        }
-
-                        // 2. Check NuGet version API
-                        var allVersions = await PackageExtractor.GetVersionsAsync(
-                            HttpClientFactory.Shared, bareName, includePrerelease: true, limit: null,
-                            log: null, sourceOptions: opts.ParseNuGetSourceOptions(parseResult));
-
-                        if (allVersions != null && allVersions.Any(v => string.Equals(v, explicitVersion, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            Console.WriteLine(explicitVersion);
-                            return 0;
-                        }
-
-                        // 3. Differentiate bad package from bad version
-                        if (allVersions == null || allVersions.Count == 0)
-                            Console.Error.WriteLine($"Error: Package '{bareName}' not found.");
-                        else
-                            Console.Error.WriteLine($"Error: Version '{explicitVersion}' of package '{bareName}' not found. Use --versions to see available versions.");
-                        return 1;
-                    }
-                    else
-                    {
-                        // Bare name: use newest cached version
-                        var cachedVersion = NuGetCache.TryGetLatestCachedVersion(bareName);
-                        if (cachedVersion != null)
-                        {
-                            Console.WriteLine(cachedVersion);
-                            return 0;
-                        }
-                    }
-                }
-                // No cache hit, or @latest: fall through to --latest-version (version API query)
-                showLatestVersion = true;
-            }
-
-            // Fall through to package command (NuGet resolution)
-            bool useBareName = forceLatest || showLatestVersion;
-            var options = new InspectionOptions
-            {
-                PackageArgs = useBareName ? [bareName] : packageArgs,
-                ListVersions = showLatestVersion || showVersions,
-                Limit = showLatestVersion ? 1 : routerVersionsValue,
-                JsonOutput = parseResult.GetValue(opts.Json),
-                OneLine = parseResult.GetValue(routerOneLineOption),
-                NoHeader = parseResult.GetValue(routerNoHeaderOption),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                Verbosity = opts.ParseVerbosity(parseResult),
-                IncludeSections = opts.ParseIncludeSections(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-                ForceLatest = forceLatest || showLatestVersion
-            };
-
-            var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-            options = options with { TipLevel = tipLevel };
-
-            var exitCode = await PackageCommand.ExecuteAsync(options);
-
-            if (exitCode == 0 && !options.IsRawOutput)
-                TipWriter.WritePackageTips(bareName, tipLevel, options.Verbosity);
-
-            return exitCode;
         });
 
         return routerCommand;
+    }
+
+    private static async Task<int> ExecutePlatformAssemblyAsync(
+        RouterOptionsParser.RouteToPlatformAssembly route,
+        SharedOptions opts,
+        ParseResult parseResult)
+    {
+        bool verbose = route.Options.Verbose;
+        Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+        var client = HttpClientFactory.Shared;
+
+        var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+            route.BareName, client, log, route.Options.PlatformFramework);
+
+        if (resolvedPath != null && resolvedError == null)
+        {
+            var assemblyExitCode = await AssemblyCommand.ExecuteAsync(route.Options);
+
+            if (assemblyExitCode == 0 && !route.Options.JsonOutput)
+            {
+                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+                    ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+                TipWriter.WritePlatformTips(route.BareName, platformTipLevel, route.Verbosity);
+            }
+
+            return assemblyExitCode;
+        }
+
+        // Platform resolution failed - check if this is a qualified type name
+        // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
+        if (PlatformResolver.TryParseQualifiedTypeName(route.BareName, out var qtAssembly, out var qtType))
+        {
+            var typeOptions = new ApiOptions
+            {
+                TypeName = qtType,
+                PlatformAssembly = qtAssembly,
+                JsonOutput = route.Options.JsonOutput,
+                Verbose = route.Options.Verbose,
+                Verbosity = route.Verbosity,
+                IncludeSections = route.IncludeSections,
+                ExcludeSections = route.Options.ExcludeSections,
+                TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+            };
+
+            return await ApiCommand.ExecuteAsync(typeOptions);
+        }
+
+        // Fall through to package command
+        var options = new InspectionOptions
+        {
+            PackageArgs = [route.BareName],
+            JsonOutput = route.Options.JsonOutput,
+            Verbose = route.Options.Verbose,
+            Verbosity = route.Verbosity,
+            IncludeSections = route.IncludeSections,
+            ExcludeSections = route.Options.ExcludeSections,
+            SourceOptions = route.Options.SourceOptions
+        };
+
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+        options = options with { TipLevel = tipLevel };
+
+        var exitCode = await PackageCommand.ExecuteAsync(options);
+
+        if (exitCode == 0 && !options.IsRawOutput)
+            TipWriter.WritePackageTips(route.BareName, tipLevel, options.Verbosity);
+
+        return exitCode;
+    }
+
+    private static async Task<int> ExecuteVersionQueryAsync(
+        RouterOptionsParser.HandleVersionQuery query,
+        SharedOptions opts,
+        ParseResult parseResult,
+        Option<int?> routerVersionsOption)
+    {
+        if (!query.ForceLatest)
+        {
+            if (query.ExplicitVersion != null)
+            {
+                // Check app cache and NuGet cache
+                if (NuGetCache.TryGetCachedPackage(query.BareName, query.ExplicitVersion) != null)
+                {
+                    Console.WriteLine(query.ExplicitVersion);
+                    return 0;
+                }
+
+                // Check NuGet version API
+                var allVersions = await PackageExtractor.GetVersionsAsync(
+                    HttpClientFactory.Shared, query.BareName, includePrerelease: true, limit: null,
+                    log: null, sourceOptions: query.SourceOptions);
+
+                if (allVersions != null && allVersions.Any(v => string.Equals(v, query.ExplicitVersion, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine(query.ExplicitVersion);
+                    return 0;
+                }
+
+                // Differentiate bad package from bad version
+                if (allVersions == null || allVersions.Count == 0)
+                    Console.Error.WriteLine($"Error: Package '{query.BareName}' not found.");
+                else
+                    Console.Error.WriteLine($"Error: Version '{query.ExplicitVersion}' of package '{query.BareName}' not found. Use --versions to see available versions.");
+                return 1;
+            }
+            else
+            {
+                // Bare name: use newest cached version
+                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(query.BareName);
+                if (cachedVersion != null)
+                {
+                    Console.WriteLine(cachedVersion);
+                    return 0;
+                }
+            }
+        }
+
+        // No cache hit, or @latest: fall through to --latest-version (version API query)
+        var options = new Options.InspectionOptions
+        {
+            PackageArgs = [query.BareName],
+            ListVersions = true,
+            Limit = 1,
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = opts.ParseVerbosity(parseResult),
+            SourceOptions = query.SourceOptions,
+            ForceLatest = true
+        };
+
+        return await PackageCommand.ExecuteAsync(options);
+    }
+
+    private static async Task<int> ExecutePackageCommandAsync(RouterOptionsParser.RouteToPackage route)
+    {
+        var exitCode = await PackageCommand.ExecuteAsync(route.Options);
+
+        if (exitCode == 0 && !route.Options.IsRawOutput)
+            TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
+
+        return exitCode;
     }
 }

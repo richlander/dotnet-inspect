@@ -1,0 +1,151 @@
+namespace DotnetInspector.CommandLine;
+
+/// <summary>
+/// Shared parsing helpers for command option transformations.
+/// These methods extract common patterns from command SetAction lambdas
+/// to enable unit testing and reduce duplication.
+/// </summary>
+public static class SharedParsers
+{
+    /// <summary>
+    /// Parses member filter values where a single numeric value means limit,
+    /// otherwise values are treated as filter names.
+    /// </summary>
+    /// <param name="values">The member filter values from -m option.</param>
+    /// <returns>A tuple of (filter set, limit). One will be empty/null.</returns>
+    public static (HashSet<string> Filter, int? Limit) ParseMemberFilter(string[] values)
+    {
+        if (values.Length == 0)
+            return ([], null);
+
+        if (values.Length == 1 && int.TryParse(values[0], out var limit))
+            return ([], limit);
+
+        return (new HashSet<string>(values, StringComparer.OrdinalIgnoreCase), null);
+    }
+
+    /// <summary>
+    /// Parses Name:N shorthand for overload selection.
+    /// </summary>
+    /// <param name="value">The member name, possibly with :N suffix.</param>
+    /// <returns>A tuple of (name without suffix, index if present).</returns>
+    public static (string Name, int? Index) ParseOverloadShorthand(string value)
+    {
+        var colonIdx = value.LastIndexOf(':');
+        if (colonIdx > 0 && int.TryParse(value[(colonIdx + 1)..], out var idx))
+            return (value[..colonIdx], idx);
+        return (value, null);
+    }
+
+    /// <summary>
+    /// Parses Type.Member dotted syntax.
+    /// Only splits if there's a dot, no glob patterns, and first segment isn't empty.
+    /// </summary>
+    /// <param name="value">The member argument, possibly with Type. prefix.</param>
+    /// <returns>A tuple of (type filter if present, member name).</returns>
+    public static (string? TypeFilter, string MemberName) ParseDottedMember(string value)
+    {
+        var dotIdx = value.LastIndexOf('.');
+        if (dotIdx > 0 && !value.Contains('*') && !value.Contains('?'))
+            return (value[..dotIdx], value[(dotIdx + 1)..]);
+        return (null, value);
+    }
+
+    /// <summary>
+    /// Parses type filter value where a numeric value means limit,
+    /// otherwise the value is a glob pattern.
+    /// </summary>
+    /// <param name="value">The -t option value.</param>
+    /// <returns>A tuple of (filter pattern if not numeric, limit if numeric).</returns>
+    public static (string? Filter, int? Limit) ParseTypeFilter(string? value)
+    {
+        if (value == null)
+            return (null, null);
+
+        if (int.TryParse(value, out var limit))
+            return (null, limit);
+
+        return (value, null);
+    }
+
+    /// <summary>
+    /// Parses package@version syntax into separate components.
+    /// Handles special @latest marker.
+    /// </summary>
+    /// <param name="name">The package name, possibly with @version suffix.</param>
+    /// <returns>Parsed package info with bare name, version, and flags.</returns>
+    public static PackageVersionInfo ParsePackageVersion(string name)
+    {
+        bool hasExplicitVersion = name.Contains('@');
+        if (!hasExplicitVersion)
+            return new(name, null, HasExplicitVersion: false, ForceLatest: false);
+
+        var bareName = name[..name.IndexOf('@')];
+        var explicitVersion = name[(name.IndexOf('@') + 1)..];
+
+        bool forceLatest = string.Equals(explicitVersion, "latest", StringComparison.OrdinalIgnoreCase);
+        if (forceLatest)
+            return new(bareName, null, HasExplicitVersion: false, ForceLatest: true);
+
+        return new(bareName, explicitVersion, HasExplicitVersion: true, ForceLatest: false);
+    }
+
+    /// <summary>
+    /// Processes member arguments to extract dotted syntax and overload shorthand.
+    /// Modifies the array in place and returns extracted metadata.
+    /// </summary>
+    /// <param name="members">The member arguments to process.</param>
+    /// <returns>Extracted type filter and overload index if found.</returns>
+    public static (string? DottedTypeFilter, int? OverloadIndex) ProcessMemberArguments(string[] members)
+    {
+        string? dottedTypeFilter = null;
+        int? overloadIndex = null;
+
+        for (int i = 0; i < members.Length; i++)
+        {
+            // Check for dotted syntax (Type.Member)
+            var (typeFilter, memberName) = ParseDottedMember(members[i]);
+            if (typeFilter != null)
+            {
+                dottedTypeFilter = typeFilter;
+                members[i] = memberName;
+            }
+
+            // Check for overload shorthand (Name:N)
+            var (name, index) = ParseOverloadShorthand(members[i]);
+            if (index != null)
+            {
+                members[i] = name;
+                overloadIndex = index;
+            }
+        }
+
+        return (dottedTypeFilter, overloadIndex);
+    }
+
+    /// <summary>
+    /// Parses comma-separated parameter types.
+    /// </summary>
+    /// <param name="value">The --params option value.</param>
+    /// <returns>Array of parameter types, or null if empty.</returns>
+    public static string[]? ParseParamTypes(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return null;
+
+        return value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    }
+}
+
+/// <summary>
+/// Parsed package version information.
+/// </summary>
+/// <param name="BareName">The package name without version.</param>
+/// <param name="ExplicitVersion">The explicit version if specified (not @latest).</param>
+/// <param name="HasExplicitVersion">True if a specific version was provided.</param>
+/// <param name="ForceLatest">True if @latest was specified.</param>
+public readonly record struct PackageVersionInfo(
+    string BareName,
+    string? ExplicitVersion,
+    bool HasExplicitVersion,
+    bool ForceLatest);

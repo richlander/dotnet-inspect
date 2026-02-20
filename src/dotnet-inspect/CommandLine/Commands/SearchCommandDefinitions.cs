@@ -75,76 +75,40 @@ public static class SearchCommandDefinitions
         opts.AddOutputOptionsTo(findCommand);
         opts.AddNuGetOptionsTo(findCommand);
 
+        var commandArgs = new FindOptionsParser.FindCommandArgs(
+            patternArg, packageOption, assemblyOption, platformOption, extensionsOption,
+            aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
+            typeFilterOption, compactOption, oneLineOption, noHeaderOption, packagePrefixOption);
+
         findCommand.SetAction(async (parseResult, ct) =>
         {
-            var pattern = parseResult.GetValue(patternArg);
+            var result = await FindOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
-            if (string.IsNullOrEmpty(pattern))
+            switch (result)
             {
-                return TipWriter.ShowHelpWithTips(parseResult,
-                    "find Chat*                                # search default scope",
-                    "find Chat* --platform                     # platform libraries only",
-                    "find Chat* --extensions                   # Microsoft.Extensions packages",
-                    "find Chat* --aspnetcore                   # ASP.NET Core packages",
-                    "find Chat* --package Newtonsoft.Json       # specific package",
-                    "find Chat* --platform --extensions         # combine scopes");
+                case FindOptionsParser.ShowHelpWithTips:
+                    return TipWriter.ShowHelpWithTips(parseResult,
+                        "find Chat*                                # search default scope",
+                        "find Chat* --platform                     # platform libraries only",
+                        "find Chat* --extensions                   # Microsoft.Extensions packages",
+                        "find Chat* --aspnetcore                   # ASP.NET Core packages",
+                        "find Chat* --package Newtonsoft.Json       # specific package",
+                        "find Chat* --platform --extensions         # combine scopes");
+
+                case FindOptionsParser.Success success:
+                    var exitCode = await FindCommand.ExecuteAsync(success.Options);
+
+                    if (exitCode == 0 && !success.Options.IsRawOutput)
+                    {
+                        var tips = FindOptionsParser.BuildTips(success.Options, success.Options.Pattern);
+                        Hints.WriteTips(success.TipLevel, [.. tips]);
+                    }
+
+                    return exitCode;
+
+                default:
+                    return 1;
             }
-
-            var packagePrefix = parseResult.GetValue(packagePrefixOption);
-            var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
-            var assemblies = parseResult.GetValue(assemblyOption) ?? [];
-            var projects = parseResult.GetValue(projectOption) ?? [];
-            var binPaths = parseResult.GetValue(binOption) ?? [];
-
-            var scopeFlags = new ScopeResolver.ScopeFlags(
-                Platform: parseResult.GetValue(platformOption),
-                Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption),
-                Curated: parseResult.GetValue(curatedOption));
-            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
-                hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0);
-
-            var options = new FindOptions
-            {
-                Pattern = pattern!,
-                Packages = scope.Packages,
-                Assemblies = assemblies,
-                PlatformAssemblies = [],
-                PlatformFrameworks = scope.Frameworks,
-                Projects = projects,
-                BinPaths = binPaths,
-                Tfm = parseResult.GetValue(tfmOption),
-                IncludeAll = parseResult.GetValue(allOption),
-                Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
-                JsonOutput = parseResult.GetValue(opts.Json),
-                CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption),
-                NoHeader = parseResult.GetValue(noHeaderOption),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                PackagePrefix = packagePrefix,
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-            };
-
-            var exitCode = await FindCommand.ExecuteAsync(options);
-
-            var verbosity = opts.ParseVerbosity(parseResult);
-            var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || options.Limit != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-
-            if (exitCode == 0 && !options.IsRawOutput)
-            {
-                var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
-                var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform";
-
-                Hints.WriteTips(tipLevel,
-                    new(MemberCommand.Name, $"<TypeName> {sourceFlag}", "inspect type members"),
-                    new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
-                    new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results"),
-                    new(LlmsTxtCommand.Name, "", "complete usage examples"));
-            }
-
-            return exitCode;
         });
 
         return findCommand;

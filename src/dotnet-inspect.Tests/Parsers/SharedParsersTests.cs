@@ -1,0 +1,317 @@
+using DotnetInspector.CommandLine;
+
+namespace DotnetInspector.Tests.Parsers;
+
+public class SharedParsersTests
+{
+    // ── ParseMemberFilter ────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseMemberFilter_EmptyArray_ReturnsEmptyFilterAndNullLimit()
+    {
+        var (filter, limit) = SharedParsers.ParseMemberFilter([]);
+
+        Assert.Empty(filter);
+        Assert.Null(limit);
+    }
+
+    [Fact]
+    public void ParseMemberFilter_SingleNumber_ReturnsLimit()
+    {
+        var (filter, limit) = SharedParsers.ParseMemberFilter(["5"]);
+
+        Assert.Empty(filter);
+        Assert.Equal(5, limit);
+    }
+
+    [Fact]
+    public void ParseMemberFilter_SingleName_ReturnsFilter()
+    {
+        var (filter, limit) = SharedParsers.ParseMemberFilter(["GetValue"]);
+
+        Assert.Single(filter);
+        Assert.Contains("GetValue", filter);
+        Assert.Null(limit);
+    }
+
+    [Fact]
+    public void ParseMemberFilter_MultipleNames_ReturnsAllInFilter()
+    {
+        var (filter, limit) = SharedParsers.ParseMemberFilter(["GetValue", "SetValue", "Clear"]);
+
+        Assert.Equal(3, filter.Count);
+        Assert.Contains("GetValue", filter);
+        Assert.Contains("SetValue", filter);
+        Assert.Contains("Clear", filter);
+        Assert.Null(limit);
+    }
+
+    [Fact]
+    public void ParseMemberFilter_CaseInsensitive()
+    {
+        var (filter, _) = SharedParsers.ParseMemberFilter(["GetValue"]);
+
+        Assert.Contains("getvalue", filter);
+        Assert.Contains("GETVALUE", filter);
+    }
+
+    // ── ParseOverloadShorthand ───────────────────────────────────────────
+
+    [Fact]
+    public void ParseOverloadShorthand_NoColon_ReturnsNameOnly()
+    {
+        var (name, index) = SharedParsers.ParseOverloadShorthand("GetValue");
+
+        Assert.Equal("GetValue", name);
+        Assert.Null(index);
+    }
+
+    [Fact]
+    public void ParseOverloadShorthand_WithIndex_ReturnsNameAndIndex()
+    {
+        var (name, index) = SharedParsers.ParseOverloadShorthand("GetValue:3");
+
+        Assert.Equal("GetValue", name);
+        Assert.Equal(3, index);
+    }
+
+    [Fact]
+    public void ParseOverloadShorthand_ColonAtStart_ReturnsOriginal()
+    {
+        var (name, index) = SharedParsers.ParseOverloadShorthand(":123");
+
+        Assert.Equal(":123", name);
+        Assert.Null(index);
+    }
+
+    [Fact]
+    public void ParseOverloadShorthand_ColonWithNonNumeric_ReturnsOriginal()
+    {
+        var (name, index) = SharedParsers.ParseOverloadShorthand("Type:Name");
+
+        Assert.Equal("Type:Name", name);
+        Assert.Null(index);
+    }
+
+    [Fact]
+    public void ParseOverloadShorthand_MultipleColons_UsesLastOne()
+    {
+        var (name, index) = SharedParsers.ParseOverloadShorthand("Some:Complex:Name:2");
+
+        Assert.Equal("Some:Complex:Name", name);
+        Assert.Equal(2, index);
+    }
+
+    // ── ParseDottedMember ────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseDottedMember_NoDot_ReturnsMemberOnly()
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember("GetValue");
+
+        Assert.Null(typeFilter);
+        Assert.Equal("GetValue", member);
+    }
+
+    [Fact]
+    public void ParseDottedMember_WithDot_SplitsTypeAndMember()
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember("JsonSerializer.Deserialize");
+
+        Assert.Equal("JsonSerializer", typeFilter);
+        Assert.Equal("Deserialize", member);
+    }
+
+    [Fact]
+    public void ParseDottedMember_GlobPattern_DoesNotSplit()
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember("*.GetValue");
+
+        Assert.Null(typeFilter);
+        Assert.Equal("*.GetValue", member);
+    }
+
+    [Fact]
+    public void ParseDottedMember_QuestionMarkPattern_DoesNotSplit()
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember("Type?.Member");
+
+        Assert.Null(typeFilter);
+        Assert.Equal("Type?.Member", member);
+    }
+
+    [Fact]
+    public void ParseDottedMember_DotAtStart_DoesNotSplit()
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember(".ctor");
+
+        Assert.Null(typeFilter);
+        Assert.Equal(".ctor", member);
+    }
+
+    [Fact]
+    public void ParseDottedMember_MultipleDots_UsesLastOne()
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember("System.Text.Json.JsonSerializer.Deserialize");
+
+        Assert.Equal("System.Text.Json.JsonSerializer", typeFilter);
+        Assert.Equal("Deserialize", member);
+    }
+
+    // ── ParseTypeFilter ──────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseTypeFilter_Null_ReturnsNulls()
+    {
+        var (filter, limit) = SharedParsers.ParseTypeFilter(null);
+
+        Assert.Null(filter);
+        Assert.Null(limit);
+    }
+
+    [Fact]
+    public void ParseTypeFilter_Number_ReturnsLimit()
+    {
+        var (filter, limit) = SharedParsers.ParseTypeFilter("10");
+
+        Assert.Null(filter);
+        Assert.Equal(10, limit);
+    }
+
+    [Fact]
+    public void ParseTypeFilter_Pattern_ReturnsFilter()
+    {
+        var (filter, limit) = SharedParsers.ParseTypeFilter("*Json*");
+
+        Assert.Equal("*Json*", filter);
+        Assert.Null(limit);
+    }
+
+    // ── ParsePackageVersion ──────────────────────────────────────────────
+
+    [Fact]
+    public void ParsePackageVersion_BarePackage_ReturnsNameOnly()
+    {
+        var info = SharedParsers.ParsePackageVersion("System.Text.Json");
+
+        Assert.Equal("System.Text.Json", info.BareName);
+        Assert.Null(info.ExplicitVersion);
+        Assert.False(info.HasExplicitVersion);
+        Assert.False(info.ForceLatest);
+    }
+
+    [Fact]
+    public void ParsePackageVersion_WithVersion_ReturnsNameAndVersion()
+    {
+        var info = SharedParsers.ParsePackageVersion("System.Text.Json@9.0.0");
+
+        Assert.Equal("System.Text.Json", info.BareName);
+        Assert.Equal("9.0.0", info.ExplicitVersion);
+        Assert.True(info.HasExplicitVersion);
+        Assert.False(info.ForceLatest);
+    }
+
+    [Fact]
+    public void ParsePackageVersion_AtLatest_SetsForceLatest()
+    {
+        var info = SharedParsers.ParsePackageVersion("System.Text.Json@latest");
+
+        Assert.Equal("System.Text.Json", info.BareName);
+        Assert.Null(info.ExplicitVersion);
+        Assert.False(info.HasExplicitVersion);
+        Assert.True(info.ForceLatest);
+    }
+
+    [Fact]
+    public void ParsePackageVersion_AtLatestCaseInsensitive()
+    {
+        var info = SharedParsers.ParsePackageVersion("System.Text.Json@LATEST");
+
+        Assert.True(info.ForceLatest);
+    }
+
+    // ── ProcessMemberArguments ───────────────────────────────────────────
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsDottedSyntax()
+    {
+        var members = new[] { "JsonSerializer.Deserialize", "GetValue" };
+        var (typeFilter, overloadIndex) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Equal("JsonSerializer", typeFilter);
+        Assert.Equal("Deserialize", members[0]);
+        Assert.Equal("GetValue", members[1]);
+        Assert.Null(overloadIndex);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsOverloadShorthand()
+    {
+        var members = new[] { "GetValue:2" };
+        var (typeFilter, overloadIndex) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Null(typeFilter);
+        Assert.Equal("GetValue", members[0]);
+        Assert.Equal(2, overloadIndex);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsBoth()
+    {
+        var members = new[] { "JsonSerializer.Deserialize:1" };
+        var (typeFilter, overloadIndex) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Equal("JsonSerializer", typeFilter);
+        Assert.Equal("Deserialize", members[0]);
+        Assert.Equal(1, overloadIndex);
+    }
+
+    // ── ParseParamTypes ──────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseParamTypes_Null_ReturnsNull()
+    {
+        var result = SharedParsers.ParseParamTypes(null);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ParseParamTypes_Empty_ReturnsNull()
+    {
+        var result = SharedParsers.ParseParamTypes("");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ParseParamTypes_SingleType_ReturnsArray()
+    {
+        var result = SharedParsers.ParseParamTypes("string");
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal("string", result[0]);
+    }
+
+    [Fact]
+    public void ParseParamTypes_MultipleTypes_ReturnsArray()
+    {
+        var result = SharedParsers.ParseParamTypes("string, int, bool");
+
+        Assert.NotNull(result);
+        Assert.Equal(3, result.Length);
+        Assert.Equal("string", result[0]);
+        Assert.Equal("int", result[1]);
+        Assert.Equal("bool", result[2]);
+    }
+
+    [Fact]
+    public void ParseParamTypes_TrimsWhitespace()
+    {
+        var result = SharedParsers.ParseParamTypes("  string  ,  int  ");
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Length);
+        Assert.Equal("string", result[0]);
+        Assert.Equal("int", result[1]);
+    }
+}

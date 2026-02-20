@@ -65,56 +65,22 @@ public static class PackageCommandDefinitions
         var searchCommand = CreatePackageSearchCommand(opts);
         packageCommand.Subcommands.Add(searchCommand);
 
+        var commandArgs = new PackageOptionsParser.PackageCommandArgs(
+            packageNameArg, dependenciesOption, layoutOption, filesOption, tfmsOption,
+            libOption, toolsOption, versionsOption, prereleaseOption, readmeOption,
+            tfmOption, versionOption, outOption, oneLineOption, noHeaderOption);
+
         packageCommand.SetAction(async (parseResult, ct) =>
         {
-            var packageArgs = parseResult.GetValue(packageNameArg) ?? [];
-            var explicitVersion = parseResult.GetValue(versionOption);
+            var result = PackageOptionsParser.Parse(parseResult, opts, commandArgs);
 
-            // Bare --version (no value): treat as --versions 1
-            bool bareVersion = explicitVersion == null && parseResult.GetResult(versionOption) is { Implicit: false };
+            var exitCode = await PackageCommand.ExecuteAsync(result.Options);
 
-            var versionsValue = parseResult.GetValue(versionsOption);
-            bool showVersions = bareVersion || parseResult.GetResult(versionsOption) is { Implicit: false };
-
-            var verbosity = opts.ParseVerbosity(parseResult);
-
-            var options = new InspectionOptions
+            if (exitCode == 0 && result.Options.PackageArgs.Length > 0 && !result.Options.IsRawOutput)
             {
-                PackageArgs = packageArgs,
-                ExplicitVersion = explicitVersion,
-                ShowDependencies = parseResult.GetValue(dependenciesOption),
-                Tfm = parseResult.GetValue(tfmOption),
-                ListLayout = parseResult.GetValue(layoutOption),
-                ListFiles = parseResult.GetValue(filesOption),
-                ListTfms = parseResult.GetValue(tfmsOption),
-                ScopeLib = parseResult.GetValue(libOption),
-                ScopeTools = parseResult.GetValue(toolsOption),
-                ListVersions = showVersions,
-                IncludePrerelease = parseResult.GetValue(prereleaseOption),
-                ShowReadme = parseResult.GetValue(readmeOption),
-                OutputPath = parseResult.GetValue(outOption),
-                Limit = bareVersion ? 1 : versionsValue,
-                JsonOutput = parseResult.GetValue(opts.Json),
-                OneLine = parseResult.GetValue(oneLineOption),
-                NoHeader = parseResult.GetValue(noHeaderOption),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                Verbosity = verbosity,
-                IncludeSections = opts.ParseIncludeSections(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-            };
-
-            var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null || options.Limit != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-            options = options with { TipLevel = tipLevel };
-
-            var exitCode = await PackageCommand.ExecuteAsync(options);
-
-            if (exitCode == 0 && packageArgs.Length > 0 && !options.IsRawOutput)
-            {
-                var pkg = packageArgs[0];
+                var pkg = result.Options.PackageArgs[0];
                 if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
-                TipWriter.WritePackageTips(pkg, tipLevel, options.Verbosity);
+                TipWriter.WritePackageTips(pkg, result.Options.TipLevel, result.Verbosity);
             }
 
             return exitCode;
