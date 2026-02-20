@@ -31,11 +31,12 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## Key Patterns
 
-Use `--oneline` as the default for scanning — it's far more token-efficient than markdown tables:
+Use `--oneline` as the default for scanning — it works on `type`, `member`, `find`, `diff`, and `implements`:
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline  # scan members
 dnx dotnet-inspect -y -- type --package System.Text.Json --oneline                   # scan types
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --oneline  # triage changes
 ```
 
 Use `--shape` to understand a type's hierarchy and surface at a glance:
@@ -44,11 +45,12 @@ Use `--shape` to understand a type's hierarchy and surface at a glance:
 dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
 ```
 
-Use `diff` first when fixing broken code — it shows all removed/changed/added members immediately:
+Use `diff` first when fixing broken code — `--oneline` for triage, then full detail on specific types:
 
 ```bash
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3
-dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3 --oneline  # then scan
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --oneline  # what changed?
+dnx dotnet-inspect -y -- diff -t Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # detail on Command
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3 --oneline              # new API surface
 ```
 
 ## Search Scope
