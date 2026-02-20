@@ -9,9 +9,10 @@ It operates on three types of content:
 - **Local paths** — e.g., `path/to/library.dll` or `path/to/package.nupkg`
 
 ```bash
-dotnet-inspect Microsoft.Extensions.AI              # Bare name — routes to best source
+dotnet-inspect Microsoft.Extensions.AI              # Bare name — routes to best source and command
 dotnet-inspect package System.Text.Json             # Package metadata
 dotnet-inspect library System.Text.Json             # Library metadata
+dotnet-inspect library --package System.Text.Json   # Library metadata for a package
 dotnet-inspect type --package System.Text.Json      # Discover types (terse)
 dotnet-inspect member JsonSerializer --package System.Text.Json  # Inspect members (docs)
 dotnet-inspect find "Chat*,Diction*"                # Search types across scopes
@@ -45,17 +46,17 @@ When code fails to compile because it uses an outdated API:
 ```bash
 # 1. Identify the version gap (check .csproj PackageReference versions)
 # 2. Diff the old and new versions to see all breaking/additive changes
-dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
+dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3
 
 # 3. Scan the new type surface with --oneline
-dotnet-inspect member Command --package System.CommandLine@2.0.2 --oneline
+dotnet-inspect member Command --package System.CommandLine@2.0.3 --oneline
 
 # 4. Enumerate overloads for a method (--select shows Name:N indices)
-dotnet-inspect member Command --package System.CommandLine@2.0.2 --select
+dotnet-inspect member Command --package System.CommandLine@2.0.3 --select
 
 # 5. Drill into a specific overload by index
-dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:1
-dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:3  # async overload
+dotnet-inspect member Command --package System.CommandLine@2.0.3 -m SetAction:1
+dotnet-inspect member Command --package System.CommandLine@2.0.3 -m SetAction:3  # async overload
 ```
 
 Start with `diff` — it immediately shows all removed/changed/added members. This avoids guessing which APIs changed.
@@ -80,7 +81,7 @@ dotnet-inspect member Command --package System.CommandLine --select          # �
 
 # WRONG: Not using diff when fixing API migration errors
 # CORRECT: Start with diff to see all changes at once
-dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2 # ✓
+dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 # ✓
 
 # WRONG: Using --filter to filter members (doesn't exist)
 dotnet-inspect member Command --package System.CommandLine --filter .ctor    # ✗

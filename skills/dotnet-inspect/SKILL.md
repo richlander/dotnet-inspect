@@ -47,8 +47,8 @@ dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
 Use `diff` first when fixing broken code — it shows all removed/changed/added members immediately:
 
 ```bash
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
-dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 --oneline  # then scan
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3 --oneline  # then scan
 ```
 
 ## Search Scope
@@ -58,7 +58,7 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 - **(no flags)** — platform frameworks + Microsoft.Extensions.AI
 - **`--platform`** — all platform frameworks
 - **`--extensions`** — curated Microsoft.Extensions.* packages
-- **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages
+- **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages 
 - **`--package Foo`** — specific NuGet package (combinable with scope flags)
 
 `type`, `member`, `library`, `diff` accept `--platform <name>` as a string for a specific platform library.
