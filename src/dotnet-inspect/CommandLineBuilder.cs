@@ -1855,9 +1855,8 @@ public static class CommandLineBuilder
                 }
             }
 
-            // Parse Name:N shorthand
+            // Parse Name:N shorthand for explicit overload selection
             int? shorthandIndex = null;
-            bool hasExplicitIndex = false;
             for (int i = 0; i < allMembers.Length; i++)
             {
                 var colonIdx = allMembers[i].LastIndexOf(':');
@@ -1865,12 +1864,11 @@ public static class CommandLineBuilder
                 {
                     allMembers[i] = allMembers[i][..colonIdx];
                     shorthandIndex = idx;
-                    hasExplicitIndex = true;
                 }
             }
-
-            if (!hasExplicitIndex && allMembers.Length == 1)
-                shorthandIndex = 1;
+            // Note: We don't auto-select overload 1 when a single member is filtered.
+            // This allows seeing all overloads when e.g. `-m GetValue` matches multiple.
+            // Use explicit Name:1 syntax to select a specific overload.
 
             HashSet<string> memberFilter = [];
             int? memberLimit = null;
