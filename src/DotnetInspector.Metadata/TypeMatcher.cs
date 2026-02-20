@@ -179,6 +179,41 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Gets the expected generic arity from a search pattern.
+    /// Supports both C# notation and CLR backtick notation.
+    /// "Option&lt;T&gt;" → 1, "Dictionary&lt;K,V&gt;" → 2, "Option`1" → 1, "Option" → -1 (unspecified)
+    /// </summary>
+    public static int GetPatternArity(string pattern)
+    {
+        // First check for CLR backtick notation (Option`1, Dictionary`2)
+        var backtickArity = GetGenericArity(pattern);
+        if (backtickArity > 0)
+            return backtickArity;
+
+        // Then check for C# angle bracket notation (Option<T>, Dictionary<K,V>)
+        var startIdx = pattern.IndexOf('<');
+        var endIdx = pattern.LastIndexOf('>');
+        if (startIdx < 0 || endIdx <= startIdx)
+            return -1; // No generic notation, arity unspecified
+
+        var typeArgs = pattern[(startIdx + 1)..endIdx];
+        if (string.IsNullOrWhiteSpace(typeArgs))
+            return -1;
+
+        // Count type parameters by counting commas + 1
+        // Handle nested generics by tracking angle bracket depth
+        int arity = 1;
+        int depth = 0;
+        foreach (var c in typeArgs)
+        {
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0) arity++;
+        }
+        return arity;
+    }
+
+    /// <summary>
     /// Tests whether <paramref name="text"/> matches a glob pattern (* and ? wildcards).
     /// Case-insensitive.
     /// </summary>
@@ -264,9 +299,22 @@ public static class TypeMatcher
         }
 
         // Exact match via Matches (handles namespace prefix, generic arity, case-insensitive)
-        var exact = list.FirstOrDefault(c => Matches(c, pattern));
-        if (exact != null)
-            return new LookupResult(exact, []);
+        // When pattern has generic notation (e.g., Option<T>), prefer matching arity
+        var patternArity = GetPatternArity(pattern);
+        var matches = list.Where(c => Matches(c, pattern)).ToList();
+
+        if (matches.Count > 0)
+        {
+            // If pattern specified arity (e.g., Option<T>), prefer candidate with matching arity
+            if (patternArity >= 0)
+            {
+                var arityMatch = matches.FirstOrDefault(c => GetGenericArity(c) == patternArity);
+                if (arityMatch != null)
+                    return new LookupResult(arityMatch, []);
+            }
+            // Otherwise return first match (existing behavior for non-generic patterns)
+            return new LookupResult(matches[0], []);
+        }
 
         // Fuzzy fallback
         var suggestions = FindClosest(list, pattern, maxResults: maxSuggestions)
