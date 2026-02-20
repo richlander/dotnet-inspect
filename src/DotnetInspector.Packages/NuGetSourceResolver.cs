@@ -11,7 +11,7 @@ namespace DotnetInspector.Packages;
 public static class NuGetSourceResolver
 {
     // Process-lifetime cache: config parsing is the expensive part and configs don't change mid-run.
-    private static readonly Dictionary<string, List<NuGetSource>> s_cache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<NuGetSource>> s_cache = new();
 
     /// <summary>
     /// Resolves the list of NuGet sources to use based on options and configuration.

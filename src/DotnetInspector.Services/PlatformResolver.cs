@@ -264,13 +264,17 @@ public static class PlatformResolver
     public static List<FrameworkInfo> GetInstalledFrameworks(string? packsDirectory = null)
     {
         // Use process-lifetime cache for the common no-arg path
-        if (packsDirectory == null && _cachedFrameworks != null)
-            return _cachedFrameworks;
+        if (packsDirectory == null)
+        {
+            var cached = Volatile.Read(ref _cachedFrameworks);
+            if (cached != null)
+                return cached;
+        }
 
         var result = GetInstalledFrameworksCore(packsDirectory);
 
         if (packsDirectory == null)
-            _cachedFrameworks = result;
+            Volatile.Write(ref _cachedFrameworks, result);
 
         return result;
     }
