@@ -58,7 +58,7 @@ Type Forwarders
 
 > Goal: List sections for a NuGet package via both bare name and explicit `package`.
 
-### Using bare name
+### Using bare name (NuGet)
 
 ```prompt
 What sections can I see for System.CommandLine?
