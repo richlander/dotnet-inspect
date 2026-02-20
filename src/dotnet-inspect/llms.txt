@@ -216,7 +216,7 @@ dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --
 ```
 
 | Scope | Description |
-|-------|-------------|
+| ----- | ----------- |
 | (none) | Default scope (all platform frameworks + Microsoft.Extensions.AI) |
 | `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
 | `--extensions` | Curated Microsoft.Extensions.* packages |
@@ -230,7 +230,7 @@ dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --
 Scope flags are combinable: `--platform --package Newtonsoft.Json` searches both.
 
 | Option | Description |
-|--------|-------------|
+| ------ | ----------- |
 | `--oneline` | One result per line, columnar output |
 | `--no-header` | Suppress column headers (use with --oneline) |
 | `-n` | Limit results per pattern |
@@ -339,14 +339,15 @@ dotnet-inspect cli type                             # Explore args for specific 
 ### Verbosity
 
 | Flag | Level | Output |
-|------|-------|--------|
+| ---- | ----- | ------ |
 | `-v:q` | Quiet | Title + compact summary line |
 | `-v:m` | Minimal | + description (default) |
 | `-v:n` | Normal | + metadata table, type parameters |
 | `-v:d` | Detailed | + all sections, full signatures |
 
 Every verbosity level includes a **compact summary line**:
-```
+
+```text
 Version: 8.0.0 | Type: Library | TFM: net8.0 | Updated: 2023-11-14 | Vulnerabilities: 2
 ```
 
@@ -381,7 +382,7 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 ## Key Options Reference
 
 | Option | Description | Commands |
-|--------|-------------|----------|
+| ------ | ----------- | -------- |
 | `--package` | NuGet package source | type, member, library, find, extensions, implements, depends, diff |
 | `--package-prefix` | All packages matching NuGet ID prefix | find, extensions, implements |
 | `--platform` | Platform library source (string) / all platform frameworks (bool) | type, member, library, diff (string) / find, extensions, implements, depends (bool) |
@@ -451,11 +452,17 @@ dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
 # 3. Scan the new type surface with --oneline
 dotnet-inspect member Command --package System.CommandLine@2.0.2 --oneline
 
-# 4. Drill into specific members for signatures
-dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction -v:d
+# 4. Enumerate overloads for a method (--select shows Name:N indices)
+dotnet-inspect member Command --package System.CommandLine@2.0.2 --select
+
+# 5. Drill into a specific overload by index
+dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:1
+dotnet-inspect member Command --package System.CommandLine@2.0.2 -m SetAction:3  # async overload
 ```
 
 Start with `diff` — it immediately shows all removed/changed/added members. This avoids guessing which APIs changed.
+
+**Verbosity tip:** Default verbosity is usually sufficient for migration. Use `-v:d` only when you need source code or IL — it shows one overload at a time and generates much more output. Use `--select` or overload index (`SetAction:2`) to see all overloads efficiently.
 
 ### Important: New type and member Commands
 
@@ -480,6 +487,12 @@ dotnet-inspect member Command --package System.CommandLine -v:d              # �
 # CORRECT: Use --oneline for scanning, -v:d only for specific members
 dotnet-inspect member Command --package System.CommandLine --oneline         # ✓
 dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✓ (drill in)
+
+# WRONG: Using -v:d to see all overloads (only shows one at a time)
+dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✗ (shows first overload only)
+# CORRECT: Use --select to see overload indices, then drill into specific ones
+dotnet-inspect member Command --package System.CommandLine --select          # ✓ (shows Name:N for each)
+dotnet-inspect member Command --package System.CommandLine -m SetAction:3    # ✓ (async overload)
 
 # WRONG: Not using diff when fixing API migration errors
 # CORRECT: Start with diff to see all changes at once
@@ -549,7 +562,8 @@ Quote the type name to prevent shell interpretation: `'Option<T>'`
 ### Method Signatures
 
 Signatures include `params` and default values from metadata:
-```
+
+```text
 void .ctor(string name, params string[] aliases)
 ParseResult Parse(Command command, IReadOnlyList<string> args, ParserConfiguration? configuration = null)
 ```
@@ -557,7 +571,7 @@ ParseResult Parse(Command command, IReadOnlyList<string> args, ParserConfigurati
 ### Common Library Names
 
 | Types | Platform Library |
-|-------|------------------|
+| ----- | ---------------- |
 | List, Dictionary, Queue, HashSet | System.Collections |
 | String, Int32, Object, Span | System.Runtime |
 | JsonSerializer, JsonDocument | System.Text.Json |
@@ -595,7 +609,7 @@ dotnet-inspect member -m JsonSerializer.Serialize --package System.Text.Json
 ### Test Packages
 
 | Package | Version | Scenario |
-|---------|---------|----------|
+| ------- | ------- | -------- |
 | System.Text.Json | (latest) | Multi-TFM, SourceLink, resources |
 | System.Text.Json | 8.0.0 | Vulnerabilities |
 | System.Text.Json | 5.0.0 | Deprecated |
@@ -606,7 +620,7 @@ dotnet-inspect member -m JsonSerializer.Serialize --package System.Text.Json
 ### Flag Compatibility Matrix
 
 | Flag | type | member | find | extensions | implements | depends | diff | library | package |
-|------|------|--------|------|------------|------------|---------|------|---------|---------|
+| ---- | ---- | ------ | ---- | ---------- | ---------- | ------- | ---- | ------- | ------- |
 | `--package` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
 | `--package-prefix` | — | — | ✓ | ✓ | ✓ | — | — | — | — |
 | `--platform` | ✓ (string) | ✓ (string) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (bool) | ✓ (string) | — | — |
