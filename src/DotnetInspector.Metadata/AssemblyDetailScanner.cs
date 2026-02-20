@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -289,3 +290,5 @@ public class PresenceFlags
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
 }
+
+

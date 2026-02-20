@@ -8,6 +8,12 @@ namespace DotnetInspector.Services;
 public static class PlatformResolver
 {
     /// <summary>
+    /// Process-lifetime cache for the parameterless GetInstalledFrameworks() overload.
+    /// Framework installations don't change during a CLI invocation.
+    /// </summary>
+    private static List<FrameworkInfo>? _cachedFrameworks;
+
+    /// <summary>
     /// Returns true if the name looks like a platform assembly.
     /// </summary>
     public static bool IsPlatformCandidate(string name)
@@ -256,6 +262,20 @@ public static class PlatformResolver
     /// Discovers all installed frameworks with their versions across all packs directories.
     /// </summary>
     public static List<FrameworkInfo> GetInstalledFrameworks(string? packsDirectory = null)
+    {
+        // Use process-lifetime cache for the common no-arg path
+        if (packsDirectory == null && _cachedFrameworks != null)
+            return _cachedFrameworks;
+
+        var result = GetInstalledFrameworksCore(packsDirectory);
+
+        if (packsDirectory == null)
+            _cachedFrameworks = result;
+
+        return result;
+    }
+
+    private static List<FrameworkInfo> GetInstalledFrameworksCore(string? packsDirectory)
     {
         List<string> packsDirs;
         if (packsDirectory != null)
