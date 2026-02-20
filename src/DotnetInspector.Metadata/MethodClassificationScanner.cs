@@ -153,7 +153,7 @@ public static class MethodClassificationScanner
     private static string FormatDecodedSignature(
         MetadataReader reader, MethodDefinition method, string name, MethodSignature<string> signature)
     {
-        var paramHandles = method.GetParameters().ToList();
+        var paramHandles = method.GetParameters();
         var paramTypes = signature.ParameterTypes;
 
         List<string> parameters = [];
