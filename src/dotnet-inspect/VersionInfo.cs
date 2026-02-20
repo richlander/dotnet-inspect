@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace DotnetInspector;
@@ -15,6 +16,14 @@ public static class VersionInfo
     /// Gets the version string with short commit hash (e.g., "0.1.11+abc1234").
     /// </summary>
     public static string Version => _version ??= GetVersion();
+
+    /// <summary>
+    /// Gets the runtime flavor: "NativeAOT" or "CoreCLR".
+    /// </summary>
+    [UnconditionalSuppressMessage("SingleFile", "IL3000",
+        Justification = "Assembly.Location is intentionally used to detect NativeAOT (returns empty).")]
+    public static string Flavor =>
+        string.IsNullOrEmpty(typeof(object).Assembly.Location) ? "NativeAOT" : "CoreCLR";
 
     private static string GetVersion()
     {
