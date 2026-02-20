@@ -7,6 +7,15 @@ description: Query .NET APIs across NuGet packages, platform libraries, and loca
 
 Query .NET library APIs — the same commands work across NuGet packages, platform libraries (System.*, Microsoft.AspNetCore.*), and local .dll/.nupkg files.
 
+## Quick Decision Tree
+
+- **Code broken?** → `diff --package Foo@old..new` first, then `member --oneline`
+- **Need API surface?** → `member Type --package Foo --oneline` (token-efficient)
+- **Need signatures?** → `member Type --package Foo -m Method` (default verbosity)
+- **Need source/IL?** → `member Type --package Foo -m Method -v:d` (verbose, one overload at a time)
+- **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
+- **Need all overloads?** → `member Type --package Foo --select` (shows `Name:N` indices)
+
 ## When to Use This Skill
 
 - **"What types are in this package?"** — `type` discovers types (terse), `find` searches by pattern
@@ -48,11 +57,22 @@ dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
 ### Inspect members
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json         # members with docs
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --no-docs  # suppress docs
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize  # filter to member
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline    # scannable, token-efficient
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json              # members with docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --no-docs    # suppress docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize # filter to member
 dnx dotnet-inspect -y -- member -m JsonSerializer.Deserialize --package System.Text.Json  # dotted syntax
 ```
+
+### Constructors and version pinning
+
+```bash
+dnx dotnet-inspect -y -- member 'Option<T>' --package System.CommandLine@2.0.2 -m .ctor   # generic type constructor
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 -m .ctor        # non-generic constructor
+dnx dotnet-inspect -y -- member RootCommand --package System.CommandLine@2.0.2 -m .ctor    # derived type constructor
+```
+
+Pin versions with `@version` to get reproducible results: `--package System.CommandLine@2.0.2`
 
 ### Search for types
 
@@ -81,8 +101,11 @@ dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..
 # Step 2: Scan the new API surface (--oneline is token-efficient)
 dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 --oneline
 
-# Step 3: Drill into a specific member when you need full signatures
-dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 -m SetAction -v:d
+# Step 3: Enumerate overloads (--select shows Name:N indices)
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 --select
+
+# Step 4: Drill into a specific overload by index
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 -m SetAction:3
 ```
 
 ### Find extensions, implementors, and dependencies
