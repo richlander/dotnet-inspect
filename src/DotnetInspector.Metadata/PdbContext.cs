@@ -39,6 +39,16 @@ public class PdbContext : IDisposable
     // --- PE/Assembly ---
     public bool HasMetadata => _peReader.HasMetadata;
 
+    /// <summary>
+    /// File size captured at open time (avoids repeated fstat syscalls).
+    /// </summary>
+    public long FileSize { get; }
+
+    /// <summary>
+    /// Last write time captured at open time (avoids repeated lstat syscalls).
+    /// </summary>
+    public DateTime LastWriteTimeUtc { get; }
+
     // --- Debug directory (POCO) ---
     public bool HasReproducibleFlag { get; private set; }
     public bool HasEmbeddedPdb { get; private set; }
@@ -65,6 +75,8 @@ public class PdbContext : IDisposable
         _peReader = peReader;
         _assemblyPath = assemblyPath;
         _log = log;
+        FileSize = peStream.Length;
+        LastWriteTimeUtc = File.GetLastWriteTimeUtc(peStream.SafeFileHandle);
     }
 
     /// <summary>

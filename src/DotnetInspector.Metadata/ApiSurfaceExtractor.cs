@@ -404,7 +404,7 @@ public static class ApiSurfaceExtractor
         byte nullableDefault = methodContext != 0 ? methodContext : typeNullableContext;
 
         // Apply nullability to return type
-        var paramHandles = method.GetParameters().ToList();
+        var paramHandles = method.GetParameters();
         var returnBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, 0);
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(returnBytes, ref pos, nullableDefault);
@@ -441,7 +441,7 @@ public static class ApiSurfaceExtractor
     }
 
     private static (string? name, bool isParams, bool hasDefault, object? defaultValue) GetParameterInfo(
-        MetadataReader reader, List<ParameterHandle> handles, int sequenceNumber)
+        MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
         foreach (var handle in handles)
         {

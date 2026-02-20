@@ -10,6 +10,9 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public static class NuGetSourceResolver
 {
+    // Process-lifetime cache: config parsing is the expensive part and configs don't change mid-run.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<NuGetSource>> s_cache = new();
+
     /// <summary>
     /// Resolves the list of NuGet sources to use based on options and configuration.
     /// </summary>
@@ -21,7 +24,7 @@ public static class NuGetSourceResolver
         options ??= NuGetSourceOptions.Default;
         workingDirectory ??= Directory.GetCurrentDirectory();
 
-        // If explicit --source options provided, use only those
+        // If explicit --source options provided, use only those (no I/O, no caching needed)
         if (options.Sources.Length > 0)
         {
             var sources = options.Sources
@@ -37,9 +40,19 @@ public static class NuGetSourceResolver
             return sources;
         }
 
+        // Cache key: explicit config file (if set) or working directory, plus additional sources
+        var cacheKey = string.Concat(
+            options.ConfigFile ?? workingDirectory,
+            "|",
+            string.Join(",", options.AdditionalSources));
+
+        if (s_cache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
         // Try to load from config file(s)
         var configSources = LoadSourcesFromConfig(options.ConfigFile, workingDirectory);
 
+        List<NuGetSource> result;
         if (configSources.Count > 0)
         {
             // Add any --add-source values
@@ -48,17 +61,20 @@ public static class NuGetSourceResolver
                 configSources.Add(new NuGetSource($"additional{configSources.Count + 1}", additional));
             }
 
-            return configSources;
+            result = configSources;
         }
-
-        // Default: nuget.org plus any additional sources
-        List<NuGetSource> result = [NuGetSource.NuGetOrg];
-
-        foreach (var additional in options.AdditionalSources)
+        else
         {
-            result.Add(new NuGetSource($"additional{result.Count}", additional));
+            // Default: nuget.org plus any additional sources
+            result = [NuGetSource.NuGetOrg];
+
+            foreach (var additional in options.AdditionalSources)
+            {
+                result.Add(new NuGetSource($"additional{result.Count}", additional));
+            }
         }
 
+        s_cache[cacheKey] = result;
         return result;
     }
 

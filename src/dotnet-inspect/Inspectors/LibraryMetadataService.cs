@@ -49,7 +49,7 @@ internal static class LibraryMetadataService
                     FileName = Path.GetFileName(path),
                     FileType = "native",
                     AssemblyInfo = nativeInfo,
-                    FileSize = AssemblyDetailScanner.GetFileSize(path)
+                    FileSize = pdbContext.FileSize
                 };
 
                 nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
@@ -119,8 +119,8 @@ internal static class LibraryMetadataService
                 ScanTypeForwarders(path, inspection, logger);
             }
 
-            inspection.FileSize = AssemblyDetailScanner.GetFileSize(path);
-            inspection.LastModified = File.GetLastWriteTimeUtc(path);
+            inspection.FileSize = pdbContext.FileSize;
+            inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
             // Skip PDB download for quiet/minimal verbosity (no SourceLink info displayed)
             bool skipPdbDownload = options.Verbosity < Options.Verbosity.Detailed && !options.IncludeSourcelinkAudit;

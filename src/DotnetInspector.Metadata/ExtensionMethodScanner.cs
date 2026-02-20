@@ -398,7 +398,7 @@ public static class ExtensionMethodScanner
         string name = reader.GetString(method.Name);
         var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
 
-        var paramHandles = method.GetParameters().ToList();
+        var paramHandles = method.GetParameters();
         var paramTypes = signature.ParameterTypes;
 
         List<string> parameters = [];
