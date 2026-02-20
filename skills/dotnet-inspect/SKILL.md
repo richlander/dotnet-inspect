@@ -12,6 +12,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What types are in this package?"** — `type` discovers types (terse), `find` searches by pattern
 - **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
+- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member --oneline` to see the new API
 - **"What extends this type?"** — `extensions` finds extension methods/properties
 - **"What implements this interface?"** — `implements` finds concrete types
 - **"What does this type depend on?"** — `depends` walks the type hierarchy upward
@@ -69,6 +70,21 @@ dnx dotnet-inspect -y -- diff --package System.Text.Json@9.0.0..10.0.0 --breakin
 dnx dotnet-inspect -y -- diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 ```
 
+### Fix broken code (API migration workflow)
+
+When code doesn't compile due to API changes, use `diff` first to see all changes, then `member --oneline` to explore the new API:
+
+```bash
+# Step 1: See what changed between versions
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.2
+
+# Step 2: Scan the new API surface (--oneline is token-efficient)
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 --oneline
+
+# Step 3: Drill into a specific member when you need full signatures
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.2 -m SetAction -v:d
+```
+
 ### Find extensions, implementors, and dependencies
 
 ```bash
@@ -122,10 +138,12 @@ dnx dotnet-inspect -y -- extensions IChatClient --package-prefix Microsoft.Exten
 ## Key Syntax
 
 - **Generic types** need quotes: `'Option<T>'`, `'IEnumerable<T>'`
-- **`type` uses `-t`** for type filtering, **`member` uses `-m`** for member filtering
+- **Use `<T>` not `<>`** for generic types — `"Option<>"` resolves to the abstract base, `'Option<T>'` resolves to the concrete generic with constructors
+- **`type` uses `-t`** for type filtering, **`member` uses `-m`** for member filtering (not `--filter`)
 - **Dotted syntax** for `member`: `-m JsonSerializer.Deserialize`
 - **Diff ranges** use `..`: `--package System.Text.Json@9.0.0..10.0.0`
 - **Signatures** include `params` and default values from metadata
+- **Derived types** only show their own members — query the base type too (e.g., `RootCommand` inherits `Add()` and `SetAction()` from `Command`)
 
 ## Installation
 

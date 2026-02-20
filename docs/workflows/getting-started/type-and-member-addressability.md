@@ -6,21 +6,14 @@ Ref: [PR #193](https://github.com/richlander/dotnet-inspect/pull/193) (type/memb
 
 ## Preconditions
 
-Isolated session with cached packages. Offline mode ensures no unexpected network dependencies.
+Isolated session.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=type-member-addr
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ```bash
 dotnet-inspect cache clear
-```
-
-Prime the cache:
-
-```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 ```
 
 ## List types in a library
@@ -44,8 +37,12 @@ Source: Platform
 
 ### NuGet package
 
+```prompt
+What types are in System.CommandLine 2.0.3?
+```
+
 ```bash
-dotnet-inspect type --package System.CommandLine -v:q
+dotnet-inspect type System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
@@ -56,6 +53,10 @@ Source: NuGet
 ## Filter types by glob
 
 > Goal: Narrow the type list to names matching a pattern.
+
+```prompt
+Find all types starting with "Json" in System.Text.Json.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json "Json*" -v:q
@@ -87,6 +88,10 @@ Library: System.Text.Json
 
 ### Fully qualified name (bare)
 
+```prompt
+Show me JsonSerializer using its full name.
+```
+
 ```bash
 dotnet-inspect System.Text.Json.JsonSerializer -v:q
 ```
@@ -97,6 +102,10 @@ Source: Platform
 ```
 
 ### Fully qualified name (`type` command)
+
+```prompt
+Look up the JsonSerializer type using the type command.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json.JsonSerializer -v:q
@@ -111,6 +120,10 @@ Source: Platform
 
 > Goal: Types deeper than the assembly namespace resolve correctly.
 
+```prompt
+Show me the JsonConverter type in System.Text.Json.Serialization.
+```
+
 ```bash
 dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q
 ```
@@ -123,6 +136,10 @@ Library: System.Text.Json
 ## Qualified names for ASP.NET Core
 
 > Goal: `Microsoft.*` qualified names resolve against the ASP.NET Core shared framework.
+
+```prompt
+Tell me about the WebApplication class.
+```
 
 ```bash
 dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q
@@ -137,6 +154,10 @@ Source: Platform
 ## Assembly names still resolve as assemblies
 
 > Goal: A name that matches an actual assembly is not treated as a qualified type name.
+
+```prompt
+What is System.Text.Json?
+```
 
 ```bash
 dotnet-inspect System.Text.Json -v:q
@@ -153,6 +174,10 @@ Kind:
 ## View type shape
 
 > Goal: See inheritance, interfaces, constructors, properties, and methods in a tree view.
+
+```prompt
+Show me the shape of JsonSerializer — inheritance and members.
+```
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer --shape
@@ -203,8 +228,12 @@ Methods: 1
 
 > Goal: `--select` adds a Select column with addressing tokens for detailed member pages.
 
+```prompt
+Show me the members of Command with selection tokens.
+```
+
 ```bash
-dotnet-inspect member --package System.CommandLine Command --select -v:q
+dotnet-inspect member System.CommandLine@2.0.3 Command --select -v:q
 ```
 
 ```expect
@@ -213,10 +242,14 @@ dotnet-inspect member --package System.CommandLine Command --select -v:q
 
 ## Members from a NuGet package
 
-> Goal: Address types from NuGet packages using `--package`.
+> Goal: Address types from NuGet packages via the router.
+
+```prompt
+What members does the Command type in System.CommandLine have?
+```
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command -v:q
+dotnet-inspect member System.CommandLine@2.0.3 Command -v:q
 ```
 
 ```expect

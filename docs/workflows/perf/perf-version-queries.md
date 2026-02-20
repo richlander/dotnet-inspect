@@ -221,7 +221,54 @@ exit_code: 1
 grep 'not found'
 ```
 
-## 10. Error: nonexistent package
+## 10. Bare name routing vs explicit --package (cold cache)
+
+> Target: ≤ 50ms. After clearing cache, `type --package` primes the cache. A subsequent bare name `type` should hit the cache — not re-download or re-resolve via platform probing.
+
+```bash
+dotnet-inspect cache clear
+```
+
+Prime the cache with explicit package:
+
+```bash
+dotnet-inspect type --package System.CommandLine -v:q
+```
+
+```expect
+Source: NuGet
+```
+
+```perf
+max_ms: 4000
+```
+
+Now the bare name should route to the cached package, not re-download:
+
+```bash
+dotnet-inspect type System.CommandLine -v:q
+```
+
+```expect
+Source: NuGet
+```
+
+```perf
+max_ms: 50
+```
+
+```query
+grep -o 'Source: [A-Za-z]*'
+```
+
+Re-prime the cache for remaining tests:
+
+```setup
+dotnet-inspect System.CommandLine@2.0.2 -v:q
+dotnet-inspect System.CommandLine --versions > /dev/null
+```
+
+## 11. Error: nonexistent package
 
 > Target: ≤ 1000ms. Must query NuGet to confirm the package doesn't exist. This test legitimately requires network — when diagnosing with DEBUG builds, this test will trigger the network guard (expected).
 

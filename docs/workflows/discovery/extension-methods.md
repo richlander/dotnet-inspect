@@ -15,7 +15,6 @@ Isolated session. This workflow uses only platform libraries by default (no cach
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=extension-methods
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ## 1. Find extensions for a type
@@ -166,7 +165,7 @@ dotnet-inspect extensions IServiceCollection --platform -v:q
 
 ```expect
 # Extension Methods for IServiceCollection
-## Summary
+## Summary  
 | Type | Extensions | Via |
 ```
 

@@ -11,11 +11,10 @@ areas: [output, limiting, agents]
 
 ## Preconditions
 
-Isolated session with cached packages. Offline mode ensures no unexpected network dependencies.
+Isolated session with cached packages.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=line-limiting
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ```bash
@@ -25,7 +24,7 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
+dotnet-inspect System.CommandLine -v:q
 ```
 
 ## 1. Limit output lines

@@ -21,11 +21,10 @@ Section selection (`-s`) lists available sections or filters to specific ones. T
 
 ## Preconditions
 
-Isolated session with cached packages. Offline mode ensures no unexpected network dependencies.
+Isolated session with cached packages.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=verbosity-tips
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ```bash
@@ -35,7 +34,7 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
+dotnet-inspect System.CommandLine -v:q
 ```
 
 ## 1. Default verbosity (package)
@@ -43,7 +42,7 @@ DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine -v:q
 > Goal: Default shows H1, description, oneline fields, one section table, and tips on stderr.
 
 ```prompt
-Tell me about System.CommandLine.
+Tell me about System.CommandLine. What are the key metrics?
 ```
 
 ```bash
@@ -70,6 +69,10 @@ Tips:
 ## 2. Default verbosity (platform library)
 
 > Goal: Platform library default shows H1, oneline fields, Library Info section table, and no tips.
+
+```prompt
+Tell me about the System.Text.Json library.
+```
 
 ```bash
 dotnet-inspect System.Text.Json
@@ -118,6 +121,10 @@ grep -oE 'Version: [0-9.]+'
 ## 4. Quiet verbosity (platform library)
 
 > Goal: Same compact format for platform libraries.
+
+```prompt
+Give me a quick summary of System.Text.Json.
+```
 
 ```bash
 dotnet-inspect System.Text.Json -v:q
@@ -168,6 +175,10 @@ grep '^## '
 
 > Goal: Multiple sections for platform libraries. No tips.
 
+```prompt
+Show me everything about System.Text.Json — all sections.
+```
+
 ```bash
 dotnet-inspect System.Text.Json -v:d
 ```
@@ -192,6 +203,10 @@ grep '^## '
 
 ### 7a. Package
 
+```prompt
+What sections are available for System.CommandLine?
+```
+
 ```bash
 dotnet-inspect System.CommandLine -s
 ```
@@ -211,6 +226,10 @@ grep 'Dependencies'
 ```
 
 ### 7b. Platform library
+
+```prompt
+What sections are available for System.Text.Json?
+```
 
 ```bash
 dotnet-inspect System.Text.Json -s
@@ -236,6 +255,10 @@ grep 'Extension Methods'
 
 ### 8a. Package section
 
+```prompt
+Show me just the Package section for System.CommandLine.
+```
+
 ```bash
 dotnet-inspect System.CommandLine -s Package
 ```
@@ -256,6 +279,10 @@ grep '| Property'
 ```
 
 ### 8b. Platform library section
+
+```prompt
+Show me the extension methods for System.Text.Json.
+```
 
 ```bash
 dotnet-inspect System.Text.Json -s "Extension Methods"

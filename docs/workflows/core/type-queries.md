@@ -11,11 +11,10 @@ areas: [types, discovery, inspection, documentation, shape, generics, package-pr
 
 ## Preconditions
 
-Isolated session with cached packages. Offline mode ensures no unexpected network dependencies.
+Isolated session with cached packages.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=type-queries
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ```bash
@@ -25,15 +24,15 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine@2.0.3 -v:q
+dotnet-inspect System.CommandLine@2.0.3 -v:q
 ```
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect Microsoft.Extensions.Options@10.0.2 -v:q
+dotnet-inspect Microsoft.Extensions.Options@10.0.2 -v:q
 ```
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.Collections@4.3.0 -v:q
+dotnet-inspect System.Collections@4.3.0 -v:q
 ```
 
 ## 1. List types in a package

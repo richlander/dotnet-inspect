@@ -11,11 +11,10 @@ areas: [output, agents, scripting]
 
 ## Preconditions
 
-Isolated session. Offline mode ensures no unexpected network dependencies. This workflow uses only platform libraries (no cache priming needed).
+Isolated session. This workflow uses only platform libraries (no cache priming needed).
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=oneline-output
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ## 1. Member listing with oneline

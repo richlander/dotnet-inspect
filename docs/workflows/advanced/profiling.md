@@ -80,24 +80,7 @@ Use `--skip-warmup` to measure first-invocation latency (JIT, cache misses, etc.
 
 ## Diagnosing unexpected network access
 
-DEBUG builds include a **network guard** that catches unintended network calls. This is critical for performance — network round-trips (especially PDB downloads from MSDL) can add 700ms+ latency to queries that should be instant.
+Unexpected network calls (especially PDB downloads from MSDL) can add 700ms+ latency to queries that should be instant. Two mechanisms help diagnose and prevent this:
 
-**How the guard works:**
-
-1. Network is **denied by default** at startup in DEBUG builds
-2. Network is **allowed** only when explicitly needed:
-   - Detailed verbosity (`-v:d`) — needs PDB for SourceLink
-   - SourceLink audit (`--source-link-audit`)
-   - Offline mode (`OFFLINE=1`) — OfflineHandler blocks instead
-3. Any unexpected HTTP request throws `NetworkGuardException` with the exact URL
-
-**To diagnose**, run with `dotnet run -c Debug` instead of the installed NativeAOT binary:
-
-```bash
-dotnet run --project src/dotnet-inspect -c Debug -- library System.Text.Json -v:q
-```
-
-- **Success**: No network was touched — the code path is clean
-- **Failure** with "Network guard violation: GET https://...": Unintended network dependency to fix
-
-The guard is compiled out in Release/NativeAOT builds (zero overhead). See [network-guard.md](network-guard.md) for implementation details.
+- [**Network Guard**](network-guard.md) — DEBUG builds assert on unexpected HTTP requests, catching violations during development.
+- [**Offline Usage**](offline-usage.md) — `--offline` blocks all network access at runtime, forcing cache-only operation in any build.

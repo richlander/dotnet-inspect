@@ -13,11 +13,10 @@ These scenarios cover the split between **best-known** (app cache → NuGet cach
 
 ## Preconditions
 
-Named isolated session ensures reproducible results (no shared state, no NuGet cache). Offline mode is enabled by default; scenarios requiring network explicitly disable it.
+Named isolated session ensures reproducible results (no shared state, no NuGet cache).
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=version-queries
-export DOTNET_INSPECT_OFFLINE=1
 ```
 
 ```bash
@@ -27,11 +26,11 @@ dotnet-inspect cache clear
 Prime the cache and version index:
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine@2.0.2 -v:q
+dotnet-inspect System.CommandLine@2.0.2 -v:q
 ```
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine --versions > /dev/null
+dotnet-inspect System.CommandLine --versions > /dev/null
 ```
 
 ## 1. Get the best-known version
@@ -63,7 +62,7 @@ dotnet-inspect cache clear
 ```
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine --version
+dotnet-inspect System.CommandLine --version
 ```
 
 ```expect
@@ -184,7 +183,7 @@ grep 'not found'
 This test requires network access to confirm the package doesn't exist.
 
 ```bash
-DOTNET_INSPECT_OFFLINE=0 dotnet-inspect System.CommandLine2@99.99.99
+dotnet-inspect System.CommandLine2@99.99.99
 ```
 
 ```expect-error

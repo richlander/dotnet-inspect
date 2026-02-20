@@ -1,13 +1,13 @@
 ---
 id: network-guard
-description: DEBUG-only network guard for validating offline code paths
+description: DEBUG-only network guard that asserts no unexpected HTTP requests
 commands: [library]
 areas: [network, debugging, performance]
 ---
 
 # Network Guard
 
-> A DEBUG-only mechanism that asserts code paths make no network calls unless explicitly allowed. Automatically enabled in DEBUG builds.
+> DEBUG builds include a network guard that throws on unexpected HTTP requests. This catches code paths that accidentally depend on the network. Some commands legitimately need network access (e.g., `-v:d` for PDB/SourceLink), so those are exempted from the guard. The guard is compiled out in Release builds (zero overhead).
 
 ## Background
 
@@ -15,23 +15,12 @@ The tool downloads PDB symbols from Microsoft Symbol Server (MSDL) to enable Sou
 
 The network guard is automatically enabled in DEBUG builds and will throw if any HTTP request is made unexpectedly. This catches violations during development.
 
-## How It Works
-
-In DEBUG builds:
-1. Network access is **denied by default** at startup
-2. Network is **allowed** when:
-   - `OFFLINE=1` is set (OfflineHandler handles blocking)
-   - Verbosity is Detailed (`-v:d`) or SourceLink audit is requested
-3. Any unexpected HTTP request throws `NetworkGuardException` with the URL
-
-In Release builds, the guard is compiled out completely (zero overhead).
-
 ## Preconditions
 
 Build the tool in DEBUG mode:
 
 ```bash
-dotnet build src/dotnet-inspect/dotnet-inspect.csproj -c Debug
+dotnet build src/dotnet-inspect/dotnet-inspect.csproj
 ```
 
 Use an isolated session to avoid cache interference:
@@ -40,16 +29,18 @@ Use an isolated session to avoid cache interference:
 export DOTNET_INSPECT_ISOLATED=networkguard
 ```
 
-## 1. Quiet verbosity passes network guard
-
-> Goal: `-v:q` completes without network access.
-
-```prompt
-Verify that a quiet library inspection works offline.
-```
+Set the apphost path for convenience:
 
 ```bash
-dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -c Debug -- library System.Text.Json -v:q
+INSPECT=artifacts/bin/dotnet-inspect/debug/dotnet-inspect
+```
+
+## 1. Quiet verbosity passes guard (apphost)
+
+> Goal: `-v:q` completes without network access, run via the apphost.
+
+```bash
+$INSPECT library System.Text.Json -v:q
 ```
 
 ```expect
@@ -61,12 +52,12 @@ Source: Platform
 Network guard violation
 ```
 
-## 2. Minimal verbosity passes network guard
+## 2. Minimal verbosity passes guard (apphost)
 
-> Goal: `-v:m` completes without network access.
+> Goal: `-v:m` completes without network access, run via the apphost.
 
 ```bash
-dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -c Debug -- library System.Text.Json -v:m
+$INSPECT library System.Text.Json -v:m
 ```
 
 ```expect
@@ -80,10 +71,10 @@ Network guard violation
 
 ## 3. Detailed verbosity allows network
 
-> Goal: `-v:d` allows network for PDB/SourceLink information.
+> Goal: `-v:d` is exempted from the guard because it legitimately fetches PDB/SourceLink data from MSDL.
 
 ```bash
-dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -c Debug -- library System.Text.Json -v:d
+$INSPECT library System.Text.Json -v:d
 ```
 
 ```expect
@@ -96,17 +87,17 @@ dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -c Debug -- librar
 Network guard violation
 ```
 
-## 4. Offline mode allows network (OfflineHandler blocks)
+## 4. Quiet verbosity via dotnet run
 
-> Goal: `OFFLINE=1` disables the guard since OfflineHandler provides blocking.
+> Goal: Same guard behavior works through `dotnet run`.
 
 ```bash
-DOTNET_INSPECT_OFFLINE=1 dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -c Debug -- library System.Text.Json -v:d
+dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -- library System.Text.Json -v:q
 ```
 
 ```expect
 # System.Text.Json.dll
-## Library Info
+Source: Platform
 ```
 
 ```expect-not
@@ -156,19 +147,3 @@ if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)
     DotnetInspector.Core.HttpClientFactory.AllowNetwork();
 #endif
 ```
-
-## Performance Impact
-
-| Verbosity | Network | Cold Start |
-|-----------|---------|------------|
-| `-v:q` | Blocked | ~36ms |
-| `-v:m` | Blocked | ~36ms |
-| `-v:d` | Allowed | ~758ms (with MSDL) |
-
-The ~722ms difference is the MSDL symbol server round-trip, now avoided for quick queries.
-
-## Related
-
-- `DOTNET_INSPECT_OFFLINE=1` blocks network at runtime (all builds)
-- PDB download skipped for verbosity < Detailed in `LibraryMetadataService.cs`
-- PDB acquisition happens in `SourceEnricher.AcquirePdbAsync`
