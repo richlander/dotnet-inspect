@@ -203,8 +203,8 @@ dotnet-inspect member System.Text.Json JsonSerializer -v:q
 
 ```expect
 # System.Text.Json.JsonSerializer
-Properties: 1
-Methods: 103
+## Properties
+## Methods
 ```
 
 ## Address a specific member by name
@@ -221,7 +221,7 @@ dotnet-inspect member System.Text.Json JsonSerializer Deserialize -v:q
 
 ```expect
 # System.Text.Json.JsonSerializer
-Methods: 1
+## Methods
 ```
 
 ## Member select mode

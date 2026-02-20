@@ -64,7 +64,7 @@ Tips:
 grep -c '| ---- |'
 ```
 
-### 1b. Quiet mode (summary only)
+### 1b. Quiet mode (summary tables)
 
 ```bash
 dotnet-inspect member --package System.CommandLine Command -v:q
@@ -73,16 +73,17 @@ dotnet-inspect member --package System.CommandLine Command -v:q
 ```expect
 # System.CommandLine.Command
 Kind: class
-Properties: 8
-Methods: 10
+## Constructors
+## Properties
+## Methods
 ```
 
 ```expect-not
-## Constructors
+| Signature |
 Tips:
 ```
 
-### 1c. Detailed verbosity (with descriptions)
+### 1c. Detailed verbosity (with source/IL)
 
 ```bash
 dotnet-inspect member --package System.CommandLine Command -v:d
@@ -92,6 +93,7 @@ dotnet-inspect member --package System.CommandLine Command -v:d
 | Name | Signature | Description |
 Represents a specific action
 Initializes a new instance
+## Source
 ```
 
 ```expect-not
@@ -132,10 +134,12 @@ dotnet-inspect member System.Text.Json JsonSerializer -m 'Deseri*' -v:q
 
 ```expect
 # System.Text.Json.JsonSerializer
-Methods: 1
+## Methods
+| Name |
 ```
 
 ```expect-not
+| Signature |
 Serialize
 Tips:
 ```
@@ -247,7 +251,8 @@ dotnet-inspect member --package System.CommandLine Command --ctor -v:q
 
 ```expect
 # System.CommandLine.Command
-Constructors: 1
+## Constructors
+| Name |
 ```
 
 ```expect-not
@@ -269,7 +274,7 @@ dotnet-inspect member System.Text.Json JsonSerializer -v:q
 # System.Text.Json.JsonSerializer
 Kind: class
 Source: Platform
-Methods: 103
+## Methods
 ```
 
 ### 6b. Filter to specific method
