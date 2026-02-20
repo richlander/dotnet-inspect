@@ -1,7 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Help;
 using DotnetInspector.Commands;
-using DotnetInspector.Options;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -91,99 +90,35 @@ public static class ApiCommandDefinitions
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
+        var commandArgs = new TypeOptionsParser.TypeCommandArgs(
+            argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
+            allOption, typeFilterOption, sourcelinkOnlyOption, compactOption, oneLineOption,
+            noHeaderOption, shapeOption, unsafeOption, memberOption);
+
         typeCommand.SetAction(async (parseResult, ct) =>
         {
-            var args = parseResult.GetValue(argsArg) ?? [];
-            var explicitPackage = parseResult.GetValue(packageOption);
-            var explicitAssembly = parseResult.GetValue(assemblyOption);
-            var explicitPlatform = parseResult.GetValue(platformOption);
-            bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
-            bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
+            var result = await TypeOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
-            if (args.Length == 0 && !hasExplicitSource)
+            switch (result)
             {
-                if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                {
-                    var allTypeSections = SectionRegistry.ApiTypeSections;
-                    SectionRegistry.ListSections(allTypeSections);
+                case TypeOptionsParser.ListSections:
+                    SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
                     return 0;
-                }
 
-                new HelpAction().Invoke(parseResult);
-                return 0;
+                case TypeOptionsParser.ShowHelp:
+                    new HelpAction().Invoke(parseResult);
+                    return 0;
+
+                case TypeOptionsParser.VersionError error:
+                    Console.Error.WriteLine(error.Message);
+                    return 1;
+
+                case TypeOptionsParser.Success success:
+                    return await TypeCommand.ExecuteAsync(success.Options);
+
+                default:
+                    return 1;
             }
-
-            var source = await SourceResolver.ResolveAsync(
-                args, explicitPackage, explicitAssembly, explicitPlatform,
-                parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
-
-            if (source.VersionError)
-            {
-                Console.Error.WriteLine(source.VersionErrorMessage);
-                return 1;
-            }
-
-            var packagePath = source.PackagePath;
-            var typeName = source.TypeName;
-            var apiFrameworkOverride = source.FrameworkOverride;
-
-            var typeFilterValue = parseResult.GetValue(typeFilterOption);
-            int? typeLimit = null;
-            string? typeFilter = typeFilterValue;
-            if (typeFilterValue != null && int.TryParse(typeFilterValue, out var tNum))
-            {
-                typeLimit = tNum;
-                typeFilter = null;
-            }
-
-            // Parse -m: number = member limit, glob = member filter
-            var memberValues = parseResult.GetValue(memberOption) ?? [];
-            HashSet<string> memberFilter = [];
-            int? memberLimit = null;
-            if (memberValues.Length == 1 && int.TryParse(memberValues[0], out var mNum))
-            {
-                memberLimit = mNum;
-            }
-            else if (memberValues.Length > 0)
-            {
-                memberFilter = new HashSet<string>(memberValues, StringComparer.OrdinalIgnoreCase);
-            }
-
-            var options = new ApiOptions
-            {
-                TypeName = typeName,
-                PackagePath = packagePath,
-                AssemblyPath = source.AssemblyPath,
-                PlatformAssembly = source.PlatformAssembly,
-                PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
-                Tfm = parseResult.GetValue(tfmOption),
-                IncludeAll = parseResult.GetValue(allOption),
-                TypeFilter = typeFilter,
-                MemberFilter = memberFilter,
-                Limit = memberLimit ?? typeLimit,
-                ShowDocs = false,  // Type command: docs off by default
-                DocsExplicitlySet = false,
-                SourceLinkOnly = parseResult.GetValue(sourcelinkOnlyOption),
-                JsonOutput = parseResult.GetValue(opts.Json),
-                CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption),
-                NoHeader = parseResult.GetValue(noHeaderOption),
-                ShapeOutput = parseResult.GetValue(shapeOption),
-                UnsafeOnly = parseResult.GetValue(unsafeOption),
-                IncludeSections = opts.ParseIncludeSections(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                Verbosity = opts.ParseVerbosity(parseResult),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-            };
-
-            options = options with
-            {
-                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || typeLimit != null
-                    ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
-            };
-
-            return await TypeCommand.ExecuteAsync(options);
         });
 
         return typeCommand;
@@ -258,160 +193,40 @@ public static class ApiCommandDefinitions
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
+        var commandArgs = new MemberOptionsParser.MemberCommandArgs(
+            argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
+            allOption, memberOption, ctorOption, docsOption, noDocsOption, useLocalDocsOption,
+            samplesOption, browsableUrlsOption, compactOption, oneLineOption, noHeaderOption,
+            unsafeOption, indexOption, paramsOption, ofOption, selectOption);
+
         memberCommand.SetAction(async (parseResult, ct) =>
         {
-            var args = parseResult.GetValue(argsArg) ?? [];
-            var explicitPackage = parseResult.GetValue(packageOption);
-            var explicitAssembly = parseResult.GetValue(assemblyOption);
-            var explicitPlatform = parseResult.GetValue(platformOption);
-            bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
-            bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
+            var result = await MemberOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
-            if (args.Length == 0 && !hasExplicitSource)
+            switch (result)
             {
-                if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                {
-                    var allMemberSections = SectionRegistry.ApiMemberSections;
-                    SectionRegistry.ListSections(allMemberSections);
+                case MemberOptionsParser.ListSections:
+                    SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
                     return 0;
-                }
 
-                new HelpAction().Invoke(parseResult);
-                return 0;
+                case MemberOptionsParser.ShowHelp:
+                    new HelpAction().Invoke(parseResult);
+                    return 0;
+
+                case MemberOptionsParser.VersionError error:
+                    Console.Error.WriteLine(error.Message);
+                    return 1;
+
+                case MemberOptionsParser.UnrecognizedOption error:
+                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    return 1;
+
+                case MemberOptionsParser.Success success:
+                    return await MemberCommand.ExecuteAsync(success.Options);
+
+                default:
+                    return 1;
             }
-
-            // Member command needs to extract positional members separately
-            List<string> positionalMembers = [];
-            if (hasExplicitSource && args.Length >= 2)
-                positionalMembers.AddRange(args[1..]);
-            else if (!hasExplicitSource && args.Length >= 3)
-                positionalMembers.AddRange(args[2..]);
-
-            var source = await SourceResolver.ResolveAsync(
-                args, explicitPackage, explicitAssembly, explicitPlatform,
-                parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
-
-            if (source.VersionError)
-            {
-                Console.Error.WriteLine(source.VersionErrorMessage);
-                return 1;
-            }
-
-            var packagePath = source.PackagePath;
-            var typeName = source.TypeName;
-            var apiFrameworkOverride = source.FrameworkOverride;
-
-            var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
-            if (badOption != null)
-            {
-                Console.Error.WriteLine($"Error: Unrecognized option '{badOption}'.");
-                return 1;
-            }
-
-            var members = parseResult.GetValue(memberOption) ?? [];
-            var allMembers = members.Concat(positionalMembers).ToArray();
-            var ctorOnly = parseResult.GetValue(ctorOption);
-
-            // Parse dotted syntax (Type.Member) from -m option
-            string? dottedTypeFilter = null;
-            for (int i = 0; i < allMembers.Length; i++)
-            {
-                var memberArg = allMembers[i];
-                var dotIdx = memberArg.LastIndexOf('.');
-                // Only split if: has dot, not a glob pattern, and first segment isn't empty
-                if (dotIdx > 0 && !memberArg.Contains('*') && !memberArg.Contains('?'))
-                {
-                    dottedTypeFilter = memberArg[..dotIdx];
-                    allMembers[i] = memberArg[(dotIdx + 1)..];
-                    // Use the extracted type name if no explicit type was provided
-                    if (string.IsNullOrEmpty(typeName))
-                        typeName = dottedTypeFilter;
-                    break;
-                }
-            }
-
-            // Parse Name:N shorthand for explicit overload selection
-            int? shorthandIndex = null;
-            for (int i = 0; i < allMembers.Length; i++)
-            {
-                var colonIdx = allMembers[i].LastIndexOf(':');
-                if (colonIdx > 0 && int.TryParse(allMembers[i][(colonIdx + 1)..], out var idx))
-                {
-                    allMembers[i] = allMembers[i][..colonIdx];
-                    shorthandIndex = idx;
-                }
-            }
-            // Note: We don't auto-select overload 1 when a single member is filtered.
-            // This allows seeing all overloads when e.g. `-m GetValue` matches multiple.
-            // Use explicit Name:1 syntax to select a specific overload.
-
-            HashSet<string> memberFilter = [];
-            int? memberLimit = null;
-            if (ctorOnly)
-            {
-                memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
-            }
-            else if (allMembers.Length == 1 && int.TryParse(allMembers[0], out var mNum))
-            {
-                memberLimit = mNum;
-                shorthandIndex = null;
-            }
-            else if (allMembers.Length > 0)
-            {
-                memberFilter = new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase);
-            }
-
-            // Determine docs behavior: --no-docs suppresses, --docs enables, default is on
-            bool showDocs = !parseResult.GetValue(noDocsOption);
-            bool docsExplicitlySet = parseResult.GetResult(docsOption) is { Implicit: false }
-                || parseResult.GetResult(noDocsOption) is { Implicit: false }
-                || parseResult.GetResult(useLocalDocsOption) is { Implicit: false };
-
-            // If --docs is explicitly set, honor it (overrides --no-docs precedence)
-            if (parseResult.GetResult(docsOption) is { Implicit: false })
-                showDocs = true;
-
-            var options = new ApiOptions
-            {
-                TypeName = typeName,
-                PackagePath = packagePath,
-                AssemblyPath = source.AssemblyPath,
-                PlatformAssembly = source.PlatformAssembly,
-                PlatformFramework = apiFrameworkOverride ?? parseResult.GetValue(frameworkOption),
-                Tfm = parseResult.GetValue(tfmOption),
-                IncludeAll = parseResult.GetValue(allOption),
-                MemberFilter = memberFilter,
-                Limit = memberLimit,
-                ShowDocs = showDocs || parseResult.GetValue(useLocalDocsOption),
-                DocsExplicitlySet = docsExplicitlySet,
-                UseLocalDocs = parseResult.GetValue(useLocalDocsOption),
-                ShowSamples = parseResult.GetValue(samplesOption),
-                BrowsableUrls = parseResult.GetValue(browsableUrlsOption),
-                JsonOutput = parseResult.GetValue(opts.Json),
-                CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption),
-                NoHeader = parseResult.GetValue(noHeaderOption),
-                UnsafeOnly = parseResult.GetValue(unsafeOption),
-                CtorOnly = ctorOnly,
-                OverloadIndex = parseResult.GetValue(indexOption) ?? shorthandIndex,
-                ParamTypes = parseResult.GetValue(paramsOption)?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
-                FirstParamType = parseResult.GetValue(ofOption),
-                ShowSelect = parseResult.GetValue(selectOption),
-                IncludeSections = opts.ParseIncludeSections(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                Verbosity = opts.ParseVerbosity(parseResult),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-                IsMemberCommand = true
-            };
-
-            options = options with
-            {
-                TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || memberLimit != null
-                    ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
-            };
-
-            return await MemberCommand.ExecuteAsync(options);
         });
 
         return memberCommand;
