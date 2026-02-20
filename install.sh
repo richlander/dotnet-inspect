@@ -21,8 +21,8 @@ rm -rf "$PACK_OUTPUT"
 
 # Pack
 echo "Packing..."
-dotnet pack "$PROJECT" -o "$PACK_OUTPUT"
-dotnet pack "$PROJECT" -o "$PACK_OUTPUT" --ucr
+dotnet pack "$PROJECT" -o "$PACK_OUTPUT" -bl:"$PACK_OUTPUT/pack.binlog"
+dotnet pack "$PROJECT" -o "$PACK_OUTPUT" --ucr -bl:"$PACK_OUTPUT/pack-ucr.binlog"
 
 # Install from local packages
 echo "Installing..."

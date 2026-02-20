@@ -146,7 +146,7 @@ public static class ApiOutputFormatter
         string truncatedNoun = "";
 
         // Populate member sections declaratively (unless quiet or enum)
-        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
+        bool fullSerializer = options.IsMemberCommand || options.Verbosity != Verbosity.Quiet;
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
@@ -155,7 +155,11 @@ public static class ApiOutputFormatter
             {
                 PopulateConstructorOverloads(view, type, options);
             }
-            else if (options.Verbosity == Verbosity.Minimal)
+            else if (options.IsMemberCommand && options.Verbosity == Verbosity.Quiet)
+            {
+                (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
+            }
+            else if (options.Verbosity == Verbosity.Minimal && !options.IsMemberCommand)
             {
                 (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
             }
@@ -175,14 +179,18 @@ public static class ApiOutputFormatter
 
     internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
     {
+        // Member command at quiet still needs sections rendered (summary tables)
+        var effectiveVerbosity = options.IsMemberCommand && options.Verbosity == Verbosity.Quiet
+            ? Verbosity.Minimal : options.Verbosity;
+
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
-            type, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            type, effectiveVerbosity, options.IncludeSections, options.ExcludeSections);
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
+            IncludeDescription = effectiveVerbosity != Verbosity.Quiet
         };
     }
 
@@ -226,9 +234,9 @@ public static class ApiOutputFormatter
             typeParamsInline = string.Join(", ", paramDescriptions);
         }
 
-        // Description (from docs)
+        // Description (from docs) — suppressed at quiet
         string? description = null;
-        if (options.ShowDocs && type.Documentation.Summary != null)
+        if (options.Verbosity != Verbosity.Quiet && options.ShowDocs && type.Documentation.Summary != null)
             description = type.Documentation.Summary;
 
         // Samples info (only with --docs/--samples)
@@ -295,12 +303,12 @@ public static class ApiOutputFormatter
             Source = apiSource,
             Tfm = selectedTfm,
             SamplesInfo = samplesInfo,
-            // Member stats for quiet verbosity
-            Constructors = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
-            Fields = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
-            Properties = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
-            Methods = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
-            Events = options.Verbosity == Verbosity.Quiet ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
+            // Member stats for quiet verbosity (non-member commands only; member command shows tables)
+            Constructors = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Fields = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
+            Properties = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
+            Methods = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Events = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
