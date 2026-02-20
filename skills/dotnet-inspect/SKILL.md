@@ -78,6 +78,21 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 | `library` | Library metadata, symbols, references, dependencies |
 | `demo` | Run curated showcase queries — list, invoke, or feeling-lucky |
 
+## Output Limiting
+
+**Do not pipe output through `head`, `tail`, or `Select-Object`.** The tool has built-in limiting that preserves headers and formatting:
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline -10  # first 10 lines (like head)
+dnx dotnet-inspect -y -- find "*Logger*" -n 5                                            # first 5 results
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -s Methods  # select specific section
+```
+
+- **`-NN`** (e.g. `-10`, `-30`) — line limit, like `head`. Keeps headers, truncates cleanly.
+- **`-n N`** — result limit on search commands (`find`, `extensions`, `package`).
+- **`-s Section`** — show only a specific section (glob-capable). Use `-s` alone to list available sections.
+- **`-v:q`** — quiet verbosity for compact summary output.
+
 ## Key Syntax
 
 - **Generic types** need quotes: `'Option<T>'`, `'IEnumerable<T>'`
