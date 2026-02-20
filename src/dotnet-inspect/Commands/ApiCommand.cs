@@ -506,6 +506,10 @@ public class ApiCommand
                         tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
                         tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
 
+                        // Suggest diff for package sources when version is known
+                        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
+                            tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
+
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }
                 }
