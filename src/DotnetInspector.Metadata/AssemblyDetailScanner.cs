@@ -262,9 +262,8 @@ public static class AssemblyDetailScanner
                     {
                         try
                         {
-                            var sig = method.DecodeSignature(SignatureDecoder.Instance, null);
-                            if (sig.ReturnType.Contains('*')
-                                || sig.ParameterTypes.Any(p => p.Contains('*')))
+                            var sig = method.DecodeSignature(PointerDetector.Instance, null);
+                            if (sig.ReturnType || sig.ParameterTypes.Any(p => p))
                                 flags.HasUnsafeCode = true;
                         }
                         // Skip methods with undecodable signatures
