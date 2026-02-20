@@ -28,54 +28,11 @@ public static class CommandLineBuilder
         "package", "library", "api", "type", "member", "diff", "find", "search", "samples", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "cli", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
-    /// <summary>
-    /// Platform framework names for --platform scope.
-    /// </summary>
-    internal static readonly string[] PlatformFrameworkNames = ["runtime", "aspnetcore", "netstandard"];
-
-    /// <summary>
-    /// Curated Microsoft.Extensions.* packages for --extensions scope.
-    /// </summary>
-    internal static readonly string[] ExtensionsScopePackages =
-    [
-        "Microsoft.Extensions.DependencyInjection",
-        "Microsoft.Extensions.DependencyInjection.Abstractions",
-        "Microsoft.Extensions.Logging",
-        "Microsoft.Extensions.Logging.Abstractions",
-        "Microsoft.Extensions.Configuration",
-        "Microsoft.Extensions.Configuration.Abstractions",
-        "Microsoft.Extensions.Options",
-        "Microsoft.Extensions.Hosting",
-        "Microsoft.Extensions.Hosting.Abstractions",
-        "Microsoft.Extensions.FileProviders.Abstractions",
-        "Microsoft.Extensions.Http",
-        "Microsoft.Extensions.Caching.Memory",
-        "Microsoft.Extensions.Caching.Abstractions",
-        "Microsoft.Extensions.Telemetry.Abstractions",
-        "Microsoft.Extensions.AI",
-        "Microsoft.Extensions.AI.Abstractions",
-    ];
-
-    /// <summary>
-    /// Curated Microsoft.AspNetCore.* packages for --aspnetcore scope.
-    /// </summary>
-    internal static readonly string[] AspNetCoreScopePackages =
-    [
-        "Microsoft.AspNetCore.Authentication",
-        "Microsoft.AspNetCore.Authorization",
-        "Microsoft.AspNetCore.Components",
-        "Microsoft.AspNetCore.Mvc.Core",
-        "Microsoft.AspNetCore.SignalR",
-    ];
-
-    /// <summary>
-    /// Small default package set for --curated scope (the implicit default).
-    /// </summary>
-    internal static readonly string[] CuratedScopePackages =
-    [
-        "Microsoft.Extensions.AI",
-        "Microsoft.Extensions.AI.Abstractions",
-    ];
+    // Scope constants delegated to ScopeConstants for backward compatibility
+    internal static string[] PlatformFrameworkNames => ScopeConstants.PlatformFrameworks;
+    internal static string[] ExtensionsScopePackages => ScopeConstants.ExtensionsPackages;
+    internal static string[] AspNetCoreScopePackages => ScopeConstants.AspNetCorePackages;
+    internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
@@ -670,40 +627,20 @@ public static class CommandLineBuilder
                 return 0;
             }
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0;
-
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [.. packages, .. CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [.. packages, .. ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [.. packages, .. AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [.. frameworks, .. PlatformFrameworkNames];
-                    packages = [.. packages, .. CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies);
 
             var options = new DependsOptions
             {
                 TargetType = targetType,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 JsonOutput = parseResult.GetValue(jsonOption),
                 CompactJson = parseResult.GetValue(compactOption),
@@ -809,13 +746,6 @@ public static class CommandLineBuilder
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || packagePrefix != null;
-
             // Resolve --package-prefix to package list
             if (packagePrefix != null)
             {
@@ -823,33 +753,20 @@ public static class CommandLineBuilder
                 packages = [..packages, ..prefixPackages];
             }
 
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [..packages, ..CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [..frameworks, ..PlatformFrameworkNames];
-                    packages = [..packages, ..CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix);
 
             var options = new ExtensionsOptions
             {
                 TargetType = targetType,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Reachable = parseResult.GetValue(reachableOption),
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
@@ -969,14 +886,6 @@ public static class CommandLineBuilder
             var binPaths = parseResult.GetValue(binOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || projects.Length > 0 || binPaths.Length > 0
-                || packagePrefix != null;
-
             // Resolve --package-prefix to package list
             if (packagePrefix != null)
             {
@@ -984,33 +893,21 @@ public static class CommandLineBuilder
                 packages = [..packages, ..prefixPackages];
             }
 
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [..packages, ..CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [..frameworks, ..PlatformFrameworkNames];
-                    packages = [..packages, ..CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
+                hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0);
 
             var options = new FindOptions
             {
                 Pattern = pattern!,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Projects = projects,
                 BinPaths = binPaths,
                 Tfm = parseResult.GetValue(tfmOption),
@@ -1238,13 +1135,6 @@ public static class CommandLineBuilder
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
 
-            bool wantPlatform = parseResult.GetValue(platformOption);
-            bool wantExtensions = parseResult.GetValue(extensionsOption);
-            bool wantAspnetcore = parseResult.GetValue(aspnetcoreOption);
-            bool wantCurated = parseResult.GetValue(curatedOption);
-            bool hasExplicitScope = wantPlatform || wantExtensions || wantAspnetcore || wantCurated
-                || packages.Length > 0 || assemblies.Length > 0 || packagePrefix != null;
-
             // Resolve --package-prefix to package list
             if (packagePrefix != null)
             {
@@ -1252,33 +1142,20 @@ public static class CommandLineBuilder
                 packages = [..packages, ..prefixPackages];
             }
 
-            // Resolve scope
-            string[] frameworks = [];
-            if (!hasExplicitScope)
-            {
-                // Default scope: all platform frameworks + curated packages
-                frameworks = PlatformFrameworkNames;
-                packages = [..packages, ..CuratedScopePackages];
-            }
-            else
-            {
-                if (wantPlatform) frameworks = PlatformFrameworkNames;
-                if (wantExtensions) packages = [..packages, ..ExtensionsScopePackages];
-                if (wantAspnetcore) packages = [..packages, ..AspNetCoreScopePackages];
-                if (wantCurated)
-                {
-                    frameworks = [..frameworks, ..PlatformFrameworkNames];
-                    packages = [..packages, ..CuratedScopePackages];
-                }
-            }
+            var scopeFlags = new ScopeResolver.ScopeFlags(
+                Platform: parseResult.GetValue(platformOption),
+                Extensions: parseResult.GetValue(extensionsOption),
+                AspNetCore: parseResult.GetValue(aspnetcoreOption),
+                Curated: parseResult.GetValue(curatedOption));
+            var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix);
 
             var options = new ImplementsOptions
             {
                 TargetType = targetType,
-                Packages = packages,
+                Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = [],
-                PlatformFrameworks = frameworks,
+                PlatformFrameworks = scope.Frameworks,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
