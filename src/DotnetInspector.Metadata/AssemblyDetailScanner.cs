@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -262,9 +263,8 @@ public static class AssemblyDetailScanner
                     {
                         try
                         {
-                            var sig = method.DecodeSignature(SignatureDecoder.Instance, null);
-                            if (sig.ReturnType.Contains('*')
-                                || sig.ParameterTypes.Any(p => p.Contains('*')))
+                            var sig = method.DecodeSignature(UnsafeDetector.Instance, null);
+                            if (sig.ReturnType || sig.ParameterTypes.Any(p => p))
                                 flags.HasUnsafeCode = true;
                         }
                         // Skip methods with undecodable signatures
@@ -289,4 +289,30 @@ public class PresenceFlags
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
+}
+
+/// <summary>
+/// Allocation-free signature decoder that returns true only when a pointer type is found.
+/// Used by ScanPresenceFlags to detect unsafe code without building type name strings.
+/// </summary>
+internal sealed class UnsafeDetector : ISignatureTypeProvider<bool, object?>
+{
+    public static UnsafeDetector Instance { get; } = new();
+
+    public bool GetPointerType(bool elementType) => true;
+    public bool GetFunctionPointerType(MethodSignature<bool> signature) => true;
+    public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+    public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
+    public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => false;
+    public bool GetTypeFromSpecification(MetadataReader reader, object? context, TypeSpecificationHandle handle, byte rawTypeKind)
+        => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+    public bool GetSZArrayType(bool elementType) => elementType;
+    public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
+    public bool GetByReferenceType(bool elementType) => elementType;
+    public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
+        => genericType || typeArguments.Any(static t => t);
+    public bool GetGenericMethodParameter(object? context, int index) => false;
+    public bool GetGenericTypeParameter(object? context, int index) => false;
+    public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => unmodifiedType;
+    public bool GetPinnedType(bool elementType) => elementType;
 }
