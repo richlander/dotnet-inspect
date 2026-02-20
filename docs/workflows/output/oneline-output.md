@@ -51,7 +51,7 @@ dotnet-inspect type System.Text.Json JsonSerializer --oneline -m 3
 ```
 
 ```expect
-Kind
+KIND
 property
 method
 ```

@@ -280,11 +280,12 @@ internal static class ApiServices
     // ===== Type Forwarder Resolution =====
 
     /// <summary>
-    /// Resolves types from forwarded assemblies when the primary assembly is a type-forwarding assembly.
+    /// Resolves types from forwarded assemblies and merges them into the API surface.
+    /// Like curl -L, this follows type forwarders to their target assemblies.
     /// </summary>
     internal static void ResolveForwardedTypes(ApiSurface api, string dllPath, VerboseLogger logger, bool includeAll)
     {
-        if (api.Types.Count > 0 || api.TypeForwarders.Count == 0)
+        if (api.TypeForwarders.Count == 0)
             return;
 
         var assemblyDir = Path.GetDirectoryName(dllPath);
@@ -296,6 +297,8 @@ internal static class ApiServices
             .ToDictionary(g => g.Key, g => g.Select(f => f.TypeName).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
         logger.Log($"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} libraries...");
+
+        int resolvedCount = 0;
 
         foreach (var (targetAssembly, forwardedTypeNames) in byAssembly)
         {
@@ -316,11 +319,13 @@ internal static class ApiServices
                 {
                     if (forwardedTypeNames.Contains(type.FullName))
                     {
+                        type.IsForwarded = true;
                         api.Types.Add(type);
                         api.PublicMethodCount += type.Members.Count(m => m.Kind == "method" || m.Kind == "constructor");
                         api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
                         api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
                         api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
+                        resolvedCount++;
                     }
                 }
             }
@@ -330,12 +335,12 @@ internal static class ApiServices
             }
         }
 
-        if (api.Types.Count > 0)
+        if (resolvedCount > 0)
         {
             api.IsTypeForwardingAssembly = true;
             api.PublicTypeCount = api.Types.Count;
             api.Types = api.Types.OrderBy(t => t.FullName).ToList();
-            logger.Log($"Resolved {api.Types.Count} types from forwarded libraries.");
+            logger.Log($"Resolved {resolvedCount} types from forwarded libraries.");
         }
     }
 }

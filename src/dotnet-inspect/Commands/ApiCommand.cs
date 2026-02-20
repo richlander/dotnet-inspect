@@ -213,10 +213,8 @@ public class ApiCommand
                     return 1;
                 }
 
-                if (api.Types.Count == 0 && api.TypeForwarders.Count > 0 && apiDllPath != null)
-                {
+                if (apiDllPath != null)
                     ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
-                }
 
                 if (!string.IsNullOrEmpty(options.PackagePath))
                 {
@@ -298,7 +296,7 @@ public class ApiCommand
                     return 1;
                 }
 
-                if (api.Types.Count == 0 && api.TypeForwarders.Count > 0 && apiDllPath != null)
+                if (apiDllPath != null)
                     ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
 
                 var allTypeNames = api.Types.Select(t => t.FullName).ToList();
