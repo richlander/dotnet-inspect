@@ -523,20 +523,25 @@ public static class PlatformResolver
             return local;
         }
 
-        if (!useRuntimeAssemblies)
+        // Only download ref packs when a specific framework is requested.
+        // Bare-name resolution (null frameworkSpec) relies on installed SDK packs;
+        // if the assembly isn't found locally, it's likely a NuGet package.
+        if (!useRuntimeAssemblies && !string.IsNullOrEmpty(frameworkSpec))
         {
             // Parse explicit version from frameworkSpec (e.g., "runtime@9.0.12")
             string? explicitVersion = null;
-            if (!string.IsNullOrEmpty(frameworkSpec) && frameworkSpec.Contains('@'))
+            if (frameworkSpec.Contains('@'))
                 explicitVersion = frameworkSpec[(frameworkSpec.LastIndexOf('@') + 1)..];
 
             var requests = PlatformPackService.BuildPackRequests(assemblyName, explicitVersion);
             await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log).ConfigureAwait(false))
             {
             }
+
+            return ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies);
         }
 
-        return ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies);
+        return local;
     }
 
     /// <summary>
