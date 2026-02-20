@@ -96,45 +96,36 @@ run_cmd() {
 
     echo ""
     echo "############################################################################"
-    echo "# TYPE COMMAND"
+    echo "# API COMMAND"
     echo "############################################################################"
     echo ""
 
     # List all types
-    run_cmd "type --package System.Text.Json@10.0.2 -t 10"
+    run_cmd "api --package System.Text.Json@10.0.2 -n 10"
 
     # Single type
-    run_cmd "type JsonSerializer --package System.Text.Json@10.0.2"
-
-    # One-line output
-    run_cmd "type JsonSerializer --package System.Text.Json@10.0.2 --oneline -t 10"
-
-    # Verbosity
-    run_cmd "type JsonSerializer --package System.Text.Json@10.0.2 -v:q"
-
-    # Platform assembly
-    run_cmd "type --platform System.Text.Json -t 10"
-
-    echo ""
-    echo "############################################################################"
-    echo "# MEMBER COMMAND"
-    echo "############################################################################"
-    echo ""
-
-    # Member list
-    run_cmd "member JsonSerializer --package System.Text.Json@10.0.2"
+    run_cmd "api JsonSerializer --package System.Text.Json@10.0.2"
 
     # Member filter
-    run_cmd "member JsonSerializer --package System.Text.Json@10.0.2 -m Serialize"
+    run_cmd "api JsonSerializer --package System.Text.Json@10.0.2 -m Serialize"
 
     # Constructors
-    run_cmd "member JsonSerializerOptions --package System.Text.Json@10.0.2 --ctor"
+    run_cmd "api JsonSerializerOptions --package System.Text.Json@10.0.2 --ctor"
 
     # Generic types
-    run_cmd "member 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1"
+    run_cmd "api 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1"
+
+    # One-line output
+    run_cmd "api JsonSerializer --package System.Text.Json@10.0.2 --oneline -n 10"
+
+    # Verbosity
+    run_cmd "api JsonSerializer --package System.Text.Json@10.0.2 -v:q"
 
     # Community package (SourceLink)
-    run_cmd "member JsonSerializer --package Newtonsoft.Json@13.0.3 --fields-only"
+    run_cmd "api JsonSerializer --package Newtonsoft.Json@13.0.3 --fields-only"
+
+    # Platform assembly
+    run_cmd "api --platform System.Text.Json -n 10"
 
     echo ""
     echo "############################################################################"
@@ -147,13 +138,11 @@ run_cmd() {
 
     echo ""
     echo "############################################################################"
-    echo "# LIBRARY COMMAND"
+    echo "# TYPE COMMAND"
     echo "############################################################################"
     echo ""
 
-    run_cmd "library System.Text.Json -v:q"
-    run_cmd "library --package System.Text.Json -v:q"
-    run_cmd "library --package System.Text.Json -s Resour*"
+    run_cmd "type JsonSerializer --package System.Text.Json@10.0.2"
 
     echo ""
     echo "############################################################################"
@@ -165,17 +154,6 @@ run_cmd() {
 
     echo ""
     echo "############################################################################"
-    echo "# DISCOVERY COMMANDS (find, implements, depends, extensions)"
-    echo "############################################################################"
-    echo ""
-
-    run_cmd "find JsonSerializer --package System.Text.Json@10.0.2 -v:q"
-    run_cmd "implements Stream -v:q"
-    run_cmd "depends 'INumber<TSelf>' -v:q"
-    run_cmd "extensions HttpClient --platform -v:q"
-
-    echo ""
-    echo "############################################################################"
     echo "# PLATFORM COMMAND"
     echo "############################################################################"
     echo ""
@@ -183,22 +161,6 @@ run_cmd() {
     run_cmd "platform"
     run_cmd "platform --list-versions"
     run_cmd "platform --framework runtime -n 10"
-
-    echo ""
-    echo "############################################################################"
-    echo "# ROUTER (bare name resolution)"
-    echo "############################################################################"
-    echo ""
-
-    run_cmd "System.Collections -v:q"
-
-    echo ""
-    echo "############################################################################"
-    echo "# DEMO COMMAND"
-    echo "############################################################################"
-    echo ""
-
-    run_cmd "demo list"
 
 } > "$TEMP_FILE"
 
