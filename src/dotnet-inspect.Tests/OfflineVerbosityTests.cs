@@ -141,4 +141,50 @@ public class OfflineVerbosityTests : IDisposable
         Assert.Contains("Deserialize", output);
         Assert.Contains("Overloads", output);
     }
+
+    // ── type forwarder following ─────────────────────────────────────
+
+    [Fact]
+    public async Task TypeListing_FollowsForwarders_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        // Native types (e.g., SortedSet) + forwarded types (e.g., HashSet)
+        Assert.Contains("System.Collections", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_ForwardedTypeMatchesFilter_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "-t", "HashSet*", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Types: 1", output);
+    }
+
+    [Fact]
+    public async Task TypeListing_NativeAndForwardedTypes_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Collections", "-v:m", "--offline");
+
+        Assert.Equal(0, exit);
+        // Forwarded type
+        Assert.Contains("HashSet", output);
+        // Native type
+        Assert.Contains("SortedSet", output);
+    }
+
+    [Fact]
+    public async Task SingleType_ForwardedType_Offline()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "HashSet", "--platform", "System.Collections", "-v:q", "--offline");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("HashSet", output);
+    }
 }

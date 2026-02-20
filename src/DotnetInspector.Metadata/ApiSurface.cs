@@ -219,6 +219,11 @@ public class ApiType
     public bool IsPartialType => AdditionalSourceFiles.Count > 0;
 
     /// <summary>
+    /// True if this type was resolved from a type forwarder in another assembly.
+    /// </summary>
+    public bool IsForwarded { get; set; }
+
+    /// <summary>
     /// Full name of the type (Namespace.Name, or just Name if no namespace).
     /// </summary>
     public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";

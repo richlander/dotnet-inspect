@@ -34,7 +34,7 @@ dotnet-inspect cli
 ├─ member
 ├─ package
 ├─ samples
-├─ type
+└─ type
 ```
 
 ## 2. Inspect a specific command
