@@ -64,6 +64,19 @@ if (args.Length == 1 && args[0] == "--flavor")
     return 0;
 }
 
+// Handle --release-notes to print release notes
+if (args.Length == 1 && args[0] == "--release-notes")
+{
+    var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+    using var stream = assembly.GetManifestResourceStream("dotnet-inspect.release-notes.md");
+    if (stream != null)
+    {
+        using var reader = new StreamReader(stream);
+        Console.WriteLine(reader.ReadToEnd());
+    }
+    return 0;
+}
+
 // Pre-process args for implicit package command (also expands -NN → -n NN)
 args = CommandLineBuilder.PreprocessArgs(args);
 
