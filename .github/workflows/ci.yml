@@ -167,7 +167,7 @@ jobs:
           if-no-files-found: error
 
       - name: Pack linux-x64 AOT package
-        run: dotnet pack src/dotnet-inspect -c Release -r linux-x64 -p:PublishAot=true -p:OfficialBuild=true
+        run: dotnet pack src/dotnet-inspect -c Release -r linux-x64 -p:OfficialAotBuild=true
 
       - name: Upload linux-x64 package
         uses: actions/upload-artifact@v4
@@ -262,7 +262,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Pack RID-specific package
-        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:OfficialBuild=true
+        run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
 
       - name: Upload RID package
         uses: actions/upload-artifact@v4
