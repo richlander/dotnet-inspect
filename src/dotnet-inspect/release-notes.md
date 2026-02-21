@@ -13,7 +13,8 @@
 
 ## New Features
 
-**Commands and flags**
+### Commands and flags
+
 - `member` command — dedicated member inspection with docs on by default, dotted syntax (`-m Type.Member`), `--no-docs`, `--select` (#193)
 - `--flavor` flag — report CoreCLR or NativeAOT binary flavor (#220)
 - `--oneline` on package/router — purpose-built one-line views (#214)
@@ -21,7 +22,8 @@
 - Fully qualified type names as positional arguments (#207)
 - `-n N` / `-N` line limiting on every command — replaces piping through `head` (#205)
 
-**API inspection**
+### API inspection
+
 - Nullability annotations in signatures (#191)
 - Compact minimal verbosity — one row per symbol with overload counts (#210)
 - Generic type arity matching — prefer `Option<T>` over `Option` (#223)
@@ -29,7 +31,8 @@
 - Type forwarder following — resolve forwarded types unconditionally (#235)
 - Diff tip shown when viewing package types (#224)
 
-**Package and version**
+### Package and version
+
 - `@latest` tag — `package Foo@latest` always resolves from network (#200)
 - Source field in package output (#202)
 - NuGet source credential support (#192)
@@ -37,7 +40,8 @@
 - Version pinning validation — error on nonexistent versions (#196)
 - Multi-source version cache fix (#195)
 
-**Caching and performance**
+### Caching and performance
+
 - Cache-first version resolution — offline-capable default output (#194)
 - `--offline` mode via environment variable (#194, #215)
 - Cache isolation — `DOTNET_INSPECT_ISOLATED` for named sessions (#215, #216)
@@ -47,11 +51,13 @@
 - Hot path optimizations for version, package, and library queries (#219)
 - SDK packs as fallback search path for platform resolution (#204)
 
-**Output and tips**
+### Output and tips
+
 - Tips suppressed when line/result limiting or section selection is used (#203, #217)
 - Tips added to platform router path (#206)
 
-**LLM guidance**
+### LLM guidance
+
 - SKILL.md rewritten — Quick Decision Tree, Key Patterns (`diff --oneline`, `--shape`), Output Limiting section
 - llms.txt reordered — LLM Usage Guide moved to top, Common Mistakes section added
 - Consolidated SKILL.md to single file with version front matter
