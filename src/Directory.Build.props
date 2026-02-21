@@ -1,11 +1,18 @@
 <Project>
 
   <PropertyGroup>
+    <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net10.0</DefaultTargetFramework>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory)../artifacts</ArtifactsPath>
     <IncludeProjectNameInArtifactsPaths>true</IncludeProjectNameInArtifactsPaths>
     <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OfficialAotBuild)' == 'true'">
+    <OfficialBuild>true</OfficialBuild>
+    <PublishAot>true</PublishAot>
+    <DefaultTargetFramework>net11.0</DefaultTargetFramework>
   </PropertyGroup>
 
 </Project>
