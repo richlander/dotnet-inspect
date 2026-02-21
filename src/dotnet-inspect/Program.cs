@@ -60,7 +60,7 @@ if (args.Length == 1 && args[0] == "--version")
 // Handle --flavor to show build type (CoreCLR or NativeAOT)
 if (args.Length == 1 && args[0] == "--flavor")
 {
-    Console.WriteLine(VersionInfo.Flavor);
+    Console.WriteLine(VersionInfo.FlavorVersion);
     return 0;
 }
 

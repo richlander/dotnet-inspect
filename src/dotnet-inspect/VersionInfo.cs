@@ -25,6 +25,12 @@ public static class VersionInfo
     public static string Flavor =>
         string.IsNullOrEmpty(typeof(object).Assembly.Location) ? "NativeAOT" : "CoreCLR";
 
+    /// <summary>
+    /// Gets the runtime flavor and .NET version (e.g., "CoreCLR; .NET 10.0").
+    /// </summary>
+    public static string FlavorVersion =>
+        $"{Flavor}; .NET {Environment.Version.Major}.{Environment.Version.Minor}";
+
     private static string GetVersion()
     {
         var assembly = typeof(VersionInfo).Assembly;
