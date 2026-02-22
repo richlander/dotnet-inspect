@@ -55,8 +55,13 @@ public class PackageCommand
             {
                 foreach (var name in schema.GetFieldNames())
                     Console.WriteLine($"{name,-24} field");
-                foreach (var name in schema.GetColumnNames())
-                    Console.WriteLine($"{name,-24} column");
+
+                // Columns are only selectable in markdown mode (section tables)
+                if (options.UseMarkdown)
+                {
+                    foreach (var name in schema.GetColumnNames())
+                        Console.WriteLine($"{name,-24} column");
+                }
             }
             return 0;
         }
