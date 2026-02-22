@@ -18,6 +18,15 @@ namespace DotnetInspector.Commands;
 public class PackageCommand
 {
     public const string Name = "package";
+
+    /// <summary>
+    /// Fields that require a network metadata fetch (verbosity >= Detailed).
+    /// </summary>
+    private static readonly HashSet<string> MetadataOnlyFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Owners", "Downloads", "IsVerified", "Verified", "Deprecation", "Vulnerabilities"
+    };
+
     public static async Task<int> ExecuteAsync(InspectionOptions options)
     {
         var packageArgs = options.PackageArgs;
@@ -62,6 +71,10 @@ public class PackageCommand
             if (requiredVerbosity > options.Verbosity)
                 options = options with { Verbosity = requiredVerbosity };
         }
+
+        // Force metadata fetch when -S targets metadata-only fields (Owners, etc.)
+        bool forceMetadata = options.Select is { Length: > 0 }
+            && options.Select.Any(s => MetadataOnlyFields.Contains(s));
 
         if (packageArgs.Length < 1)
         {
@@ -233,7 +246,7 @@ public class PackageCommand
                 extractPath, packageName, version, isLocalFile,
                 isLocalFile ? packageArgs[0] : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
-                resolution.NupkgPath);
+                resolution.NupkgPath, forceMetadata);
 
             // Apply package size (not cached in index — comes from nupkg file)
             if (packageSize.HasValue)

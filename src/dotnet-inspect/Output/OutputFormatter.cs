@@ -29,13 +29,20 @@ public static class OutputFormatter
         var view = new InspectionResultView(result);
         var fields = view.Metadata;
 
-        // When -S is specified, filter rows by property name (field tables become
-        // 2-column Property/Value tables in oneline mode, so column projection
+        // When -S is specified, filter rows by property name and preserve
+        // the user's requested order (field tables become 2-column
+        // Property/Value tables in oneline mode, so column projection
         // doesn't apply — we need row-level filtering instead).
         if (options.Select is { Length: > 0 })
         {
-            var selected = new HashSet<string>(options.Select, StringComparer.OrdinalIgnoreCase);
-            fields = fields.Where(f => selected.Contains(f.Key)).ToList();
+            var fieldMap = new Dictionary<string, MarkoutField>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in fields)
+                fieldMap.TryAdd(f.Key, f);
+
+            fields = options.Select
+                .Where(s => fieldMap.ContainsKey(s))
+                .Select(s => fieldMap[s])
+                .ToList();
         }
 
         var rows = fields.Select(f => new PackageOneLineRow(f.Key, f.Value ?? "")).ToList();
