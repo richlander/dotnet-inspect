@@ -261,6 +261,13 @@ public static class PlatformPackService
             Directory.CreateDirectory(packDir);
             MoveContents(result.ExtractPath, packDir);
 
+            if (!IsPackValid(packDir))
+            {
+                log?.Invoke($"Pack extraction produced no ref content, cleaning up: {packDir}");
+                try { Directory.Delete(packDir, recursive: true); } catch { }
+                return null;
+            }
+
             log?.Invoke($"Cached pack: {packDir}");
             return packDir;
         }
