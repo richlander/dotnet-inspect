@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Text.Json;
+using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 
@@ -46,11 +47,19 @@ public static class NuGetSearchService
         string url = $"{DefaultSearchUrl}?q={Uri.EscapeDataString(query)}&take={take}&prerelease={prerelease.ToString().ToLowerInvariant()}";
         log?.Invoke($"Searching NuGet: {url}");
 
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log).ConfigureAwait(false);
-        if (json == null)
-            return [];
+        HttpClientFactory.AllowNetwork();
+        try
+        {
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, url, log: log).ConfigureAwait(false);
+            if (json == null)
+                return [];
 
-        return ParseSearchResponse(json);
+            return ParseSearchResponse(json);
+        }
+        finally
+        {
+            HttpClientFactory.DenyNetwork();
+        }
     }
 
     /// <summary>

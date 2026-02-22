@@ -102,6 +102,30 @@ public static class PackageExtractor
         string? explicitVersion = null,
         bool forceLatest = false)
     {
+        // Package downloads are always permitted through the network guard.
+        // Other HTTP (symbols, metadata) stays blocked at default verbosity.
+        HttpClientFactory.AllowNetwork();
+        try
+        {
+            return await DownloadAndExtractPackageCoreAsync(
+                client, packageSource, log, tempDirPrefix, sourceOptions, explicitVersion, forceLatest)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            HttpClientFactory.DenyNetwork();
+        }
+    }
+
+    private static async Task<PackageExtractionOutcome> DownloadAndExtractPackageCoreAsync(
+        HttpClient client,
+        string packageSource,
+        Action<string>? log,
+        string tempDirPrefix,
+        NuGetSourceOptions? sourceOptions,
+        string? explicitVersion = null,
+        bool forceLatest = false)
+    {
         var (packageName, parsedVersion) = ParsePackageReference(packageSource);
         var version = explicitVersion ?? parsedVersion;
 
@@ -658,15 +682,24 @@ public static class PackageExtractor
 
         if (allVersions == null)
         {
-            foreach (var source in sources)
+            // Version resolution is a NuGet API call — allow through the guard.
+            HttpClientFactory.AllowNetwork();
+            try
             {
-                allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
-                if (allVersions != null)
+                foreach (var source in sources)
                 {
-                    if (canCache && source.IsNuGetOrg())
-                        CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', allVersions), extension: "txt");
-                    break;
+                    allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+                    if (allVersions != null)
+                    {
+                        if (canCache && source.IsNuGetOrg())
+                            CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', allVersions), extension: "txt");
+                        break;
+                    }
                 }
+            }
+            finally
+            {
+                HttpClientFactory.DenyNetwork();
             }
 
             if (allVersions == null)

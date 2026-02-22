@@ -13,27 +13,6 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class DependsCommand
 {
-    /// <summary>
-    /// Runs an async acquisition step with network allowed, then re-engages the guard.
-    /// Ensures a clear phase boundary: acquire (network) → process (offline).
-    /// </summary>
-    private static async Task<T> AcquireAsync<T>(Func<Task<T>> acquire)
-    {
-#if DEBUG
-        DotnetInspector.Core.HttpClientFactory.AllowNetwork();
-        try
-        {
-            return await acquire();
-        }
-        finally
-        {
-            DotnetInspector.Core.HttpClientFactory.DenyNetwork();
-        }
-#else
-        return await acquire();
-#endif
-    }
-
     public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
@@ -53,12 +32,9 @@ public class DependsCommand
                 };
             }
 
-            // Phase 1: Acquire assemblies (network)
-            var assemblyInfos = await AcquireAsync(() =>
-                AssemblyCollector.CollectAsync(
-                    context.HttpClient, options, tempDirs, logger, "inspect-depends"));
+            var assemblyInfos = await AssemblyCollector.CollectAsync(
+                context.HttpClient, options, tempDirs, logger, "inspect-depends");
 
-            // Phase 2: Scan types (offline)
 
             logger.Log($"Scanning {assemblyInfos.Count} libraries for type {options.TargetType}");
 
@@ -115,37 +91,39 @@ public class DependsCommand
             string? assemblyVersion = null;
             string? tfm = null;
 
-            // Phase 1: Resolve library path (network)
-            var assemblyPath = await AcquireAsync(async () =>
+            string? assemblyPath;
+            if (File.Exists(libraryName))
             {
-                if (File.Exists(libraryName))
-                    return libraryName;
-
-                if (PlatformResolver.IsPlatformCandidate(libraryName))
-                {
-                    var (resolved, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
-                        libraryName, context.HttpClient, logger.Log);
-                    if (error == null && resolved != null)
-                        return resolved;
-                }
-
+                assemblyPath = libraryName;
+            }
+            else if (PlatformResolver.IsPlatformCandidate(libraryName))
+            {
+                var (resolved, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
+                    libraryName, context.HttpClient, logger.Log);
+                assemblyPath = (error == null) ? resolved : null;
+            }
+            else
+            {
                 // Try NuGet package
                 logger.Log($"Resolving package: {libraryName}");
                 var outcome = await PackageExtractor.ExtractPackageAsync(
                     context.HttpClient, libraryName, logger.Log,
                     sourceOptions: options.SourceOptions);
-                if (!outcome.IsSuccess)
-                    return (string?)null;
-
-                tempDir = outcome.Result!.TempDir;
-                var extractPath = outcome.Result!.ExtractPath;
-
-                var dllFiles = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories)
-                    .Where(f => f.Contains("/lib/") || f.Contains("\\lib\\"))
-                    .OrderByDescending(f => f)
-                    .ToArray();
-                return dllFiles.Length > 0 ? dllFiles[0] : null;
-            });
+                if (outcome.IsSuccess)
+                {
+                    tempDir = outcome.Result!.TempDir;
+                    var extractPath = outcome.Result!.ExtractPath;
+                    var dllFiles = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories)
+                        .Where(f => f.Contains("/lib/") || f.Contains("\\lib\\"))
+                        .OrderByDescending(f => f)
+                        .ToArray();
+                    assemblyPath = dllFiles.Length > 0 ? dllFiles[0] : null;
+                }
+                else
+                {
+                    assemblyPath = null;
+                }
+            }
 
             if (assemblyPath == null)
             {
@@ -153,7 +131,6 @@ public class DependsCommand
                 return 1;
             }
 
-            // Phase 2: Extract references and build tree (offline)
 
             // Extract references and build transitive tree
             var (refs, company) = AssemblyInspector.ExtractReferencesAndCompany(assemblyPath);
@@ -216,70 +193,60 @@ public class DependsCommand
             var packageRef = options.PackageName!;
             var (packageName, _) = PackageExtractor.ParsePackageReference(packageRef);
 
-            // Phase 1: Acquire package and resolve transitive dependencies (network)
             logger.Log($"Resolving package: {packageRef}");
 
-            string? version = null;
-            List<DependencyNode>? depNodes = null;
-            string? resolvedTfm = null;
-
-            var success = await AcquireAsync(async () =>
+            var outcome = await PackageExtractor.ExtractPackageAsync(
+                context.HttpClient, packageRef, logger.Log,
+                sourceOptions: options.SourceOptions);
+            if (!outcome.IsSuccess)
             {
-                var outcome = await PackageExtractor.ExtractPackageAsync(
-                    context.HttpClient, packageRef, logger.Log,
-                    sourceOptions: options.SourceOptions);
-                if (!outcome.IsSuccess)
-                {
-                    Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
-                    return false;
-                }
+                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                return 1;
+            }
 
-                tempDir = outcome.Result!.TempDir;
-                var extractPath = outcome.Result!.ExtractPath;
-                version = outcome.Result!.Version ?? "";
+            tempDir = outcome.Result!.TempDir;
+            var extractPath = outcome.Result!.ExtractPath;
+            var version = outcome.Result!.Version ?? "";
 
-                string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-                if (nuspecFiles.Length == 0)
-                    return true; // no deps — not a failure
+            string? resolvedTfm = null;
+            List<DependencyNode>? depNodes = null;
 
+            string[] nuspecFiles = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
+            if (nuspecFiles.Length > 0)
+            {
                 var nuspec = NuspecParser.Parse(nuspecFiles[0]);
-                if (nuspec.DependencyGroups is not { Count: > 0 })
-                    return true;
-
-                resolvedTfm = options.Tfm;
-                DependencyGroup? group;
-                if (!string.IsNullOrEmpty(resolvedTfm))
+                if (nuspec.DependencyGroups is { Count: > 0 })
                 {
-                    group = DependencyResolutionService.FindBestMatchingTfmGroup(nuspec.DependencyGroups, resolvedTfm);
-                    if (group == null)
+                    resolvedTfm = options.Tfm;
+                    DependencyGroup? group;
+                    if (!string.IsNullOrEmpty(resolvedTfm))
                     {
-                        Console.Error.WriteLine($"Error: No dependencies found for TFM '{resolvedTfm}'.");
-                        Console.Error.WriteLine("Available TFMs: " + string.Join(", ",
-                            nuspec.DependencyGroups.Select(g => g.TargetFramework)));
-                        return false;
+                        group = DependencyResolutionService.FindBestMatchingTfmGroup(nuspec.DependencyGroups, resolvedTfm);
+                        if (group == null)
+                        {
+                            Console.Error.WriteLine($"Error: No dependencies found for TFM '{resolvedTfm}'.");
+                            Console.Error.WriteLine("Available TFMs: " + string.Join(", ",
+                                nuspec.DependencyGroups.Select(g => g.TargetFramework)));
+                            return 1;
+                        }
+                    }
+                    else
+                    {
+                        group = nuspec.DependencyGroups
+                            .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
+                            .First();
+                        resolvedTfm = group.TargetFramework;
+                    }
+
+                    if (group.Dependencies.Count > 0)
+                    {
+                        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
+                            context.HttpClient, group.Dependencies, resolvedTfm, globalSeen, logger.Log);
                     }
                 }
-                else
-                {
-                    group = nuspec.DependencyGroups
-                        .OrderByDescending(g => TfmResolver.GetTfmPriority(g.TargetFramework))
-                        .First();
-                    resolvedTfm = group.TargetFramework;
-                }
+            }
 
-                if (group.Dependencies.Count == 0)
-                    return true;
-
-                var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-                    context.HttpClient, group.Dependencies, resolvedTfm, globalSeen, logger.Log);
-                return true;
-            });
-
-            if (!success)
-                return 1;
-
-            // Phase 2: Render output (offline)
             if (depNodes == null)
             {
                 var emptyView = new EmptyDepsView
