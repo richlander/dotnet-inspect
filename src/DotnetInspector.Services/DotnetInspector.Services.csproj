@@ -23,14 +23,14 @@
   </ItemGroup>
 
   <!-- Use ProjectReference for local Markout development, PackageReference for releases -->
-  <!-- ProjectReference: local development -->
+  <!-- ProjectReference: local development
   <ItemGroup>
     <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
   </ItemGroup>
-  <!-- PackageReference: releases
+  -->
+  <!-- PackageReference: releases -->
   <ItemGroup>
     <PackageReference Include="MarkdownTable.Formatting" Version="0.3.0" />
   </ItemGroup>
-  -->
 
 </Project>
