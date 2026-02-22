@@ -225,6 +225,7 @@ public class PackageCommand
             // Handle --dependencies mode: resolve transitive deps and show tree
             if (options.ShowDependencies)
             {
+                Console.Error.WriteLine("Tip: use 'depends --package' for dependency trees.");
                 var depResult = new InspectionResult { PackageName = packageName, Version = version };
                 if (nuspec != null) ApplyNuspec(nuspec, depResult);
                 return await ShowDependencyTreeAsync(client, depResult, options, logger);

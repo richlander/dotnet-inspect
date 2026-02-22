@@ -106,6 +106,7 @@ public static class OutputFormatter
     {
         if (inspection.UseDependenciesView)
         {
+            Console.Error.WriteLine("Tip: use 'depends --library' for dependency trees.");
             var view = AssemblyDependenciesView.FromInspection(inspection);
             MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
             return;
