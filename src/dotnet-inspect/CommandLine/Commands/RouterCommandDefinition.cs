@@ -60,12 +60,8 @@ public static class RouterCommandDefinition
                     new HelpAction().Invoke(parseResult);
                     return 0;
 
-                case RouterOptionsParser.ListColumns:
-                    ListSchemaNames(schema => schema.GetColumnNames());
-                    return 0;
-
-                case RouterOptionsParser.ListFields:
-                    ListSchemaNames(schema => schema.GetFieldNames());
+                case RouterOptionsParser.ListSelect:
+                    ListSelectableNames();
                     return 0;
 
                 case RouterOptionsParser.ParseError error:
@@ -131,8 +127,7 @@ public static class RouterCommandDefinition
                 Verbosity = route.Verbosity,
                 IncludeSections = route.IncludeSections,
                 ExcludeSections = route.Options.ExcludeSections,
-                Columns = route.Options.Columns,
-                Fields = route.Options.Fields,
+                Select = route.Options.Select,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -148,8 +143,7 @@ public static class RouterCommandDefinition
             Verbosity = route.Verbosity,
             IncludeSections = route.IncludeSections,
             ExcludeSections = route.Options.ExcludeSections,
-            Columns = route.Options.Columns,
-            Fields = route.Options.Fields,
+            Select = route.Options.Select,
             SourceOptions = route.Options.SourceOptions
         };
 
@@ -237,14 +231,13 @@ public static class RouterCommandDefinition
         return exitCode;
     }
 
-    /// <summary>
-    /// Lists schema names for the default router type (InspectionResultView).
-    /// </summary>
-    private static void ListSchemaNames(Func<MarkoutSchemaInfo, string[]> getNames)
+    private static void ListSelectableNames()
     {
         var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
         if (schema == null) return;
-        foreach (var name in getNames(schema))
-            Console.WriteLine(name);
+        foreach (var name in schema.GetFieldNames())
+            Console.WriteLine($"{name,-24} field");
+        foreach (var name in schema.GetColumnNames())
+            Console.WriteLine($"{name,-24} column");
     }
 }

@@ -83,14 +83,9 @@ public record AssemblyOptions
     public HashSet<string>? ExcludeSections { get; init; }
 
     /// <summary>
-    /// Table columns to include. Null means all columns.
+    /// Names to select (fields and columns). Null means all.
     /// </summary>
-    public string[]? Columns { get; init; }
-
-    /// <summary>
-    /// Scalar fields to include. Null means all fields.
-    /// </summary>
-    public string[]? Fields { get; init; }
+    public string[]? Select { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.

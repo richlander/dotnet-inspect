@@ -50,14 +50,9 @@ public static class MemberOptionsParser
     public record ListSections : MemberParseResult;
 
     /// <summary>
-    /// Indicates columns should be listed.
+    /// Indicates selectable names should be listed.
     /// </summary>
-    public record ListColumns : MemberParseResult;
-
-    /// <summary>
-    /// Indicates fields should be listed.
-    /// </summary>
-    public record ListFields : MemberParseResult;
+    public record ListSelect : MemberParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -99,10 +94,8 @@ public static class MemberOptionsParser
         {
             if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 return new ListSections();
-            if (parseResult.GetResult(opts.Columns) != null && parseResult.GetValue(opts.Columns) == null)
-                return new ListColumns();
-            if (parseResult.GetResult(opts.Fields) != null && parseResult.GetValue(opts.Fields) == null)
-                return new ListFields();
+            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
+                return new ListSelect();
             return new ShowHelp();
         }
 
@@ -176,8 +169,7 @@ public static class MemberOptionsParser
             ShowSelect = parseResult.GetValue(args.SelectOption),
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
-            Columns = opts.ParseColumns(parseResult),
-            Fields = opts.ParseFields(parseResult),
+            Select = opts.ParseSelect(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

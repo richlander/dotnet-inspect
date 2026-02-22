@@ -86,8 +86,8 @@ public static class ArgumentPreprocessor
             return ["router", .. args];
         }
 
-        // Bare discovery flags (--columns, --fields) with no positional args → route to router
-        if (firstPositional < 0 && args.Any(a => a is "--columns" or "--fields"))
+        // Bare discovery flags (-S, --select) with no positional args → route to router
+        if (firstPositional < 0 && args.Any(a => a is "-S" or "--select"))
             return ["router", .. args];
 
         return args;

@@ -107,8 +107,7 @@ public static class DiffOptionsParser
             Breaking = parseResult.GetValue(args.BreakingOption),
             Additive = parseResult.GetValue(args.AdditiveOption),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            Columns = opts.ParseColumns(parseResult),
-            Fields = opts.ParseFields(parseResult)
+            Select = opts.ParseSelect(parseResult),
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);

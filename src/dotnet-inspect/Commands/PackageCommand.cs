@@ -38,18 +38,16 @@ public class PackageCommand
             return 0;
         }
 
-        // Bare --columns or --fields: list available names from schema and exit
-        if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+        // Bare -S: list selectable names from schema and exit
+        if (options.Select is { Length: 0 })
         {
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
             if (schema != null)
             {
-                if (options.Columns is { Length: 0 })
-                    foreach (var name in schema.GetColumnNames())
-                        Console.WriteLine(name);
-                if (options.Fields is { Length: 0 })
-                    foreach (var name in schema.GetFieldNames())
-                        Console.WriteLine(name);
+                foreach (var name in schema.GetFieldNames())
+                    Console.WriteLine($"{name,-24} field");
+                foreach (var name in schema.GetColumnNames())
+                    Console.WriteLine($"{name,-24} column");
             }
             return 0;
         }
@@ -259,7 +257,7 @@ public class PackageCommand
                 var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+                    Projection = OutputFormatter.BuildProjection(options.Select)
                 };
                 var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(oneLineView, writer);

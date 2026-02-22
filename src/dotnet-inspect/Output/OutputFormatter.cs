@@ -43,14 +43,14 @@ public static class OutputFormatter
                 IncludeSections = pipeline.ComputeIncludeSections(
                     result, options.Verbosity, options.IncludeSections, options.ExcludeSections),
                 IncludeDescription = options.Verbosity != Verbosity.Quiet,
-                Projection = BuildProjection(options.Columns, options.Fields)
+                Projection = BuildProjection(options.Select)
             }
             : new MarkoutWriterOptions
             {
                 IncludeSections = options.IncludeSections,
                 ExcludeSections = GetExcludeSections(options),
                 IncludeDescription = options.Verbosity != Verbosity.Quiet,
-                Projection = BuildProjection(options.Columns, options.Fields)
+                Projection = BuildProjection(options.Select)
             };
 
         var context = new MarkoutContext(writerOptions);
@@ -105,13 +105,13 @@ public static class OutputFormatter
                 ? new MarkoutWriterOptions
                 {
                     IncludeSections = includeSections,
-                    Projection = BuildProjection(options.Columns, options.Fields)
+                    Projection = BuildProjection(options.Select)
                 }
                 : new MarkoutWriterOptions
                 {
                     IncludeSections = options.IncludeSections,
                     ExcludeSections = GetLibraryExcludeSections(options),
-                    Projection = BuildProjection(options.Columns, options.Fields)
+                    Projection = BuildProjection(options.Select)
                 };
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
@@ -137,13 +137,13 @@ public static class OutputFormatter
                 {
                     IncludeSections = pipeline.ComputeIncludeSections(
                         inspections[0], options.Verbosity, options.IncludeSections, options.ExcludeSections),
-                    Projection = BuildProjection(options.Columns, options.Fields)
+                    Projection = BuildProjection(options.Select)
                 }
                 : new MarkoutWriterOptions
                 {
                     IncludeSections = options.IncludeSections,
                     ExcludeSections = GetLibraryExcludeSections(options),
-                    Projection = BuildProjection(options.Columns, options.Fields)
+                    Projection = BuildProjection(options.Select)
                 };
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(report).TrimEnd());
@@ -173,16 +173,15 @@ public static class OutputFormatter
     /// Builds a MarkoutProjection from column and field filter arrays.
     /// Returns null when no projection is needed (both null).
     /// </summary>
-    internal static MarkoutProjection? BuildProjection(string[]? columns, string[]? fields)
+    internal static MarkoutProjection? BuildProjection(string[]? select)
     {
-        if (columns == null && fields == null)
+        if (select == null)
             return null;
 
-        var projection = new MarkoutProjection();
-        if (columns != null)
-            projection.IncludeColumns = columns;
-        if (fields != null)
-            projection.IncludeFields = fields;
-        return projection;
+        return new MarkoutProjection
+        {
+            IncludeColumns = select,
+            IncludeFields = select
+        };
     }
 }

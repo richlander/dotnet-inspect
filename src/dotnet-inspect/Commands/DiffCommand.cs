@@ -20,18 +20,16 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
 
-        // Bare --columns or --fields: list available names from schema and exit
-        if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+        // Bare -S: list selectable names from schema and exit
+        if (options.Select is { Length: 0 })
         {
             var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
             if (schema != null)
             {
-                if (options.Columns is { Length: 0 })
-                    foreach (var name in schema.GetColumnNames())
-                        Console.WriteLine(name);
-                if (options.Fields is { Length: 0 })
-                    foreach (var name in schema.GetFieldNames())
-                        Console.WriteLine(name);
+                foreach (var name in schema.GetFieldNames())
+                    Console.WriteLine($"{name,-24} field");
+                foreach (var name in schema.GetColumnNames())
+                    Console.WriteLine($"{name,-24} column");
             }
             return 0;
         }
@@ -99,7 +97,7 @@ public class DiffCommand
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+                    Projection = OutputFormatter.BuildProjection(options.Select)
                 };
                 var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(view, writer);
@@ -299,8 +297,7 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
-    public string[]? Columns { get; init; }
-    public string[]? Fields { get; init; }
+    public string[]? Select { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

@@ -51,26 +51,18 @@ public class ApiCommand
             return 0;
         }
 
-        // Bare --columns or --fields: list available names from schema and exit
-        if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+        // Bare -S: list selectable names from schema and exit
+        if (options.Select is { Length: 0 })
         {
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
             var memberSchema = context2.GetSchemaInfo<ApiTypeView>();
-            if (options.Columns is { Length: 0 })
-            {
-                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (typeSchema != null) foreach (var n in typeSchema.GetColumnNames()) names.Add(n);
-                if (memberSchema != null) foreach (var n in memberSchema.GetColumnNames()) names.Add(n);
-                foreach (var name in names) Console.WriteLine(name);
-            }
-            if (options.Fields is { Length: 0 })
-            {
-                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (typeSchema != null) foreach (var n in typeSchema.GetFieldNames()) names.Add(n);
-                if (memberSchema != null) foreach (var n in memberSchema.GetFieldNames()) names.Add(n);
-                foreach (var name in names) Console.WriteLine(name);
-            }
+            var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (typeSchema != null) { foreach (var n in typeSchema.GetFieldNames()) fields.Add(n); foreach (var n in typeSchema.GetColumnNames()) columns.Add(n); }
+            if (memberSchema != null) { foreach (var n in memberSchema.GetFieldNames()) fields.Add(n); foreach (var n in memberSchema.GetColumnNames()) columns.Add(n); }
+            foreach (var name in fields) Console.WriteLine($"{name,-24} field");
+            foreach (var name in columns) Console.WriteLine($"{name,-24} column");
             return 0;
         }
 
@@ -653,7 +645,7 @@ public class ApiCommand
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+                Projection = OutputFormatter.BuildProjection(options.Select)
             };
             var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
@@ -852,7 +844,7 @@ public class ApiCommand
             var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+                Projection = OutputFormatter.BuildProjection(options.Select)
             };
             var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);

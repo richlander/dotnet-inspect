@@ -106,12 +106,8 @@ public static class ApiCommandDefinitions
                     SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
                     return 0;
 
-                case TypeOptionsParser.ListColumns:
-                    ListSchemaNames<CliApiSurface>(schema => schema.GetColumnNames());
-                    return 0;
-
-                case TypeOptionsParser.ListFields:
-                    ListSchemaNames<CliApiSurface>(schema => schema.GetFieldNames());
+                case TypeOptionsParser.ListSelect:
+                    ListSelectableNames<CliApiSurface>();
                     return 0;
 
                 case TypeOptionsParser.ShowHelp:
@@ -218,12 +214,8 @@ public static class ApiCommandDefinitions
                     SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
                     return 0;
 
-                case MemberOptionsParser.ListColumns:
-                    ListSchemaNames<ApiTypeView>(schema => schema.GetColumnNames());
-                    return 0;
-
-                case MemberOptionsParser.ListFields:
-                    ListSchemaNames<ApiTypeView>(schema => schema.GetFieldNames());
+                case MemberOptionsParser.ListSelect:
+                    ListSelectableNames<ApiTypeView>();
                     return 0;
 
                 case MemberOptionsParser.ShowHelp:
@@ -249,11 +241,13 @@ public static class ApiCommandDefinitions
         return memberCommand;
     }
 
-    private static void ListSchemaNames<T>(Func<MarkoutSchemaInfo, string[]> getNames)
+    private static void ListSelectableNames<T>()
     {
         var schema = new MarkoutContext().GetSchemaInfo<T>();
         if (schema == null) return;
-        foreach (var name in getNames(schema))
-            Console.WriteLine(name);
+        foreach (var name in schema.GetFieldNames())
+            Console.WriteLine($"{name,-24} field");
+        foreach (var name in schema.GetColumnNames())
+            Console.WriteLine($"{name,-24} column");
     }
 }

@@ -134,14 +134,9 @@ public record InspectionOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
-    /// Table columns to include (comma-separated names). Null means all columns.
+    /// Names to select (fields and columns). Null means all.
     /// </summary>
-    public string[]? Columns { get; init; }
-
-    /// <summary>
-    /// Scalar fields to include (comma-separated names). Null means all fields.
-    /// </summary>
-    public string[]? Fields { get; init; }
+    public string[]? Select { get; init; }
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

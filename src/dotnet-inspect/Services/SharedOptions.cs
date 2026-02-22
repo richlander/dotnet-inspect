@@ -24,27 +24,14 @@ public class SharedOptions
     public Option<string?> Tips { get; }
 
     // Section filtering options
-    public Option<string?> IncludeSections { get; } = new("-s")
-    {
-        Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.",
-        Arity = ArgumentArity.ZeroOrOne
-    };
+    public Option<string?> IncludeSections { get; }
     public Option<string?> ExcludeSections { get; } = new("-x")
     {
         Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
     };
 
     // Projection options
-    public Option<string?> Columns { get; } = new("--columns")
-    {
-        Description = "Include only these table columns (comma-separated). Use --columns alone to list.",
-        Arity = ArgumentArity.ZeroOrOne
-    };
-    public Option<string?> Fields { get; } = new("--fields")
-    {
-        Description = "Include only these scalar fields (comma-separated). Use --fields alone to list.",
-        Arity = ArgumentArity.ZeroOrOne
-    };
+    public Option<string?> Select { get; }
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -70,6 +57,20 @@ public class SharedOptions
             Arity = ArgumentArity.ZeroOrOne
         };
         Tips.Aliases.Add("-T");
+
+        IncludeSections = new Option<string?>("-s")
+        {
+            Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        IncludeSections.Aliases.Add("--section");
+
+        Select = new Option<string?>("-S")
+        {
+            Description = "Select fields/columns by name (comma-separated). Use -S alone to list.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        Select.Aliases.Add("--select");
     }
 
     /// <summary>
@@ -98,8 +99,7 @@ public class SharedOptions
     {
         command.Options.Add(IncludeSections);
         command.Options.Add(ExcludeSections);
-        command.Options.Add(Columns);
-        command.Options.Add(Fields);
+        command.Options.Add(Select);
     }
 
     /// <summary>
@@ -171,18 +171,11 @@ public class SharedOptions
         => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
 
     /// <summary>
-    /// Parses column list from parse result.
-    /// Returns null if not specified, empty array for bare --columns (discovery), or populated array.
+    /// Parses select list from parse result.
+    /// Returns null if not specified, empty array for bare -S (discovery), or populated array.
     /// </summary>
-    public string[]? ParseColumns(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Columns);
-
-    /// <summary>
-    /// Parses field list from parse result.
-    /// Returns null if not specified, empty array for bare --fields (discovery), or populated array.
-    /// </summary>
-    public string[]? ParseFields(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Fields);
+    public string[]? ParseSelect(ParseResult parseResult)
+        => ParseProjectionList(parseResult, Select);
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {
