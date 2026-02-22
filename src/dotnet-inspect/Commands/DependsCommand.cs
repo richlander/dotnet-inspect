@@ -71,11 +71,9 @@ public class DependsCommand
                 return 1;
             }
 
+            // Include System.Object for types with no other dependencies
             if (tree.Count == 0)
-            {
-                Console.WriteLine($"{options.TargetType}: no type dependencies (derives from System.Object only).");
-                return 0;
-            }
+                tree = [new TypeDependencyNode("System.Object", [])];
 
             if (options.JsonOutput)
             {
@@ -86,12 +84,9 @@ public class DependsCommand
             }
             else
             {
-                var view = new TypeDependenciesView
-                {
-                    Title = options.TargetType,
-                    Dependencies = ToTreeNodes(tree)
-                };
-                MarkoutSerializer.Serialize(view, Console.Out, TypeDependenciesContext.Default);
+                var writer = new MarkoutWriter(Console.Out);
+                writer.WriteTreeNode(options.TargetType);
+                writer.WriteTree(ToTreeNodes(tree));
             }
 
             return 0;
