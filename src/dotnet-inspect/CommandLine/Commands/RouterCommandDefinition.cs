@@ -6,6 +6,8 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.CommandLine;
 
@@ -56,6 +58,14 @@ public static class RouterCommandDefinition
             {
                 case RouterOptionsParser.ShowHelp:
                     new HelpAction().Invoke(parseResult);
+                    return 0;
+
+                case RouterOptionsParser.ListColumns:
+                    ListSchemaNames(schema => schema.GetColumnNames());
+                    return 0;
+
+                case RouterOptionsParser.ListFields:
+                    ListSchemaNames(schema => schema.GetFieldNames());
                     return 0;
 
                 case RouterOptionsParser.ParseError error:
@@ -121,6 +131,8 @@ public static class RouterCommandDefinition
                 Verbosity = route.Verbosity,
                 IncludeSections = route.IncludeSections,
                 ExcludeSections = route.Options.ExcludeSections,
+                Columns = route.Options.Columns,
+                Fields = route.Options.Fields,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -136,6 +148,8 @@ public static class RouterCommandDefinition
             Verbosity = route.Verbosity,
             IncludeSections = route.IncludeSections,
             ExcludeSections = route.Options.ExcludeSections,
+            Columns = route.Options.Columns,
+            Fields = route.Options.Fields,
             SourceOptions = route.Options.SourceOptions
         };
 
@@ -221,5 +235,16 @@ public static class RouterCommandDefinition
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;
+    }
+
+    /// <summary>
+    /// Lists schema names for the default router type (InspectionResultView).
+    /// </summary>
+    private static void ListSchemaNames(Func<MarkoutSchemaInfo, string[]> getNames)
+    {
+        var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
+        if (schema == null) return;
+        foreach (var name in getNames(schema))
+            Console.WriteLine(name);
     }
 }

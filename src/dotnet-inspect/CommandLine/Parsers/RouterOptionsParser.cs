@@ -34,6 +34,16 @@ public static class RouterOptionsParser
     public record ShowHelp : RouterParseResult;
 
     /// <summary>
+    /// Indicates columns should be listed.
+    /// </summary>
+    public record ListColumns : RouterParseResult;
+
+    /// <summary>
+    /// Indicates fields should be listed.
+    /// </summary>
+    public record ListFields : RouterParseResult;
+
+    /// <summary>
     /// Indicates an error occurred during parsing.
     /// </summary>
     public record ParseError(string Message) : RouterParseResult;
@@ -73,7 +83,13 @@ public static class RouterOptionsParser
         var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
 
         if (packageArgs.Length < 1)
+        {
+            if (parseResult.GetResult(opts.Columns) != null && parseResult.GetValue(opts.Columns) == null)
+                return new ListColumns();
+            if (parseResult.GetResult(opts.Fields) != null && parseResult.GetValue(opts.Fields) == null)
+                return new ListFields();
             return new ShowHelp();
+        }
 
         var name = packageArgs[0];
 
