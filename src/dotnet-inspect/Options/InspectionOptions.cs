@@ -134,6 +134,16 @@ public record InspectionOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
+    /// Table columns to include (comma-separated names). Null means all columns.
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Scalar fields to include (comma-separated names). Null means all fields.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;

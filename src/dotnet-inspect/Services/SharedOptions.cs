@@ -34,6 +34,16 @@ public class SharedOptions
         Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
     };
 
+    // Projection options
+    public Option<string?> Columns { get; } = new("--columns")
+    {
+        Description = "Include only these table columns (comma-separated, e.g., --columns Name,Version)"
+    };
+    public Option<string?> Fields { get; } = new("--fields")
+    {
+        Description = "Include only these scalar fields (comma-separated, e.g., --fields Name,License)"
+    };
+
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
     {
@@ -80,12 +90,14 @@ public class SharedOptions
     }
 
     /// <summary>
-    /// Adds section filtering options to a command.
+    /// Adds section filtering and projection options to a command.
     /// </summary>
     public void AddSectionOptionsTo(Command command)
     {
         command.Options.Add(IncludeSections);
         command.Options.Add(ExcludeSections);
+        command.Options.Add(Columns);
+        command.Options.Add(Fields);
     }
 
     /// <summary>
@@ -155,4 +167,23 @@ public class SharedOptions
     /// </summary>
     public HashSet<string>? ParseExcludeSections(ParseResult parseResult)
         => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
+
+    /// <summary>
+    /// Parses column list from parse result.
+    /// </summary>
+    public string[]? ParseColumns(ParseResult parseResult)
+        => ParseCommaSeparatedList(parseResult.GetValue(Columns));
+
+    /// <summary>
+    /// Parses field list from parse result.
+    /// </summary>
+    public string[]? ParseFields(ParseResult parseResult)
+        => ParseCommaSeparatedList(parseResult.GetValue(Fields));
+
+    private static string[]? ParseCommaSeparatedList(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 }

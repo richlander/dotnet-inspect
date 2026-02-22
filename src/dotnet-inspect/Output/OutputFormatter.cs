@@ -42,13 +42,15 @@ public static class OutputFormatter
             {
                 IncludeSections = pipeline.ComputeIncludeSections(
                     result, options.Verbosity, options.IncludeSections, options.ExcludeSections),
-                IncludeDescription = options.Verbosity != Verbosity.Quiet
+                IncludeDescription = options.Verbosity != Verbosity.Quiet,
+                Projection = BuildProjection(options.Columns, options.Fields)
             }
             : new MarkoutWriterOptions
             {
                 IncludeSections = options.IncludeSections,
                 ExcludeSections = GetExcludeSections(options),
-                IncludeDescription = options.Verbosity != Verbosity.Quiet
+                IncludeDescription = options.Verbosity != Verbosity.Quiet,
+                Projection = BuildProjection(options.Columns, options.Fields)
             };
 
         var context = new MarkoutContext(writerOptions);
@@ -100,11 +102,16 @@ public static class OutputFormatter
                 inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
 
             var writerOptions = pipeline != null
-                ? new MarkoutWriterOptions { IncludeSections = includeSections }
+                ? new MarkoutWriterOptions
+                {
+                    IncludeSections = includeSections,
+                    Projection = BuildProjection(options.Columns, options.Fields)
+                }
                 : new MarkoutWriterOptions
                 {
                     IncludeSections = options.IncludeSections,
-                    ExcludeSections = GetLibraryExcludeSections(options)
+                    ExcludeSections = GetLibraryExcludeSections(options),
+                    Projection = BuildProjection(options.Columns, options.Fields)
                 };
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
@@ -129,12 +136,14 @@ public static class OutputFormatter
                 ? new MarkoutWriterOptions
                 {
                     IncludeSections = pipeline.ComputeIncludeSections(
-                        inspections[0], options.Verbosity, options.IncludeSections, options.ExcludeSections)
+                        inspections[0], options.Verbosity, options.IncludeSections, options.ExcludeSections),
+                    Projection = BuildProjection(options.Columns, options.Fields)
                 }
                 : new MarkoutWriterOptions
                 {
                     IncludeSections = options.IncludeSections,
-                    ExcludeSections = GetLibraryExcludeSections(options)
+                    ExcludeSections = GetLibraryExcludeSections(options),
+                    Projection = BuildProjection(options.Columns, options.Fields)
                 };
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(report).TrimEnd());
@@ -160,4 +169,20 @@ public static class OutputFormatter
         return excluded.Count > 0 ? excluded : null;
     }
 
+    /// <summary>
+    /// Builds a MarkoutProjection from column and field filter arrays.
+    /// Returns null when no projection is needed (both null).
+    /// </summary>
+    internal static MarkoutProjection? BuildProjection(string[]? columns, string[]? fields)
+    {
+        if (columns == null && fields == null)
+            return null;
+
+        var projection = new MarkoutProjection();
+        if (columns != null)
+            projection.IncludeColumns = columns;
+        if (fields != null)
+            projection.IncludeFields = fields;
+        return projection;
+    }
 }

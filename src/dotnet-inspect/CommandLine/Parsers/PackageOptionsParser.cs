@@ -78,6 +78,8 @@ public static class PackageOptionsParser
             Verbosity = verbosity,
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

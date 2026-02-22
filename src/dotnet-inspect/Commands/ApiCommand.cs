@@ -8,6 +8,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
+using Markout;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -627,7 +628,11 @@ public class ApiCommand
         if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
-            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            };
+            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
@@ -822,7 +827,11 @@ public class ApiCommand
         if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
-            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            };
+            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else

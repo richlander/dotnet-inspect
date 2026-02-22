@@ -61,6 +61,8 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(additiveOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
+        diffCommand.Options.Add(opts.Columns);
+        diffCommand.Options.Add(opts.Fields);
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, frameworkOption, tfmOption, allOption,

@@ -49,6 +49,8 @@ public record ApiOptions
     public MethodSourceContext? MethodSource { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
     public HashSet<string>? ExcludeSections { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 

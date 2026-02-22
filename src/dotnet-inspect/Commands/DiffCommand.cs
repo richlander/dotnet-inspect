@@ -5,6 +5,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -80,7 +81,11 @@ public class DiffCommand
             {
                 var typeDiffs = ApplyFilters(diff, options);
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
-                var writer = new OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+                };
+                var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(view, writer);
             }
             else
@@ -233,7 +238,7 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            var nameWriter = new OneLineWriter(new StringWriter());
+            var nameWriter = new Output.OneLineWriter(new StringWriter());
             DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
             return nameWriter.ToString();
         }
@@ -278,6 +283,8 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
