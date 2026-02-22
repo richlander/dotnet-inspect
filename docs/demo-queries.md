@@ -189,3 +189,40 @@ formatted table with version, download counts, and descriptions. Discovers
 Translation, Vision, ContentSafety, etc.) without needing to know their
 exact names. A showcase of the `package search` subcommand for NuGet
 package discovery.
+
+## 17. Select discovery: what can I select?
+
+```bash
+dotnet-inspect package System.Text.Json -S
+```
+
+Invokes `-S` (select) with no arguments, triggering discovery mode. Lists
+every selectable name for the package output — field names like Version,
+License, Authors and column names like TFM and Property — each annotated
+with its kind. This is the starting point for any select-based query:
+ask the tool what's available before narrowing down.
+
+## 18. Select columns: just the type names
+
+```bash
+dotnet-inspect type --package System.Text.Json -S Type
+```
+
+Uses `-S Type` to strip the Members column from every table in the type
+listing, leaving just type names grouped by kind (classes, structs, enums,
+interfaces). The one-liner summary fields (Library, Types, Methods, etc.)
+are also removed since they don't match the select list. Compare with
+`type --package System.Text.Json` to see the full output — the contrast
+makes the column projection immediately obvious.
+
+## 19. Select columns: types and changes only
+
+```bash
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 --oneline -S Type,Change
+```
+
+Combines `--oneline` (compact table format) with `-S Type,Change` to
+strip the diff table down to just two columns: the type name and the
+change indicator (+, ~, x). Removes the verbose member-count columns,
+leaving a clean scan of what was added, changed, or broken across two
+major versions.
