@@ -170,7 +170,7 @@ understand the full dependency graph at a glance.
 ## 15. Package: System.Text.Json@8.0.0 vulnerabilities
 
 ```bash
-dotnet-inspect package System.Text.Json@8.0.0 -s Vulnerabilities
+dotnet-inspect package System.Text.Json@8.0.0 -S Vulnerabilities
 ```
 
 Shows known security vulnerabilities for an older version of System.Text.Json.

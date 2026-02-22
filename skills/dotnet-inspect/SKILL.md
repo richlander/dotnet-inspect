@@ -43,7 +43,7 @@ Use `type Foo` to see shape output (hierarchy + surface) — it defaults to `--s
 
 ```bash
 dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections      # shape by default for single type
-dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --oneline  # override to oneline
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --markdown  # override to markdown
 ```
 
 Use `diff` first when fixing broken code — oneline for triage, then full detail on specific types:

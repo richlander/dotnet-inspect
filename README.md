@@ -41,8 +41,9 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `-v:q/m/n/d` | Verbosity: quiet, minimal (default), normal, detailed |
 | `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |
-| `-s Name` | Include section (glob-capable: `-s Ext*`) |
-| `-x Name` | Exclude section |
+| `-S Name` | Select section or field (`-S` alone to discover) |
+| `-F Name` | Explicit field selection (when name is ambiguous) |
+| `--markdown` | Full document output (oneline is default) |
 | `--shape` | Type shape diagram (hierarchy + members) — `type` command |
 | `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
 | `--source-link-audit` | SourceLink/determinism audit |
@@ -90,10 +91,10 @@ Inspect a library — from platform, NuGet package, or local file.
 dotnet-inspect library System.Text.Json                     # Platform library (runtime)
 dotnet-inspect library --package System.Text.Json            # Library from NuGet package
 dotnet-inspect library ./bin/MyLib.dll                       # Local file
-dotnet-inspect library --package System.Text.Json -s         # List 13 available sections
+dotnet-inspect library --package System.Text.Json -S         # Discover available sections and fields
 dotnet-inspect library --package System.Text.Json --source-link-audit  # SourceLink audit
 dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies   # Dependency tree (visual)
-dotnet-inspect library System.Text.Json --references -s Lib*           # Direct references
+dotnet-inspect library System.Text.Json --references -S "Library References"  # Direct references
 dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 ```
 
@@ -242,7 +243,7 @@ Each level includes a **compact summary line** with key metadata:
 Version: 8.0.0 | Type: Library | TFM: net8.0 | Updated: 2023-11-14 | Vulnerabilities: 2
 ```
 
-**Sections**: Use `-s Name` to include or `-x Name` to exclude sections by name. Bare `-s` lists available sections. Supports glob patterns (`-s Ext*`).
+**Output Selection**: Use `-S Name` to select sections or fields by name. Section names win when ambiguous; use `-F Name` to force field selection. Bare `-S` lists available names.
 
 **JSON**: `--json` for full JSON, `--json --compact` for minified.
 
