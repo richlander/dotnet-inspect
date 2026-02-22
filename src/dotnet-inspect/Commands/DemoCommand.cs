@@ -77,6 +77,16 @@ public class DemoCommand
 
         new("What Azure AI packages are available on NuGet?", "discovery",
             ["package", "search", "Azure.AI"]),
+
+        // select / section (3)
+        new("What fields and columns can I select for a package?", "discovery",
+            ["package", "System.Text.Json", "-S"]),
+
+        new("What types are in System.Text.Json — just the names?", "discovery",
+            ["type", "--package", "System.Text.Json", "-S", "Type"]),
+
+        new("What changed in System.Text.Json — types and changes only?", "migration",
+            ["diff", "System.Text.Json@8.0.0..10.0.3", "--oneline", "-S", "Type,Change"]),
     ];
 
     public static async Task<int> ExecuteListAsync()

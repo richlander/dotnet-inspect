@@ -6,6 +6,8 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.CommandLine;
 
@@ -56,6 +58,10 @@ public static class RouterCommandDefinition
             {
                 case RouterOptionsParser.ShowHelp:
                     new HelpAction().Invoke(parseResult);
+                    return 0;
+
+                case RouterOptionsParser.ListSelect:
+                    ListSelectableNames();
                     return 0;
 
                 case RouterOptionsParser.ParseError error:
@@ -121,6 +127,7 @@ public static class RouterCommandDefinition
                 Verbosity = route.Verbosity,
                 IncludeSections = route.IncludeSections,
                 ExcludeSections = route.Options.ExcludeSections,
+                Select = route.Options.Select,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -136,6 +143,7 @@ public static class RouterCommandDefinition
             Verbosity = route.Verbosity,
             IncludeSections = route.IncludeSections,
             ExcludeSections = route.Options.ExcludeSections,
+            Select = route.Options.Select,
             SourceOptions = route.Options.SourceOptions
         };
 
@@ -221,5 +229,15 @@ public static class RouterCommandDefinition
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;
+    }
+
+    private static void ListSelectableNames()
+    {
+        var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
+        if (schema == null) return;
+        foreach (var name in schema.GetFieldNames())
+            Console.WriteLine($"{name,-24} field");
+        foreach (var name in schema.GetColumnNames())
+            Console.WriteLine($"{name,-24} column");
     }
 }

@@ -34,6 +34,11 @@ public static class RouterOptionsParser
     public record ShowHelp : RouterParseResult;
 
     /// <summary>
+    /// Indicates selectable names should be listed.
+    /// </summary>
+    public record ListSelect : RouterParseResult;
+
+    /// <summary>
     /// Indicates an error occurred during parsing.
     /// </summary>
     public record ParseError(string Message) : RouterParseResult;
@@ -73,7 +78,11 @@ public static class RouterOptionsParser
         var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
 
         if (packageArgs.Length < 1)
+        {
+            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
+                return new ListSelect();
             return new ShowHelp();
+        }
 
         var name = packageArgs[0];
 
@@ -94,7 +103,8 @@ public static class RouterOptionsParser
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
                     IncludeSections = opts.ParseIncludeSections(parseResult),
-                    ExcludeSections = opts.ParseExcludeSections(parseResult)
+                    ExcludeSections = opts.ParseExcludeSections(parseResult),
+                    Select = opts.ParseSelect(parseResult),
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
             }
@@ -145,6 +155,7 @@ public static class RouterOptionsParser
             Verbosity = verbosity,
             IncludeSections = includeSections,
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Select = opts.ParseSelect(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
@@ -180,7 +191,8 @@ public static class RouterOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult)
+            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Select = opts.ParseSelect(parseResult),
         };
     }
 }

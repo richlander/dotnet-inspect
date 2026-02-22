@@ -24,15 +24,14 @@ public class SharedOptions
     public Option<string?> Tips { get; }
 
     // Section filtering options
-    public Option<string?> IncludeSections { get; } = new("-s")
-    {
-        Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.",
-        Arity = ArgumentArity.ZeroOrOne
-    };
+    public Option<string?> IncludeSections { get; }
     public Option<string?> ExcludeSections { get; } = new("-x")
     {
         Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
     };
+
+    // Projection options
+    public Option<string?> Select { get; }
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -58,6 +57,20 @@ public class SharedOptions
             Arity = ArgumentArity.ZeroOrOne
         };
         Tips.Aliases.Add("-T");
+
+        IncludeSections = new Option<string?>("-s")
+        {
+            Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        IncludeSections.Aliases.Add("--section");
+
+        Select = new Option<string?>("-S")
+        {
+            Description = "Select fields/columns by name (comma-separated). Use -S alone to list.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        Select.Aliases.Add("--select");
     }
 
     /// <summary>
@@ -80,12 +93,13 @@ public class SharedOptions
     }
 
     /// <summary>
-    /// Adds section filtering options to a command.
+    /// Adds section filtering and projection options to a command.
     /// </summary>
     public void AddSectionOptionsTo(Command command)
     {
         command.Options.Add(IncludeSections);
         command.Options.Add(ExcludeSections);
+        command.Options.Add(Select);
     }
 
     /// <summary>
@@ -155,4 +169,27 @@ public class SharedOptions
     /// </summary>
     public HashSet<string>? ParseExcludeSections(ParseResult parseResult)
         => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
+
+    /// <summary>
+    /// Parses select list from parse result.
+    /// Returns null if not specified, empty array for bare -S (discovery), or populated array.
+    /// </summary>
+    public string[]? ParseSelect(ParseResult parseResult)
+        => ParseProjectionList(parseResult, Select);
+
+    private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
+    {
+        var values = ParseCommaSeparatedList(parseResult.GetValue(option));
+        // Bare flag with no value: return empty array (signals "discover")
+        if (values == null && parseResult.GetResult(option) != null)
+            return [];
+        return values;
+    }
+
+    private static string[]? ParseCommaSeparatedList(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 }

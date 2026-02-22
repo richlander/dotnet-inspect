@@ -43,6 +43,11 @@ public static class TypeOptionsParser
     public record ListSections : TypeParseResult;
 
     /// <summary>
+    /// Indicates selectable names should be listed.
+    /// </summary>
+    public record ListSelect : TypeParseResult;
+
+    /// <summary>
     /// Indicates help should be shown.
     /// </summary>
     public record ShowHelp : TypeParseResult;
@@ -72,11 +77,13 @@ public static class TypeOptionsParser
         bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
-        // Handle section listing or help
+        // Handle section listing, projection discovery, or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
             if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 return new ListSections();
+            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
+                return new ListSelect();
             return new ShowHelp();
         }
 
@@ -118,6 +125,7 @@ public static class TypeOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Select = opts.ParseSelect(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

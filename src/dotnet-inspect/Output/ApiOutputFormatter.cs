@@ -120,7 +120,8 @@ public static class ApiOutputFormatter
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet
+            IncludeDescription = options.Verbosity != Verbosity.Quiet,
+            Projection = OutputFormatter.BuildProjection(options.Select)
         };
     }
 
@@ -190,7 +191,8 @@ public static class ApiOutputFormatter
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = effectiveVerbosity != Verbosity.Quiet
+            IncludeDescription = effectiveVerbosity != Verbosity.Quiet,
+            Projection = OutputFormatter.BuildProjection(options.Select)
         };
     }
 

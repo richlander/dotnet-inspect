@@ -83,6 +83,11 @@ public record AssemblyOptions
     public HashSet<string>? ExcludeSections { get; init; }
 
     /// <summary>
+    /// Names to select (fields and columns). Null means all.
+    /// </summary>
+    public string[]? Select { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

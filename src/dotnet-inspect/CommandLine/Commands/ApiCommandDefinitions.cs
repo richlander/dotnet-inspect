@@ -3,6 +3,7 @@ using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.CommandLine;
 
@@ -103,6 +104,10 @@ public static class ApiCommandDefinitions
             {
                 case TypeOptionsParser.ListSections:
                     SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
+                    return 0;
+
+                case TypeOptionsParser.ListSelect:
+                    ListSelectableNames<CliApiSurface>();
                     return 0;
 
                 case TypeOptionsParser.ShowHelp:
@@ -209,6 +214,10 @@ public static class ApiCommandDefinitions
                     SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
                     return 0;
 
+                case MemberOptionsParser.ListSelect:
+                    ListSelectableNames<ApiTypeView>();
+                    return 0;
+
                 case MemberOptionsParser.ShowHelp:
                     new HelpAction().Invoke(parseResult);
                     return 0;
@@ -230,5 +239,15 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    private static void ListSelectableNames<T>()
+    {
+        var schema = new MarkoutContext().GetSchemaInfo<T>();
+        if (schema == null) return;
+        foreach (var name in schema.GetFieldNames())
+            Console.WriteLine($"{name,-24} field");
+        foreach (var name in schema.GetColumnNames())
+            Console.WriteLine($"{name,-24} column");
     }
 }

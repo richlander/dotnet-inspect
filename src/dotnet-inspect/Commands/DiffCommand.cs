@@ -5,6 +5,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -18,6 +19,20 @@ public class DiffCommand
     {
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
+
+        // Bare -S: list selectable names from schema and exit
+        if (options.Select is { Length: 0 })
+        {
+            var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
+            if (schema != null)
+            {
+                foreach (var name in schema.GetFieldNames())
+                    Console.WriteLine($"{name,-24} field");
+                foreach (var name in schema.GetColumnNames())
+                    Console.WriteLine($"{name,-24} column");
+            }
+            return 0;
+        }
 
         if (!hasPlatform && !hasPackage)
         {
@@ -80,7 +95,11 @@ public class DiffCommand
             {
                 var typeDiffs = ApplyFilters(diff, options);
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
-                var writer = new OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    Projection = OutputFormatter.BuildProjection(options.Select)
+                };
+                var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(view, writer);
             }
             else
@@ -233,7 +252,7 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            var nameWriter = new OneLineWriter(new StringWriter());
+            var nameWriter = new Output.OneLineWriter(new StringWriter());
             DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
             return nameWriter.ToString();
         }
@@ -278,6 +297,7 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
+    public string[]? Select { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

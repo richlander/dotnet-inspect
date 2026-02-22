@@ -134,6 +134,11 @@ public record InspectionOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
+    /// Names to select (fields and columns). Null means all.
+    /// </summary>
+    public string[]? Select { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;

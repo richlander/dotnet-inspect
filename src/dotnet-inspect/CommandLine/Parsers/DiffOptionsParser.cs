@@ -106,7 +106,8 @@ public static class DiffOptionsParser
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
             Additive = parseResult.GetValue(args.AdditiveOption),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            Select = opts.ParseSelect(parseResult),
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);

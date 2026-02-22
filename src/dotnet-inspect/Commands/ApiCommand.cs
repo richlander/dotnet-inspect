@@ -8,6 +8,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
+using Markout;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -47,6 +48,21 @@ public class ApiCommand
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
             SectionRegistry.ListSections(allApiSections);
+            return 0;
+        }
+
+        // Bare -S: list selectable names from schema and exit
+        if (options.Select is { Length: 0 })
+        {
+            var context2 = new MarkoutContext();
+            var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
+            var memberSchema = context2.GetSchemaInfo<ApiTypeView>();
+            var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (typeSchema != null) { foreach (var n in typeSchema.GetFieldNames()) fields.Add(n); foreach (var n in typeSchema.GetColumnNames()) columns.Add(n); }
+            if (memberSchema != null) { foreach (var n in memberSchema.GetFieldNames()) fields.Add(n); foreach (var n in memberSchema.GetColumnNames()) columns.Add(n); }
+            foreach (var name in fields) Console.WriteLine($"{name,-24} field");
+            foreach (var name in columns) Console.WriteLine($"{name,-24} column");
             return 0;
         }
 
@@ -627,7 +643,11 @@ public class ApiCommand
         if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
-            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Select)
+            };
+            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
@@ -822,7 +842,11 @@ public class ApiCommand
         if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
-            var writer = new Output.OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Select)
+            };
+            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
