@@ -29,13 +29,13 @@ dotnet-inspect cli                                  # CLI args explorer
 
 ### Default Oneline Output
 
-Output defaults to oneline (compact tables) — the most token-efficient format. Use `--markdown` for full document output, or `-v:d`/`-v:n` which imply markdown. For `type Foo` (single type), the default is `--shape` (hierarchy + surface).
+Output defaults to oneline (compact tables) — the most token-efficient format. Use `--markdown` for full document output, or `-v:d`/`-v:n` which imply markdown. For `type Foo` (single type), the default is `--tree` (hierarchy + surface).
 
 ```bash
 dotnet-inspect member Command --package System.CommandLine                  # scan all members (oneline default)
 dotnet-inspect type --package System.CommandLine                            # scan all types (oneline default)
 dotnet-inspect member Command --package System.CommandLine -m SetAction     # then drill in (full signatures + docs)
-dotnet-inspect type 'HashSet<T>' --platform System.Collections             # shape by default for single type
+dotnet-inspect type 'HashSet<T>' --platform System.Collections             # tree by default for single type
 ```
 
 Default `member` output shows full signatures with docs. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables (Name + Return Type).
@@ -187,11 +187,11 @@ dotnet-inspect package System.Text.Json --version           # Show latest versio
 dotnet-inspect package System.Text.Json --version 11.0.0-preview*  # Wildcard version
 dotnet-inspect package System.Text.Json --files             # File listing
 dotnet-inspect package System.Text.Json --tfms              # TFM list
-dotnet-inspect package System.Text.Json --layout            # Tree view of files
-dotnet-inspect package System.Text.Json --layout --lib      # Tree view filtered to lib/
-dotnet-inspect package dotnet-inspect --layout --tools      # Tree view for tool packages
-dotnet-inspect package System.Text.Json --dependencies      # Package dependency tree
-dotnet-inspect package System.Text.Json --tfm net9.0 --dependencies  # Dependencies for specific TFM
+dotnet-inspect package System.Text.Json --tree              # Tree view of files
+dotnet-inspect package System.Text.Json --tree --lib       # Tree view filtered to lib/
+dotnet-inspect package dotnet-inspect --tree --tools        # Tree view for tool packages
+dotnet-inspect package System.Text.Json --dependencies      # Package dependency tree (tip: use 'depends')
+dotnet-inspect package System.Text.Json --tfm net9.0 --dependencies  # Dependencies for TFM (tip: use 'depends')
 ```
 
 Custom NuGet sources:
@@ -232,7 +232,7 @@ Key features:
 
 ```bash
 dotnet-inspect library System.Text.Json --references -S "Library References"  # Direct references
-dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies # Dependency tree (visual)
+dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies # Dependency tree (tip: use 'depends')
 dotnet-inspect library --package System.Text.Json --source-link-audit  # SourceLink audit
 dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 dotnet-inspect library --package System.Text.Json -S Resources       # View embedded resources
@@ -247,8 +247,8 @@ dotnet-inspect type --package System.Text.Json                   # All types (fr
 dotnet-inspect type --platform System.Text.Json                  # All types (from platform)
 dotnet-inspect type System.Text.Json                             # Bare name — auto-routes
 dotnet-inspect type -t "JsonS*" --package System.Text.Json       # Types matching glob
-dotnet-inspect type JsonSerializer --package System.Text.Json --shape  # Type shape diagram
-dotnet-inspect type 'HashSet<T>' --platform System.Collections --shape  # Generic types (quote!)
+dotnet-inspect type JsonSerializer --package System.Text.Json --tree   # Type shape diagram
+dotnet-inspect type 'HashSet<T>' --platform System.Collections --tree  # Generic types (quote!)
 dotnet-inspect type --package System.Text.Json                   # All types (oneline default)
 dotnet-inspect type --package System.Text.Json --json            # JSON output
 ```
@@ -533,7 +533,8 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--tfm net8.0` | Select target framework | package, library, type, member, extensions |
 | `-t Pattern` | Filter types by glob pattern | type |
 | `-m Name` | Filter to member (supports globs, Type.Member syntax) | member |
-| `--shape` | Type shape diagram (hierarchy + members) | type |
+| `--tree` | Tree view — type shape (`type`) or file tree (`package`) | type, package |
+| `--shape` | Alias for `--tree` on type command | type |
 | `--select` | Show Select column with Name:N shorthand | member |
 | `--index N` | Target Nth overload (or use Name:N shorthand) | member |
 | `--params "..."` | Target overload by parameter types | member |
@@ -541,8 +542,8 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--no-docs` | Suppress XML documentation | member |
 | `--samples` | Fetch code samples | member |
 | `--ctor` | Constructor details | member |
-| `--oneline` | Explicit oneline (override --shape for single type) | type, member, find, diff, implements |
-| `--dependencies` | Dependency tree (visual) | library, package |
+| `--oneline` | Explicit oneline (override --tree for single type) | type, member, find, diff, implements |
+| `--dependencies` | Dependency tree (tip: use `depends` command) | library, package |
 | `--references` | Direct assembly references | library |
 | `--source-link-audit` | SourceLink/determinism audit | library |
 | `--extract-resources dir/` | Extract embedded resources | library |
@@ -550,7 +551,7 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--version` | Show latest version (or specify version) | package |
 | `--files` | List files | package |
 | `--tfms` | List target frameworks | package |
-| `--layout` | File tree view | package |
+| `--layout` | Alias for `--tree` on package command | package |
 | `--reachable` | Include reachable type extensions | extensions |
 | `--no-header` | Suppress column headers | type, member, find, diff, implements |
 | `--breaking` | Breaking changes only | diff |
@@ -582,4 +583,4 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `--docs` | — | ✓ | — | — | — | — | — | — | — |
 | `--no-docs` | — | ✓ | — | — | — | — | — | — | — |
-| `--shape` | ✓ | — | — | — | — | — | — | — | — |
+| `--tree` | ✓ | — | — | — | — | — | — | — | ✓ |

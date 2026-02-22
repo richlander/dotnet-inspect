@@ -39,10 +39,10 @@ dnx dotnet-inspect -y -- type --package System.Text.Json                       #
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Use `type Foo` to see shape output (hierarchy + surface) — it defaults to `--shape` for single types:
+Use `type Foo` to see tree output (hierarchy + surface) — it defaults to `--tree` for single types:
 
 ```bash
-dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections      # shape by default for single type
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections      # tree by default for single type
 dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --markdown  # override to markdown
 ```
 
@@ -70,7 +70,7 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 
 | Command | Purpose |
 | ------- | ------- |
-| `type` | **Discover types** — terse output, no docs, use `--shape` for hierarchy |
+| `type` | **Discover types** — terse output, no docs, use `--tree` for hierarchy |
 | `member` | **Inspect members** — docs on by default, supports dotted syntax (`-m Type.Member`) |
 | `find` | Search for types by glob pattern across any scope |
 | `diff` | Compare API surfaces between versions — breaking/additive classification |

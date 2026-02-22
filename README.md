@@ -20,7 +20,7 @@ dnx dotnet-inspect -y -- <command>
 |---------|---------|
 | `package X` | Package metadata, dependencies, files, versions |
 | `library X` | Library metadata, symbols, SourceLink audit, dependency tree |
-| `type` | Discover types (terse, no docs) — use `--shape` for hierarchy |
+| `type` | Discover types (terse, no docs) — use `--tree` for hierarchy |
 | `member X` | Inspect members (docs on by default, supports dotted syntax) |
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
@@ -44,7 +44,8 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `-S Name` | Select section or field (`-S` alone to discover) |
 | `-F Name` | Explicit field selection (when name is ambiguous) |
 | `--markdown` | Full document output (oneline is default) |
-| `--shape` | Type shape diagram (hierarchy + members) — `type` command |
+| `--tree` | Tree view — type shape (`type`) or file tree (`package`) |
+| `--shape` | Alias for `--tree` on `type` command |
 | `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
 | `--source-link-audit` | SourceLink/determinism audit |
 | `-T:q/d` | Tips verbosity (contextual hints on stderr) |
@@ -60,8 +61,8 @@ dotnet-inspect package System.Text.Json                     # Metadata (latest v
 dotnet-inspect package System.Text.Json@8.0.0 -v:d          # Detailed (shows vulnerabilities)
 dotnet-inspect package System.Text.Json --versions          # List available versions
 dotnet-inspect package System.Text.Json --version 11.0.0-preview*  # Wildcard version
-dotnet-inspect package System.Text.Json --layout --lib      # File tree (lib/ only)
-dotnet-inspect package System.Text.Json --dependencies      # Package dependency tree
+dotnet-inspect package System.Text.Json --tree --lib       # File tree (lib/ only)
+dotnet-inspect package System.Text.Json --dependencies     # Package dependency tree (tip: use 'depends')
 dotnet-inspect package System.Text.Json --tfms              # List target frameworks
 ```
 
@@ -71,7 +72,7 @@ Some packages bundle multiple libraries per TFM (e.g., `Microsoft.Azure.SignalR`
 
 ```bash
 dotnet-inspect package Microsoft.Azure.SignalR              # Shows Libraries: 2
-dotnet-inspect package Microsoft.Azure.SignalR --layout     # File tree
+dotnet-inspect package Microsoft.Azure.SignalR --tree       # File tree
 dotnet-inspect member Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll  # Secondary library
 ```
 
@@ -93,7 +94,7 @@ dotnet-inspect library --package System.Text.Json            # Library from NuGe
 dotnet-inspect library ./bin/MyLib.dll                       # Local file
 dotnet-inspect library --package System.Text.Json -S         # Discover available sections and fields
 dotnet-inspect library --package System.Text.Json --source-link-audit  # SourceLink audit
-dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies   # Dependency tree (visual)
+dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies # Dependency tree (tip: use 'depends')
 dotnet-inspect library System.Text.Json --references -S "Library References"  # Direct references
 dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 ```
@@ -105,7 +106,7 @@ Discover types in a package or library — terse output, no docs by default.
 ```bash
 dotnet-inspect type --package System.Text.Json                   # All types in package
 dotnet-inspect type -t "JsonS*" --package System.Text.Json       # Types matching glob
-dotnet-inspect type 'HashSet<T>' --platform System.Collections --shape  # Type shape diagram
+dotnet-inspect type 'HashSet<T>' --platform System.Collections --tree   # Type shape diagram
 dotnet-inspect type --platform System.Text.Json                  # Platform library
 dotnet-inspect type --package System.Text.Json --json            # JSON output
 ```
