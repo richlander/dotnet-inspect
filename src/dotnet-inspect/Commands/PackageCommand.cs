@@ -38,6 +38,22 @@ public class PackageCommand
             return 0;
         }
 
+        // Bare --columns or --fields: list available names from schema and exit
+        if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+        {
+            var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
+            if (schema != null)
+            {
+                if (options.Columns is { Length: 0 })
+                    foreach (var name in schema.GetColumnNames())
+                        Console.WriteLine(name);
+                if (options.Fields is { Length: 0 })
+                    foreach (var name in schema.GetFieldNames())
+                        Console.WriteLine(name);
+            }
+            return 0;
+        }
+
         // Bare -s with input: discover which sections have data (set flag for later)
         bool discoverSections = options.IncludeSections is { Count: 0 };
 

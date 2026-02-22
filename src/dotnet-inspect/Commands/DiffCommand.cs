@@ -20,6 +20,22 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
 
+        // Bare --columns or --fields: list available names from schema and exit
+        if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+        {
+            var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
+            if (schema != null)
+            {
+                if (options.Columns is { Length: 0 })
+                    foreach (var name in schema.GetColumnNames())
+                        Console.WriteLine(name);
+                if (options.Fields is { Length: 0 })
+                    foreach (var name in schema.GetFieldNames())
+                        Console.WriteLine(name);
+            }
+            return 0;
+        }
+
         if (!hasPlatform && !hasPackage)
         {
             Console.Error.WriteLine("Error: --package or --platform with version range required.");

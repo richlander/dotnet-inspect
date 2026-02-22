@@ -50,6 +50,16 @@ public static class MemberOptionsParser
     public record ListSections : MemberParseResult;
 
     /// <summary>
+    /// Indicates columns should be listed.
+    /// </summary>
+    public record ListColumns : MemberParseResult;
+
+    /// <summary>
+    /// Indicates fields should be listed.
+    /// </summary>
+    public record ListFields : MemberParseResult;
+
+    /// <summary>
     /// Indicates help should be shown.
     /// </summary>
     public record ShowHelp : MemberParseResult;
@@ -84,11 +94,15 @@ public static class MemberOptionsParser
         bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
-        // Handle section listing or help
+        // Handle section listing, projection discovery, or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
             if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 return new ListSections();
+            if (parseResult.GetResult(opts.Columns) != null && parseResult.GetValue(opts.Columns) == null)
+                return new ListColumns();
+            if (parseResult.GetResult(opts.Fields) != null && parseResult.GetValue(opts.Fields) == null)
+                return new ListFields();
             return new ShowHelp();
         }
 

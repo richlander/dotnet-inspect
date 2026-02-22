@@ -37,11 +37,13 @@ public class SharedOptions
     // Projection options
     public Option<string?> Columns { get; } = new("--columns")
     {
-        Description = "Include only these table columns (comma-separated, e.g., --columns Name,Version)"
+        Description = "Include only these table columns (comma-separated). Use --columns alone to list.",
+        Arity = ArgumentArity.ZeroOrOne
     };
     public Option<string?> Fields { get; } = new("--fields")
     {
-        Description = "Include only these scalar fields (comma-separated, e.g., --fields Name,License)"
+        Description = "Include only these scalar fields (comma-separated). Use --fields alone to list.",
+        Arity = ArgumentArity.ZeroOrOne
     };
 
     // NuGet source options
@@ -170,15 +172,26 @@ public class SharedOptions
 
     /// <summary>
     /// Parses column list from parse result.
+    /// Returns null if not specified, empty array for bare --columns (discovery), or populated array.
     /// </summary>
     public string[]? ParseColumns(ParseResult parseResult)
-        => ParseCommaSeparatedList(parseResult.GetValue(Columns));
+        => ParseProjectionList(parseResult, Columns);
 
     /// <summary>
     /// Parses field list from parse result.
+    /// Returns null if not specified, empty array for bare --fields (discovery), or populated array.
     /// </summary>
     public string[]? ParseFields(ParseResult parseResult)
-        => ParseCommaSeparatedList(parseResult.GetValue(Fields));
+        => ParseProjectionList(parseResult, Fields);
+
+    private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
+    {
+        var values = ParseCommaSeparatedList(parseResult.GetValue(option));
+        // Bare flag with no value: return empty array (signals "discover")
+        if (values == null && parseResult.GetResult(option) != null)
+            return [];
+        return values;
+    }
 
     private static string[]? ParseCommaSeparatedList(string? value)
     {

@@ -51,6 +51,29 @@ public class ApiCommand
             return 0;
         }
 
+        // Bare --columns or --fields: list available names from schema and exit
+        if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+        {
+            var context2 = new MarkoutContext();
+            var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
+            var memberSchema = context2.GetSchemaInfo<ApiTypeView>();
+            if (options.Columns is { Length: 0 })
+            {
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (typeSchema != null) foreach (var n in typeSchema.GetColumnNames()) names.Add(n);
+                if (memberSchema != null) foreach (var n in memberSchema.GetColumnNames()) names.Add(n);
+                foreach (var name in names) Console.WriteLine(name);
+            }
+            if (options.Fields is { Length: 0 })
+            {
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (typeSchema != null) foreach (var n in typeSchema.GetFieldNames()) names.Add(n);
+                if (memberSchema != null) foreach (var n in memberSchema.GetFieldNames()) names.Add(n);
+                foreach (var name in names) Console.WriteLine(name);
+            }
+            return 0;
+        }
+
         // Bare -s with input: discover which sections have data (set flag for later)
         bool discoverSections = options.IncludeSections is { Count: 0 };
 

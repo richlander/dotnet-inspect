@@ -3,6 +3,7 @@ using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.CommandLine;
 
@@ -103,6 +104,14 @@ public static class ApiCommandDefinitions
             {
                 case TypeOptionsParser.ListSections:
                     SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
+                    return 0;
+
+                case TypeOptionsParser.ListColumns:
+                    ListSchemaNames<CliApiSurface>(schema => schema.GetColumnNames());
+                    return 0;
+
+                case TypeOptionsParser.ListFields:
+                    ListSchemaNames<CliApiSurface>(schema => schema.GetFieldNames());
                     return 0;
 
                 case TypeOptionsParser.ShowHelp:
@@ -209,6 +218,14 @@ public static class ApiCommandDefinitions
                     SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
                     return 0;
 
+                case MemberOptionsParser.ListColumns:
+                    ListSchemaNames<ApiTypeView>(schema => schema.GetColumnNames());
+                    return 0;
+
+                case MemberOptionsParser.ListFields:
+                    ListSchemaNames<ApiTypeView>(schema => schema.GetFieldNames());
+                    return 0;
+
                 case MemberOptionsParser.ShowHelp:
                     new HelpAction().Invoke(parseResult);
                     return 0;
@@ -230,5 +247,13 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    private static void ListSchemaNames<T>(Func<MarkoutSchemaInfo, string[]> getNames)
+    {
+        var schema = new MarkoutContext().GetSchemaInfo<T>();
+        if (schema == null) return;
+        foreach (var name in getNames(schema))
+            Console.WriteLine(name);
     }
 }
