@@ -77,13 +77,13 @@ public static class PackageOptionsParser
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            IncludeSections = null,
+            ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
-        var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null || options.Limit != null
+        var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || ArgumentPreprocessor.HeadLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 

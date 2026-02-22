@@ -92,8 +92,6 @@ public static class MemberOptionsParser
         // Handle section listing, projection discovery, or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
-            if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                return new ListSections();
             if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
                 return new ListSelect();
             return new ShowHelp();
@@ -168,8 +166,8 @@ public static class MemberOptionsParser
             ParamTypes = SharedParsers.ParseParamTypes(parseResult.GetValue(args.ParamsOption)),
             FirstParamType = parseResult.GetValue(args.OfOption),
             ShowSelect = parseResult.GetValue(args.SelectOption),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            IncludeSections = null,
+            ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

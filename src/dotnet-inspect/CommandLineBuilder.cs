@@ -145,9 +145,6 @@ public static class CommandLineBuilder
     // Parse helpers delegated to OptionParsers (for backward compatibility)
     public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
     public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
-    public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
-    public static HashSet<string>? ParseIncludeSections(ParseResult parseResult, Option<string?> option)
-        => OptionParsers.ParseIncludeSections(parseResult, option);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)

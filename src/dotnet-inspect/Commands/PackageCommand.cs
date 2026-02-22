@@ -32,20 +32,6 @@ public class PackageCommand
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        var sectionNames = pipeline.AllSectionNames;
-
-        // Validate section filters
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            sectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
-
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } && packageArgs.Length < 1)
-        {
-            SectionRegistry.ListSections(sectionNames);
-            return 0;
-        }
 
         // Bare -S: list selectable names from schema and exit
         if (options.Select is { Length: 0 })
@@ -66,10 +52,7 @@ public class PackageCommand
             return 0;
         }
 
-        // Bare -s with input: discover which sections have data (set flag for later)
-        bool discoverSections = options.IncludeSections is { Count: 0 };
-
-        // Auto-promote verbosity when -s targets specific sections
+        // Auto-promote verbosity when IncludeSections targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
             var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -261,13 +244,6 @@ public class PackageCommand
 
             // Filter output based on options
             FilterResultForOutput(result, options);
-
-            // Bare -s with input: list sections that have content and exit
-            if (discoverSections)
-            {
-                pipeline.ListEffectiveSections(result);
-                return 0;
-            }
 
             // Output results
             if (options.UseMarkdown)

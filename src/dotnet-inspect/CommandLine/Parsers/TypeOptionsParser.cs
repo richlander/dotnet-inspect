@@ -80,8 +80,6 @@ public static class TypeOptionsParser
         // Handle section listing, projection discovery, or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
-            if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                return new ListSections();
             if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
                 return new ListSelect();
             return new ShowHelp();
@@ -124,8 +122,8 @@ public static class TypeOptionsParser
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            IncludeSections = null,
+            ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

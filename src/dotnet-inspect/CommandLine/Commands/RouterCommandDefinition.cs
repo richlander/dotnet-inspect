@@ -107,7 +107,7 @@ public static class RouterCommandDefinition
 
             if (assemblyExitCode == 0 && !route.Options.JsonOutput)
             {
-                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+                var platformTipLevel = route.Verbosity != Verbosity.Minimal || ArgumentPreprocessor.HeadLines != null
                     ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
                 TipWriter.WritePlatformTips(route.BareName, platformTipLevel, route.Verbosity);
             }
@@ -127,7 +127,7 @@ public static class RouterCommandDefinition
                 Markdown = route.Options.Markdown,
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
-                IncludeSections = route.IncludeSections,
+                IncludeSections = null,
                 ExcludeSections = route.Options.ExcludeSections,
                 Select = route.Options.Select,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
@@ -144,13 +144,13 @@ public static class RouterCommandDefinition
             Markdown = route.Options.Markdown,
             Verbose = route.Options.Verbose,
             Verbosity = route.Verbosity,
-            IncludeSections = route.IncludeSections,
-            ExcludeSections = route.Options.ExcludeSections,
+            IncludeSections = null,
+            ExcludeSections = null,
             Select = route.Options.Select,
             SourceOptions = route.Options.SourceOptions
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 

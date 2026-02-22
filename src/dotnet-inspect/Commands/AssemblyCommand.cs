@@ -21,36 +21,15 @@ public class AssemblyCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        // Validate section filters
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            pipeline.AllSectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
-
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } &&
-            string.IsNullOrEmpty(assemblyPath) &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            SectionRegistry.ListSections(pipeline.AllSectionNames);
-            return 0;
-        }
-
-        // Bare -s with input: discover which sections have data.
-        // Presence flags are populated cheaply during initial metadata load,
-        // so we don't need to promote verbosity or run scanners.
-        bool discoverSections = options.IncludeSections is { Count: 0 };
-
         // --source-link-audit at non-detailed verbosity: implicitly select audit section
-        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed && !discoverSections)
+        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed)
         {
             HashSet<string> sections = options.IncludeSections != null ? [.. options.IncludeSections] : [];
             sections.Add("Source Link Audit");
             options = options with { IncludeSections = sections };
         }
 
-        // -s targeting specific sections: promote verbosity to ensure data collection
+        // IncludeSections targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
@@ -116,12 +95,6 @@ public class AssemblyCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspection);
-                    return 0;
-                }
-
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
@@ -160,12 +133,6 @@ public class AssemblyCommand
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspections[0]);
-                    return 0;
-                }
-
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
@@ -193,12 +160,6 @@ public class AssemblyCommand
                 }
 
                 inspection.Source = SourceKind.File;
-
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspection);
-                    return 0;
-                }
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);

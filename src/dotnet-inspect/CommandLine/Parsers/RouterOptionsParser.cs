@@ -51,7 +51,7 @@ public static class RouterOptionsParser
     /// <summary>
     /// Route to assembly command for a platform library.
     /// </summary>
-    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, Verbosity Verbosity, HashSet<string>? IncludeSections) : RouterParseResult;
+    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, Verbosity Verbosity) : RouterParseResult;
 
     /// <summary>
     /// Handle --version query with cache check first.
@@ -102,8 +102,8 @@ public static class RouterOptionsParser
                     JsonOutput = parseResult.GetValue(opts.Json),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
-                    IncludeSections = opts.ParseIncludeSections(parseResult),
-                    ExcludeSections = opts.ParseExcludeSections(parseResult),
+                    IncludeSections = null,
+                    ExcludeSections = null,
                     Select = opts.ParseSelect(parseResult),
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
@@ -125,7 +125,6 @@ public static class RouterOptionsParser
         bool isVersionQuery = showVersion || showLatestVersion || showVersions;
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var includeSections = opts.ParseIncludeSections(parseResult);
 
         // Platform candidate check (skip for version queries)
         // Note: Qualified type names (e.g., System.Text.Json.JsonSerializer) are also platform candidates
@@ -134,7 +133,7 @@ public static class RouterOptionsParser
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
             var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, bareName, hasExplicitVersion, explicitVersion);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, verbosity, includeSections);
+            return new RouteToPlatformAssembly(assemblyOptions, bareName, verbosity);
         }
 
         // --version query
@@ -154,14 +153,14 @@ public static class RouterOptionsParser
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
-            IncludeSections = includeSections,
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            IncludeSections = null,
+            ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
@@ -192,8 +191,8 @@ public static class RouterOptionsParser
             Markdown = parseResult.GetValue(opts.Markdown),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            IncludeSections = null,
+            ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
         };
     }

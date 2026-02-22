@@ -466,36 +466,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ParseSectionList_WithNull_ReturnsNull()
-    {
-        var result = CommandLineBuilder.ParseSectionList(null);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void ParseSectionList_WithValidSections_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.ParseSectionList("Package,Statistics,Files");
-
-        Assert.NotNull(result);
-        Assert.Contains("Package", result);
-        Assert.Contains("Statistics", result);
-        Assert.Contains("Files", result);
-        Assert.Equal(3, result.Count);
-    }
-
-    [Fact]
-    public void ParseSectionList_WithColonPrefix_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.ParseSectionList(":Package,Statistics");
-
-        Assert.NotNull(result);
-        Assert.Contains("Package", result);
-        Assert.Contains("Statistics", result);
-    }
-
-    [Fact]
     public void ApiCommand_WithAllFlag_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--all"]);

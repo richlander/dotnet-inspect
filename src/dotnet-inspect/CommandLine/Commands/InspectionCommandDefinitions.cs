@@ -177,8 +177,8 @@ public static class InspectionCommandDefinitions
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
-                IncludeSections = opts.ParseIncludeSections(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                IncludeSections = null,
+                ExcludeSections = null,
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

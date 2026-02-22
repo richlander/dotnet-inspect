@@ -47,33 +47,6 @@ public static class OptionParsers
         };
     }
 
-    public static HashSet<string>? ParseSectionList(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return null;
-
-        var v = value.TrimStart(':');
-        HashSet<string> sections = [];
-        foreach (var part in v.Split(',', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmed = part.Trim();
-            if (trimmed.Length > 0)
-                sections.Add(trimmed);
-        }
-        return sections.Count > 0 ? sections : null;
-    }
-
-    /// <summary>
-    /// Parses -s option, distinguishing "not specified" (null) from bare "-s" (empty set).
-    /// </summary>
-    public static HashSet<string>? ParseIncludeSections(ParseResult parseResult, Option<string?> option)
-    {
-        var sections = ParseSectionList(parseResult.GetValue(option));
-        // Bare -s with no value: return empty set (signals "list sections")
-        if (sections == null && parseResult.GetResult(option) != null)
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return sections;
-    }
-
     /// <summary>
     /// Creates NuGetSourceOptions from parsed command line values.
     /// </summary>

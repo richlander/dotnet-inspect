@@ -24,13 +24,6 @@ public class SharedOptions
     public Option<int?> Limit { get; } = new("-n") { Description = "Limit output lines (like head -n)" };
     public Option<string?> Tips { get; }
 
-    // Section filtering options
-    public Option<string?> IncludeSections { get; }
-    public Option<string?> ExcludeSections { get; } = new("-x")
-    {
-        Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
-    };
-
     // Projection options
     public Option<string?> Select { get; }
 
@@ -58,13 +51,6 @@ public class SharedOptions
             Arity = ArgumentArity.ZeroOrOne
         };
         Tips.Aliases.Add("-T");
-
-        IncludeSections = new Option<string?>("-s")
-        {
-            Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.",
-            Arity = ArgumentArity.ZeroOrOne
-        };
-        IncludeSections.Aliases.Add("--section");
 
         Select = new Option<string?>("-S")
         {
@@ -98,8 +84,6 @@ public class SharedOptions
     /// </summary>
     public void AddSectionOptionsTo(Command command)
     {
-        command.Options.Add(IncludeSections);
-        command.Options.Add(ExcludeSections);
         command.Options.Add(Select);
     }
 
@@ -158,18 +142,6 @@ public class SharedOptions
     /// </summary>
     public TipLevel ParseTipLevel(ParseResult parseResult)
         => OptionParsers.ParseTipLevel(parseResult.GetValue(Tips), parseResult.GetResult(Tips) != null);
-
-    /// <summary>
-    /// Parses include sections from parse result.
-    /// </summary>
-    public HashSet<string>? ParseIncludeSections(ParseResult parseResult)
-        => OptionParsers.ParseIncludeSections(parseResult, IncludeSections);
-
-    /// <summary>
-    /// Parses exclude sections from parse result.
-    /// </summary>
-    public HashSet<string>? ParseExcludeSections(ParseResult parseResult)
-        => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
 
     /// <summary>
     /// Parses select list from parse result.

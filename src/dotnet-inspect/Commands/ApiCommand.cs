@@ -32,24 +32,9 @@ public class ApiCommand
             return 1;
         }
 
-        // Validate section filters against all known api sections
+        // Set up section pipelines
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            allApiSections, options.IncludeSections, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
-
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.AssemblyPath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            SectionRegistry.ListSections(allApiSections);
-            return 0;
-        }
 
         // Bare -S: list selectable names from schema and exit
         if (options.Select is { Length: 0 })
@@ -66,10 +51,7 @@ public class ApiCommand
             return 0;
         }
 
-        // Bare -s with input: discover which sections have data (set flag for later)
-        bool discoverSections = options.IncludeSections is { Count: 0 };
-
-        // Auto-promote verbosity when -s targets specific sections
+        // Auto-promote verbosity when IncludeSections targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
             var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -262,12 +244,6 @@ public class ApiCommand
                             await SourceEnricher.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
                         }
                     }
-                }
-
-                if (discoverSections)
-                {
-                    typePipeline.ListEffectiveSections(api);
-                    return 0;
                 }
 
                 WriteFullApiOutput(api, options, selectedTfm);
@@ -480,12 +456,6 @@ public class ApiCommand
                             effectiveOptions = effectiveOptions with { MethodSource = methodSource };
                     }
 
-                    if (discoverSections)
-                    {
-                        memberPipeline.ListEffectiveSections(apiType);
-                        return 0;
-                    }
-
                     WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
 
                     if (!effectiveOptions.IsRawOutput && !effectiveOptions.OverloadIndex.HasValue)
@@ -552,11 +522,6 @@ public class ApiCommand
                             TypeFilter = typeName,
                             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
                         };
-                        if (discoverSections)
-                        {
-                            typePipeline.ListEffectiveSections(api);
-                            return 0;
-                        }
 
                         WriteFullApiOutput(api, options, selectedTfm);
                     }
