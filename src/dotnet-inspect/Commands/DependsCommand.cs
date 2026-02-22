@@ -15,6 +15,9 @@ public class DependsCommand
 {
     public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
     {
+#if DEBUG
+        DotnetInspector.Core.HttpClientFactory.AllowNetwork();
+#endif
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<string> tempDirs = [];
@@ -79,6 +82,9 @@ public class DependsCommand
 
     public static async Task<int> ExecuteLibraryDependsAsync(DependsOptions options)
     {
+#if DEBUG
+        DotnetInspector.Core.HttpClientFactory.AllowNetwork();
+#endif
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;
@@ -184,6 +190,9 @@ public class DependsCommand
 
     public static async Task<int> ExecutePackageDependsAsync(DependsOptions options)
     {
+#if DEBUG
+        DotnetInspector.Core.HttpClientFactory.AllowNetwork();
+#endif
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;
