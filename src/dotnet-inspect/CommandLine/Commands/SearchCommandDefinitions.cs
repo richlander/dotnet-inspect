@@ -71,6 +71,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(compactOption);
         findCommand.Options.Add(oneLineOption);
         findCommand.Options.Add(noHeaderOption);
+        findCommand.Options.Add(opts.Markdown);
         findCommand.Options.Add(packagePrefixOption);
         opts.AddOutputOptionsTo(findCommand);
         opts.AddNuGetOptionsTo(findCommand);
@@ -161,6 +162,7 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(compactOption);
         implCommand.Options.Add(oneLineOption);
         implCommand.Options.Add(noHeaderOption);
+        implCommand.Options.Add(opts.Markdown);
         implCommand.Options.Add(packagePrefixOption);
         opts.AddOutputOptionsTo(implCommand);
         opts.AddNuGetOptionsTo(implCommand);
@@ -205,6 +207,7 @@ public static class SearchCommandDefinitions
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
+                Markdown = parseResult.GetValue(opts.Markdown),
                 NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 PackagePrefix = packagePrefix,

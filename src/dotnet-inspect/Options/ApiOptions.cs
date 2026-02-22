@@ -37,6 +37,7 @@ public record ApiOptions
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
     public bool OneLine { get; init; }
+    public bool Markdown { get; init; }
     public bool NoHeader { get; init; }
     public bool ShapeOutput { get; init; }
     public bool UnsafeOnly { get; init; }
@@ -61,7 +62,17 @@ public record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || ShapeOutput;
+    public bool IsRawOutput => JsonOutput || !UseMarkdown || ShapeOutput;
+
+    /// <summary>
+    /// Resolved output format: true when full markdown rendering should be used.
+    /// </summary>
+    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Normal;
+
+    /// <summary>
+    /// Resolved shape output: true when --shape or single type without explicit --oneline/--markdown.
+    /// </summary>
+    public bool UseShape => ShapeOutput || (TypeName != null && !IsMemberCommand && !OneLine && !UseMarkdown);
 }
 
 /// <summary>

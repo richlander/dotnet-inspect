@@ -252,17 +252,7 @@ public class PackageCommand
             }
 
             // Output results
-            if (options.OneLine)
-            {
-                var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
-                var writerOpts = new MarkoutWriterOptions
-                {
-                    Projection = OutputFormatter.BuildProjection(options.Select)
-                };
-                var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-                new MarkoutContext().Serialize(oneLineView, writer);
-            }
-            else
+            if (options.UseMarkdown)
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (!string.IsNullOrEmpty(options.OutputPath))
@@ -273,6 +263,16 @@ public class PackageCommand
                 {
                     Console.WriteLine(output);
                 }
+            }
+            else
+            {
+                var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    Projection = OutputFormatter.BuildProjection(options.Select)
+                };
+                var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+                new MarkoutContext().Serialize(oneLineView, writer);
             }
 
             return 0;

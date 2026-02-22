@@ -70,7 +70,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader);
+                WriteMarkoutOutput(targetType, results, !options.UseMarkdown, options.NoHeader);
             }
 
             return 0;

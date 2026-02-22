@@ -83,6 +83,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(oneLineOption);
         typeCommand.Options.Add(noHeaderOption);
+        typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(memberOption);
@@ -188,6 +189,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(compactOption);
         memberCommand.Options.Add(oneLineOption);
         memberCommand.Options.Add(noHeaderOption);
+        memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(paramsOption);

@@ -640,17 +640,7 @@ public class ApiCommand
 
         var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
 
-        if (options.OneLine)
-        {
-            var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(options.Select)
-            };
-            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-            new MarkoutContext().Serialize(oneLineView, writer);
-        }
-        else
+        if (options.UseMarkdown)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             var writer = new Markout.MarkdownWriter(writerOptions);
@@ -660,6 +650,16 @@ public class ApiCommand
                 writer.WriteParagraph($"... *and {truncatedCount} more types*");
 
             Console.WriteLine(writer.ToString().TrimEnd());
+        }
+        else
+        {
+            var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Select)
+            };
+            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+            new MarkoutContext().Serialize(oneLineView, writer);
         }
     }
 
@@ -778,7 +778,7 @@ public class ApiCommand
 
     private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
-        if (options.ShapeOutput)
+        if (options.UseShape)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter);
             return;
@@ -839,17 +839,7 @@ public class ApiCommand
                 view.SourceCode = new Markout.CodeSection("csharp", options.MethodSource.SourceCode);
         }
 
-        if (options.OneLine)
-        {
-            var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(options.Select)
-            };
-            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-            new MarkoutContext().Serialize(oneLineView, writer);
-        }
-        else
+        if (options.UseMarkdown)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var writer = new Markout.MarkdownWriter(writerOptions);
@@ -859,6 +849,16 @@ public class ApiCommand
                 writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
 
             Console.WriteLine(writer.ToString().TrimEnd());
+        }
+        else
+        {
+            var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Select)
+            };
+            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+            new MarkoutContext().Serialize(oneLineView, writer);
         }
     }
 

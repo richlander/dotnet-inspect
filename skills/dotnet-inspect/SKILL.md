@@ -10,8 +10,8 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## Quick Decision Tree
 
-- **Code broken?** → `diff --package Foo@old..new` first, then `member --oneline`
-- **Need API surface?** → `member Type --package Foo --oneline` (token-efficient)
+- **Code broken?** → `diff --package Foo@old..new` first, then `member`
+- **Need API surface?** → `member Type --package Foo` (token-efficient oneline default)
 - **Need signatures?** → `member Type --package Foo -m Method` (default shows full signatures + docs)
 - **Need source/IL?** → `member Type --package Foo -m Method -v:d` (adds Source, Lowered C#, IL)
 - **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
@@ -22,7 +22,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What types are in this package?"** — `type` discovers types (terse), `find` searches by pattern
 - **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
-- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member --oneline` to see the new API
+- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
 - **"What extends this type?"** — `extensions` finds extension methods/properties
 - **"What implements this interface?"** — `implements` finds concrete types
 - **"What does this type depend on?"** — `depends` walks the type hierarchy upward
@@ -31,26 +31,27 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## Key Patterns
 
-Use `--oneline` as the default for scanning — it works on `type`, `member`, `find`, `diff`, and `implements`:
+Output defaults to oneline (compact table). Use `--markdown` for full document output, or `-v:d`/`-v:n` which imply markdown:
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline  # scan members
-dnx dotnet-inspect -y -- type --package System.Text.Json --oneline                   # scan types
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --oneline  # triage changes
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json      # scan members (oneline default)
+dnx dotnet-inspect -y -- type --package System.Text.Json                       # scan types (oneline default)
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Use `--shape` to understand a type's hierarchy and surface at a glance:
+Use `type Foo` to see shape output (hierarchy + surface) — it defaults to `--shape` for single types:
 
 ```bash
-dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections      # shape by default for single type
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --oneline  # override to oneline
 ```
 
-Use `diff` first when fixing broken code — `--oneline` for triage, then full detail on specific types:
+Use `diff` first when fixing broken code — oneline for triage, then full detail on specific types:
 
 ```bash
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --oneline  # what changed?
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
 dnx dotnet-inspect -y -- diff -t Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # detail on Command
-dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3 --oneline              # new API surface
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3              # new API surface
 ```
 
 ## Search Scope
@@ -85,8 +86,8 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 **Do not pipe output through `head`, `tail`, or `Select-Object`.** The tool has built-in line limiting that preserves headers and formatting:
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline -10  # first 10 lines
-dnx dotnet-inspect -y -- find "*Logger*" -n 5                                            # first 5 lines
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -10  # first 10 lines
+dnx dotnet-inspect -y -- find "*Logger*" -n 5                                  # first 5 lines
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -s Methods  # select specific section
 ```
 

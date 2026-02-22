@@ -14,6 +14,7 @@ public class SharedOptions
     // Output format options
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Markout { get; } = new("--markout") { Description = "Output as Markout (default)" };
+    public Option<bool> Markdown { get; } = new("--markdown") { Description = "Full markdown output (default is oneline)" };
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };

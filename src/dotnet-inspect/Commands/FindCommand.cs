@@ -41,7 +41,7 @@ public class FindCommand
             }
 
             // For oneline/multi-pattern mode, collect results per pattern
-            if (options.OneLine || patterns.Length > 1)
+            if (!options.UseMarkdown || patterns.Length > 1)
             {
                 return await ExecuteMultiPatternAsync(patterns, options, logger, tempDirs, context.HttpClient);
             }
@@ -95,7 +95,7 @@ public class FindCommand
         }
         else
         {
-            WriteMarkoutOutput(FindOutputFormatter.BuildMultiPatternView(resultsByPattern), options.OneLine, options.NoHeader);
+            WriteMarkoutOutput(FindOutputFormatter.BuildMultiPatternView(resultsByPattern), !options.UseMarkdown, options.NoHeader);
         }
 
         return 0;
@@ -119,7 +119,7 @@ public class FindCommand
             }
             else
             {
-                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit), options.OneLine, options.NoHeader);
+                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit), !options.UseMarkdown, options.NoHeader);
             }
 
             return 0;

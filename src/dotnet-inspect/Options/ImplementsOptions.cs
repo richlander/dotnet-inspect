@@ -63,6 +63,11 @@ public record ImplementsOptions : IAssemblySourceOptions
     public bool OneLine { get; init; }
 
     /// <summary>
+    /// Full markdown output (overrides oneline default).
+    /// </summary>
+    public bool Markdown { get; init; }
+
+    /// <summary>
     /// Suppress column headers in oneline output.
     /// </summary>
     public bool NoHeader { get; init; }
@@ -95,5 +100,10 @@ public record ImplementsOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine;
+    public bool IsRawOutput => JsonOutput || !UseMarkdown;
+
+    /// <summary>
+    /// Resolved output format: true when full markdown rendering should be used.
+    /// </summary>
+    public bool UseMarkdown => Markdown;
 }

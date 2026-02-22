@@ -87,8 +87,8 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
-        // Compact view: grouped by name with overload counts
-        Assert.Contains("Overloads", output);
+        // Single type at -v:m defaults to shape output
+        Assert.Contains("JsonSerializer", output);
         // No documentation
         Assert.DoesNotContain("Reads the UTF-8", output);
     }
@@ -103,7 +103,8 @@ public class OfflineVerbosityTests : IDisposable
             "-m", "Serialize", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
-        Assert.Contains("JsonSerializer", output);
+        // Oneline output: member table with matching method
+        Assert.Contains("Serialize", output);
     }
 
     [Fact]
@@ -115,8 +116,8 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize", output);
-        // Minimal now shows full signatures with docs
-        Assert.Contains("Signature", output);
+        // Oneline table output with member details
+        Assert.Contains("method", output);
     }
 
     // ── router -> qualified type name ─────────────────────────────────
@@ -139,7 +140,8 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
-        Assert.Contains("Overloads", output);
+        // Single type at -v:m defaults to shape output
+        Assert.Contains("JsonSerializer", output);
     }
 
     // ── type forwarder following ─────────────────────────────────────
@@ -162,7 +164,8 @@ public class OfflineVerbosityTests : IDisposable
             "type", "--platform", "System.Collections", "-t", "HashSet*", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
-        Assert.Contains("Types: 1", output);
+        // Oneline output: table with matching type
+        Assert.Contains("HashSet", output);
     }
 
     [Fact]

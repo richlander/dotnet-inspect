@@ -63,6 +63,11 @@ public record AssemblyOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Full markdown output (overrides oneline default).
+    /// </summary>
+    public bool Markdown { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

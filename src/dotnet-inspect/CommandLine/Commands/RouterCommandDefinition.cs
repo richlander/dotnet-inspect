@@ -36,6 +36,7 @@ public static class RouterCommandDefinition
         var routerNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         routerCommand.Options.Add(routerOneLineOption);
         routerCommand.Options.Add(routerNoHeaderOption);
+        routerCommand.Options.Add(opts.Markdown);
 
         // Version query options for the router
         var routerVersionOption = new Option<bool>("--version") { Description = "Show resolved version" };
@@ -123,6 +124,7 @@ public static class RouterCommandDefinition
                 TypeName = qtType,
                 PlatformAssembly = qtAssembly,
                 JsonOutput = route.Options.JsonOutput,
+                Markdown = route.Options.Markdown,
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
                 IncludeSections = route.IncludeSections,
@@ -139,6 +141,7 @@ public static class RouterCommandDefinition
         {
             PackageArgs = [route.BareName],
             JsonOutput = route.Options.JsonOutput,
+            Markdown = route.Options.Markdown,
             Verbose = route.Options.Verbose,
             Verbosity = route.Verbosity,
             IncludeSections = route.IncludeSections,

@@ -91,7 +91,7 @@ makes a compelling case for the `diff` command during migrations.
 ## 8. Diff: System.Text.Json evolution — diffstat view
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 --oneline
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.3
 ```
 
 A git-style diffstat showing the evolution of System.Text.Json across two major
@@ -218,10 +218,10 @@ makes the column projection immediately obvious.
 ## 19. Select columns: types and changes only
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 --oneline -S Type,Change
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.3 -S Type,Change
 ```
 
-Combines `--oneline` (compact table format) with `-S Type,Change` to
+Combines the default oneline output with `-S Type,Change` to
 strip the diff table down to just two columns: the type name and the
 change indicator (+, ~, x). Removes the verbose member-count columns,
 leaving a clean scan of what was added, changed, or broken across two

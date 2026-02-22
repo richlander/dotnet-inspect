@@ -73,6 +73,7 @@ public static class PackageOptionsParser
             Limit = bareVersion ? 1 : versionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = parseResult.GetValue(args.OneLineOption),
+            Markdown = parseResult.GetValue(opts.Markdown),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,

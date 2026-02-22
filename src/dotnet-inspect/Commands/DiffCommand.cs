@@ -91,7 +91,12 @@ public class DiffCommand
 
             var diff = ApiDiffAnalyzer.Compare(fromSurface, toSurface);
 
-            if (options.OneLine)
+            if (options.UseMarkdown)
+            {
+                var output = RenderDiff(name, diff, fromVersion, toVersion, options);
+                Console.WriteLine(output);
+            }
+            else
             {
                 var typeDiffs = ApplyFilters(diff, options);
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
@@ -101,11 +106,6 @@ public class DiffCommand
                 };
                 var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(view, writer);
-            }
-            else
-            {
-                var output = RenderDiff(name, diff, fromVersion, toVersion, options);
-                Console.WriteLine(output);
             }
 
             return 0;
@@ -293,6 +293,7 @@ public record DiffOptions
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
     public bool OneLine { get; init; }
+    public bool Markdown { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
@@ -303,5 +304,10 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => OneLine || NameOnly;
+    public bool IsRawOutput => !UseMarkdown || NameOnly;
+
+    /// <summary>
+    /// Resolved output format: true when full markdown rendering should be used.
+    /// </summary>
+    public bool UseMarkdown => Markdown;
 }

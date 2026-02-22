@@ -129,6 +129,11 @@ public record InspectionOptions
     public bool OneLine { get; init; }
 
     /// <summary>
+    /// Full markdown output (overrides oneline default).
+    /// </summary>
+    public bool Markdown { get; init; }
+
+    /// <summary>
     /// Suppress column headers (use with --oneline).
     /// </summary>
     public bool NoHeader { get; init; }
@@ -141,7 +146,13 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
+    public bool IsRawOutput => JsonOutput || !UseMarkdown || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
+
+    /// <summary>
+    /// Resolved output format: true when full markdown rendering should be used.
+    /// Markdown is used when explicitly requested, when verbosity is Normal+, or when writing to a file.
+    /// </summary>
+    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Normal || OutputPath != null;
 
     /// <summary>
     /// All inspection features enabled.

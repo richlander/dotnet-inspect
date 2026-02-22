@@ -55,6 +55,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(outOption);
         packageCommand.Options.Add(oneLineOption);
         packageCommand.Options.Add(noHeaderOption);
+        packageCommand.Options.Add(opts.Markdown);
         packageCommand.Options.Add(opts.Json);
         packageCommand.Options.Add(opts.Markout);
         opts.AddOutputOptionsTo(packageCommand);
