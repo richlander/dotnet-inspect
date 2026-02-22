@@ -88,11 +88,12 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -10  # first 10 lines
 dnx dotnet-inspect -y -- find "*Logger*" -n 5                                  # first 5 lines
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -s Methods  # select specific section
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -S Methods  # select specific section
 ```
 
 - **`-n N` or `-N`** — line limit, like `head`. Keeps headers, truncates cleanly.
-- **`-s Section`** — show only a specific section (glob-capable). Use `-s` alone to list available sections.
+- **`-S Name`** — select sections or fields by name. Section names win when ambiguous. Use `-S` alone to discover available names.
+- **`-F Name`** — explicit field selection (bypasses section matching, for ambiguous names).
 - **`-v:q`** — quiet verbosity for compact summary output.
 
 ## Key Syntax
