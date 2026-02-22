@@ -268,6 +268,20 @@ public class PackageCommand
                     Console.WriteLine(output);
                 }
             }
+            else if (options.IncludeSections != null)
+            {
+                // Section selected via -S: render full view through OneLineWriter with section filtering
+                var view = new InspectionResultView(result);
+                var includeSections = pipeline.ComputeIncludeSections(
+                    result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    IncludeSections = includeSections,
+                    Projection = OutputFormatter.BuildProjection(options.Select)
+                };
+                var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+                new MarkoutContext().Serialize(view, writer);
+            }
             else
             {
                 var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);

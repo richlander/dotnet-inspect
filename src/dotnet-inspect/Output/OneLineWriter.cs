@@ -25,6 +25,13 @@ public class OneLineWriter : MarkoutWriter
     /// <inheritdoc/>
     public override MarkoutShape SupportedShapes => MarkoutShape.Tables | MarkoutShape.Lists;
 
+    // Silent no-ops for shapes OneLineWriter doesn't render.
+    // Overriding avoids the base class "unsupported shape" warning.
+    public override void WriteParagraph(string? text) { }
+    public override void WriteField(string key, string? value) { }
+    public override void WriteField(string key, bool value) { }
+    public override void WriteFieldList(IReadOnlyList<MarkoutField> fields) { }
+
     public override void WriteHeading(int level, string text, string? context)
     {
         UpdateSectionState(level, text);
