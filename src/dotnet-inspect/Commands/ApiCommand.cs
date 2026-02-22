@@ -35,31 +35,51 @@ public class ApiCommand
         // Set up section pipelines
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        string[] allApiSections = [.. SectionRegistry.ApiTypeSections, .. SectionRegistry.ApiMemberSections];
 
-        // Bare -S: list selectable names from schema and exit
+        // Resolve -S values: categorize into sections vs fields/columns
+        var resolved = SelectResolver.Resolve(options.Select, allApiSections);
+
+        // Bare -S: unified discovery — list sections then fields
         if (options.Select is { Length: 0 })
         {
+            foreach (var name in SectionRegistry.ApiTypeSections)
+                Console.WriteLine($"{name,-24} section (type)");
+            foreach (var name in SectionRegistry.ApiMemberSections)
+                Console.WriteLine($"{name,-24} section (member)");
+
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
             var memberSchema = context2.GetSchemaInfo<ApiTypeView>();
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (typeSchema != null) { foreach (var n in typeSchema.GetFieldNames()) fields.Add(n); foreach (var n in typeSchema.GetColumnNames()) columns.Add(n); }
-            if (memberSchema != null) { foreach (var n in memberSchema.GetFieldNames()) fields.Add(n); foreach (var n in memberSchema.GetColumnNames()) columns.Add(n); }
+            if (typeSchema != null) foreach (var n in typeSchema.GetFieldNames()) fields.Add(n);
+            if (memberSchema != null) foreach (var n in memberSchema.GetFieldNames()) fields.Add(n);
             foreach (var name in fields) Console.WriteLine($"{name,-24} field");
+
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (typeSchema != null) foreach (var n in typeSchema.GetColumnNames()) columns.Add(n);
+            if (memberSchema != null) foreach (var n in memberSchema.GetColumnNames()) columns.Add(n);
             foreach (var name in columns) Console.WriteLine($"{name,-24} column");
             return 0;
         }
 
-        // Auto-promote verbosity when IncludeSections targets specific sections
-        if (options.IncludeSections is { Count: > 0 })
+        // Wire resolved sections into options
+        if (resolved.Sections != null)
         {
-            var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
-            var memberVerbosity = memberPipeline.GetRequiredVerbosity(options.IncludeSections);
+            options = options with { IncludeSections = resolved.Sections };
+
+            var typeVerbosity = typePipeline.GetRequiredVerbosity(resolved.Sections);
+            var memberVerbosity = memberPipeline.GetRequiredVerbosity(resolved.Sections);
             var requiredVerbosity = typeVerbosity > memberVerbosity ? typeVerbosity : memberVerbosity;
             if (requiredVerbosity > options.Verbosity)
                 options = options with { Verbosity = requiredVerbosity };
         }
+
+        // Update Select to only contain non-section names
+        if (resolved.FieldsAndColumns != null)
+            options = options with { Select = resolved.FieldsAndColumns };
+        else if (resolved.Sections != null)
+            options = options with { Select = null };
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;

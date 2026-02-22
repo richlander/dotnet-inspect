@@ -32,37 +32,47 @@ public class PackageCommand
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
         var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var sectionNames = SectionRegistry.PackageCommandSections;
 
-        // Bare -S: list selectable names from schema and exit
+        // Resolve -S values: categorize into sections vs fields/columns
+        var resolved = SelectResolver.Resolve(options.Select, sectionNames);
+
+        // Bare -S: unified discovery — list sections then fields
         if (options.Select is { Length: 0 })
         {
+            foreach (var name in sectionNames)
+                Console.WriteLine($"{name,-24} section");
+
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
             if (schema != null)
             {
                 foreach (var name in schema.GetFieldNames())
                     Console.WriteLine($"{name,-24} field");
-
-                // Columns are only selectable in markdown mode (section tables)
-                if (options.UseMarkdown)
-                {
-                    foreach (var name in schema.GetColumnNames())
-                        Console.WriteLine($"{name,-24} column");
-                }
             }
             return 0;
         }
 
-        // Auto-promote verbosity when IncludeSections targets specific sections
-        if (options.IncludeSections is { Count: > 0 })
+        // Wire resolved sections into options
+        if (resolved.Sections != null)
         {
-            var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
+            options = options with { IncludeSections = resolved.Sections };
+
+            // Auto-promote verbosity for selected sections
+            var requiredVerbosity = pipeline.GetRequiredVerbosity(resolved.Sections);
             if (requiredVerbosity > options.Verbosity)
                 options = options with { Verbosity = requiredVerbosity };
         }
 
+        // Update Select to only contain non-section names (fields/columns)
+        if (resolved.FieldsAndColumns != null)
+            options = options with { Select = resolved.FieldsAndColumns };
+        else if (resolved.Sections != null)
+            options = options with { Select = null };
+
         // Force metadata fetch when -S targets metadata-only fields (Owners, etc.)
-        bool forceMetadata = options.Select is { Length: > 0 }
-            && options.Select.Any(s => MetadataOnlyFields.Contains(s));
+        var selectForMetadata = resolved.FieldsAndColumns ?? options.Select;
+        bool forceMetadata = selectForMetadata is { Length: > 0 }
+            && selectForMetadata.Any(s => MetadataOnlyFields.Contains(s));
 
         if (packageArgs.Length < 1)
         {

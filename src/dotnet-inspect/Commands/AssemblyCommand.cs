@@ -7,6 +7,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -20,6 +21,33 @@ public class AssemblyCommand
         var assemblyPath = options.AssemblyName;
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
+
+        // Resolve -S values: categorize into sections vs fields/columns
+        var resolved = SelectResolver.Resolve(options.Select, SectionRegistry.LibrarySections);
+
+        // Bare -S: unified discovery
+        if (options.Select is { Length: 0 })
+        {
+            foreach (var name in SectionRegistry.LibrarySections)
+                Console.WriteLine($"{name,-24} section");
+
+            var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
+            if (schema != null)
+            {
+                foreach (var name in schema.GetFieldNames())
+                    Console.WriteLine($"{name,-24} field");
+            }
+            return 0;
+        }
+
+        // Wire resolved sections into options
+        if (resolved.Sections != null)
+            options = options with { IncludeSections = resolved.Sections };
+
+        if (resolved.FieldsAndColumns != null)
+            options = options with { Select = resolved.FieldsAndColumns };
+        else if (resolved.Sections != null)
+            options = options with { Select = null };
 
         // --source-link-audit at non-detailed verbosity: implicitly select audit section
         if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed)
