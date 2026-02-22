@@ -180,6 +180,7 @@ public static class OutputFormatter
 
         return new MarkoutProjection
         {
+            IncludeSections = select,
             IncludeColumns = select,
             IncludeFields = select
         };
