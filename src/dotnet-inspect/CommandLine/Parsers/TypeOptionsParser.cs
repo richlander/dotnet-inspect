@@ -121,7 +121,7 @@ public static class TypeOptionsParser
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = parseResult.GetValue(args.OneLineOption),
-            Markdown = parseResult.GetValue(opts.Markdown),
+            Markdown = opts.ParseMarkdown(parseResult),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),

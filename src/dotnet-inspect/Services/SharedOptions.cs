@@ -153,6 +153,19 @@ public class SharedOptions
         => OptionParsers.ParseTipLevel(parseResult.GetValue(Tips), parseResult.GetResult(Tips) != null);
 
     /// <summary>
+    /// Parses markdown flag from parse result, with DOTNET_INSPECT_FORMAT env fallback.
+    /// Explicit --markdown flag wins, then env var ("markdown" or "oneline").
+    /// </summary>
+    public bool ParseMarkdown(ParseResult parseResult)
+    {
+        if (parseResult.GetValue(Markdown))
+            return true;
+
+        var format = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        return string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Parses select list from parse result.
     /// Returns null if not specified, empty array for bare -S (discovery), or populated array.
     /// </summary>

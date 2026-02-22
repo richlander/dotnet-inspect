@@ -102,7 +102,7 @@ public static class DiffOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
             OneLine = parseResult.GetValue(args.OneLineOption),
-            Markdown = parseResult.GetValue(opts.Markdown),
+            Markdown = opts.ParseMarkdown(parseResult),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),

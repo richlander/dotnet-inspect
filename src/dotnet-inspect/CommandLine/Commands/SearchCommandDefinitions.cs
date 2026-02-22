@@ -207,7 +207,7 @@ public static class SearchCommandDefinitions
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = parseResult.GetValue(oneLineOption),
-                Markdown = parseResult.GetValue(opts.Markdown),
+                Markdown = opts.ParseMarkdown(parseResult),
                 NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 PackagePrefix = packagePrefix,

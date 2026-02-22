@@ -161,7 +161,7 @@ public static class MemberOptionsParser
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = parseResult.GetValue(args.OneLineOption),
-            Markdown = parseResult.GetValue(opts.Markdown),
+            Markdown = opts.ParseMarkdown(parseResult),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,

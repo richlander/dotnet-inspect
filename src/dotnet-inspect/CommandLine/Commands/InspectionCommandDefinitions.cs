@@ -178,7 +178,7 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
-                Markdown = parseResult.GetValue(opts.Markdown),
+                Markdown = opts.ParseMarkdown(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 IncludeSections = null,
