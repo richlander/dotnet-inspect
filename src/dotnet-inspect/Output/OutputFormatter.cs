@@ -39,10 +39,13 @@ public static class OutputFormatter
             foreach (var f in fields)
                 fieldMap.TryAdd(f.Key, f);
 
-            fields = options.Select
-                .Where(s => fieldMap.ContainsKey(s))
-                .Select(s => fieldMap[s])
-                .ToList();
+            var matched = options.Select.Where(s => fieldMap.ContainsKey(s)).ToArray();
+            var unmatched = options.Select.Where(s => !fieldMap.ContainsKey(s)).ToArray();
+
+            if (unmatched.Length > 0)
+                Console.Error.WriteLine($"Warning: no data for: {string.Join(", ", unmatched)}. Use -S to list available names.");
+
+            fields = matched.Select(s => fieldMap[s]).ToList();
         }
 
         var rows = fields.Select(f => new PackageOneLineRow(f.Key, f.Value ?? "")).ToList();
