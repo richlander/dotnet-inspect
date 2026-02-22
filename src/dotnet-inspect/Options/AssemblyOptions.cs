@@ -75,7 +75,7 @@ public record AssemblyOptions
     /// <summary>
     /// Output verbosity level.
     /// </summary>
-    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
@@ -119,6 +119,11 @@ public record AssemblyOptions
     {
         IncludeSourcelinkAudit = true
     };
+
+    /// <summary>
+    /// True when markdown output is requested (explicit or via verbosity).
+    /// </summary>
+    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Normal;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

@@ -126,6 +126,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(opts.Markdown);
         opts.AddAllOptionsTo(assemblyCommand);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
@@ -163,6 +164,8 @@ public static class InspectionCommandDefinitions
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
 
+            var (select, preferFields) = opts.ResolveSelectAndField(parseResult);
+
             var options = new AssemblyOptions
             {
                 AssemblyName = assemblyPath,
@@ -175,10 +178,13 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
+                Markdown = parseResult.GetValue(opts.Markdown),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 IncludeSections = null,
                 ExcludeSections = null,
+                Select = select,
+                PreferFields = preferFields,
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

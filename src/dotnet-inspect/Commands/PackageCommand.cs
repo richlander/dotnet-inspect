@@ -40,15 +40,11 @@ public class PackageCommand
         // Bare -S: unified discovery — list sections then fields
         if (options.Select is { Length: 0 })
         {
-            foreach (var name in sectionNames)
-                Console.WriteLine($"{name,-24} section");
-
+            var entries = sectionNames.Select(n => (n, "section")).ToList();
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
             if (schema != null)
-            {
-                foreach (var name in schema.GetFieldNames())
-                    Console.WriteLine($"{name,-24} field");
-            }
+                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
+            SelectResolver.WriteDiscoveryLines(entries);
             return 0;
         }
 

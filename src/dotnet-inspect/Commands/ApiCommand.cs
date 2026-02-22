@@ -43,10 +43,11 @@ public class ApiCommand
         // Bare -S: unified discovery — list sections then fields
         if (options.Select is { Length: 0 })
         {
+            var entries = new List<(string, string)>();
             foreach (var name in SectionRegistry.ApiTypeSections)
-                Console.WriteLine($"{name,-24} section (type)");
+                entries.Add((name, "section (type)"));
             foreach (var name in SectionRegistry.ApiMemberSections)
-                Console.WriteLine($"{name,-24} section (member)");
+                entries.Add((name, "section (member)"));
 
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
@@ -54,12 +55,13 @@ public class ApiCommand
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (typeSchema != null) foreach (var n in typeSchema.GetFieldNames()) fields.Add(n);
             if (memberSchema != null) foreach (var n in memberSchema.GetFieldNames()) fields.Add(n);
-            foreach (var name in fields) Console.WriteLine($"{name,-24} field");
+            entries.AddRange(fields.Select(n => (n, "field")));
 
             var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (typeSchema != null) foreach (var n in typeSchema.GetColumnNames()) columns.Add(n);
             if (memberSchema != null) foreach (var n in memberSchema.GetColumnNames()) columns.Add(n);
-            foreach (var name in columns) Console.WriteLine($"{name,-24} column");
+            entries.AddRange(columns.Select(n => (n, "column")));
+            SelectResolver.WriteDiscoveryLines(entries);
             return 0;
         }
 

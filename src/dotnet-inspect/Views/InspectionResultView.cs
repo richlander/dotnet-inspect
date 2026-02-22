@@ -137,7 +137,7 @@ public class InspectionResultView
     [MarkoutPropertyName("Tool Format")]
     public string? ToolFormat => _data.ToolFormat;
 
-    [MarkoutPropertyName("RID-Specific Pointer Package")]
+    [MarkoutPropertyName("RID Pointer Package")]
     [MarkoutSkipDefault]
     public bool IsRidSpecificPointerPackage => _data.IsRidSpecificPointerPackage;
 

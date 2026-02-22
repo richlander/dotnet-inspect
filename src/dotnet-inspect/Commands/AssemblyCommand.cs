@@ -28,15 +28,11 @@ public class AssemblyCommand
         // Bare -S: unified discovery
         if (options.Select is { Length: 0 })
         {
-            foreach (var name in SectionRegistry.LibrarySections)
-                Console.WriteLine($"{name,-24} section");
-
+            var entries = SectionRegistry.LibrarySections.Select(n => (n, "section")).ToList();
             var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
             if (schema != null)
-            {
-                foreach (var name in schema.GetFieldNames())
-                    Console.WriteLine($"{name,-24} field");
-            }
+                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
+            SelectResolver.WriteDiscoveryLines(entries);
             return 0;
         }
 

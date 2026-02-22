@@ -115,7 +115,7 @@ public static class OutputFormatter
         {
             Console.WriteLine(JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection));
         }
-        else
+        else if (options.UseMarkdown)
         {
             var auditView = new LibraryInspectionView(inspection);
             var includeSections = pipeline?.ComputeIncludeSections(
@@ -136,6 +136,19 @@ public static class OutputFormatter
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
         }
+        else
+        {
+            var auditView = new LibraryInspectionView(inspection);
+            var includeSections = pipeline?.ComputeIncludeSections(
+                inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                IncludeSections = includeSections ?? options.IncludeSections,
+                Projection = BuildProjection(options.Select)
+            };
+            var writer = new OneLineWriter(Console.Out, writerOpts);
+            new MarkoutContext().Serialize(auditView, writer);
+        }
     }
 
     public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
@@ -145,7 +158,7 @@ public static class OutputFormatter
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
         }
-        else
+        else if (options.UseMarkdown)
         {
             var report = new LibraryInspectionReport
             {
@@ -167,6 +180,23 @@ public static class OutputFormatter
                 };
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(report).TrimEnd());
+        }
+        else
+        {
+            // Oneline: render each library through OneLineWriter
+            foreach (var inspection in inspections)
+            {
+                var auditView = new LibraryInspectionView(inspection);
+                var includeSections = pipeline?.ComputeIncludeSections(
+                    inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    IncludeSections = includeSections ?? options.IncludeSections,
+                    Projection = BuildProjection(options.Select)
+                };
+                var writer = new OneLineWriter(Console.Out, writerOpts);
+                new MarkoutContext().Serialize(auditView, writer);
+            }
         }
     }
 

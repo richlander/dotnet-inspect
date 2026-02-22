@@ -70,7 +70,7 @@
   -->
   <!-- PackageReference: Use for releases after new Markout version is published -->
   <ItemGroup>
-    <PackageReference Include="Markout" Version="0.7.2" />
+    <PackageReference Include="Markout" Version="0.7.3" />
     <PackageReference Include="MarkdownTable.Formatting" Version="0.3.0" />
   </ItemGroup>
 
