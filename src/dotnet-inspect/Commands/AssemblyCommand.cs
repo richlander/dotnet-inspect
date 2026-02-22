@@ -23,7 +23,7 @@ public class AssemblyCommand
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
         // Resolve -S values: categorize into sections vs fields/columns
-        var resolved = SelectResolver.Resolve(options.Select, SectionRegistry.LibrarySections);
+        var resolved = SelectResolver.Resolve(options.Select, SectionRegistry.LibrarySections, options.PreferFields);
 
         // Bare -S: unified discovery
         if (options.Select is { Length: 0 })

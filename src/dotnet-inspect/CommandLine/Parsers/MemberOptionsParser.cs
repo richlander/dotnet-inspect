@@ -94,6 +94,8 @@ public static class MemberOptionsParser
         {
             if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
                 return new ListSelect();
+            if (parseResult.GetResult(opts.Field) != null && parseResult.GetValue(opts.Field) == null)
+                return new ListSelect();
             return new ShowHelp();
         }
 
@@ -138,6 +140,7 @@ public static class MemberOptionsParser
 
         // Determine docs behavior
         var (showDocs, docsExplicitlySet) = ParseDocsBehavior(parseResult, args);
+        var (select, preferFields) = opts.ResolveSelectAndField(parseResult);
 
         var options = new ApiOptions
         {
@@ -168,7 +171,8 @@ public static class MemberOptionsParser
             ShowSelect = parseResult.GetValue(args.SelectOption),
             IncludeSections = null,
             ExcludeSections = null,
-            Select = opts.ParseSelect(parseResult),
+            Select = select,
+            PreferFields = preferFields,
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

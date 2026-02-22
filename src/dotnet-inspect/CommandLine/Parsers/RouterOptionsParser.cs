@@ -105,6 +105,7 @@ public static class RouterOptionsParser
                     IncludeSections = null,
                     ExcludeSections = null,
                     Select = opts.ParseSelect(parseResult),
+                    PreferFields = parseResult.GetResult(opts.Field) != null,
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
             }
@@ -156,6 +157,7 @@ public static class RouterOptionsParser
             IncludeSections = null,
             ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
+            PreferFields = parseResult.GetResult(opts.Field) != null,
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
@@ -194,6 +196,7 @@ public static class RouterOptionsParser
             IncludeSections = null,
             ExcludeSections = null,
             Select = opts.ParseSelect(parseResult),
+            PreferFields = parseResult.GetResult(opts.Field) != null,
         };
     }
 }

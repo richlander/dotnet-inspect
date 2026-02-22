@@ -38,7 +38,7 @@ public class ApiCommand
         string[] allApiSections = [.. SectionRegistry.ApiTypeSections, .. SectionRegistry.ApiMemberSections];
 
         // Resolve -S values: categorize into sections vs fields/columns
-        var resolved = SelectResolver.Resolve(options.Select, allApiSections);
+        var resolved = SelectResolver.Resolve(options.Select, allApiSections, options.PreferFields);
 
         // Bare -S: unified discovery — list sections then fields
         if (options.Select is { Length: 0 })

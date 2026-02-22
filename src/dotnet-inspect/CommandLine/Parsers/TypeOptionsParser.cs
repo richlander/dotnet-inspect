@@ -82,6 +82,8 @@ public static class TypeOptionsParser
         {
             if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
                 return new ListSelect();
+            if (parseResult.GetResult(opts.Field) != null && parseResult.GetValue(opts.Field) == null)
+                return new ListSelect();
             return new ShowHelp();
         }
 
@@ -95,6 +97,7 @@ public static class TypeOptionsParser
 
         // Parse type filter (number = limit, string = glob)
         var (typeFilter, typeLimit) = SharedParsers.ParseTypeFilter(parseResult.GetValue(args.TypeFilterOption));
+        var (select, preferFields) = opts.ResolveSelectAndField(parseResult);
 
         // Parse member filter
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
@@ -124,7 +127,8 @@ public static class TypeOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             IncludeSections = null,
             ExcludeSections = null,
-            Select = opts.ParseSelect(parseResult),
+            Select = select,
+            PreferFields = preferFields,
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

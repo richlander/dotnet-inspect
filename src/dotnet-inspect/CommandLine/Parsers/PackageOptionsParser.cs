@@ -54,6 +54,7 @@ public static class PackageOptionsParser
         bool showVersions = bareVersion || parseResult.GetResult(args.VersionsOption) is { Implicit: false };
 
         var verbosity = opts.ParseVerbosity(parseResult);
+        var (select, preferFields) = opts.ResolveSelectAndField(parseResult);
 
         var options = new InspectionOptions
         {
@@ -79,7 +80,8 @@ public static class PackageOptionsParser
             Verbosity = verbosity,
             IncludeSections = null,
             ExcludeSections = null,
-            Select = opts.ParseSelect(parseResult),
+            Select = select,
+            PreferFields = preferFields,
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

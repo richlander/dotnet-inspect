@@ -93,6 +93,11 @@ public record AssemblyOptions
     public string[]? Select { get; init; }
 
     /// <summary>
+    /// When true, -S names prefer field matching over section matching.
+    /// </summary>
+    public bool PreferFields { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

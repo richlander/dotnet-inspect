@@ -128,8 +128,9 @@ public static class RouterCommandDefinition
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
                 IncludeSections = null,
-                ExcludeSections = route.Options.ExcludeSections,
+                ExcludeSections = null,
                 Select = route.Options.Select,
+                PreferFields = route.Options.PreferFields,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -147,6 +148,7 @@ public static class RouterCommandDefinition
             IncludeSections = null,
             ExcludeSections = null,
             Select = route.Options.Select,
+            PreferFields = route.Options.PreferFields,
             SourceOptions = route.Options.SourceOptions
         };
 

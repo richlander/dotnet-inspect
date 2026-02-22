@@ -144,6 +144,11 @@ public record InspectionOptions
     public string[]? Select { get; init; }
 
     /// <summary>
+    /// When true, -S names prefer field matching over section matching.
+    /// </summary>
+    public bool PreferFields { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || !UseMarkdown || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;

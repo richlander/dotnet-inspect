@@ -26,6 +26,7 @@ public class SharedOptions
 
     // Projection options
     public Option<string?> Select { get; }
+    public Option<string?> Field { get; }
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -54,10 +55,17 @@ public class SharedOptions
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select fields/columns by name (comma-separated). Use -S alone to list.",
+            Description = "Select sections/fields/columns by name (comma-separated). Use -S alone to list.",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");
+
+        Field = new Option<string?>("-F")
+        {
+            Description = "Select fields by name (comma-separated, bypasses section matching). Use -F alone to list.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        Field.Aliases.Add("--field");
     }
 
     /// <summary>
@@ -85,6 +93,7 @@ public class SharedOptions
     public void AddSectionOptionsTo(Command command)
     {
         command.Options.Add(Select);
+        command.Options.Add(Field);
     }
 
     /// <summary>
@@ -149,6 +158,26 @@ public class SharedOptions
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
         => ParseProjectionList(parseResult, Select);
+
+    /// <summary>
+    /// Parses field list from parse result.
+    /// Returns null if not specified, empty array for bare -F (discovery), or populated array.
+    /// </summary>
+    public string[]? ParseField(ParseResult parseResult)
+        => ParseProjectionList(parseResult, Field);
+
+    /// <summary>
+    /// Resolves -S and -F into a unified (Select, PreferFields) pair.
+    /// -F wins over -S when both specified (values go to Select, PreferFields=true).
+    /// </summary>
+    public (string[]? Select, bool PreferFields) ResolveSelectAndField(ParseResult parseResult)
+    {
+        var field = ParseField(parseResult);
+        if (field != null)
+            return (field, true);
+
+        return (ParseSelect(parseResult), false);
+    }
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {

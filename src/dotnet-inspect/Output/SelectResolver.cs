@@ -16,12 +16,13 @@ public static class SelectResolver
 
     /// <summary>
     /// Categorizes select values into sections vs fields/columns.
-    /// Section names win when ambiguous.
+    /// When preferFields is false (default), section names win when ambiguous.
+    /// When preferFields is true (-F flag), all names are treated as fields/columns.
     /// </summary>
     public static SelectResult Resolve(
         string[]? select,
         string[] knownSections,
-        IReadOnlyCollection<string>? knownFields = null)
+        bool preferFields = false)
     {
         if (select == null || select.Length == 0)
             return new(null, null, []);
@@ -33,7 +34,7 @@ public static class SelectResolver
 
         foreach (var name in select)
         {
-            if (sectionSet.Contains(name))
+            if (!preferFields && sectionSet.Contains(name))
             {
                 // Resolve to original casing
                 var original = knownSections.First(s => s.Equals(name, StringComparison.OrdinalIgnoreCase));
