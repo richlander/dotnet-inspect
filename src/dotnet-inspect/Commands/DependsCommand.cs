@@ -65,10 +65,16 @@ public class DependsCommand
             var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
             var tree = TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
 
-            if (tree.Count == 0)
+            if (tree == null)
             {
                 Console.Error.WriteLine($"Type '{options.TargetType}' not found in the specified scope.");
                 return 1;
+            }
+
+            if (tree.Count == 0)
+            {
+                Console.WriteLine($"{options.TargetType}: no type dependencies (derives from System.Object only).");
+                return 0;
             }
 
             if (options.JsonOutput)

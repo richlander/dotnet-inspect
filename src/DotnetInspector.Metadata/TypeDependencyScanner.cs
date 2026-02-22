@@ -20,7 +20,7 @@ public static class TypeDependencyScanner
     /// Returns the direct base types and interfaces as root-level nodes,
     /// each with their own recursive dependencies.
     /// </summary>
-    public static List<TypeDependencyNode> BuildDependencyTree(
+    public static List<TypeDependencyNode>? BuildDependencyTree(
         string targetType,
         IReadOnlyList<string> assemblyPaths)
     {
@@ -72,11 +72,11 @@ public static class TypeDependencyScanner
                 catch { }
             }
 
-            // Find the target type
+            // Find the target type — null means not found, [] means no dependencies
             var normalizedTarget = TypeMatcher.Normalize(targetType);
             var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedTarget));
             if (matchKey == null)
-                return [];
+                return null;
 
             var match = typeIndex[matchKey];
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
