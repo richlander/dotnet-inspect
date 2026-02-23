@@ -2,6 +2,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -76,8 +77,8 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildMultiPatternView(results, null, notFound);
 
-        Assert.Null(view.MultiPatternRows);
-        Assert.Null(view.MultiPatternPartialMatches);
+        Assert.Null(view.Results);
+        Assert.Null(view.PartialMatches);
         Assert.NotNull(view.NotFoundPatterns);
         Assert.Equal(3, view.NotFoundPatterns.Count);
     }
