@@ -13,7 +13,7 @@ public class SharedOptions
 {
     // Output format options
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
-    public Option<bool> Markout { get; } = new("--markout") { Description = "Output as Markout (default)" };
+    public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
@@ -113,12 +113,12 @@ public class SharedOptions
     }
 
     /// <summary>
-    /// Adds all common options for a full inspection command (JSON, Markout, verbose, sections, NuGet).
+    /// Adds all common options for a full inspection command (JSON, markdown, verbose, sections, NuGet).
     /// </summary>
     public void AddAllOptionsTo(Command command)
     {
         command.Options.Add(Json);
-        command.Options.Add(Markout);
+        command.Options.Add(Markdown);
         AddOutputOptionsTo(command);
         AddSectionOptionsTo(command);
         AddNuGetOptionsTo(command);
@@ -169,6 +169,18 @@ public class SharedOptions
     /// </summary>
     public HashSet<string>? ParseExcludeSections(ParseResult parseResult)
         => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
+
+    /// <summary>
+    /// Resolves the output format from parse result.
+    /// Precedence: explicit CLI flags (--json, --markdown, -v:*) → DOTNET_INSPECT_FORMAT env → default (OneLine).
+    /// </summary>
+    public OutputFormat ResolveFormat(ParseResult parseResult)
+    {
+        bool jsonFlag = parseResult.GetValue(Json);
+        bool markdownFlag = parseResult.GetValue(Markdown);
+        bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, hasVerbosity);
+    }
 
     /// <summary>
     /// Parses select list from parse result.

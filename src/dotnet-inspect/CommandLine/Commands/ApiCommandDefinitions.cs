@@ -87,7 +87,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(memberOption);
         opts.AddSectionOptionsTo(typeCommand);
-        typeCommand.Options.Add(opts.Markout);
+        typeCommand.Options.Add(opts.Markdown);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
@@ -194,7 +194,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
         opts.AddSectionOptionsTo(memberCommand);
-        memberCommand.Options.Add(opts.Markout);
+        memberCommand.Options.Add(opts.Markdown);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
