@@ -1,9 +1,11 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -65,9 +67,10 @@ public class FindCommand
         var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
         var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
-        // Match types against each pattern
+        // Match types against each pattern, tracking similarity scores
         Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
         Dictionary<string, List<TypeSearchResult>> partialMatchesByPattern = [];
+        Dictionary<string, Dictionary<string, double>> similarityByPattern = [];
         List<string> notFoundPatterns = [];
 
         foreach (var pattern in patterns)
@@ -95,10 +98,14 @@ public class FindCommand
             }
             else if (!pattern.Contains('*') && !pattern.Contains('?'))
             {
-                // No exact matches and not a glob pattern - find partial matches
+                // No exact matches and not a glob pattern - find partial matches with similarity scores
                 var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
                 if (suggestions.Count > 0)
                 {
+                    // Build similarity lookup for this pattern
+                    var simDict = suggestions.ToDictionary(s => s.Name, s => s.Similarity);
+                    similarityByPattern[pattern] = simDict;
+
                     var suggestionSet = suggestions.Select(s => s.Name).ToHashSet();
                     var partialMatches = allTypes
                         .Where(t => suggestionSet.Contains(t.FullName))
@@ -120,10 +127,16 @@ public class FindCommand
         }
 
         // Output results
+        var rawResults = ConvertToRawData(resultsByPattern, partialMatchesByPattern, notFoundPatterns, similarityByPattern);
+
         if (options.JsonOutput)
         {
-            var allResults = resultsByPattern.Values.SelectMany(r => r).Distinct().ToList();
-            WriteJsonOutput(allResults, options.CompactJson);
+            var writer = new FindJsonWriter(compact: options.CompactJson);
+            writer.Write(rawResults, new WriterOptions(), Console.Out);
+        }
+        else if (options.OneLine)
+        {
+            WriteOneLineOutput(rawResults, options.NoHeader);
         }
         else
         {
@@ -131,8 +144,8 @@ public class FindCommand
                 FindOutputFormatter.BuildMultiPatternView(
                     resultsByPattern,
                     partialMatchesByPattern.Count > 0 ? partialMatchesByPattern : null,
-                    notFoundPatterns.Count > 0 ? notFoundPatterns : null),
-                options.OneLine,
+                    notFoundPatterns.Count > 0 ? notFoundPatterns : null,
+                    similarityByPattern.Count > 0 ? similarityByPattern : null),
                 options.NoHeader);
         }
 
@@ -145,6 +158,7 @@ public class FindCommand
 
             // If no results and not a glob pattern, find partial matches using similarity
             List<TypeSearchResult>? partialMatches = null;
+            Dictionary<string, double>? partialSimilarities = null;
             if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
             {
                 var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
@@ -153,6 +167,9 @@ public class FindCommand
 
                 if (suggestions.Count > 0)
                 {
+                    // Build similarity lookup
+                    partialSimilarities = suggestions.ToDictionary(s => s.Name, s => s.Similarity);
+
                     // Map suggestions back to full TypeSearchResult objects
                     var suggestionSet = suggestions.Select(s => s.Name).ToHashSet();
                     partialMatches = allTypes
@@ -170,13 +187,27 @@ public class FindCommand
             }
 
             // Output results
+            var similarityByPattern = partialSimilarities != null
+                ? new Dictionary<string, Dictionary<string, double>> { [pattern] = partialSimilarities }
+                : null;
+            var rawResults = ConvertToRawData(
+                new Dictionary<string, List<TypeSearchResult>> { [pattern] = results },
+                partialMatches != null ? new Dictionary<string, List<TypeSearchResult>> { [pattern] = partialMatches } : [],
+                [],
+                similarityByPattern);
+
             if (options.JsonOutput)
             {
-                WriteJsonOutput(results, options.CompactJson);
+                var writer = new FindJsonWriter(compact: options.CompactJson);
+                writer.Write(rawResults, new WriterOptions(), Console.Out);
+            }
+            else if (options.OneLine)
+            {
+                WriteOneLineOutput(rawResults, options.NoHeader);
             }
             else
             {
-                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit, partialMatches), options.OneLine, options.NoHeader);
+                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit, partialMatches, partialSimilarities), options.NoHeader);
             }
 
             return 0;
@@ -192,17 +223,102 @@ public class FindCommand
         JsonOutputHelper.Write(results, FindJsonContext.Default.ListTypeSearchResult, FindCompactJsonContext.Default.ListTypeSearchResult, compact);
     }
 
-    private static void WriteMarkoutOutput(FindResultView view, bool oneLine, bool noHeader)
+    private static void WriteMarkoutOutput(FindResultView view, bool noHeader)
     {
-        if (oneLine)
+        Console.WriteLine(new MarkoutContext().Serialize(view));
+    }
+
+    private static void WriteOneLineOutput(List<TypeFindResult> rawData, bool noHeader)
+    {
+        var view = new FindOneLineView
         {
-            var writer = new OneLineWriter(Console.Out, showHeader: !noHeader);
-            new MarkoutContext().Serialize(view, writer);
-        }
-        else
+            Results = rawData.Select(r => new FindOneLineRow(
+                r.Pattern,
+                r.Match == MatchKind.NotFound ? "-" : r.Type,
+                r.Match == MatchKind.NotFound ? "-" : r.Namespace,
+                r.Match == MatchKind.NotFound ? "-" : r.Kind,
+                r.Match == MatchKind.NotFound ? "-" : r.Library,
+                r.Match == MatchKind.NotFound ? "-" : FormatSource(r.Source, r.SourceVersion),
+                r.Match.ToString().ToLowerInvariant(),
+                r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-"
+            )).ToList()
+        };
+        var writer = new OneLineWriter(Console.Out, showHeader: !noHeader);
+        new MarkoutContext().Serialize(view, writer);
+    }
+
+    private static string FormatSource(string source, string? version)
+        => string.IsNullOrEmpty(version) ? source : $"{source}@{version}";
+
+    /// <summary>
+    /// Converts separate result dictionaries into a unified flat list of TypeFindResult.
+    /// Each result gets a MatchKind (Exact, Partial, NotFound) and similarity score.
+    /// </summary>
+    private static List<TypeFindResult> ConvertToRawData(
+        Dictionary<string, List<TypeSearchResult>> exactMatches,
+        Dictionary<string, List<TypeSearchResult>> partialMatches,
+        List<string> notFoundPatterns,
+        Dictionary<string, Dictionary<string, double>>? similarityByPattern = null)
+    {
+        var results = new List<TypeFindResult>();
+
+        // Add exact/glob matches (similarity = 1.0)
+        foreach (var (pattern, types) in exactMatches)
         {
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            var isGlob = pattern.Contains('*') || pattern.Contains('?');
+            foreach (var t in types)
+            {
+                results.Add(new TypeFindResult
+                {
+                    Pattern = pattern,
+                    Match = isGlob ? MatchKind.Glob : MatchKind.Exact,
+                    Similarity = 1.0,
+                    Type = t.TypeName,
+                    Namespace = t.Namespace ?? "",
+                    FullName = t.FullName,
+                    Kind = t.Kind ?? "",
+                    Library = t.Assembly ?? "",
+                    Source = t.Source ?? "",
+                    SourceVersion = t.SourceVersion
+                });
+            }
         }
+
+        // Add partial matches with their similarity scores
+        foreach (var (pattern, types) in partialMatches)
+        {
+            var simDict = similarityByPattern?.GetValueOrDefault(pattern);
+            foreach (var t in types)
+            {
+                var similarity = simDict?.GetValueOrDefault(t.FullName, 0.5) ?? 0.5;
+                results.Add(new TypeFindResult
+                {
+                    Pattern = pattern,
+                    Match = MatchKind.Partial,
+                    Similarity = similarity,
+                    Type = t.TypeName,
+                    Namespace = t.Namespace ?? "",
+                    FullName = t.FullName,
+                    Kind = t.Kind ?? "",
+                    Library = t.Assembly ?? "",
+                    Source = t.Source ?? "",
+                    SourceVersion = t.SourceVersion
+                });
+            }
+        }
+
+        // Add not found patterns (similarity = null)
+        foreach (var pattern in notFoundPatterns)
+        {
+            results.Add(new TypeFindResult
+            {
+                Pattern = pattern,
+                Match = MatchKind.NotFound,
+                Similarity = null
+            });
+        }
+
+        return results;
     }
 }
 

@@ -153,25 +153,106 @@ public class ApiCommand
 
                 if (error != null)
                 {
-                    Console.Error.WriteLine($"Error: {error}");
-                    return 1;
+                    // Check if PlatformAssembly is actually a framework name and we have a type to search for
+                    var frameworkShortName = TypeLookupService.TryMapFrameworkName(options.PlatformAssembly);
+                    if (frameworkShortName != null && !string.IsNullOrEmpty(typeName))
+                    {
+                        logger.Log($"'{options.PlatformAssembly}' is a framework name, searching for type '{typeName}' in {frameworkShortName}");
+                        List<string> lookupTempDirs = [];
+                        var lookupResult = await TypeLookupService.FindTypeAsync(
+                            typeName,
+                            [frameworkShortName],
+                            context.HttpClient,
+                            logger,
+                            lookupTempDirs);
+
+                        if (lookupResult != null)
+                        {
+                            searchPath = lookupResult.AssemblyPath;
+                            apiSource = SourceKind.Platform;
+                            apiVersion = lookupResult.Version;
+                            framework = lookupResult.Framework;
+                            typeName = lookupResult.FullTypeName; // Use the resolved full name
+                            logger.Log($"Found type in {lookupResult.AssemblyName} ({lookupResult.Framework} {lookupResult.Version})");
+
+                            var (runtimePath2, _, _, runtimeError2) = PlatformResolver.ResolveAssembly(
+                                lookupResult.AssemblyName,
+                                frameworkShortName,
+                                packsDirectory: null,
+                                useRuntimeAssemblies: true);
+
+                            if (runtimeError2 == null && runtimePath2 != null)
+                            {
+                                runtimeAssemblyPath = runtimePath2;
+                                logger.Log($"Using runtime library for PDB lookup: {runtimePath2}");
+                            }
+                        }
+                        else
+                        {
+                            // Type not found in specified framework - search all frameworks
+                            var allFrameworks = new[] { "runtime", "aspnetcore", "netstandard" };
+                            var otherFrameworks = allFrameworks.Where(f => f != frameworkShortName).ToArray();
+                            var foundElsewhere = await TypeLookupService.FindTypeAsync(
+                                typeName,
+                                otherFrameworks,
+                                context.HttpClient,
+                                logger,
+                                lookupTempDirs);
+
+                            if (foundElsewhere != null)
+                            {
+                                // Found in a different framework - use it and hint
+                                Console.Error.WriteLine($"Note: '{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
+                                searchPath = foundElsewhere.AssemblyPath;
+                                apiSource = SourceKind.Platform;
+                                apiVersion = foundElsewhere.Version;
+                                framework = foundElsewhere.Framework;
+                                typeName = foundElsewhere.FullTypeName;
+                                logger.Log($"Found type in {foundElsewhere.AssemblyName} ({foundElsewhere.Framework} {foundElsewhere.Version})");
+
+                                var (runtimePath3, _, _, runtimeError3) = PlatformResolver.ResolveAssembly(
+                                    foundElsewhere.AssemblyName,
+                                    foundElsewhere.Framework,
+                                    packsDirectory: null,
+                                    useRuntimeAssemblies: true);
+
+                                if (runtimeError3 == null && runtimePath3 != null)
+                                {
+                                    runtimeAssemblyPath = runtimePath3;
+                                    logger.Log($"Using runtime library for PDB lookup: {runtimePath3}");
+                                }
+                            }
+                            else
+                            {
+                                Console.Error.WriteLine($"Error: Type '{typeName}' not found in any platform framework.");
+                                return 1;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine($"Error: {error}");
+                        return 1;
+                    }
                 }
-
-                searchPath = assemblyPath!;
-                apiSource = SourceKind.Platform;
-                apiVersion = version;
-                logger.Log($"Using platform ref library: {framework} {version}");
-
-                var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
-                    options.PlatformAssembly,
-                    options.PlatformFramework,
-                    packsDirectory: null,
-                    useRuntimeAssemblies: true);
-
-                if (runtimeError == null && runtimePath != null)
+                else
                 {
-                    runtimeAssemblyPath = runtimePath;
-                    logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
+                    searchPath = assemblyPath!;
+                    apiSource = SourceKind.Platform;
+                    apiVersion = version;
+                    logger.Log($"Using platform ref library: {framework} {version}");
+
+                    var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
+                        options.PlatformAssembly,
+                        options.PlatformFramework,
+                        packsDirectory: null,
+                        useRuntimeAssemblies: true);
+
+                    if (runtimeError == null && runtimePath != null)
+                    {
+                        runtimeAssemblyPath = runtimePath;
+                        logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
+                    }
                 }
             }
             else
@@ -647,7 +728,7 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Select)
             };
-            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+            var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
@@ -846,7 +927,7 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Select)
             };
-            var writer = new Output.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+            var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
