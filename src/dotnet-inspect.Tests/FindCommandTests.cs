@@ -2,6 +2,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -40,9 +41,8 @@ public class FindCommandTests
     [Fact]
     public void OneLineWriter_EmptyResults_NoOutput()
     {
-        var results = new Dictionary<string, List<TypeSearchResult>>();
-
-        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        // One-line output uses FindOneLineView, not FindResultView
+        var view = new FindOneLineView { Results = [] };
         var sw = new StringWriter();
         var writer = new OneLineWriter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
