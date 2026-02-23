@@ -21,14 +21,13 @@ public class DependsCommand
 
         try
         {
-            // Safety fallback — apply curated scope if nothing specified
+            // Safety fallback — default to all platform frameworks
             if (!options.HasAnyScope)
             {
-                logger.Log("No scope specified, defaulting to curated scope");
+                logger.Log("No scope specified, defaulting to all platform frameworks");
                 options = options with
                 {
-                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
-                    Packages = [.. options.Packages, .. CommandLineBuilder.CuratedScopePackages]
+                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames
                 };
             }
 

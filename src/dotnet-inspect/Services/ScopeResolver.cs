@@ -45,9 +45,8 @@ public static class ScopeResolver
 
         if (!hasExplicitScope)
         {
-            // Default scope: all platform frameworks + curated packages
+            // Default scope: all platform frameworks (runtime, aspnetcore, netstandard)
             frameworks = ScopeConstants.PlatformFrameworks;
-            packages = [.. packages, .. ScopeConstants.CuratedPackages];
         }
         else
         {

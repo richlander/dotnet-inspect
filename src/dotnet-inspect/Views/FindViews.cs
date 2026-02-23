@@ -18,6 +18,18 @@ public class FindResultView
 
     [MarkoutSection(Name = "Results")]
     public List<FindRow>? MultiPatternRows { get; set; }
+
+    [MarkoutSection(Name = "Partial Matches", IgnoreProperty = nameof(FindRow.Pattern))]
+    [MarkoutSkipNull]
+    public List<FindRow>? PartialMatches { get; set; }
+
+    [MarkoutSection(Name = "Partial Matches")]
+    [MarkoutSkipNull]
+    public List<FindRow>? MultiPatternPartialMatches { get; set; }
+
+    [MarkoutSection(Name = "Not Found")]
+    [MarkoutSkipNull]
+    public List<string>? NotFoundPatterns { get; set; }
 }
 
 [MarkoutSerializable]

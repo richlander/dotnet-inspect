@@ -100,20 +100,15 @@ internal static class TypeSearchService
             results.AddRange(types);
         }
 
-        // 4. Search platform frameworks (ensure ref packs are downloaded first)
+        // 4. Search platform frameworks (download ref packs only if not locally available)
         if (options.PlatformFrameworks.Length > 0)
         {
-            List<PlatformPackService.PackRequest> requests = [];
-            foreach (var fw in options.PlatformFrameworks)
+            var requests = PlatformPackService.GetMissingPackRequests(options.PlatformFrameworks);
+            if (requests.Count > 0)
             {
-                var fwName = fw.Contains('@') ? fw[..fw.IndexOf('@')] : fw;
-                var fwVersion = fw.Contains('@') ? fw[(fw.IndexOf('@') + 1)..] : null;
-                if (PlatformResolver.FrameworkMappings.TryGetValue(fwName, out var packName))
-                    requests.Add(new PlatformPackService.PackRequest(packName, fwVersion));
-            }
-
-            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
-            {
+                await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
+                {
+                }
             }
         }
 
@@ -271,9 +266,9 @@ internal static class TypeSearchService
 
             foreach (var type in api.Types)
             {
-                if (pattern != null &&
-                    !TypeMatcher.MatchesGlob(type.FullName, pattern) &&
-                    !TypeMatcher.MatchesGlob(type.Name, pattern))
+                // Use MatchesTypeFilter which handles both glob patterns and exact matches
+                // (including generic type base names like SortedDictionary -> SortedDictionary`2)
+                if (pattern != null && !TypeMatcher.MatchesTypeFilter(type.FullName, pattern))
                 {
                     continue;
                 }

@@ -29,14 +29,13 @@ public class FindCommand
                 return 1;
             }
 
-            // Safety fallback — CommandLineBuilder should have applied curated scope
+            // Safety fallback — default to all platform frameworks
             if (!options.HasAnyScope)
             {
-                logger.Log("No scope specified, defaulting to curated scope");
+                logger.Log("No scope specified, defaulting to all platform frameworks");
                 options = options with
                 {
-                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
-                    Packages = [..options.Packages, ..CommandLineBuilder.CuratedScopePackages]
+                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames
                 };
             }
 
@@ -64,15 +63,21 @@ public class FindCommand
     {
         // Collect all types first (without pattern filtering)
         var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
+        var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
         // Match types against each pattern
         Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
+        Dictionary<string, List<TypeSearchResult>> partialMatchesByPattern = [];
+        List<string> notFoundPatterns = [];
+
         foreach (var pattern in patterns)
         {
             List<TypeSearchResult> matches = [];
             foreach (var type in allTypes)
             {
-                if (TypeMatcher.MatchesGlob(type.FullName, pattern) || TypeMatcher.MatchesGlob(type.TypeName, pattern))
+                // Use MatchesTypeFilter which handles both glob patterns and exact matches
+                // (including generic type base names like SortedDictionary -> SortedDictionary`2)
+                if (TypeMatcher.MatchesTypeFilter(type.FullName, pattern))
                 {
                     matches.Add(type);
                 }
@@ -84,7 +89,34 @@ public class FindCommand
                 matches = matches.Take(options.Limit.Value).ToList();
             }
 
-            resultsByPattern[pattern] = matches;
+            if (matches.Count > 0)
+            {
+                resultsByPattern[pattern] = matches;
+            }
+            else if (!pattern.Contains('*') && !pattern.Contains('?'))
+            {
+                // No exact matches and not a glob pattern - find partial matches
+                var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
+                if (suggestions.Count > 0)
+                {
+                    var suggestionSet = suggestions.Select(s => s.Name).ToHashSet();
+                    var partialMatches = allTypes
+                        .Where(t => suggestionSet.Contains(t.FullName))
+                        .DistinctBy(t => t.FullName)
+                        .ToList();
+                    partialMatchesByPattern[pattern] = partialMatches;
+                }
+                else
+                {
+                    // No exact matches and no partial matches - pattern not found
+                    notFoundPatterns.Add(pattern);
+                }
+            }
+            else
+            {
+                // Glob pattern with no matches - pattern not found
+                notFoundPatterns.Add(pattern);
+            }
         }
 
         // Output results
@@ -95,7 +127,13 @@ public class FindCommand
         }
         else
         {
-            WriteMarkoutOutput(FindOutputFormatter.BuildMultiPatternView(resultsByPattern), options.OneLine, options.NoHeader);
+            WriteMarkoutOutput(
+                FindOutputFormatter.BuildMultiPatternView(
+                    resultsByPattern,
+                    partialMatchesByPattern.Count > 0 ? partialMatchesByPattern : null,
+                    notFoundPatterns.Count > 0 ? notFoundPatterns : null),
+                options.OneLine,
+                options.NoHeader);
         }
 
         return 0;
@@ -104,6 +142,25 @@ public class FindCommand
     private static async Task<int> ExecuteSinglePatternAsync(string pattern, FindOptions options, VerboseLogger logger, List<string> tempDirs, HttpClient httpClient)
     {
             var results = await TypeSearchService.CollectTypesAsync(options, pattern, logger, tempDirs, httpClient);
+
+            // If no results and not a glob pattern, find partial matches using similarity
+            List<TypeSearchResult>? partialMatches = null;
+            if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
+            {
+                var allTypes = await CollectAllTypesAsync(options, logger, tempDirs, httpClient);
+                var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
+                var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
+
+                if (suggestions.Count > 0)
+                {
+                    // Map suggestions back to full TypeSearchResult objects
+                    var suggestionSet = suggestions.Select(s => s.Name).ToHashSet();
+                    partialMatches = allTypes
+                        .Where(t => suggestionSet.Contains(t.FullName))
+                        .DistinctBy(t => t.FullName)
+                        .ToList();
+                }
+            }
 
             // Apply limit
             int totalCount = results.Count;
@@ -119,7 +176,7 @@ public class FindCommand
             }
             else
             {
-                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit), options.OneLine, options.NoHeader);
+                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit, partialMatches), options.OneLine, options.NoHeader);
             }
 
             return 0;
