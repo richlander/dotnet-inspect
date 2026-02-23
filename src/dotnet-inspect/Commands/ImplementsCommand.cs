@@ -4,6 +4,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -21,14 +22,13 @@ public class ImplementsCommand
 
         try
         {
-            // Safety fallback — CommandLineBuilder should have applied curated scope
+            // Safety fallback — default to all platform frameworks
             if (!options.HasAnyScope)
             {
-                logger.Log("No scope specified, defaulting to curated scope");
+                logger.Log("No scope specified, defaulting to all platform frameworks");
                 options = options with
                 {
-                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
-                    Packages = [..options.Packages, ..CommandLineBuilder.CuratedScopePackages]
+                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames
                 };
             }
 

@@ -243,12 +243,11 @@ dotnet-inspect type System.Text.Json JsonSerializer --oneline | head -1
 ```expect
 KIND
 NAME
-RETURN TYPE
-DETAIL
+SIGNATURE
 ```
 
 ```query
-grep -o 'KIND\|NAME\|RETURN TYPE\|DETAIL' | wc -l | tr -d ' '
+grep -o 'KIND\|NAME\|SIGNATURE' | wc -l | tr -d ' '
 ```
 
 ## 5. View type with documentation

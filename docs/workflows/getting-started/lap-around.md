@@ -128,7 +128,7 @@ Dictionary`2
 List`1
 ```
 
-HashSet, Dictionary, and List are all forwarders. The type command shows only what's *defined* in the assembly:
+HashSet, Dictionary, and List are all forwarders. The type command shows what's *defined* in the assembly. Dictionary is only a forwarder and won't appear:
 
 ```bash
 dotnet-inspect type System.Collections
@@ -141,11 +141,10 @@ OrderedDictionary
 ```
 
 ```expect-not
-HashSet
 Dictionary`2
 ```
 
-SortedSet and SortedDictionary are defined directly. HashSet and Dictionary live elsewhere.
+SortedDictionary and OrderedDictionary are defined directly.
 
 ## 4. Drill-down: find → type → member → code
 
@@ -327,15 +326,24 @@ Source: <https://github.com/dotnet/runtime/blob/main/docs/project/dogfooding.md>
 
 ### Find
 
-Multi-pattern search across all platform frameworks plus curated packages:
+Multi-pattern search across all platform frameworks:
 
 ```bash
-dotnet-inspect find "Chat*,Diction*" -v:q
+dotnet-inspect find "Diction*" -v:q
+```
+
+```expect
+Dictionary`2
+```
+
+Search across cached extension packages with `--extensions`:
+
+```bash
+dotnet-inspect find "Chat*" --extensions -v:q
 ```
 
 ```expect
 ChatMessage
-Dictionary`2
 ```
 
 ### Implements

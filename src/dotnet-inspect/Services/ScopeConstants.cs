@@ -46,11 +46,8 @@ public static class ScopeConstants
     ];
 
     /// <summary>
-    /// Small default package set for --curated scope (the implicit default).
+    /// Previously used for implicit default scope. Now empty - all frameworks are the default.
+    /// Retained for --curated flag compatibility.
     /// </summary>
-    public static readonly string[] CuratedPackages =
-    [
-        "Microsoft.Extensions.AI",
-        "Microsoft.Extensions.AI.Abstractions",
-    ];
+    public static readonly string[] CuratedPackages = [];
 }

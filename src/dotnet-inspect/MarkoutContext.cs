@@ -36,6 +36,8 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ImplementerRow))]
 [MarkoutContext(typeof(FindResultView))]
 [MarkoutContext(typeof(FindRow))]
+[MarkoutContext(typeof(FindOneLineView))]
+[MarkoutContext(typeof(FindOneLineRow))]
 [MarkoutContext(typeof(ExtensionsResultView))]
 [MarkoutContext(typeof(ExtensionCountRow))]
 [MarkoutContext(typeof(ExtensionRow))]

@@ -134,10 +134,13 @@ public static class RouterCommandDefinition
             return await ApiCommand.ExecuteAsync(typeOptions);
         }
 
-        // Fall through to package command
+        // Fall through to package command.
+        // Names like "System.CommandLine" are platform candidates (because they start with "System.")
+        // but aren't actually platform libraries. When platform resolution fails, we fall through here.
+        // Use OriginalArg (e.g., "System.CommandLine@2.0.2") to preserve any explicit version.
         var options = new InspectionOptions
         {
-            PackageArgs = [route.BareName],
+            PackageArgs = [route.OriginalArg],
             JsonOutput = route.Options.JsonOutput,
             Verbose = route.Options.Verbose,
             Verbosity = route.Verbosity,

@@ -96,6 +96,30 @@ public static class PlatformPackService
     public record PackResult(string PackName, string Version, string PackDir);
 
     /// <summary>
+    /// Filters framework requests to only include those not locally available.
+    /// Use this before calling EnsurePacksAsync to implement "local-only" policy.
+    /// </summary>
+    /// <param name="frameworks">Framework specs (e.g., "runtime", "aspnetcore@9.0")</param>
+    /// <returns>Pack requests for frameworks that need to be downloaded</returns>
+    public static List<PackRequest> GetMissingPackRequests(IEnumerable<string> frameworks)
+    {
+        List<PackRequest> requests = [];
+        foreach (var fw in frameworks)
+        {
+            var fwName = fw.Contains('@') ? fw[..fw.IndexOf('@')] : fw;
+            var fwVersion = fw.Contains('@') ? fw[(fw.IndexOf('@') + 1)..] : null;
+
+            // Check if already available locally
+            var (refPath, _, _) = PlatformResolver.ResolveFramework(fw);
+            if (refPath == null && PlatformResolver.FrameworkMappings.TryGetValue(fwName, out var packName))
+            {
+                requests.Add(new PackRequest(packName, fwVersion));
+            }
+        }
+        return requests;
+    }
+
+    /// <summary>
     /// Downloads multiple packs with staggered starts. The biased pack (first in
     /// the request list) starts immediately; others start after a short delay.
     /// If the biased pack completes before the delay, the caller gets the result

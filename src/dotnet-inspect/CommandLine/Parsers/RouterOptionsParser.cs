@@ -51,7 +51,10 @@ public static class RouterOptionsParser
     /// <summary>
     /// Route to assembly command for a platform library.
     /// </summary>
-    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, Verbosity Verbosity, HashSet<string>? IncludeSections) : RouterParseResult;
+    /// <param name="OriginalArg">Original package argument (e.g., "System.CommandLine@2.0.2") preserved for fallback
+    /// to package command. Platform candidates like "System.CommandLine" are tried as platform libraries first,
+    /// but if resolution fails they fall through to NuGet package inspection and need the version preserved.</param>
+    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, HashSet<string>? IncludeSections) : RouterParseResult;
 
     /// <summary>
     /// Handle --version query with cache check first.
@@ -134,7 +137,7 @@ public static class RouterOptionsParser
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
             var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, bareName, hasExplicitVersion, explicitVersion);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, verbosity, includeSections);
+            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections);
         }
 
         // --version query
