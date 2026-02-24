@@ -58,13 +58,13 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void MultiAssemblyReport_NoCompactLine()
+    public void MultiAssemblyReport_HasCompactLine()
     {
         var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
         var output = Serialize(report);
 
-        // AutoFields=false should suppress the compact "File: ... | Type: ..." line
-        Assert.DoesNotContain("File: Test.dll", output);
+        // AutoFieldsCount = 7 renders the first 7 scalar properties as a compact hero line
+        Assert.Contains("Name: Test", output);
     }
 
     [Fact]

@@ -4,7 +4,7 @@ using Markout;
 
 namespace DotnetInspector.Views;
 
-[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFields = false)]
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 7)]
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
@@ -20,99 +20,30 @@ public class LibraryInspectionView
     [MarkoutPropertyName("File")]
     public string FileName => _data.FileName;
 
-    [MarkoutPropertyName("Type")]
-    public string FileType => _data.FileType;
+    // ===== Hero summary (first 7 auto-fields) =====
 
-    [MarkoutPropertyName("PDB Format")]
-    public string? PdbFormat => _data.PdbFormat;
+    [MarkoutSkipNull]
+    public string? Name => _data.AssemblyInfo?.AssemblyName;
 
-    [MarkoutPropertyName("PDB Location")]
-    public string? PdbLocation => _data.PdbLocation;
+    public string Version => ResolveVersion();
 
-    [MarkoutPropertyName("PDB Path")]
-    public string? PdbPath => _data.PdbPath;
+    [MarkoutPropertyName("TFM")]
+    [MarkoutSkipNull]
+    public string? TargetFramework => _data.AssemblyInfo?.TargetFramework;
 
-    [MarkoutPropertyName("Embedded PDB")]
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool HasEmbeddedPdb => _data.HasEmbeddedPdb;
+    [MarkoutPropertyName("Arch")]
+    [MarkoutSkipNull]
+    public string? Architecture => _data.AssemblyInfo?.Architecture;
 
-    [MarkoutPropertyName("Reproducible Flag")]
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool HasReproducibleFlag => _data.HasReproducibleFlag;
+    [MarkoutPropertyName("Size")]
+    [MarkoutSkipDefault]
+    public string FileSize => _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : "";
 
-    [MarkoutIgnore]
-    public bool? HasNormalizedPaths => _data.HasNormalizedPaths;
+    [MarkoutSkipNull]
+    public string? Source => _data.Source;
 
-    [MarkoutPropertyName("SourceLink")]
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool HasSourceLink => _data.HasSourceLink;
-
-    [MarkoutIgnore]
-    public string? SourceLinkUnavailableReason => _data.SourceLinkUnavailableReason;
-
-    [MarkoutPropertyName("SourceLink Status")]
-    public string SourceLinkStatus => _data.HasSourceLink
-        ? "Yes"
-        : _data.SourceLinkUnavailableReason != null
-            ? $"No ({_data.SourceLinkUnavailableReason})"
-            : "No";
-
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool IsDeterministic => _data.IsDeterministic;
-
-    [MarkoutPropertyName("Repository URL")]
-    public string? RepositoryUrl => _data.RepositoryUrl;
-
-    [MarkoutIgnore]
-    public bool WindowsPdbDetected => _data.WindowsPdbDetected;
-
-    [MarkoutPropertyName("Symbol Server")]
-    public string? SymbolServer => _data.SymbolServer;
-
-    [MarkoutPropertyName("Builder")]
-    public string? Builder => _data.Builder;
-
-    [MarkoutPropertyName("Publisher")]
-    public string? Publisher => _data.Publisher;
-
-    [MarkoutIgnore]
-    public bool PublisherVerified => _data.PublisherVerified;
-
-    [MarkoutIgnore]
-    public bool RepositoryVerified => _data.RepositoryVerified;
-
-    [MarkoutIgnore]
-    public string? SignatureStatus => _data.SignatureStatus;
-
-    [MarkoutIgnore]
-    public string? SourceLinkJson => _data.SourceLinkJson;
-
-    [MarkoutIgnore]
-    public List<string>? NonNormalizedPaths => _data.NonNormalizedPaths;
-
-    [MarkoutIgnore]
-    public int TotalSourceFiles => _data.TotalSourceFiles;
-
-    [MarkoutIgnore]
-    public int AccessibleSourceFiles => _data.AccessibleSourceFiles;
-
-    [MarkoutIgnore]
-    public int EmbeddedSourceFiles => _data.EmbeddedSourceFiles;
-
-    [MarkoutIgnore]
-    public List<string>? MissingSourceFiles => _data.MissingSourceFiles;
-
-    [MarkoutIgnore]
-    public bool? AllSourcesAccessible => _data.AllSourcesAccessible;
-
-    [MarkoutIgnore]
-    public AssemblyInfo? AssemblyInfo => _data.AssemblyInfo;
-
-    [MarkoutIgnore]
-    public ApiSurface? ApiSurface => _data.ApiSurface;
-
-    [MarkoutIgnoreInTable]
-    public List<MarkoutField> Summary => GetCompactFields();
+    [MarkoutSkipNull]
+    public string? Modified => _data.LastModified?.ToString("yyyy-MM-dd");
 
     [MarkoutPropertyName("Library")]
     public string? AssemblySummary => _data.AssemblyInfo switch
@@ -230,11 +161,9 @@ public class LibraryInspectionView
             if (!string.IsNullOrEmpty(info.InformationalVersion))
             {
                 var ver = info.InformationalVersion;
-                // Strip +commit suffix (e.g., "13.0.4+4e13299..." → "13.0.4")
                 var plusIndex = ver.IndexOf('+');
                 if (plusIndex > 0)
                     ver = ver[..plusIndex];
-                // Strip -prerelease suffix for version part count check
                 var dashIndex = ver.IndexOf('-');
                 var versionPart = dashIndex > 0 ? ver[..dashIndex] : ver;
                 if (versionPart.Split('.').All(p => int.TryParse(p, out _)))
@@ -249,28 +178,6 @@ public class LibraryInspectionView
         }
 
         return "";
-    }
-
-    private List<MarkoutField> GetCompactFields()
-    {
-        List<MarkoutField> fields = [];
-        if (_data.AssemblyInfo is not { } info) return fields;
-
-        if (!string.IsNullOrEmpty(info.AssemblyName))
-            fields.Add(new("Name", info.AssemblyName));
-        fields.Add(new("Version", ResolveVersion()));
-        if (!string.IsNullOrEmpty(info.TargetFramework))
-            fields.Add(new("TFM", info.TargetFramework));
-        if (!string.IsNullOrEmpty(info.Architecture))
-            fields.Add(new("Arch", info.Architecture));
-        if (_data.FileSize > 0)
-            fields.Add(new("Size", FormatFileSize(_data.FileSize)));
-        if (!string.IsNullOrEmpty(_data.Source))
-            fields.Add(new("Source", _data.Source));
-        if (_data.LastModified.HasValue)
-            fields.Add(new("Modified", _data.LastModified.Value.ToString("yyyy-MM-dd")));
-
-        return fields;
     }
 
     private List<MarkoutField> GetAssemblyInfoFields()
@@ -330,7 +237,9 @@ public class LibraryInspectionView
         if (!string.IsNullOrEmpty(_data.PdbPath))
             fields.Add(new("PDB Path", _data.PdbPath));
 
-        fields.Add(new("SourceLink", SourceLinkStatus));
+        var sourceLinkStatus = _data.HasSourceLink ? "Yes"
+            : _data.SourceLinkUnavailableReason != null ? $"No ({_data.SourceLinkUnavailableReason})" : "No";
+        fields.Add(new("SourceLink", sourceLinkStatus));
 
         if (!string.IsNullOrEmpty(_data.Builder))
             fields.Add(new("Builder", _data.Builder));
