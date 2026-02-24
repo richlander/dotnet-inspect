@@ -20,16 +20,11 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
 
-        // Bare -S: list selectable names from schema and exit
-        if (options.Select is { Length: 0 })
+        // Discovery mode: any bare projection flag lists available names
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
-            if (schema != null)
-            {
-                var entries = schema.GetFieldNames().Select(n => (n, "field")).ToList();
-                entries.AddRange(schema.GetColumnNames().Select(n => (n, "column")));
-                SelectResolver.WriteDiscoveryLines(entries);
-            }
+            SelectResolver.Discover(options.Select, options.Columns, options.Fields, null, schema);
             return 0;
         }
 

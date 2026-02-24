@@ -60,8 +60,9 @@ public static class RouterCommandDefinition
                     new HelpAction().Invoke(parseResult);
                     return 0;
 
-                case RouterOptionsParser.ListSelect:
-                    ListSelectableNames();
+                case RouterOptionsParser.Discovery d:
+                    var routerSchema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
+                    SelectResolver.Discover(d.Select, d.Columns, d.Fields, null, routerSchema);
                     return 0;
 
                 case RouterOptionsParser.ParseError error:
@@ -238,14 +239,5 @@ public static class RouterCommandDefinition
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;
-    }
-
-    private static void ListSelectableNames()
-    {
-        var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-        if (schema == null) return;
-        var entries = schema.GetFieldNames().Select(n => (n, "field")).ToList();
-        entries.AddRange(schema.GetColumnNames().Select(n => (n, "column")));
-        SelectResolver.WriteDiscoveryLines(entries);
     }
 }

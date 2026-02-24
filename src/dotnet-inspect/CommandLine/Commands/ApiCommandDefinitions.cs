@@ -108,8 +108,10 @@ public static class ApiCommandDefinitions
                     SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
                     return 0;
 
-                case TypeOptionsParser.ListSelect:
-                    ListSelectableNames<CliApiSurface>();
+                case TypeOptionsParser.Discovery d:
+                    var typeSchema = new MarkoutContext().GetSchemaInfo<CliApiSurface>();
+                    SelectResolver.Discover(d.Select, d.Columns, d.Fields,
+                        SectionRegistry.ApiTypeSections, typeSchema);
                     return 0;
 
                 case TypeOptionsParser.ShowHelp:
@@ -216,8 +218,10 @@ public static class ApiCommandDefinitions
                     SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
                     return 0;
 
-                case MemberOptionsParser.ListSelect:
-                    ListSelectableNames<ApiTypeView>();
+                case MemberOptionsParser.Discovery d:
+                    var memberSchema = new MarkoutContext().GetSchemaInfo<ApiTypeView>();
+                    SelectResolver.Discover(d.Select, d.Columns, d.Fields,
+                        SectionRegistry.ApiMemberSections, memberSchema);
                     return 0;
 
                 case MemberOptionsParser.ShowHelp:
@@ -241,14 +245,5 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
-    }
-
-    private static void ListSelectableNames<T>()
-    {
-        var schema = new MarkoutContext().GetSchemaInfo<T>();
-        if (schema == null) return;
-        var entries = schema.GetFieldNames().Select(n => (n, "field")).ToList();
-        entries.AddRange(schema.GetColumnNames().Select(n => (n, "column")));
-        SelectResolver.WriteDiscoveryLines(entries);
     }
 }

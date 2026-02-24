@@ -51,19 +51,14 @@ public class ApiCommand
             return 0;
         }
 
-        // Bare -S: list selectable names from schema and exit
-        if (options.Select is { Length: 0 })
+        // Discovery mode: any bare projection flag lists available names
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
             var memberSchema = context2.GetSchemaInfo<ApiTypeView>();
-            var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (typeSchema != null) { foreach (var n in typeSchema.GetFieldNames()) fields.Add(n); foreach (var n in typeSchema.GetColumnNames()) columns.Add(n); }
-            if (memberSchema != null) { foreach (var n in memberSchema.GetFieldNames()) fields.Add(n); foreach (var n in memberSchema.GetColumnNames()) columns.Add(n); }
-            var entries = fields.Select(n => (n, "field")).ToList();
-            entries.AddRange(columns.Select(n => (n, "column")));
-            SelectResolver.WriteDiscoveryLines(entries);
+            SelectResolver.Discover(options.Select, options.Columns, options.Fields,
+                allApiSections, typeSchema, memberSchema);
             return 0;
         }
 

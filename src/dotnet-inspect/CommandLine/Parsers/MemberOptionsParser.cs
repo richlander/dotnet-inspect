@@ -50,9 +50,9 @@ public static class MemberOptionsParser
     public record ListSections : MemberParseResult;
 
     /// <summary>
-    /// Indicates selectable names should be listed.
+    /// Indicates projection discovery (--select, --columns, or --fields bare).
     /// </summary>
-    public record ListSelect : MemberParseResult;
+    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : MemberParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -94,8 +94,8 @@ public static class MemberOptionsParser
         {
             if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 return new ListSections();
-            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
-                return new ListSelect();
+            if (opts.IsDiscoveryMode(parseResult))
+                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
             return new ShowHelp();
         }
 

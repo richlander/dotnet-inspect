@@ -27,14 +27,12 @@ public class AssemblyCommand
         if (sectionError) return 1;
         options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
-        // Bare -S: unified discovery — list sections and fields from schema
-        if (options.Select is { Length: 0 })
+        // Discovery mode: any bare projection flag lists available names
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
-            var entries = SectionRegistry.LibrarySections.Select(n => (n, "section")).ToList();
             var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
-            if (schema != null)
-                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
-            SelectResolver.WriteDiscoveryLines(entries);
+            SelectResolver.Discover(options.Select, options.Columns, options.Fields,
+                SectionRegistry.LibrarySections, schema);
             return 0;
         }
 

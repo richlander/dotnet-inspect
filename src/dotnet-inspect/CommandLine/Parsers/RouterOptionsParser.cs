@@ -34,9 +34,9 @@ public static class RouterOptionsParser
     public record ShowHelp : RouterParseResult;
 
     /// <summary>
-    /// Indicates selectable names should be listed.
+    /// Indicates projection discovery (--select, --columns, or --fields bare).
     /// </summary>
-    public record ListSelect : RouterParseResult;
+    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : RouterParseResult;
 
     /// <summary>
     /// Indicates an error occurred during parsing.
@@ -82,8 +82,8 @@ public static class RouterOptionsParser
 
         if (packageArgs.Length < 1)
         {
-            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
-                return new ListSelect();
+            if (opts.IsDiscoveryMode(parseResult))
+                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
             return new ShowHelp();
         }
 
