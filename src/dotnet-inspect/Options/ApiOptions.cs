@@ -57,7 +57,6 @@ public record ApiOptions
     public HashSet<string>? ExcludeSections { get; init; }
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
-    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 

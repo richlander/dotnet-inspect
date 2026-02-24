@@ -21,10 +21,10 @@ public class DiffCommand
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
 
         // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns))
         {
             var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
-            SelectResolver.Discover(options.Select, options.Columns, options.Fields, null, schema);
+            SelectResolver.Discover(options.Select, options.Columns, null, schema);
             return 0;
         }
 
@@ -91,7 +91,7 @@ public class DiffCommand
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
+                    Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
                 };
                 var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(view, writer);
@@ -293,7 +293,6 @@ public record DiffOptions
     public bool Additive { get; init; }
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
-    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

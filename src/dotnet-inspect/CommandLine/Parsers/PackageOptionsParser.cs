@@ -80,7 +80,6 @@ public static class PackageOptionsParser
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
-                Fields = opts.ParseFields(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

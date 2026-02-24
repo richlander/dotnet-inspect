@@ -62,7 +62,7 @@ public static class RouterCommandDefinition
 
                 case RouterOptionsParser.Discovery d:
                     var routerSchema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-                    SelectResolver.Discover(d.Select, d.Columns, d.Fields, null, routerSchema);
+                    SelectResolver.Discover(d.Select, d.Columns, null, routerSchema);
                     return 0;
 
                 case RouterOptionsParser.ParseError error:
@@ -130,7 +130,6 @@ public static class RouterCommandDefinition
                 ExcludeSections = route.Options.ExcludeSections,
                 Select = route.Options.Select,
                 Columns = route.Options.Columns,
-                Fields = route.Options.Fields,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -153,7 +152,6 @@ public static class RouterCommandDefinition
             ExcludeSections = route.Options.ExcludeSections,
             Select = route.Options.Select,
             Columns = route.Options.Columns,
-            Fields = route.Options.Fields,
             SourceOptions = route.Options.SourceOptions
         };
 

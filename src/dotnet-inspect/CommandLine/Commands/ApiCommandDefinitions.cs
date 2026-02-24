@@ -110,7 +110,7 @@ public static class ApiCommandDefinitions
 
                 case TypeOptionsParser.Discovery d:
                     var typeSchema = new MarkoutContext().GetSchemaInfo<CliApiSurface>();
-                    SelectResolver.Discover(d.Select, d.Columns, d.Fields,
+                    SelectResolver.Discover(d.Select, d.Columns,
                         SectionRegistry.ApiTypeSections, typeSchema);
                     return 0;
 
@@ -220,7 +220,7 @@ public static class ApiCommandDefinitions
 
                 case MemberOptionsParser.Discovery d:
                     var memberSchema = new MarkoutContext().GetSchemaInfo<ApiTypeView>();
-                    SelectResolver.Discover(d.Select, d.Columns, d.Fields,
+                    SelectResolver.Discover(d.Select, d.Columns,
                         SectionRegistry.ApiMemberSections, memberSchema);
                     return 0;
 
