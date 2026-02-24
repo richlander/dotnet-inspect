@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Help;
 using DotnetInspector.Commands;
+using DotnetInspector.Output;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -245,9 +246,8 @@ public static class ApiCommandDefinitions
     {
         var schema = new MarkoutContext().GetSchemaInfo<T>();
         if (schema == null) return;
-        foreach (var name in schema.GetFieldNames())
-            Console.WriteLine($"{name,-24} field");
-        foreach (var name in schema.GetColumnNames())
-            Console.WriteLine($"{name,-24} column");
+        var entries = schema.GetFieldNames().Select(n => (n, "field")).ToList();
+        entries.AddRange(schema.GetColumnNames().Select(n => (n, "column")));
+        SelectResolver.WriteDiscoveryLines(entries);
     }
 }

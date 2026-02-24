@@ -61,8 +61,9 @@ public class ApiCommand
             var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (typeSchema != null) { foreach (var n in typeSchema.GetFieldNames()) fields.Add(n); foreach (var n in typeSchema.GetColumnNames()) columns.Add(n); }
             if (memberSchema != null) { foreach (var n in memberSchema.GetFieldNames()) fields.Add(n); foreach (var n in memberSchema.GetColumnNames()) columns.Add(n); }
-            foreach (var name in fields) Console.WriteLine($"{name,-24} field");
-            foreach (var name in columns) Console.WriteLine($"{name,-24} column");
+            var entries = fields.Select(n => (n, "field")).ToList();
+            entries.AddRange(columns.Select(n => (n, "column")));
+            SelectResolver.WriteDiscoveryLines(entries);
             return 0;
         }
 

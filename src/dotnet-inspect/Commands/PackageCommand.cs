@@ -44,10 +44,9 @@ public class PackageCommand
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
             if (schema != null)
             {
-                foreach (var name in schema.GetFieldNames())
-                    Console.WriteLine($"{name,-24} field");
-                foreach (var name in schema.GetColumnNames())
-                    Console.WriteLine($"{name,-24} column");
+                var entries = schema.GetFieldNames().Select(n => (n, "field")).ToList();
+                entries.AddRange(schema.GetColumnNames().Select(n => (n, "column")));
+                SelectResolver.WriteDiscoveryLines(entries);
             }
             return 0;
         }
