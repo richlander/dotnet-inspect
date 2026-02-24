@@ -529,7 +529,7 @@ public class FindCommandIntegrationTests
     // ── JSON output tests ────────────────────────────────────────────
 
     [Fact]
-    public async Task Find_JsonOutput_ProducesValidJson()
+    public async Task Find_JsonOutput_ProducesValidJsonl()
     {
         var options = new FindOptions
         {
@@ -542,9 +542,13 @@ public class FindCommandIntegrationTests
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var doc = System.Text.Json.JsonDocument.Parse(output);
-        Assert.NotNull(doc);
-        Assert.True(doc.RootElement.GetArrayLength() > 0);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(lines.Length > 0);
+        foreach (var line in lines)
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(line);
+            Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
+        }
     }
 
     // ── Error handling tests ─────────────────────────────────────────

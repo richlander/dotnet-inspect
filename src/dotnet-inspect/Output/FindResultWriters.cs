@@ -20,28 +20,16 @@ public interface IResultWriter<T>
 }
 
 /// <summary>
-/// JSON writer for find results. Serializes TypeFindResult with full fidelity.
+/// JSONL writer for find results. One compact JSON object per line (streaming-friendly).
 /// Uses source-generated JSON context for AOT compatibility.
 /// </summary>
 public class FindJsonWriter : IResultWriter<TypeFindResult>
 {
-    private readonly bool _compact;
-
-    public FindJsonWriter(bool compact = false)
-    {
-        _compact = compact;
-    }
-
     public void Write(IReadOnlyList<TypeFindResult> results, WriterOptions options, TextWriter output)
     {
-        var toSerialize = options.Limit.HasValue && results.Count > options.Limit.Value
-            ? results.Take(options.Limit.Value).ToList()
-            : results.ToList();
-
-        var typeInfo = _compact
-            ? TypeFindResultCompactJsonContext.Default.ListTypeFindResult
-            : TypeFindResultJsonContext.Default.ListTypeFindResult;
-
-        output.WriteLine(JsonSerializer.Serialize(toSerialize, typeInfo));
+        foreach (var result in results)
+        {
+            output.WriteLine(JsonSerializer.Serialize(result, TypeFindResultJsonlContext.Default.TypeFindResult));
+        }
     }
 }

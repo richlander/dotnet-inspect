@@ -43,7 +43,7 @@ public class FindCommand
 
             if (options.JsonOutput)
             {
-                var writer = new FindJsonWriter(compact: options.CompactJson);
+                var writer = new FindJsonWriter();
                 writer.Write(results, new WriterOptions(), Console.Out);
             }
             else
