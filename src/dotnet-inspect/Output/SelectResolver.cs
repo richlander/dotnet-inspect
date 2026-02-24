@@ -70,6 +70,28 @@ public static class SelectResolver
     }
 
     /// <summary>
+    /// Resolves --select values as section names for backpressure.
+    /// Returns a HashSet of matched section names (case-insensitive).
+    /// Unmatched values are silently ignored (they may be field/column names for projection).
+    /// </summary>
+    public static HashSet<string>? ResolveSelectAsSections(string[]? select, string[] knownSections)
+    {
+        if (select is not { Length: > 0 })
+            return null;
+
+        var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in select)
+        {
+            // Section names win: if a --select value matches a known section, it's a section filter
+            var match = knownSections.FirstOrDefault(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                matched.Add(match);
+        }
+
+        return matched.Count > 0 ? matched : null;
+    }
+
+    /// <summary>
     /// Writes discovery lines (name + kind) with consistent padding.
     /// Debug-asserts if any name overflows into the kind column.
     /// </summary>

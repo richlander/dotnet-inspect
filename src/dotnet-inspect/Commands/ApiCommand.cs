@@ -62,6 +62,11 @@ public class ApiCommand
             return 0;
         }
 
+        // --select with values: resolve as section filter for backpressure
+        var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
+        if (selectSections != null)
+            options = options with { IncludeSections = selectSections };
+
         // Bare -s with input: discover which sections have data (set flag for later)
         bool discoverSections = options.IncludeSections is { Count: 0 };
 

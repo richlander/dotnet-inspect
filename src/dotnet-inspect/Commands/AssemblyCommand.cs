@@ -36,6 +36,11 @@ public class AssemblyCommand
             return 0;
         }
 
+        // --select with values: resolve as section filter for backpressure
+        var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
+        if (selectSections != null)
+            options = options with { IncludeSections = selectSections };
+
         // Bare -s without input: list all potential sections and exit
         if (options.IncludeSections is { Count: 0 } &&
             string.IsNullOrEmpty(assemblyPath) &&
