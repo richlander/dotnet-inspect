@@ -15,7 +15,7 @@ The spec's goal: "The commands should request data from the services. Those OMs 
 
 The find command orchestrates three data structures to produce results:
 
-```
+```text
 Service:  TypeSearchResult[]  (raw types from metadata reflection)
 Command:  Dict<pattern, List<TypeSearchResult>>  +  Dict<pattern, List<TypeSearchResult>>  +  List<string>
           (exact matches)                           (partial matches)                         (not found)
@@ -29,7 +29,7 @@ View:     FindResultView → FindRow[]
 
 ### Package: InspectionResult → InspectionResultView
 
-```
+```text
 Service:  InspectionResult  (40+ raw properties — version, size, TFMs, deps, files, ...)
      ↓ InspectionResultView(result) — manual field construction
 View:     InspectionResultView  (curated fields + sections for markdown)
@@ -41,7 +41,7 @@ View:     PackageOneLineView  (Property/Value rows from GetMetadataFields)
 
 ### Type/Member: ApiSurface/ApiType → ApiTypeView/ApiTypeOneLineView
 
-```
+```text
 Service:  ApiSurface { Types: List<ApiType> }  where ApiType has List<ApiMember>
      ↓ ApiOutputFormatter.BuildTypeOneLineView() — groups by kind, extracts ReturnType/Detail
 View:     ApiTypeOneLineView { Rows: List<ApiOneLineRow> }

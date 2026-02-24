@@ -206,15 +206,28 @@ jobs:
           grep -q "## Package Dependencies" smoke-package-normal.md
           grep -q "Library" smoke-package-normal.md
 
-      - name: Smoke test - type command
+      - name: Smoke test - type command (oneline default)
         run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -t 5 > smoke-type.md
+          dotnet-inspect type --package System.Text.Json@10.0.0 -t 5 > smoke-type.txt
+          cat smoke-type.txt
+          grep -q "JsonSerializer" smoke-type.txt
+
+      - name: Smoke test - member command (oneline default)
+        run: |
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m 5 > smoke-member.txt
+          cat smoke-member.txt
+          grep -q "Serialize" smoke-member.txt
+          grep -q "Deserialize" smoke-member.txt
+
+      - name: Smoke test - type command (markdown)
+        run: |
+          dotnet-inspect type --package System.Text.Json@10.0.0 -v:m -t 5 > smoke-type.md
           cat smoke-type.md
           grep -q "JsonSerializer" smoke-type.md
 
-      - name: Smoke test - member command
+      - name: Smoke test - member command (markdown)
         run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m 5 > smoke-member.md
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -v:m -m 5 > smoke-member.md
           cat smoke-member.md
           grep -q "JsonSerializer" smoke-member.md
           grep -q "Serialize" smoke-member.md
@@ -222,8 +235,8 @@ jobs:
 
       - name: Smoke test - platform command
         run: |
-          dotnet-inspect platform list > smoke-platform.md || true
-          cat smoke-platform.md
+          dotnet-inspect platform list > smoke-platform.txt || true
+          cat smoke-platform.txt
 
       - name: Validate markdown output
         run: |
