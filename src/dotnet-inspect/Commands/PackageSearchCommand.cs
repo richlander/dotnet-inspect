@@ -27,10 +27,11 @@ public class PackageSearchCommand
 
             if (options.JsonOutput)
             {
-                JsonOutputHelper.Write(results,
-                    PackageSearchJsonContext.Default.ListNuGetSearchResult,
-                    PackageSearchCompactJsonContext.Default.ListNuGetSearchResult,
-                    options.CompactJson);
+                foreach (var result in results)
+                {
+                    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
+                        result, PackageSearchJsonlContext.Default.NuGetSearchResult));
+                }
                 return 0;
             }
 
