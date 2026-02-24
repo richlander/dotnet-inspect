@@ -119,7 +119,7 @@ public static class TypeOptionsParser
             SourceLinkOnly = parseResult.GetValue(args.SourcelinkOnlyOption),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),

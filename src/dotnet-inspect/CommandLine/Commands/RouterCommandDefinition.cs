@@ -142,6 +142,8 @@ public static class RouterCommandDefinition
         {
             PackageArgs = [route.OriginalArg],
             JsonOutput = route.Options.JsonOutput,
+            OneLine = route.OneLine,
+            NoHeader = route.NoHeader,
             Verbose = route.Options.Verbose,
             Verbosity = route.Verbosity,
             IncludeSections = route.IncludeSections,

@@ -54,7 +54,7 @@ public static class RouterOptionsParser
     /// <param name="OriginalArg">Original package argument (e.g., "System.CommandLine@2.0.2") preserved for fallback
     /// to package command. Platform candidates like "System.CommandLine" are tried as platform libraries first,
     /// but if resolution fails they fall through to NuGet package inspection and need the version preserved.</param>
-    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, HashSet<string>? IncludeSections) : RouterParseResult;
+    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, HashSet<string>? IncludeSections, bool OneLine, bool NoHeader) : RouterParseResult;
 
     /// <summary>
     /// Handle --version query with cache check first.
@@ -137,7 +137,9 @@ public static class RouterOptionsParser
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
             var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, bareName, hasExplicitVersion, explicitVersion);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections);
+            var oneLine = opts.ResolveOneLine(parseResult, args.OneLineOption);
+            var noHeader = parseResult.GetValue(args.NoHeaderOption);
+            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections, oneLine, noHeader);
         }
 
         // --version query
@@ -152,7 +154,7 @@ public static class RouterOptionsParser
             ListVersions = showLatestVersion || showVersions,
             Limit = showLatestVersion ? 1 : routerVersionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,

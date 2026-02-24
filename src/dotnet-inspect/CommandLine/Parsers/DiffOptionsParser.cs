@@ -101,7 +101,7 @@ public static class DiffOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),

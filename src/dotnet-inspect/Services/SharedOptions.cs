@@ -183,6 +183,19 @@ public class SharedOptions
     }
 
     /// <summary>
+    /// Resolves whether oneline output should be used, considering the --oneline flag and format resolution.
+    /// Explicit --oneline always wins; otherwise derived from ResolveFormat.
+    /// </summary>
+    public bool ResolveOneLine(ParseResult parseResult, Option<bool> oneLineOption)
+    {
+        // Explicit --oneline flag always wins
+        if (parseResult.GetResult(oneLineOption) is { Implicit: false })
+            return parseResult.GetValue(oneLineOption);
+
+        return ResolveFormat(parseResult) == OutputFormat.OneLine;
+    }
+
+    /// <summary>
     /// Parses select list from parse result.
     /// Returns null if not specified, empty array for bare -S (discovery), or populated array.
     /// </summary>

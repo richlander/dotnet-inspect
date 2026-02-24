@@ -72,7 +72,7 @@ public static class PackageOptionsParser
             OutputPath = parseResult.GetValue(args.OutOption),
             Limit = bareVersion ? 1 : versionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
