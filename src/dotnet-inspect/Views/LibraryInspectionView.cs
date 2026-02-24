@@ -8,10 +8,12 @@ namespace DotnetInspector.Views;
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
+    private readonly bool _suppressHero;
 
-    public LibraryInspectionView(LibraryInspection data)
+    public LibraryInspectionView(LibraryInspection data, bool suppressHero = false)
     {
         _data = data;
+        _suppressHero = suppressHero;
     }
 
     [MarkoutIgnore]
@@ -20,30 +22,31 @@ public class LibraryInspectionView
     [MarkoutPropertyName("File")]
     public string FileName => _data.FileName;
 
-    // ===== Hero summary (first 7 auto-fields) =====
+    // ===== Hero summary (first 7 auto-fields, suppressed when Library Info section is visible) =====
 
     [MarkoutSkipNull]
-    public string? Name => _data.AssemblyInfo?.AssemblyName;
+    public string? Name => _suppressHero ? null : _data.AssemblyInfo?.AssemblyName;
 
-    public string Version => ResolveVersion();
+    [MarkoutSkipNull]
+    public string? Version => _suppressHero ? null : ResolveVersion();
 
     [MarkoutPropertyName("TFM")]
     [MarkoutSkipNull]
-    public string? TargetFramework => _data.AssemblyInfo?.TargetFramework;
+    public string? TargetFramework => _suppressHero ? null : _data.AssemblyInfo?.TargetFramework;
 
     [MarkoutPropertyName("Arch")]
     [MarkoutSkipNull]
-    public string? Architecture => _data.AssemblyInfo?.Architecture;
+    public string? Architecture => _suppressHero ? null : _data.AssemblyInfo?.Architecture;
 
     [MarkoutPropertyName("Size")]
-    [MarkoutSkipDefault]
-    public string FileSize => _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : "";
+    [MarkoutSkipNull]
+    public string? FileSize => _suppressHero ? null : (_data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null);
 
     [MarkoutSkipNull]
-    public string? Source => _data.Source;
+    public string? Source => _suppressHero ? null : _data.Source;
 
     [MarkoutSkipNull]
-    public string? Modified => _data.LastModified?.ToString("yyyy-MM-dd");
+    public string? Modified => _suppressHero ? null : _data.LastModified?.ToString("yyyy-MM-dd");
 
     [MarkoutPropertyName("Library")]
     public string? AssemblySummary => _data.AssemblyInfo switch

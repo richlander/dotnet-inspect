@@ -98,7 +98,8 @@ public static class OutputFormatter
         }
         else if (options.UseMarkdown)
         {
-            var auditView = new LibraryInspectionView(inspection);
+            bool suppressHero = options.Verbosity > Verbosity.Quiet;
+            var auditView = new LibraryInspectionView(inspection, suppressHero);
             var includeSections = pipeline?.ComputeIncludeSections(
                 inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
 
@@ -142,10 +143,11 @@ public static class OutputFormatter
         }
         else if (options.UseMarkdown)
         {
+            bool suppressHero = options.Verbosity > Verbosity.Quiet;
             var report = new LibraryInspectionReport
             {
                 Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
-                Assemblies = inspections.Select(a => new LibraryInspectionView(a)).ToList()
+                Assemblies = inspections.Select(a => new LibraryInspectionView(a, suppressHero)).ToList()
             };
             var writerOptions = pipeline != null
                 ? new MarkoutWriterOptions
