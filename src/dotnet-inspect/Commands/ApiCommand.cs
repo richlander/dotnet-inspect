@@ -732,7 +732,7 @@ public class ApiCommand
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(options.Select)
+                Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
             };
             var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
@@ -931,7 +931,7 @@ public class ApiCommand
             var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(options.Select)
+                Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
             };
             var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);

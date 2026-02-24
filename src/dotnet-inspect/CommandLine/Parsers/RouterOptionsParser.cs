@@ -108,6 +108,8 @@ public static class RouterOptionsParser
                     IncludeSections = opts.ParseIncludeSections(parseResult),
                     ExcludeSections = opts.ParseExcludeSections(parseResult),
                     Select = opts.ParseSelect(parseResult),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
             }
@@ -161,6 +163,8 @@ public static class RouterOptionsParser
             IncludeSections = includeSections,
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
@@ -198,6 +202,8 @@ public static class RouterOptionsParser
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
         };
     }
 }

@@ -170,6 +170,8 @@ public static class MemberOptionsParser
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

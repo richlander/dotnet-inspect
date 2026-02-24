@@ -128,6 +128,8 @@ public static class RouterCommandDefinition
                 IncludeSections = route.IncludeSections,
                 ExcludeSections = route.Options.ExcludeSections,
                 Select = route.Options.Select,
+                Columns = route.Options.Columns,
+                Fields = route.Options.Fields,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -149,6 +151,8 @@ public static class RouterCommandDefinition
             IncludeSections = route.IncludeSections,
             ExcludeSections = route.Options.ExcludeSections,
             Select = route.Options.Select,
+            Columns = route.Options.Columns,
+            Fields = route.Options.Fields,
             SourceOptions = route.Options.SourceOptions
         };
 

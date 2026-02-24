@@ -134,9 +134,19 @@ public record InspectionOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
-    /// Names to select (fields and columns). Null means all.
+    /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Column names to include. Null means all.
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Field names to include. Null means all.
+    /// </summary>
+    public string[]? Fields { get; init; }
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

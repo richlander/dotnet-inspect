@@ -96,7 +96,7 @@ public class DiffCommand
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Select)
+                    Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
                 };
                 var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(view, writer);
@@ -297,6 +297,8 @@ public record DiffOptions
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
     public string[]? Select { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

@@ -257,7 +257,7 @@ public class PackageCommand
                 var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Select)
+                    Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
                 };
                 var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
                 new MarkoutContext().Serialize(oneLineView, writer);

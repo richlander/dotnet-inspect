@@ -181,6 +181,8 @@ public static class InspectionCommandDefinitions
                 IncludeSections = opts.ParseIncludeSections(parseResult),
                 ExcludeSections = opts.ParseExcludeSections(parseResult),
                 Select = opts.ParseSelect(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
