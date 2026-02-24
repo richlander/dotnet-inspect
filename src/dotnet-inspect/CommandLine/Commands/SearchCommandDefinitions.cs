@@ -14,7 +14,6 @@ public static class SearchCommandDefinitions
     public static Command CreateFindCommand(SharedOptions opts)
     {
         var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");
-        findCommand.Aliases.Add("search");
 
         var patternArg = new Argument<string?>("pattern")
         {
