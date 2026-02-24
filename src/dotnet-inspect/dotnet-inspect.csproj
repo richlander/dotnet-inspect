@@ -61,18 +61,18 @@
     Markout references: Use ProjectReference for local development, PackageReference for releases.
     To switch: comment out one block and uncomment the other.
   -->
-  <!-- ProjectReference: Use when developing against local Markout changes -->
+  <!-- ProjectReference: Use when developing against local Markout changes
   <ItemGroup>
     <ProjectReference Include="..\..\..\markout\src\Markout\Markout.csproj" />
     <ProjectReference Include="..\..\..\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
   </ItemGroup>
-  <!-- PackageReference: Use for releases after new Markout version is published
+  -->
+  <!-- PackageReference: Use for releases after new Markout version is published -->
   <ItemGroup>
-    <PackageReference Include="Markout" Version="0.9.2" />
+    <PackageReference Include="Markout" Version="0.9.3" />
     <PackageReference Include="MarkdownTable.Formatting" Version="0.3.0" />
   </ItemGroup>
-  -->
 
   <ItemGroup>
     <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
