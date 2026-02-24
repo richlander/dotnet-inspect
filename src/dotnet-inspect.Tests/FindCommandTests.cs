@@ -1,4 +1,5 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -15,18 +16,17 @@ public class FindCommandTests
     [Fact]
     public void OneLineWriter_MultiPattern_OutputsColumnarResults()
     {
-        var results = new Dictionary<string, List<TypeSearchResult>>
+        var results = new List<TypeFindResult>
         {
-            ["Pattern1"] = [
-                new TypeSearchResult { TypeName = "Zebra", Namespace = "Animals", Kind = "class", Assembly = "Zoo" },
-                new TypeSearchResult { TypeName = "Alpha", Namespace = "Greek", Kind = "struct", Assembly = "Letters" }
-            ],
-            ["Pattern2"] = [
-                new TypeSearchResult { TypeName = "Beta", Namespace = "Greek", Kind = "interface", Assembly = "Letters" }
-            ]
+            new() { Pattern = "Pattern1", Match = MatchKind.Exact, Similarity = 1.0,
+                     Type = "Zebra", Namespace = "Animals", Kind = "class", Library = "Zoo", Source = "runtime" },
+            new() { Pattern = "Pattern1", Match = MatchKind.Exact, Similarity = 1.0,
+                     Type = "Alpha", Namespace = "Greek", Kind = "struct", Library = "Letters", Source = "runtime" },
+            new() { Pattern = "Pattern2", Match = MatchKind.Exact, Similarity = 1.0,
+                     Type = "Beta", Namespace = "Greek", Kind = "interface", Library = "Letters", Source = "runtime" }
         };
 
-        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
         var writer = new OneLineWriter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
@@ -41,8 +41,7 @@ public class FindCommandTests
     [Fact]
     public void OneLineWriter_EmptyResults_NoOutput()
     {
-        // One-line output uses FindOneLineView, not FindResultView
-        var view = new FindOneLineView { Results = [] };
+        var view = FindOutputFormatter.BuildView([]);
         var sw = new StringWriter();
         var writer = new OneLineWriter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
@@ -51,49 +50,53 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void BuildMultiPatternView_WithNotFoundPatterns_IncludesNotFoundSection()
+    public void BuildView_WithNotFoundPatterns_IncludesNotFoundRows()
     {
-        var results = new Dictionary<string, List<TypeSearchResult>>
+        var results = new List<TypeFindResult>
         {
-            ["Found*"] = [
-                new TypeSearchResult { TypeName = "FoundType", Namespace = "Ns", Kind = "class", Assembly = "Lib" }
-            ]
+            new() { Pattern = "Found*", Match = MatchKind.Glob, Similarity = 1.0,
+                     Type = "FoundType", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" },
+            new() { Pattern = "Missing1", Match = MatchKind.NotFound },
+            new() { Pattern = "Missing2", Match = MatchKind.NotFound }
         };
-        var notFound = new List<string> { "Missing1", "Missing2" };
 
-        var view = FindOutputFormatter.BuildMultiPatternView(results, null, notFound);
+        var view = FindOutputFormatter.BuildView(results);
 
-        Assert.NotNull(view.NotFoundPatterns);
-        Assert.Equal(2, view.NotFoundPatterns.Count);
-        Assert.Contains("Missing1", view.NotFoundPatterns);
-        Assert.Contains("Missing2", view.NotFoundPatterns);
+        Assert.NotNull(view.Results);
+        Assert.Equal(3, view.Results.Count);
+        Assert.Equal("notfound", view.Results[1].Match);
+        Assert.Equal("notfound", view.Results[2].Match);
+        Assert.Equal("-", view.Results[1].Type);
     }
 
     [Fact]
-    public void BuildMultiPatternView_AllPatternsNotFound_OnlyNotFoundSection()
+    public void BuildView_AllPatternsNotFound_ShowsNotFoundRows()
     {
-        var results = new Dictionary<string, List<TypeSearchResult>>();
-        var notFound = new List<string> { "Bad1", "Bad2", "Bad3" };
+        var results = new List<TypeFindResult>
+        {
+            new() { Pattern = "Bad1", Match = MatchKind.NotFound },
+            new() { Pattern = "Bad2", Match = MatchKind.NotFound },
+            new() { Pattern = "Bad3", Match = MatchKind.NotFound }
+        };
 
-        var view = FindOutputFormatter.BuildMultiPatternView(results, null, notFound);
+        var view = FindOutputFormatter.BuildView(results);
 
-        Assert.Null(view.Results);
-        Assert.Null(view.PartialMatches);
-        Assert.NotNull(view.NotFoundPatterns);
-        Assert.Equal(3, view.NotFoundPatterns.Count);
+        Assert.NotNull(view.Results);
+        Assert.Equal(3, view.Results.Count);
+        Assert.All(view.Results, r => Assert.Equal("notfound", r.Match));
+        Assert.Equal(0, view.Matches);
     }
 
     [Fact]
     public void OneLineWriter_WithHeader_IncludesColumnHeaders()
     {
-        var results = new Dictionary<string, List<TypeSearchResult>>
+        var results = new List<TypeFindResult>
         {
-            ["Test*"] = [
-                new TypeSearchResult { TypeName = "TestA", Namespace = "Ns", Kind = "class", Assembly = "Lib" }
-            ]
+            new() { Pattern = "Test*", Match = MatchKind.Glob, Similarity = 1.0,
+                     Type = "TestA", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" }
         };
 
-        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
         var writer = new OneLineWriter(sw, showHeader: true);
         new MarkoutContext().Serialize(view, writer);
@@ -106,14 +109,13 @@ public class FindCommandTests
     [Fact]
     public void OneLineWriter_NoHeader_OmitsColumnHeaders()
     {
-        var results = new Dictionary<string, List<TypeSearchResult>>
+        var results = new List<TypeFindResult>
         {
-            ["Test*"] = [
-                new TypeSearchResult { TypeName = "TestA", Namespace = "Ns", Kind = "class", Assembly = "Lib" }
-            ]
+            new() { Pattern = "Test*", Match = MatchKind.Glob, Similarity = 1.0,
+                     Type = "TestA", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" }
         };
 
-        var view = FindOutputFormatter.BuildMultiPatternView(results);
+        var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
         var writer = new OneLineWriter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
@@ -602,11 +604,10 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
 
-        // Exact matches section
+        // Results section contains all match types
         Assert.Contains("## Results", output);
 
         // Good FQN - exact match
-        Assert.Contains("System.Text.Json.JsonSerializer", output);
         Assert.Contains("JsonSerializer", output);
 
         // Good UQN - exact match
@@ -617,11 +618,8 @@ public class FindCommandIntegrationTests
         Assert.Contains("SortedList", output);
         Assert.Contains("SortedSet", output);
 
-        // Partial matches section
-        Assert.Contains("## Partial Matches", output);
-
-        // Misspelled FQN - should have partial match to JsonSerializer
-        Assert.Contains("System.Text.Json.JsonSeriali", output);
+        // Misspelled patterns appear in Match column as "partial"
+        Assert.Contains("partial", output);
 
         // Misspelled UQN - should have partial match to TypedResults
         Assert.Contains("TypedResul", output);
@@ -632,13 +630,6 @@ public class FindCommandIntegrationTests
     public async Task Find_MultiPattern_SomePatternsHaveNoMatches()
     {
         // Test scenario: same as above plus patterns with no matches at all
-        // - Good FQN type (exact match)
-        // - Good UQN type (exact match)
-        // - Misspelled FQN (partial match)
-        // - Misspelled UQN (partial match)
-        // - Glob pattern (multiple exact matches)
-        // - Bad FQN (no match at all)
-        // - Bad UQN (no match at all)
         var options = new FindOptions
         {
             Pattern = "System.Text.Json.JsonSerializer,JsonDocument,System.Text.Json.JsonSeriali,TypedResul,Sorted*,System.Nonexistent.FooBarXyz,XyzNonexistent123",
@@ -650,7 +641,7 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
 
-        // Exact matches section should still have results
+        // Results section contains all match types in one table
         Assert.Contains("## Results", output);
 
         // Good patterns should still match
@@ -658,12 +649,12 @@ public class FindCommandIntegrationTests
         Assert.Contains("JsonDocument", output);
         Assert.Contains("SortedDictionary", output);
 
-        // Partial matches section should have suggestions for misspellings
-        Assert.Contains("## Partial Matches", output);
+        // Partial matches appear as rows with "partial" match kind
+        Assert.Contains("partial", output);
         Assert.Contains("TypedResults", output);
 
-        // Not Found section should list patterns with no matches
-        Assert.Contains("## Not Found", output);
+        // Not found patterns appear as rows with "notfound" match kind
+        Assert.Contains("notfound", output);
         Assert.Contains("System.Nonexistent.FooBarXyz", output);
         Assert.Contains("XyzNonexistent123", output);
     }

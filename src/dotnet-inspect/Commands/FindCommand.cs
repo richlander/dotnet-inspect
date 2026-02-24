@@ -134,19 +134,9 @@ public class FindCommand
             var writer = new FindJsonWriter(compact: options.CompactJson);
             writer.Write(rawResults, new WriterOptions(), Console.Out);
         }
-        else if (options.OneLine)
-        {
-            WriteOneLineOutput(rawResults, options.NoHeader);
-        }
         else
         {
-            WriteMarkoutOutput(
-                FindOutputFormatter.BuildMultiPatternView(
-                    resultsByPattern,
-                    partialMatchesByPattern.Count > 0 ? partialMatchesByPattern : null,
-                    notFoundPatterns.Count > 0 ? notFoundPatterns : null,
-                    similarityByPattern.Count > 0 ? similarityByPattern : null),
-                options.NoHeader);
+            WriteOutput(rawResults, "Find Results", options);
         }
 
         return 0;
@@ -201,13 +191,9 @@ public class FindCommand
                 var writer = new FindJsonWriter(compact: options.CompactJson);
                 writer.Write(rawResults, new WriterOptions(), Console.Out);
             }
-            else if (options.OneLine)
-            {
-                WriteOneLineOutput(rawResults, options.NoHeader);
-            }
             else
             {
-                WriteMarkoutOutput(FindOutputFormatter.BuildView(results, pattern, totalCount, options.Limit, partialMatches, partialSimilarities), options.NoHeader);
+                WriteOutput(rawResults, $"Find: {pattern}", options, totalCount, options.Limit);
             }
 
             return 0;
@@ -223,32 +209,20 @@ public class FindCommand
         JsonOutputHelper.Write(results, FindJsonContext.Default.ListTypeSearchResult, FindCompactJsonContext.Default.ListTypeSearchResult, compact);
     }
 
-    private static void WriteMarkoutOutput(FindResultView view, bool noHeader)
+    private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options, int? totalCount = null, int? limit = null)
     {
-        Console.WriteLine(new MarkoutContext().Serialize(view));
-    }
+        var view = FindOutputFormatter.BuildView(rawData, title, totalCount, limit);
 
-    private static void WriteOneLineOutput(List<TypeFindResult> rawData, bool noHeader)
-    {
-        var view = new FindOneLineView
+        if (options.OneLine)
         {
-            Results = rawData.Select(r => new FindOneLineRow(
-                r.Pattern,
-                r.Match == MatchKind.NotFound ? "-" : r.Type,
-                r.Match == MatchKind.NotFound ? "-" : r.Namespace,
-                r.Match == MatchKind.NotFound ? "-" : r.Kind,
-                r.Match == MatchKind.NotFound ? "-" : r.Library,
-                r.Match == MatchKind.NotFound ? "-" : FormatSource(r.Source, r.SourceVersion),
-                r.Match.ToString().ToLowerInvariant(),
-                r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-"
-            )).ToList()
-        };
-        var writer = new OneLineWriter(Console.Out, showHeader: !noHeader);
-        new MarkoutContext().Serialize(view, writer);
+            var writer = new OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            new MarkoutContext().Serialize(view, writer);
+        }
+        else
+        {
+            Console.WriteLine(new MarkoutContext().Serialize(view));
+        }
     }
-
-    private static string FormatSource(string source, string? version)
-        => string.IsNullOrEmpty(version) ? source : $"{source}@{version}";
 
     /// <summary>
     /// Converts separate result dictionaries into a unified flat list of TypeFindResult.

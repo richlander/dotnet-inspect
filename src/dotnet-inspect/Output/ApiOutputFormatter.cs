@@ -808,10 +808,19 @@ public static class ApiOutputFormatter
         var rows = allEntries.Select(e =>
         {
             var m = e.members[0];
-            var sig = e.kind == "event"
-                ? m.ReturnType ?? m.Signature ?? ""
-                : m.Signature ?? m.ReturnType ?? "";
-            return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), $"`{sig}`");
+            var returnType = e.kind switch
+            {
+                "constructor" => "",
+                "event" => m.ReturnType ?? m.Signature ?? "",
+                _ => SignatureParser.ExtractReturnType(m.Signature)
+            };
+            var detail = e.kind switch
+            {
+                "property" => SignatureParser.ExtractAccessors(m.Signature),
+                "constructor" or "method" => e.members.Count > 1 ? e.members.Count.ToString() : "",
+                _ => ""
+            };
+            return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
         }).ToList();
 
         return (new ApiTypeOneLineView { Rows = rows }, truncated);

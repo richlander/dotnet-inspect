@@ -438,7 +438,9 @@ public class ApiSurfaceOneLineView
 }
 
 [MarkoutSerializable]
-public record ApiOneLineRow(string Kind, string Name, string Signature);
+public record ApiOneLineRow(string Kind, string Name,
+    [property: MarkoutPropertyName("Return Type")] string ReturnType,
+    string Detail);
 
 [MarkoutSerializable]
 public record ApiSurfaceOneLineRow(string Kind, string Type, string Members);

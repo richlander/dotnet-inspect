@@ -122,6 +122,7 @@ public static class TypeOptionsParser
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
+            ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),

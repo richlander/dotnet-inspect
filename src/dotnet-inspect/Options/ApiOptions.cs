@@ -39,6 +39,12 @@ public record ApiOptions
     public bool OneLine { get; init; }
     public bool NoHeader { get; init; }
     public bool ShapeOutput { get; init; }
+
+    /// <summary>
+    /// Whether the user explicitly set --shape.
+    /// When false and resolving a single type, shape is the default view.
+    /// </summary>
+    public bool ShapeExplicitlySet { get; init; }
     public bool UnsafeOnly { get; init; }
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }

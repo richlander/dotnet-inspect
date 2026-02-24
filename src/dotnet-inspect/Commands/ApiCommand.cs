@@ -442,6 +442,11 @@ public class ApiCommand
                     if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                         effectiveOptions = options with { ShowDocs = true };
 
+                    // Default --shape on for single-type view unless user explicitly chose a format
+                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.OneLine
+                        && !effectiveOptions.JsonOutput && !effectiveOptions.IsMemberCommand)
+                        effectiveOptions = effectiveOptions with { ShapeOutput = true };
+
                     // --index: select a specific overload and show IL
                     if (options.OverloadIndex.HasValue)
                     {
