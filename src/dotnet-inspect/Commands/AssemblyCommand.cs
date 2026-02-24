@@ -27,6 +27,17 @@ public class AssemblyCommand
         if (sectionError) return 1;
         options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
+        // Bare -S: unified discovery — list sections and fields from schema
+        if (options.Select is { Length: 0 })
+        {
+            var entries = SectionRegistry.LibrarySections.Select(n => (n, "section")).ToList();
+            var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
+            if (schema != null)
+                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
+            SelectResolver.WriteDiscoveryLines(entries);
+            return 0;
+        }
+
         // Bare -s without input: list all potential sections and exit
         if (options.IncludeSections is { Count: 0 } &&
             string.IsNullOrEmpty(assemblyPath) &&

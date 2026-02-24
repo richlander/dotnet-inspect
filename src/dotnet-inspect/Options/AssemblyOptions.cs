@@ -63,6 +63,16 @@ public record AssemblyOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Explicit markdown output requested.
+    /// </summary>
+    public bool Markdown { get; init; }
+
+    /// <summary>
+    /// One result per line, columnar output.
+    /// </summary>
+    public bool OneLine { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
@@ -109,6 +119,11 @@ public record AssemblyOptions
     {
         IncludeSourcelinkAudit = true
     };
+
+    /// <summary>
+    /// True when markdown output is requested (explicit or via verbosity).
+    /// </summary>
+    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Normal;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

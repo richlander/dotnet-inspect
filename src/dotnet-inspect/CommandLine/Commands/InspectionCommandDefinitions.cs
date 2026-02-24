@@ -174,10 +174,13 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
+                Markdown = parseResult.GetValue(opts.Markdown),
+                OneLine = opts.ResolveFormat(parseResult) == OutputFormat.OneLine,
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 IncludeSections = opts.ParseIncludeSections(parseResult),
                 ExcludeSections = opts.ParseExcludeSections(parseResult),
+                Select = opts.ParseSelect(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
