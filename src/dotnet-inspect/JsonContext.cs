@@ -56,21 +56,6 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
-// Find command JSON contexts
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeSearchResult>))]
-internal partial class FindJsonContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeSearchResult>))]
-internal partial class FindCompactJsonContext : JsonSerializerContext { }
-
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,

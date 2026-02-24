@@ -13,17 +13,14 @@ public static class FindOutputFormatter
     /// </summary>
     public static FindResultView BuildView(
         List<TypeFindResult> results,
-        string? title = null,
-        int? totalCount = null,
-        int? limit = null)
+        string? title = null)
     {
         var matchCount = results.Count(r => r.Match != MatchKind.NotFound);
 
         return new FindResultView
         {
             Title = title ?? "Find Results",
-            Matches = totalCount ?? matchCount,
-            Showing = (limit.HasValue && totalCount.HasValue && totalCount > limit) ? matchCount : null,
+            Matches = matchCount,
             Description = matchCount == 0 ? "No types found matching the pattern." : null,
             Results = results.Count == 0 ? null : results.Select(r => new FindRow(
                 r.Pattern,

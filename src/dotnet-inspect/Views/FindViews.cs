@@ -12,7 +12,6 @@ public class FindResultView
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
     public int Matches { get; set; }
-    [MarkoutSkipNull] public int? Showing { get; set; }
 
     [MarkoutSection(Name = "Results")]
     [MarkoutIgnoreColumnWhen(nameof(PatternIsUniform), "Pattern")]

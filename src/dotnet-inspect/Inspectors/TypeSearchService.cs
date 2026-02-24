@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -13,6 +14,203 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class TypeSearchService
 {
+    /// <summary>
+    /// Finds types matching one or more patterns, returning classified results with match kind and similarity.
+    /// This is the primary entry point for the find command.
+    /// </summary>
+    public static async Task<List<TypeFindResult>> FindTypesAsync(
+        FindOptions options,
+        string[] patterns,
+        VerboseLogger logger,
+        List<string> tempDirs,
+        HttpClient httpClient)
+    {
+        // Optimized single-pattern path: collect with filtering, then partial match if empty
+        if (patterns.Length == 1 && !options.OneLine)
+        {
+            return await FindSinglePatternAsync(patterns[0], options, logger, tempDirs, httpClient);
+        }
+
+        // Multi-pattern or oneline: collect all types, then match each pattern
+        return await FindMultiPatternAsync(patterns, options, logger, tempDirs, httpClient);
+    }
+
+    private static async Task<List<TypeFindResult>> FindMultiPatternAsync(
+        string[] patterns,
+        FindOptions options,
+        VerboseLogger logger,
+        List<string> tempDirs,
+        HttpClient httpClient)
+    {
+        var allTypes = await CollectTypesAsync(options, null, logger, tempDirs, httpClient);
+        var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
+
+        Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
+        Dictionary<string, List<TypeSearchResult>> partialMatchesByPattern = [];
+        Dictionary<string, Dictionary<string, double>> similarityByPattern = [];
+        List<string> notFoundPatterns = [];
+
+        foreach (var pattern in patterns)
+        {
+            List<TypeSearchResult> matches = [];
+            foreach (var type in allTypes)
+            {
+                if (TypeMatcher.MatchesTypeFilter(type.FullName, pattern))
+                {
+                    matches.Add(type);
+                }
+            }
+
+            if (options.Limit.HasValue && matches.Count > options.Limit.Value)
+            {
+                matches = matches.Take(options.Limit.Value).ToList();
+            }
+
+            if (matches.Count > 0)
+            {
+                resultsByPattern[pattern] = matches;
+            }
+            else if (!pattern.Contains('*') && !pattern.Contains('?'))
+            {
+                var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
+                if (suggestions.Count > 0)
+                {
+                    var simDict = suggestions.ToDictionary(s => s.Name, s => s.Similarity);
+                    similarityByPattern[pattern] = simDict;
+
+                    var suggestionSet = suggestions.Select(s => s.Name).ToHashSet();
+                    var partialMatches = allTypes
+                        .Where(t => suggestionSet.Contains(t.FullName))
+                        .DistinctBy(t => t.FullName)
+                        .ToList();
+                    partialMatchesByPattern[pattern] = partialMatches;
+                }
+                else
+                {
+                    notFoundPatterns.Add(pattern);
+                }
+            }
+            else
+            {
+                notFoundPatterns.Add(pattern);
+            }
+        }
+
+        return ConvertToFindResults(resultsByPattern, partialMatchesByPattern, notFoundPatterns, similarityByPattern);
+    }
+
+    private static async Task<List<TypeFindResult>> FindSinglePatternAsync(
+        string pattern,
+        FindOptions options,
+        VerboseLogger logger,
+        List<string> tempDirs,
+        HttpClient httpClient)
+    {
+        var results = await CollectTypesAsync(options, pattern, logger, tempDirs, httpClient);
+
+        List<TypeSearchResult>? partialMatches = null;
+        Dictionary<string, double>? partialSimilarities = null;
+        if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
+        {
+            var allTypes = await CollectTypesAsync(options, null, logger, tempDirs, httpClient);
+            var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
+            var suggestions = TypeMatcher.FindClosest(typeNames, pattern, minSimilarity: 0.5, maxResults: 5).ToList();
+
+            if (suggestions.Count > 0)
+            {
+                partialSimilarities = suggestions.ToDictionary(s => s.Name, s => s.Similarity);
+                var suggestionSet = suggestions.Select(s => s.Name).ToHashSet();
+                partialMatches = allTypes
+                    .Where(t => suggestionSet.Contains(t.FullName))
+                    .DistinctBy(t => t.FullName)
+                    .ToList();
+            }
+        }
+
+        int totalCount = results.Count;
+        if (options.Limit.HasValue && results.Count > options.Limit.Value)
+        {
+            results = results.Take(options.Limit.Value).ToList();
+        }
+
+        var similarityByPattern = partialSimilarities != null
+            ? new Dictionary<string, Dictionary<string, double>> { [pattern] = partialSimilarities }
+            : null;
+
+        return ConvertToFindResults(
+            new Dictionary<string, List<TypeSearchResult>> { [pattern] = results },
+            partialMatches != null ? new Dictionary<string, List<TypeSearchResult>> { [pattern] = partialMatches } : [],
+            [],
+            similarityByPattern);
+    }
+
+    /// <summary>
+    /// Converts separate result dictionaries into a unified flat list of TypeFindResult.
+    /// </summary>
+    private static List<TypeFindResult> ConvertToFindResults(
+        Dictionary<string, List<TypeSearchResult>> exactMatches,
+        Dictionary<string, List<TypeSearchResult>> partialMatches,
+        List<string> notFoundPatterns,
+        Dictionary<string, Dictionary<string, double>>? similarityByPattern = null)
+    {
+        var results = new List<TypeFindResult>();
+
+        foreach (var (pattern, types) in exactMatches)
+        {
+            var isGlob = pattern.Contains('*') || pattern.Contains('?');
+            foreach (var t in types)
+            {
+                results.Add(new TypeFindResult
+                {
+                    Pattern = pattern,
+                    Match = isGlob ? MatchKind.Glob : MatchKind.Exact,
+                    Similarity = 1.0,
+                    Type = t.TypeName,
+                    Namespace = t.Namespace ?? "",
+                    FullName = t.FullName,
+                    Kind = t.Kind ?? "",
+                    Library = t.Assembly ?? "",
+                    Source = t.Source ?? "",
+                    SourceVersion = t.SourceVersion
+                });
+            }
+        }
+
+        foreach (var (pattern, types) in partialMatches)
+        {
+            var simDict = similarityByPattern?.GetValueOrDefault(pattern);
+            foreach (var t in types)
+            {
+                var similarity = simDict?.GetValueOrDefault(t.FullName, 0.5) ?? 0.5;
+                results.Add(new TypeFindResult
+                {
+                    Pattern = pattern,
+                    Match = MatchKind.Partial,
+                    Similarity = similarity,
+                    Type = t.TypeName,
+                    Namespace = t.Namespace ?? "",
+                    FullName = t.FullName,
+                    Kind = t.Kind ?? "",
+                    Library = t.Assembly ?? "",
+                    Source = t.Source ?? "",
+                    SourceVersion = t.SourceVersion
+                });
+            }
+        }
+
+        foreach (var pattern in notFoundPatterns)
+        {
+            results.Add(new TypeFindResult
+            {
+                Pattern = pattern,
+                Match = MatchKind.NotFound,
+                Similarity = null
+            });
+        }
+
+        return results;
+    }
+
     /// <summary>
     /// Collects types from all configured sources, optionally filtered by pattern.
     /// When pattern is provided, matching happens during collection for early-exit with limit.
