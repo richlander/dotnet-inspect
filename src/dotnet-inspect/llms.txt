@@ -27,17 +27,17 @@ dotnet-inspect cli                                  # CLI args explorer
 
 ## LLM Usage Guide
 
-### Prefer --oneline for Discovery
+### Default Output is Compact (No Flags Needed)
 
-Use `--oneline` as the default format for scanning APIs. It is far more token-efficient than the default markdown tables, shows overload counts in the DETAIL column, and includes constructors that may be missing from other views for generic types.
+Default output is compact columnar tables — like `docker images` or `git log --oneline`. No `--oneline` flag is needed:
 
 ```bash
-dotnet-inspect member Command --package System.CommandLine --oneline       # scan all members
-dotnet-inspect type --package System.CommandLine --oneline                  # scan all types
-dotnet-inspect member Command --package System.CommandLine -m SetAction     # then drill in (full signatures + docs)
+dotnet-inspect member Command --package System.CommandLine         # scan all members (compact table)
+dotnet-inspect type --package System.CommandLine                    # scan all types (compact table)
+dotnet-inspect member Command --package System.CommandLine -m SetAction  # then drill in (full signatures + docs)
 ```
 
-Default `member` output shows full signatures with docs. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables (Name + Return Type).
+Use `--markdown` or `-v:*` when you need rich document output with docs and sections. Default `member` output shows full signatures with docs. Use `-v:d` only when you need source code or IL. Use `-v:q` for compact summary tables (Name + Return Type).
 
 ### Migration Workflow (fixing build errors from API changes)
 
@@ -48,8 +48,8 @@ When code fails to compile because it uses an outdated API:
 # 2. Diff the old and new versions to see all breaking/additive changes
 dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3
 
-# 3. Scan the new type surface with --oneline
-dotnet-inspect member Command --package System.CommandLine@2.0.3 --oneline
+# 3. Scan the new type surface
+dotnet-inspect member Command --package System.CommandLine@2.0.3
 
 # 4. Enumerate overloads for a method (--select shows Name:N indices)
 dotnet-inspect member Command --package System.CommandLine@2.0.3 --select
@@ -68,8 +68,8 @@ Start with `diff` — it immediately shows all removed/changed/added members. Th
 ```bash
 # WRONG: Using -v:d for initial scanning (wastes tokens with source/IL)
 dotnet-inspect member Command --package System.CommandLine -v:d              # ✗
-# CORRECT: Use --oneline for scanning, default for signatures+docs, -v:d only for source/IL
-dotnet-inspect member Command --package System.CommandLine --oneline         # ✓
+# CORRECT: Default is compact — use it for scanning, -v:d only for source/IL
+dotnet-inspect member Command --package System.CommandLine                   # ✓ (compact table)
 dotnet-inspect member Command --package System.CommandLine -m SetAction      # ✓ (full signatures + docs)
 dotnet-inspect member Command --package System.CommandLine -m SetAction -v:d # ✓ (source/IL)
 
@@ -97,7 +97,7 @@ dotnet-inspect member 'Option<T>' --package System.CommandLine               # �
 # WRONG: Expecting RootCommand to show inherited members from Command
 dotnet-inspect member RootCommand --package System.CommandLine               # only shows RootCommand's own members
 # WORKAROUND: Also query the base type to see inherited methods like Add() and SetAction()
-dotnet-inspect member Command --package System.CommandLine --oneline         # shows Add(), SetAction(), Parse()
+dotnet-inspect member Command --package System.CommandLine                    # shows Add(), SetAction(), Parse()
 
 # WRONG: --platform on search commands doesn't take a library name (it's a bool flag)
 dotnet-inspect find "IHost*" --platform Microsoft.Extensions.Hosting   # ✗
@@ -125,7 +125,7 @@ dotnet-inspect member -m JsonConvert.SerializeObject --package Newtonsoft.Json  
 dotnet-inspect member JsonSerializer --package System.Text.Json | head -20       # ✗
 dotnet-inspect member JsonSerializer --package System.Text.Json | Select-Object -First 20  # ✗
 # CORRECT: Use built-in limiting — preserves headers and formatting
-dotnet-inspect member JsonSerializer --package System.Text.Json --oneline -20    # ✓ (line limit)
+dotnet-inspect member JsonSerializer --package System.Text.Json -20              # ✓ (line limit)
 dotnet-inspect find "*Logger*" -n 5                                              # ✓ (line limit)
 dotnet-inspect member JsonSerializer --package System.Text.Json -s Methods       # ✓ (section filter)
 ```
@@ -249,10 +249,11 @@ dotnet-inspect type --package System.Text.Json                   # All types (fr
 dotnet-inspect type --platform System.Text.Json                  # All types (from platform)
 dotnet-inspect type System.Text.Json                             # Bare name — auto-routes
 dotnet-inspect type -t "JsonS*" --package System.Text.Json       # Types matching glob
-dotnet-inspect type JsonSerializer --package System.Text.Json --shape  # Type shape diagram
-dotnet-inspect type 'HashSet<T>' --platform System.Collections --shape  # Generic types (quote!)
-dotnet-inspect type --package System.Text.Json --oneline         # Columnar output
-dotnet-inspect type --package System.Text.Json --json            # JSON output
+dotnet-inspect type JsonSerializer --package System.Text.Json        # Single type — shape view (default)
+dotnet-inspect type 'HashSet<T>' --platform System.Collections      # Generic types (quote!)
+dotnet-inspect type --package System.Text.Json                      # All types — compact table (default)
+dotnet-inspect type --package System.Text.Json --json               # JSON output
+dotnet-inspect type --package System.Text.Json -v:m                 # Markdown output
 ```
 
 ### member
@@ -313,9 +314,10 @@ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options \
 Other flags:
 
 ```bash
-dotnet-inspect member JsonSerializer --package System.Text.Json --oneline  # One member per line
+dotnet-inspect member JsonSerializer --package System.Text.Json             # Compact table (default)
 dotnet-inspect member Command --package System.CommandLine --ctor          # Constructor details
 dotnet-inspect member JsonSerializer --package System.Text.Json --json     # JSON output
+dotnet-inspect member JsonSerializer --package System.Text.Json -v:m      # Markdown output
 ```
 
 ### api (deprecated)
@@ -332,7 +334,7 @@ dotnet-inspect find "*Stream*" -n 10                     # Glob pattern, limit r
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
 dotnet-inspect find "*Serializer*" --package System.Text.Json --package Newtonsoft.Json  # Multiple packages
 dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
-dotnet-inspect find "ChatClient*" --oneline                # Search default scope, columnar output
+dotnet-inspect find "ChatClient*"                        # Search default scope
 dotnet-inspect find "*Logger*" --platform                # All platform frameworks
 dotnet-inspect find "*Host*" --extensions                # Microsoft.Extensions packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
@@ -343,7 +345,7 @@ Batch search (comma-separated patterns):
 
 ```bash
 dotnet-inspect find "Chat*,Diction*" -v:q
-dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine --oneline
+dotnet-inspect find "Option*,Argument*,Command*" --package System.CommandLine
 ```
 
 | Scope | Description |
@@ -362,8 +364,9 @@ Scope flags are combinable: `--platform --package Newtonsoft.Json` searches both
 
 | Option | Description |
 | ------ | ----------- |
-| `--oneline` | One result per line, columnar output |
-| `--no-header` | Suppress column headers (use with --oneline) |
+| `--oneline` | One result per line, columnar output (default) |
+| `--no-header` | Suppress column headers |
+| `--markdown` | Rich markdown output (or use `-v:*`) |
 | `-n` | Limit results per pattern |
 
 ### diff
@@ -375,7 +378,7 @@ dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q  # Full p
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2  # Single type
 dotnet-inspect diff "*Writer*" --package Markout@0.1.8..0.2.0            # Glob filter
 dotnet-inspect diff JsonSerializer --platform System.Text.Json@8.0.23..10.0.2  # Platform versions
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --oneline             # One change per line
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2                   # Compact table (default)
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking           # Breaking only
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --additive           # Additive only
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --name-only          # Type names only
@@ -539,7 +542,8 @@ DOTNET_INSPECT_TIPS=quiet            # ENV-based silencing
 | `--no-docs` | Suppress XML documentation | member |
 | `--samples` | Fetch code samples | member |
 | `--ctor` | Constructor details | member |
-| `--oneline` | One result per line, columnar | type, member, find, diff, implements |
+| `--oneline` | Compact columnar output (default) | type, member, find, diff, implements |
+| `--markdown` | Rich markdown output (or use `-v:*`) | type, member, package, library |
 | `--dependencies` | Dependency tree (visual) | library, package |
 | `--references` | Direct assembly references | library |
 | `--source-link-audit` | SourceLink/determinism audit | library |

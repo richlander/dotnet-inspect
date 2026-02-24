@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.5.0
+version: 0.6.0
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
@@ -10,8 +10,9 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## Quick Decision Tree
 
-- **Code broken?** → `diff --package Foo@old..new` first, then `member --oneline`
-- **Need API surface?** → `member Type --package Foo --oneline` (token-efficient)
+- **Code broken?** → `diff --package Foo@old..new` first, then `member`
+- **Need API surface?** → `member Type --package Foo` (compact table by default)
+- **Need type shape?** → `type Type --package Foo` (tree view by default for single type)
 - **Need signatures?** → `member Type --package Foo -m Method` (default shows full signatures + docs)
 - **Need source/IL?** → `member Type --package Foo -m Method -v:d` (adds Source, Lowered C#, IL)
 - **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
@@ -19,10 +20,10 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## When to Use This Skill
 
-- **"What types are in this package?"** — `type` discovers types (terse), `find` searches by pattern
+- **"What types are in this package?"** — `type` discovers types, `find` searches by pattern
 - **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
-- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member --oneline` to see the new API
+- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
 - **"What extends this type?"** — `extensions` finds extension methods/properties
 - **"What implements this interface?"** — `implements` finds concrete types
 - **"What does this type depend on?"** — `depends` walks the type hierarchy upward
@@ -31,26 +32,33 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## Key Patterns
 
-Use `--oneline` as the default for scanning — it works on `type`, `member`, `find`, `diff`, and `implements`:
+Default output is compact columnar tables (like `docker images` or `git log --oneline`). No flags needed for scanning:
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline  # scan members
-dnx dotnet-inspect -y -- type --package System.Text.Json --oneline                   # scan types
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --oneline  # triage changes
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json    # scan members
+dnx dotnet-inspect -y -- type --package System.Text.Json                     # scan types
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Use `--shape` to understand a type's hierarchy and surface at a glance:
+Use `--markdown` or `-v:*` for rich document output when you need full details:
 
 ```bash
-dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections --shape
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:m  # markdown with docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:d  # detailed (source/IL)
 ```
 
-Use `diff` first when fixing broken code — `--oneline` for triage, then full detail on specific types:
+Single-type resolution shows `--shape` by default — a tree view of the type hierarchy and members:
 
 ```bash
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3 --oneline  # what changed?
+dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections    # shape view (default)
+```
+
+Use `diff` first when fixing broken code — triage changes, then drill into specifics:
+
+```bash
+dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
 dnx dotnet-inspect -y -- diff -t Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # detail on Command
-dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3 --oneline              # new API surface
+dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3               # new API surface
 ```
 
 ## Search Scope
@@ -85,14 +93,16 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 **Do not pipe output through `head`, `tail`, or `Select-Object`.** The tool has built-in line limiting that preserves headers and formatting:
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json --oneline -10  # first 10 lines
-dnx dotnet-inspect -y -- find "*Logger*" -n 5                                            # first 5 lines
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -10    # first 10 lines
+dnx dotnet-inspect -y -- find "*Logger*" -n 5                                    # first 5 lines
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -s Methods  # select specific section
 ```
 
 - **`-n N` or `-N`** — line limit, like `head`. Keeps headers, truncates cleanly.
+- **`-S Field,Column`** — select specific fields/columns. Use `-S` alone to list available options.
 - **`-s Section`** — show only a specific section (glob-capable). Use `-s` alone to list available sections.
 - **`-v:q`** — quiet verbosity for compact summary output.
+- **`--markdown`** — switch from default compact output to rich markdown (or use `-v:*`).
 
 ## Key Syntax
 
