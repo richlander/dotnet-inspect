@@ -5,7 +5,6 @@ using Markout;
 namespace DotnetInspector.Views;
 
 [MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFields = false)]
-[MarkoutIgnoreFields(nameof(OneLineWriter))]
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;

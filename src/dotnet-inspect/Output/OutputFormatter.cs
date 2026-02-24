@@ -125,7 +125,8 @@ public static class OutputFormatter
             var writerOpts = new MarkoutWriterOptions
             {
                 IncludeSections = includeSections ?? options.IncludeSections,
-                Projection = BuildProjection(options.Select, options.Columns, options.Fields)
+                Projection = BuildProjection(options.Select, options.Columns, options.Fields),
+                SuppressedShapes = MarkoutShape.FieldList
             };
             var writer = new OneLineWriter(Console.Out, writerOpts);
             new MarkoutContext().Serialize(auditView, writer);
@@ -172,7 +173,8 @@ public static class OutputFormatter
                 var writerOpts = new MarkoutWriterOptions
                 {
                     IncludeSections = includeSections ?? options.IncludeSections,
-                    Projection = BuildProjection(options.Select, options.Columns, options.Fields)
+                    Projection = BuildProjection(options.Select, options.Columns, options.Fields),
+                    SuppressedShapes = MarkoutShape.FieldList
                 };
                 var writer = new OneLineWriter(Console.Out, writerOpts);
                 new MarkoutContext().Serialize(auditView, writer);
