@@ -71,7 +71,28 @@ public class LibraryInspectionView
     // ===== Field Collection Sections =====
 
     [MarkoutSection(Name = "Library Info")]
-    public List<MarkoutField> AssemblyInfoSection => GetAssemblyInfoFields();
+    public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info ? null : new LibraryInfoSection
+    {
+        Name = info.AssemblyName,
+        Version = ResolveVersion(),
+        InformationalVersion = info.InformationalVersion,
+        AssemblyVersion = info.AssemblyVersion,
+        TargetFramework = info.TargetFramework,
+        Architecture = info.Architecture,
+        Compilation = info.CompilationType,
+        Product = info.Product,
+        Company = info.Company,
+        Copyright = info.Copyright,
+        Signed = info.IsSigned ? "Yes" : null,
+        PublicKeyToken = info.PublicKeyToken,
+        Deterministic = _data.IsDeterministic,
+        Reproducible = _data.HasReproducibleFlag,
+        FileSize = _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null,
+        Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
+        Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
+        Source = _data.Source,
+        Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
+    };
 
     [MarkoutSection(Name = "Symbols")]
     public List<MarkoutField> SymbolsSection => GetSymbolsFields();
@@ -181,50 +202,6 @@ public class LibraryInspectionView
         }
 
         return "";
-    }
-
-    private List<MarkoutField> GetAssemblyInfoFields()
-    {
-        List<MarkoutField> fields = [];
-        if (_data.AssemblyInfo is not { } info) return fields;
-
-        if (!string.IsNullOrEmpty(info.AssemblyName))
-            fields.Add(new("Name", info.AssemblyName));
-        fields.Add(new("Version", ResolveVersion()));
-        if (!string.IsNullOrEmpty(info.InformationalVersion))
-            fields.Add(new("Informational Version", info.InformationalVersion));
-        if (!string.IsNullOrEmpty(info.AssemblyVersion))
-            fields.Add(new("Assembly Version", info.AssemblyVersion));
-        if (!string.IsNullOrEmpty(info.TargetFramework))
-            fields.Add(new("Target Framework", info.TargetFramework));
-        if (!string.IsNullOrEmpty(info.Architecture))
-            fields.Add(new("Architecture", info.Architecture));
-        if (!string.IsNullOrEmpty(info.CompilationType))
-            fields.Add(new("Compilation", info.CompilationType));
-        if (!string.IsNullOrEmpty(info.Product))
-            fields.Add(new("Product", info.Product));
-        if (!string.IsNullOrEmpty(info.Company))
-            fields.Add(new("Company", info.Company));
-        if (!string.IsNullOrEmpty(info.Copyright))
-            fields.Add(new("Copyright", info.Copyright));
-        if (info.IsSigned)
-            fields.Add(new("Signed", "Yes"));
-        if (!string.IsNullOrEmpty(info.PublicKeyToken))
-            fields.Add(new("Public Key Token", info.PublicKeyToken));
-        fields.Add(new("Deterministic", _data.IsDeterministic ? "Yes" : "No"));
-        fields.Add(new("Reproducible", _data.HasReproducibleFlag ? "Yes" : "No"));
-        if (_data.FileSize > 0)
-            fields.Add(new("File Size", FormatFileSize(_data.FileSize)));
-        if (info.TypeDefinitionCount > 0)
-            fields.Add(new("Types", info.TypeDefinitionCount.ToString("N0")));
-        if (info.MethodDefinitionCount > 0)
-            fields.Add(new("Methods", info.MethodDefinitionCount.ToString("N0")));
-        if (!string.IsNullOrEmpty(_data.Source))
-            fields.Add(new("Source", _data.Source));
-        if (_data.LastModified.HasValue)
-            fields.Add(new("Modified", _data.LastModified.Value.ToString("yyyy-MM-dd")));
-
-        return fields;
     }
 
     private List<MarkoutField> GetSymbolsFields()
@@ -393,3 +370,30 @@ public record CustomAttributeRow(
 public record TypeForwarderRow(
     [property: MarkoutPropertyName("Type")] string TypeName,
     [property: MarkoutPropertyName("Target Assembly")] string TargetAssembly);
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.LineBreaks)]
+[MarkoutSkipNull]
+public class LibraryInfoSection
+{
+    public string? Name { get; init; }
+    public string? Version { get; init; }
+    public string? InformationalVersion { get; init; }
+    public string? AssemblyVersion { get; init; }
+    public string? TargetFramework { get; init; }
+    public string? Architecture { get; init; }
+    public string? Compilation { get; init; }
+    public string? Product { get; init; }
+    public string? Company { get; init; }
+    public string? Copyright { get; init; }
+    public string? Signed { get; init; }
+    public string? PublicKeyToken { get; init; }
+    [MarkoutBoolFormat("Yes", "No")]
+    public bool Deterministic { get; init; }
+    [MarkoutBoolFormat("Yes", "No")]
+    public bool Reproducible { get; init; }
+    public string? FileSize { get; init; }
+    public string? Types { get; init; }
+    public string? Methods { get; init; }
+    public string? Source { get; init; }
+    public string? Modified { get; init; }
+}
