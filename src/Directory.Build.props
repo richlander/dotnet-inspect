@@ -3,7 +3,6 @@
   <PropertyGroup>
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net10.0</DefaultTargetFramework>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <NoWarn>$(NoWarn);MARKOUT005</NoWarn>
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory)../artifacts</ArtifactsPath>
     <IncludeProjectNameInArtifactsPaths>true</IncludeProjectNameInArtifactsPaths>
