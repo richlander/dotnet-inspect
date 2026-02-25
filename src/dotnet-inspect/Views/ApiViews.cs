@@ -210,25 +210,10 @@ public class ApiTypeView
     [JsonIgnore]
     public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
 
-    [MarkoutSection(Name = "Source")]
-    [MarkoutIgnoreInTable]
+    // Member code sections (populated by member command only, serialized separately)
+    [MarkoutIgnore]
     [JsonIgnore]
-    public CodeSection SourceCode { get; set; }
-
-    [MarkoutSection(Name = "Lowered C#")]
-    [MarkoutIgnoreInTable]
-    [JsonIgnore]
-    public CodeSection LoweredCSharp { get; set; }
-
-    [MarkoutSection(Name = "IL")]
-    [MarkoutIgnoreInTable]
-    [JsonIgnore]
-    public CodeSection ILCode { get; set; }
-
-    [MarkoutSection(Name = "IL (Annotated)")]
-    [MarkoutIgnoreInTable]
-    [JsonIgnore]
-    public CodeSection AnnotatedIL { get; set; }
+    public MemberCodeView? MemberCode { get; set; }
 
 }
 
@@ -444,6 +429,26 @@ public record ApiOneLineRow(string Kind, string Name,
 
 [MarkoutSerializable]
 public record ApiSurfaceOneLineRow(string Kind, string Type, string Members);
+
+/// <summary>
+/// Code sections for member command output (Source, Lowered C#, IL, Annotated IL).
+/// Serialized separately after the main ApiTypeView.
+/// </summary>
+[MarkoutSerializable(AutoFields = false)]
+public class MemberCodeView
+{
+    [MarkoutSection(Name = "Source")]
+    public CodeSection SourceCode { get; set; }
+
+    [MarkoutSection(Name = "Lowered C#")]
+    public CodeSection LoweredCSharp { get; set; }
+
+    [MarkoutSection(Name = "IL")]
+    public CodeSection ILCode { get; set; }
+
+    [MarkoutSection(Name = "IL (Annotated)")]
+    public CodeSection AnnotatedIL { get; set; }
+}
 
 [MarkoutContext(typeof(TypeShapeView))]
 public partial class TypeViewContext : MarkoutSerializerContext

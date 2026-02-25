@@ -923,7 +923,10 @@ public class ApiCommand
 
             // Source code (already resolved in command layer)
             if (options.MethodSource != null)
-                view.SourceCode = new Markout.CodeSection("csharp", options.MethodSource.SourceCode);
+            {
+                view.MemberCode ??= new MemberCodeView();
+                view.MemberCode.SourceCode = new Markout.CodeSection("csharp", options.MethodSource.SourceCode);
+            }
         }
 
         if (options.OneLine)
@@ -941,6 +944,9 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var writer = new Markout.MarkdownWriter(writerOptions);
             new MarkoutContext().Serialize(view, writer);
+
+            if (view.MemberCode != null)
+                new MarkoutContext().Serialize(view.MemberCode, writer);
 
             if (truncatedCount > 0)
                 writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");

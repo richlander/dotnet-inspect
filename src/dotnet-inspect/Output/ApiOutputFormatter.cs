@@ -660,6 +660,8 @@ public static class ApiOutputFormatter
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
 
+        var memberCode = new MemberCodeView();
+
         foreach (var method in methods)
         {
             // Custom attributes
@@ -681,7 +683,7 @@ public static class ApiOutputFormatter
                 {
                     var lowered = Decompiler.CSharpEmitter.Emit(context);
                     if (!string.IsNullOrWhiteSpace(lowered))
-                        view.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
+                        memberCode.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
                 }
             }
             catch { }
@@ -692,7 +694,7 @@ public static class ApiOutputFormatter
             if (instructions is { Count: > 0 })
             {
                 var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
-                view.ILCode = new CodeSection("il", ilText);
+                memberCode.ILCode = new CodeSection("il", ilText);
             }
 
             // Annotated IL
@@ -705,11 +707,13 @@ public static class ApiOutputFormatter
                     var annotated = Decompiler.AnnotatedILEmitter.Emit(
                         context, Decompiler.ILAnnotationDepth.Structured);
                     if (!string.IsNullOrWhiteSpace(annotated))
-                        view.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                        memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
                 }
             }
             catch { }
         }
+
+        view.MemberCode = memberCode;
     }
 
     // ===== Helper Methods =====
