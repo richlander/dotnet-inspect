@@ -95,10 +95,33 @@ public class LibraryInspectionView
     };
 
     [MarkoutSection(Name = "Symbols")]
-    public List<MarkoutField> SymbolsSection => GetSymbolsFields();
+    public SymbolsSection? SymbolsSection => new SymbolsSection
+    {
+        PdbFormat = _data.PdbFormat ?? "Unknown",
+        PdbLocation = _data.PdbLocation ?? "Unknown",
+        SymbolServer = _data.SymbolServer,
+        PdbPath = _data.PdbPath,
+        SourceLink = _data.HasSourceLink ? "Yes"
+            : _data.SourceLinkUnavailableReason != null ? $"No ({_data.SourceLinkUnavailableReason})" : "No",
+        Builder = _data.Builder,
+        Publisher = !string.IsNullOrEmpty(_data.Publisher)
+            ? $"{_data.Publisher}{(_data.PublisherVerified ? " (Verified)" : "")}".Trim()
+            : _data.SignatureStatus,
+        Repository = _data.RepositoryVerified ? "nuget.org (Verified)" : null,
+        RepositoryUrl = _data.RepositoryUrl,
+        Warning = _data.WindowsPdbDetected ? "Windows PDB format is not supported by this tool" : null,
+        Recommendation = _data.WindowsPdbDetected ? "Consider asking the package maintainer to publish Portable PDBs" : null,
+    };
 
     [MarkoutSection(Name = "Source Link Audit")]
-    public List<MarkoutField> SourceLinkAuditSection => GetSourceLinkAuditFields();
+    public SourceLinkAuditSection? SourceLinkAuditSection => GetSourceLinkAuditSection();
+
+    [MarkoutIgnore]
+    public bool HasMissingSourceFiles => _data.MissingSourceFiles is { Count: > 0 };
+
+    [MarkoutSection(Name = "Missing Source Files", ShowWhenProperty = nameof(HasMissingSourceFiles))]
+    public List<string>? MissingSourceFilesSection =>
+        _data.MissingSourceFiles?.Take(10).Select(f => $"`{f}`").ToList();
 
     [MarkoutIgnore]
     public bool UseDependenciesView => _data.UseDependenciesView;
@@ -204,67 +227,18 @@ public class LibraryInspectionView
         return "";
     }
 
-    private List<MarkoutField> GetSymbolsFields()
+    private SourceLinkAuditSection? GetSourceLinkAuditSection()
     {
-        List<MarkoutField> fields =
-        [
-            new("PDB Format", _data.PdbFormat ?? "Unknown"),
-            new("PDB Location", _data.PdbLocation ?? "Unknown")
-        ];
-
-        if (!string.IsNullOrEmpty(_data.SymbolServer))
-            fields.Add(new("Symbol Server", _data.SymbolServer));
-        if (!string.IsNullOrEmpty(_data.PdbPath))
-            fields.Add(new("PDB Path", _data.PdbPath));
-
-        var sourceLinkStatus = _data.HasSourceLink ? "Yes"
-            : _data.SourceLinkUnavailableReason != null ? $"No ({_data.SourceLinkUnavailableReason})" : "No";
-        fields.Add(new("SourceLink", sourceLinkStatus));
-
-        if (!string.IsNullOrEmpty(_data.Builder))
-            fields.Add(new("Builder", _data.Builder));
-        if (!string.IsNullOrEmpty(_data.Publisher))
-        {
-            var publisherStatus = _data.PublisherVerified ? "(Verified)" : "";
-            fields.Add(new("Publisher", $"{_data.Publisher} {publisherStatus}".Trim()));
-        }
-        else if (!string.IsNullOrEmpty(_data.SignatureStatus))
-        {
-            fields.Add(new("Publisher", _data.SignatureStatus));
-        }
-        if (_data.RepositoryVerified)
-            fields.Add(new("Repository", "nuget.org (Verified)"));
-        if (!string.IsNullOrEmpty(_data.RepositoryUrl))
-            fields.Add(new("Repository URL", _data.RepositoryUrl));
-
-        if (_data.WindowsPdbDetected)
-        {
-            fields.Add(new("Warning", "Windows PDB format is not supported by this tool"));
-            fields.Add(new("Recommendation", "Consider asking the package maintainer to publish Portable PDBs"));
-        }
-
-        return fields;
-    }
-
-    private List<MarkoutField> GetSourceLinkAuditFields()
-    {
-        List<MarkoutField> fields = [];
-        if (_data.TotalSourceFiles <= 0) return fields;
+        if (_data.TotalSourceFiles <= 0) return null;
 
         int accessible = _data.AccessibleSourceFiles + _data.EmbeddedSourceFiles;
         string status = _data.AllSourcesAccessible == true ? "Yes" : "No";
-        fields.Add(new("Status", $"{status} {accessible}/{_data.TotalSourceFiles} files accessible"));
 
-        if (_data.EmbeddedSourceFiles > 0)
-            fields.Add(new("Embedded", $"{_data.EmbeddedSourceFiles} files"));
-
-        if (_data.MissingSourceFiles is { Count: > 0 })
+        return new SourceLinkAuditSection
         {
-            foreach (var file in _data.MissingSourceFiles.Take(10))
-                fields.Add(new("Missing", $"`{file}`"));
-        }
-
-        return fields;
+            Status = $"{status} {accessible}/{_data.TotalSourceFiles} files accessible",
+            Embedded = _data.EmbeddedSourceFiles > 0 ? $"{_data.EmbeddedSourceFiles} files" : null,
+        };
     }
 
     private static string FormatSize(int bytes) => bytes switch
@@ -396,4 +370,33 @@ public class LibraryInfoSection
     public string? Methods { get; init; }
     public string? Source { get; init; }
     public string? Modified { get; init; }
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.LineBreaks)]
+[MarkoutSkipNull]
+public class SymbolsSection
+{
+    [MarkoutPropertyName("PDB Format")]
+    public string PdbFormat { get; init; } = "Unknown";
+    [MarkoutPropertyName("PDB Location")]
+    public string PdbLocation { get; init; } = "Unknown";
+    public string? SymbolServer { get; init; }
+    [MarkoutPropertyName("PDB Path")]
+    public string? PdbPath { get; init; }
+    public string? SourceLink { get; init; }
+    public string? Builder { get; init; }
+    public string? Publisher { get; init; }
+    public string? Repository { get; init; }
+    [MarkoutPropertyName("Repository URL")]
+    public string? RepositoryUrl { get; init; }
+    public string? Warning { get; init; }
+    public string? Recommendation { get; init; }
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.LineBreaks)]
+[MarkoutSkipNull]
+public class SourceLinkAuditSection
+{
+    public string? Status { get; init; }
+    public string? Embedded { get; init; }
 }
