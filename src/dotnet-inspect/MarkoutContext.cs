@@ -17,7 +17,7 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(CliApiSurface))]
-[MarkoutContext(typeof(ApiTypeView))]
+[MarkoutContext(typeof(TypeView))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]

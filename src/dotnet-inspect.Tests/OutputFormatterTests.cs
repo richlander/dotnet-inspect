@@ -251,7 +251,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ApiTypeView_SourceAndTfm_PresentInCompactLine()
+    public void TypeView_SourceAndTfm_PresentInCompactLine()
     {
         var type = new ApiType
         {
@@ -269,7 +269,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ApiTypeView_NullSource_OmitsSourceField()
+    public void TypeView_NullSource_OmitsSourceField()
     {
         var type = new ApiType
         {

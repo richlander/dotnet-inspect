@@ -137,7 +137,7 @@ public static class ApiOutputFormatter
     public static void RenderTypeMarkdown(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         // Build the view model
-        var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        var view = BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
         // Populate enum values declaratively for Normal+ enums
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
@@ -206,7 +206,7 @@ public static class ApiOutputFormatter
 
     // ===== View Model Factories =====
 
-    internal static ApiTypeView BuildApiTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    internal static TypeView BuildTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         // Build title with package context
         var packageInfo = packageName != null && packageVersion != null
@@ -291,7 +291,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        return new ApiTypeView
+        return new TypeView
         {
             Title = $"{FormatGenericFullName(type)}{packageInfo}",
             Description = description,
@@ -396,7 +396,7 @@ public static class ApiOutputFormatter
 
     // ===== Internal Rendering Methods =====
 
-    internal static void PopulateEnumValues(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static void PopulateEnumValues(TypeView view, ApiType type, ApiOptions options)
     {
         var enumMembers = type.Members
             .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
@@ -424,7 +424,7 @@ public static class ApiOutputFormatter
             view.EnumValues = rows;
     }
 
-    internal static (int truncated, string noun) PopulateMemberSections(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSections(TypeView view, ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return (0, "");
@@ -526,7 +526,7 @@ public static class ApiOutputFormatter
     /// Groups members by name within each kind, with kind-specific columns
     /// matching the old QuietMemberFormatter design.
     /// </summary>
-    internal static (int truncated, string noun) PopulateMemberSummarySections(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSummarySections(TypeView view, ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         if (grouped.Count == 0) return (0, "");
@@ -619,7 +619,7 @@ public static class ApiOutputFormatter
         return (truncated, "members");
     }
 
-    internal static void PopulateConstructorOverloads(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static void PopulateConstructorOverloads(TypeView view, ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
         var constructors = grouped
@@ -655,7 +655,7 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(ApiTypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
     {
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);

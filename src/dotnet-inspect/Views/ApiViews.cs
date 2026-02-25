@@ -8,7 +8,7 @@ namespace DotnetInspector.Views;
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description))]
-public class ApiTypeView
+public class TypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
@@ -432,7 +432,7 @@ public record ApiSurfaceOneLineRow(string Kind, string Type, string Members);
 
 /// <summary>
 /// Code sections for member command output (Source, Lowered C#, IL, Annotated IL).
-/// Serialized separately after the main ApiTypeView.
+/// Serialized separately after the main TypeView.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
 public class MemberCodeView

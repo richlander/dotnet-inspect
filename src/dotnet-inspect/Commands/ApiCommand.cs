@@ -56,7 +56,7 @@ public class ApiCommand
         {
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
-            var memberSchema = context2.GetSchemaInfo<ApiTypeView>();
+            var memberSchema = context2.GetSchemaInfo<TypeView>();
             SelectResolver.Discover(options.Select, options.Columns,
                 allApiSections, typeSchema, memberSchema);
             return 0;
@@ -877,7 +877,7 @@ public class ApiCommand
             return;
         }
 
-        var view = ApiOutputFormatter.BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
         // Populate enum values declaratively for Normal+ enums
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)

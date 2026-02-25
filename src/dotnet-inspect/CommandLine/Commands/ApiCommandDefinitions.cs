@@ -219,7 +219,7 @@ public static class ApiCommandDefinitions
                     return 0;
 
                 case MemberOptionsParser.Discovery d:
-                    var memberSchema = new MarkoutContext().GetSchemaInfo<ApiTypeView>();
+                    var memberSchema = new MarkoutContext().GetSchemaInfo<TypeView>();
                     SelectResolver.Discover(d.Select, d.Columns,
                         SectionRegistry.ApiMemberSections, memberSchema);
                     return 0;

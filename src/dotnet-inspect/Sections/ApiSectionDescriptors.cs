@@ -68,7 +68,7 @@ public static class ApiTypeSectionDescriptors
 
 /// <summary>
 /// Section descriptors for the api command type-detail view (single type with members).
-/// Sections correspond to <see cref="Views.ApiTypeView"/> sections and member-kind groupings.
+/// Sections correspond to <see cref="Views.TypeView"/> sections and member-kind groupings.
 /// </summary>
 public static class ApiMemberSectionDescriptors
 {
