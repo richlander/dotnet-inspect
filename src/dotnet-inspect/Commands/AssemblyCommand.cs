@@ -69,6 +69,10 @@ public class AssemblyCommand
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
+        // Warn if --oneline combined with detailed verbosity without section selector
+        if (!discoverSections)
+            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+
 #if DEBUG
         // Detailed verbosity legitimately needs network for PDB/SourceLink
         if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)

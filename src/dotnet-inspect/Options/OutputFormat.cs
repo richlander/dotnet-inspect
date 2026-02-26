@@ -50,6 +50,20 @@ public static class OutputFormatResolver
         return OutputFormat.OneLine;
     }
 
+    /// <summary>
+    /// Warns when --oneline is combined with a verbosity that produces multiple sections
+    /// without a section selector. Oneline can only render one table at a time.
+    /// </summary>
+    public static bool WarnIfOneLineDetailMismatch(bool oneLine, Verbosity verbosity, HashSet<string>? includeSections)
+    {
+        if (oneLine && verbosity >= Verbosity.Normal && includeSections == null)
+        {
+            Console.Error.WriteLine("--oneline shows one table at a time. Use -s <section> to select a section, or --markdown for the full view.");
+            return true;
+        }
+        return false;
+    }
+
     private static OutputFormat? GetEnvOverride()
     {
         if (!_envParsed)

@@ -105,6 +105,10 @@ public class ApiCommand
                 options = options with { Verbosity = requiredVerbosity };
         }
 
+        // Warn if --oneline combined with detailed verbosity without section selector
+        if (!discoverSections)
+            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+
         return (new PreambleResult(options, discoverSections, typePipeline, memberPipeline), null);
     }
 
