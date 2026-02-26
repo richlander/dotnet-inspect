@@ -128,7 +128,7 @@ public record AssemblyOptions
     /// <summary>
     /// True when markdown output is requested (explicit or via verbosity).
     /// </summary>
-    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Normal;
+    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Minimal;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

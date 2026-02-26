@@ -5,13 +5,12 @@ namespace DotnetInspector.Views;
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),
-    FieldLayout = FieldLayout.LineBreaksDoubleSpace)]
-[MarkoutIgnoreFields(nameof(OneLineWriter))]
+    FieldLayout = FieldLayout.Vertical)]
 public class FindResultView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
-    public int Matches { get; set; }
+    [MarkoutIgnore] public int Matches { get; set; }
 
     [MarkoutSection(Name = "Results")]
     [MarkoutIgnoreColumnWhen(nameof(PatternIsUniform), "Pattern")]

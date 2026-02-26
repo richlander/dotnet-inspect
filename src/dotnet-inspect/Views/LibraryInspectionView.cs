@@ -4,7 +4,7 @@ using Markout;
 
 namespace DotnetInspector.Views;
 
-[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 7)]
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 7, FieldLayout = FieldLayout.Inline)]
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
@@ -297,7 +297,7 @@ public class LibraryInspectionView
                 BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
             }
 
-            target.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+            target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
     }
 }
@@ -345,7 +345,7 @@ public record TypeForwarderRow(
     [property: MarkoutPropertyName("Type")] string TypeName,
     [property: MarkoutPropertyName("Target Assembly")] string TargetAssembly);
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.LineBreaks)]
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Vertical)]
 [MarkoutSkipNull]
 public class LibraryInfoSection
 {
@@ -372,7 +372,7 @@ public class LibraryInfoSection
     public string? Modified { get; init; }
 }
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.LineBreaks)]
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Vertical)]
 [MarkoutSkipNull]
 public class SymbolsSection
 {
@@ -393,7 +393,7 @@ public class SymbolsSection
     public string? Recommendation { get; init; }
 }
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.LineBreaks)]
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Vertical)]
 [MarkoutSkipNull]
 public class SourceLinkAuditSection
 {

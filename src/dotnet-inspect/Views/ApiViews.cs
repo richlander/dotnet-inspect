@@ -7,7 +7,7 @@ namespace DotnetInspector.Views;
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
 public class TypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
@@ -256,7 +256,7 @@ public class SourceRow
 /// <summary>
 /// View model for full API surface rendering (all types in an assembly).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
 public class CliApiSurface
 {
     [MarkoutIgnore] public string? Name { get; set; }

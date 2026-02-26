@@ -327,13 +327,13 @@ public static class ApiOutputFormatter
         // Inheritance (always show)
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
         {
-            nodes.Add(new TreeNode("Inherits", new[] { type.BaseType }));
+            nodes.Add(new TreeNode("Inherits") { Children = [new TreeNode(type.BaseType)] });
         }
 
         // Interfaces (always show)
         if (type.Interfaces.Count > 0)
         {
-            nodes.Add(new TreeNode("Implements", type.Interfaces));
+            nodes.Add(new TreeNode("Implements") { Children = type.Interfaces.Select(i => new TreeNode(i)).ToList() });
         }
 
         // Type parameters with constraints (always show)
@@ -344,7 +344,7 @@ public static class ApiOutputFormatter
                     ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
                     : tp.DisplayName)
                 .ToList();
-            nodes.Add(new TreeNode("Type Parameters", typeParamDescriptions));
+            nodes.Add(new TreeNode("Type Parameters") { Children = typeParamDescriptions.Select(t => new TreeNode(t)).ToList() });
         }
 
         // Group members by kind
@@ -369,7 +369,7 @@ public static class ApiOutputFormatter
                     .Select(m => m.Signature ?? OperatorNames.FormatDisplayName(m.Name))
                     .ToList();
 
-                nodes.Add(new TreeNode(kindLabel, memberSignatures));
+                nodes.Add(new TreeNode(kindLabel) { Children = memberSignatures.Select(s => new TreeNode(s)).ToList() });
             }
         }
 

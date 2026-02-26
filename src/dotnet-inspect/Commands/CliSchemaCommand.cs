@@ -103,7 +103,7 @@ public class CliSchemaCommand
         if (verbosity >= Verbosity.Minimal && !string.IsNullOrEmpty(command.Description))
             nodeLabel += $"  {command.Description}";
 
-        return new TreeNode(nodeLabel, children);
+        return new TreeNode(nodeLabel) { Children = children };
     }
 
     private static string FormatOption(Option option, Verbosity verbosity)

@@ -54,7 +54,7 @@ public static class PackageOutputFormatter
             }
             else
             {
-                nodes.Add(new TreeNode(kvp.Key, BuildTreeNodes(children)));
+                nodes.Add(new TreeNode(kvp.Key) { Children = BuildTreeNodes(children) });
             }
         }
 

@@ -287,7 +287,7 @@ public class DependsCommand
     {
         return nodes.Select(n =>
             n.Children.Count > 0
-                ? new TreeNode(n.TypeName, ToTreeNodes(n.Children))
+                ? new TreeNode(n.TypeName) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(n.TypeName)
         ).ToList();
     }
@@ -300,7 +300,7 @@ public class DependsCommand
                 ? $"{n.PackageId} {n.Version} [{n.Author}]"
                 : $"{n.PackageId} {n.Version}";
             return n.Children.Count > 0
-                ? new TreeNode(label, ToDependencyTreeNodes(n.Children))
+                ? new TreeNode(label) { Children = ToDependencyTreeNodes(n.Children) }
                 : new TreeNode(label);
         }).ToList();
     }
@@ -329,7 +329,7 @@ public class DependsCommand
                 BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
             }
 
-            target.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+            target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
     }
 }

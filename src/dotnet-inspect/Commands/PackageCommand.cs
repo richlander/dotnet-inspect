@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
@@ -84,7 +85,7 @@ public class PackageCommand
             }
 
             var versionWriter = new Markout.OneLineWriter(Console.Out, showHeader: false);
-            versionWriter.WriteList(versions);
+            versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
 
             return 0;
         }
@@ -441,7 +442,7 @@ public class PackageCommand
             : fileNames;
 
         var fileWriter = new Markout.OneLineWriter(Console.Out, showHeader: false);
-        fileWriter.WriteList(results);
+        fileWriter.WriteList(results.ToArray());
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
@@ -472,12 +473,13 @@ public class PackageCommand
             .Select(d => TfmResolver.ExtractTfmFromPath(
                 Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
             .Where(t => t != null)
+            .Select(t => t!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(t => TfmResolver.GetTfmPriority(t!))
+            .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
             .ToList();
 
         var tfmWriter = new Markout.OneLineWriter(Console.Out, showHeader: false);
-        tfmWriter.WriteList(tfms!);
+        tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
@@ -548,7 +550,7 @@ public class PackageCommand
                 ? $"{n.PackageId} {n.Version} [{n.Author}]"
                 : $"{n.PackageId} {n.Version}";
             return n.Children.Count > 0
-                ? new TreeNode(label, ToTreeNodes(n.Children))
+                ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(label);
         }).ToList();
     }
