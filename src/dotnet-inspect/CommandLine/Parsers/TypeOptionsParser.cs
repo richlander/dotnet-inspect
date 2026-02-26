@@ -65,7 +65,7 @@ public static class TypeOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(ApiOptions Options) : TypeParseResult;
+    public record Success(TypeOptions Options) : TypeParseResult;
 
     /// <summary>
     /// Parses type command options asynchronously (due to source resolution).
@@ -115,7 +115,7 @@ public static class TypeOptionsParser
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
 
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             TypeName = source.TypeName,
             PackagePath = source.PackagePath,
@@ -141,7 +141,7 @@ public static class TypeOptionsParser
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
-                Columns = opts.ParseColumns(parseResult),
+            Columns = opts.ParseColumns(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

@@ -119,7 +119,7 @@ public static class RouterCommandDefinition
         // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
         if (PlatformResolver.TryParseQualifiedTypeName(route.BareName, out var qtAssembly, out var qtType))
         {
-            var typeOptions = new ApiOptions
+            var typeOptions = new TypeOptions
             {
                 TypeName = qtType,
                 PlatformAssembly = qtAssembly,

@@ -147,20 +147,21 @@ public static class ApiOutputFormatter
         string truncatedNoun = "";
 
         // Populate member sections declaratively (unless quiet or enum)
-        bool fullSerializer = options.IsMemberCommand || options.Verbosity != Verbosity.Quiet;
+        bool isMember = options is MemberOptions;
+        bool fullSerializer = isMember || options.Verbosity != Verbosity.Quiet;
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+            if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
                 && type.Members.Any(m => m.Kind == "constructor"))
             {
                 PopulateConstructorOverloads(view, type, options);
             }
-            else if (options.IsMemberCommand && options.Verbosity == Verbosity.Quiet)
+            else if (isMember && options.Verbosity == Verbosity.Quiet)
             {
                 (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
             }
-            else if (options.Verbosity == Verbosity.Minimal && !options.IsMemberCommand)
+            else if (options.Verbosity == Verbosity.Minimal && !isMember)
             {
                 (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
             }
@@ -181,7 +182,7 @@ public static class ApiOutputFormatter
     internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
     {
         // Member command at quiet still needs sections rendered (summary tables)
-        var effectiveVerbosity = options.IsMemberCommand && options.Verbosity == Verbosity.Quiet
+        var effectiveVerbosity = options is MemberOptions && options.Verbosity == Verbosity.Quiet
             ? Verbosity.Minimal : options.Verbosity;
 
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
@@ -313,11 +314,11 @@ public static class ApiOutputFormatter
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity (non-member commands only; member command shows tables)
-            Constructors = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
-            Fields = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
-            Properties = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
-            Methods = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
-            Events = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
+            Constructors = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Fields = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
+            Properties = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
+            Methods = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Events = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
@@ -463,7 +464,7 @@ public static class ApiOutputFormatter
 
         bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = options.Verbosity == Verbosity.Minimal;
-        bool showSelect = options.ShowSelect;
+        bool showSelect = options is MemberOptions mo && mo.ShowSelect;
 
         foreach (var group in kindGroups)
         {

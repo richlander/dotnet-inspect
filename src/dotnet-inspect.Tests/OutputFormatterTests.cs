@@ -225,7 +225,7 @@ public class OutputFormatterTests
     {
         var api = CreateTestApiSurface();
         // Glob upgrade: quiet + TypeFilter should behave as minimal
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             Verbosity = Verbosity.Minimal,  // caller upgrades quiet to minimal for globs
             TypeFilter = "Type1*"

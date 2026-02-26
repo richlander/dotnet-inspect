@@ -15,30 +15,55 @@ using DotnetInspector.Views;
 namespace DotnetInspector.Commands;
 
 /// <summary>
-/// Displays the public API shape of a specific type.
-/// Uses hybrid Markout serializer + imperative rendering.
+/// Shared helpers for type and member commands.
+/// Also provides a compatibility shim for callers that use ApiCommand.ExecuteAsync directly.
 /// </summary>
 public class ApiCommand
 {
     public const string Name = "api";
-    public static async Task<int> ExecuteAsync(ApiOptions options)
-    {
-        var typeName = options.TypeName;
-        if (options.MemberFilter.Count > 0 && string.IsNullOrEmpty(typeName))
-        {
-            Console.Error.WriteLine("Error: --member requires a type argument.");
-            Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg> -m <name>");
-            Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
-            return 1;
-        }
 
+    // ===== Compatibility Shim =====
+
+    public static Task<int> ExecuteAsync(ApiOptions options) => options switch
+    {
+        MemberOptions mo => MemberCommand.ExecuteAsync(mo),
+        TypeOptions to => TypeCommand.ExecuteAsync(to),
+        _ => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = options.TypeName, PackagePath = options.PackagePath, AssemblyPath = options.AssemblyPath,
+            PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
+            Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
+            ShowDocs = options.ShowDocs, DocsExplicitlySet = options.DocsExplicitlySet,
+            UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
+            BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
+            JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
+            OneLine = options.OneLine, OneLineExplicitlySet = options.OneLineExplicitlySet,
+            NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
+            KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
+            IncludeSections = options.IncludeSections, ExcludeSections = options.ExcludeSections,
+            Select = options.Select, Columns = options.Columns, SourceOptions = options.SourceOptions,
+            TipLevel = options.TipLevel
+        })
+    };
+
+    // ===== Shared Preamble =====
+
+    internal record PreambleResult(
+        ApiOptions Options,
+        bool DiscoverSections,
+        SectionPipeline<ApiSurface> TypePipeline,
+        SectionPipeline<ApiType> MemberPipeline);
+
+    internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
+    {
         // Validate section filters against all known api sections
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
         var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
             allApiSections, options.IncludeSections, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
+        if (sectionError)
+            return (null!, 1);
         options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
         // Bare -s without input: list all potential sections and exit
@@ -48,7 +73,7 @@ public class ApiCommand
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
             SectionRegistry.ListSections(allApiSections);
-            return 0;
+            return (null!, 0);
         }
 
         // Discovery mode: any bare projection flag lists available names
@@ -59,7 +84,7 @@ public class ApiCommand
             var memberSchema = context2.GetSchemaInfo<TypeView>();
             SelectResolver.Discover(options.Select, options.Columns,
                 allApiSections, typeSchema, memberSchema);
-            return 0;
+            return (null!, 0);
         }
 
         // --select with values: resolve as section filter for backpressure
@@ -80,614 +105,259 @@ public class ApiCommand
                 options = options with { Verbosity = requiredVerbosity };
         }
 
+        return (new PreambleResult(options, discoverSections, typePipeline, memberPipeline), null);
+    }
+
+    // ===== Shared Source Resolution =====
+
+    internal record SourceResult(
+        string SearchPath,
+        string? RuntimeAssemblyPath,
+        string? PackageName,
+        string? PackageVersion,
+        string? ApiSource,
+        string? ApiVersion,
+        string? SelectedTfm,
+        string? TempDir,
+        string? TypeName,
+        CommandContext Context);
+
+    internal static async Task<(SourceResult Result, int? Error)> ResolveSourceAsync(ApiOptions options)
+    {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;
 
-        try
+        string searchPath;
+        string? runtimeAssemblyPath = null;
+        string? packageName = null;
+        string? packageVersion = null;
+        string? apiSource = null;
+        string? apiVersion = null;
+        var typeName = options.TypeName;
+
+        if (!string.IsNullOrEmpty(options.PackagePath))
         {
-            string searchPath;
-            string? runtimeAssemblyPath = null;
-            string? packageName = null;
-            string? packageVersion = null;
-            string? apiSource = null;
-            string? apiVersion = null;
-
-            if (!string.IsNullOrEmpty(options.PackagePath))
+            var outcome = await Packages.PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
+            if (!outcome.IsSuccess)
             {
-                var outcome = await Packages.PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
-                if (!outcome.IsSuccess)
-                {
-                    Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
-                    return 1;
-                }
-                var extracted = outcome.Result!;
-                (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
-                apiSource = SourceKind.NuGet;
-                apiVersion = packageVersion;
+                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                return (null!, 1);
+            }
+            var extracted = outcome.Result!;
+            (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+            apiSource = SourceKind.NuGet;
+            apiVersion = packageVersion;
 
-                if (!string.IsNullOrEmpty(options.Tfm))
+            if (!string.IsNullOrEmpty(options.Tfm))
+            {
+                var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
+                if (tfmAssembly == null)
                 {
-                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
-                    if (tfmAssembly == null)
-                    {
-                        Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}'.");
-                        return 1;
-                    }
-                    searchPath = tfmAssembly;
-                    logger.Log($"Using TFM: {options.Tfm}");
+                    Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}'.");
+                    return (null!, 1);
                 }
-                else if (!string.IsNullOrEmpty(options.AssemblyPath))
-                {
-                    var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
-                    // If it's a bare filename, search for it within the package
-                    if (!File.Exists(targetPath) && !options.AssemblyPath.Contains('/') && !options.AssemblyPath.Contains('\\'))
-                    {
-                        var found = Directory.EnumerateFiles(searchPath, options.AssemblyPath, SearchOption.AllDirectories).FirstOrDefault();
-                        if (found != null) targetPath = found;
-                    }
-                    if (!File.Exists(targetPath))
-                    {
-                        Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
-                        return 1;
-                    }
-                    searchPath = targetPath;
-                }
+                searchPath = tfmAssembly;
+                logger.Log($"Using TFM: {options.Tfm}");
             }
             else if (!string.IsNullOrEmpty(options.AssemblyPath))
             {
-                if (!File.Exists(options.AssemblyPath))
+                var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
+                // If it's a bare filename, search for it within the package
+                if (!File.Exists(targetPath) && !options.AssemblyPath.Contains('/') && !options.AssemblyPath.Contains('\\'))
                 {
-                    Console.Error.WriteLine($"Error: File not found: {options.AssemblyPath}");
-                    return 1;
+                    var found = Directory.EnumerateFiles(searchPath, options.AssemblyPath, SearchOption.AllDirectories).FirstOrDefault();
+                    if (found != null) targetPath = found;
                 }
-                searchPath = options.AssemblyPath;
-                apiSource = SourceKind.Library;
-            }
-            else if (!string.IsNullOrEmpty(options.PlatformAssembly))
-            {
-                var (assemblyPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    options.PlatformAssembly,
-                    context.HttpClient,
-                    logger.Log,
-                    options.PlatformFramework);
-
-                if (error != null)
+                if (!File.Exists(targetPath))
                 {
-                    // Check if PlatformAssembly is actually a framework name and we have a type to search for
-                    var frameworkShortName = TypeLookupService.TryMapFrameworkName(options.PlatformAssembly);
-                    if (frameworkShortName != null && !string.IsNullOrEmpty(typeName))
+                    Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
+                    return (null!, 1);
+                }
+                searchPath = targetPath;
+            }
+        }
+        else if (!string.IsNullOrEmpty(options.AssemblyPath))
+        {
+            if (!File.Exists(options.AssemblyPath))
+            {
+                Console.Error.WriteLine($"Error: File not found: {options.AssemblyPath}");
+                return (null!, 1);
+            }
+            searchPath = options.AssemblyPath;
+            apiSource = SourceKind.Library;
+        }
+        else if (!string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            var (assemblyPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
+                options.PlatformAssembly,
+                context.HttpClient,
+                logger.Log,
+                options.PlatformFramework);
+
+            if (error != null)
+            {
+                // Check if PlatformAssembly is actually a framework name and we have a type to search for
+                var frameworkShortName = TypeLookupService.TryMapFrameworkName(options.PlatformAssembly);
+                if (frameworkShortName != null && !string.IsNullOrEmpty(typeName))
+                {
+                    logger.Log($"'{options.PlatformAssembly}' is a framework name, searching for type '{typeName}' in {frameworkShortName}");
+                    List<string> lookupTempDirs = [];
+                    var lookupResult = await TypeLookupService.FindTypeAsync(
+                        typeName,
+                        [frameworkShortName],
+                        context.HttpClient,
+                        logger,
+                        lookupTempDirs);
+
+                    if (lookupResult != null)
                     {
-                        logger.Log($"'{options.PlatformAssembly}' is a framework name, searching for type '{typeName}' in {frameworkShortName}");
-                        List<string> lookupTempDirs = [];
-                        var lookupResult = await TypeLookupService.FindTypeAsync(
+                        searchPath = lookupResult.AssemblyPath;
+                        apiSource = SourceKind.Platform;
+                        apiVersion = lookupResult.Version;
+                        framework = lookupResult.Framework;
+                        typeName = lookupResult.FullTypeName; // Use the resolved full name
+                        logger.Log($"Found type in {lookupResult.AssemblyName} ({lookupResult.Framework} {lookupResult.Version})");
+
+                        var (runtimePath2, _, _, runtimeError2) = PlatformResolver.ResolveAssembly(
+                            lookupResult.AssemblyName,
+                            frameworkShortName,
+                            packsDirectory: null,
+                            useRuntimeAssemblies: true);
+
+                        if (runtimeError2 == null && runtimePath2 != null)
+                        {
+                            runtimeAssemblyPath = runtimePath2;
+                            logger.Log($"Using runtime library for PDB lookup: {runtimePath2}");
+                        }
+                    }
+                    else
+                    {
+                        // Type not found in specified framework - search all frameworks
+                        var allFrameworks = new[] { "runtime", "aspnetcore", "netstandard" };
+                        var otherFrameworks = allFrameworks.Where(f => f != frameworkShortName).ToArray();
+                        var foundElsewhere = await TypeLookupService.FindTypeAsync(
                             typeName,
-                            [frameworkShortName],
+                            otherFrameworks,
                             context.HttpClient,
                             logger,
                             lookupTempDirs);
 
-                        if (lookupResult != null)
+                        if (foundElsewhere != null)
                         {
-                            searchPath = lookupResult.AssemblyPath;
+                            // Found in a different framework - use it and hint
+                            Console.Error.WriteLine($"Note: '{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
+                            searchPath = foundElsewhere.AssemblyPath;
                             apiSource = SourceKind.Platform;
-                            apiVersion = lookupResult.Version;
-                            framework = lookupResult.Framework;
-                            typeName = lookupResult.FullTypeName; // Use the resolved full name
-                            logger.Log($"Found type in {lookupResult.AssemblyName} ({lookupResult.Framework} {lookupResult.Version})");
+                            apiVersion = foundElsewhere.Version;
+                            framework = foundElsewhere.Framework;
+                            typeName = foundElsewhere.FullTypeName;
+                            logger.Log($"Found type in {foundElsewhere.AssemblyName} ({foundElsewhere.Framework} {foundElsewhere.Version})");
 
-                            var (runtimePath2, _, _, runtimeError2) = PlatformResolver.ResolveAssembly(
-                                lookupResult.AssemblyName,
-                                frameworkShortName,
+                            var (runtimePath3, _, _, runtimeError3) = PlatformResolver.ResolveAssembly(
+                                foundElsewhere.AssemblyName,
+                                foundElsewhere.Framework,
                                 packsDirectory: null,
                                 useRuntimeAssemblies: true);
 
-                            if (runtimeError2 == null && runtimePath2 != null)
+                            if (runtimeError3 == null && runtimePath3 != null)
                             {
-                                runtimeAssemblyPath = runtimePath2;
-                                logger.Log($"Using runtime library for PDB lookup: {runtimePath2}");
+                                runtimeAssemblyPath = runtimePath3;
+                                logger.Log($"Using runtime library for PDB lookup: {runtimePath3}");
                             }
                         }
                         else
                         {
-                            // Type not found in specified framework - search all frameworks
-                            var allFrameworks = new[] { "runtime", "aspnetcore", "netstandard" };
-                            var otherFrameworks = allFrameworks.Where(f => f != frameworkShortName).ToArray();
-                            var foundElsewhere = await TypeLookupService.FindTypeAsync(
-                                typeName,
-                                otherFrameworks,
-                                context.HttpClient,
-                                logger,
-                                lookupTempDirs);
-
-                            if (foundElsewhere != null)
-                            {
-                                // Found in a different framework - use it and hint
-                                Console.Error.WriteLine($"Note: '{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
-                                searchPath = foundElsewhere.AssemblyPath;
-                                apiSource = SourceKind.Platform;
-                                apiVersion = foundElsewhere.Version;
-                                framework = foundElsewhere.Framework;
-                                typeName = foundElsewhere.FullTypeName;
-                                logger.Log($"Found type in {foundElsewhere.AssemblyName} ({foundElsewhere.Framework} {foundElsewhere.Version})");
-
-                                var (runtimePath3, _, _, runtimeError3) = PlatformResolver.ResolveAssembly(
-                                    foundElsewhere.AssemblyName,
-                                    foundElsewhere.Framework,
-                                    packsDirectory: null,
-                                    useRuntimeAssemblies: true);
-
-                                if (runtimeError3 == null && runtimePath3 != null)
-                                {
-                                    runtimeAssemblyPath = runtimePath3;
-                                    logger.Log($"Using runtime library for PDB lookup: {runtimePath3}");
-                                }
-                            }
-                            else
-                            {
-                                Console.Error.WriteLine($"Error: Type '{typeName}' not found in any platform framework.");
-                                return 1;
-                            }
+                            Console.Error.WriteLine($"Error: Type '{typeName}' not found in any platform framework.");
+                            return (null!, 1);
                         }
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine($"Error: {error}");
-                        return 1;
                     }
                 }
                 else
                 {
-                    searchPath = assemblyPath!;
-                    apiSource = SourceKind.Platform;
-                    apiVersion = version;
-                    logger.Log($"Using platform ref library: {framework} {version}");
-
-                    var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
-                        options.PlatformAssembly,
-                        options.PlatformFramework,
-                        packsDirectory: null,
-                        useRuntimeAssemblies: true);
-
-                    if (runtimeError == null && runtimePath != null)
-                    {
-                        runtimeAssemblyPath = runtimePath;
-                        logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
-                    }
+                    Console.Error.WriteLine($"Error: {error}");
+                    return (null!, 1);
                 }
             }
             else
             {
-                Console.Error.WriteLine("Error: No package, library, or platform specified.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Examples:");
-                Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
-                Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
-                return 1;
-            }
+                searchPath = assemblyPath!;
+                apiSource = SourceKind.Platform;
+                apiVersion = version;
+                logger.Log($"Using platform ref library: {framework} {version}");
 
-            string? selectedTfm = null;
+                var (runtimePath, _, _, runtimeError) = PlatformResolver.ResolveAssembly(
+                    options.PlatformAssembly,
+                    options.PlatformFramework,
+                    packsDirectory: null,
+                    useRuntimeAssemblies: true);
 
-            // Derive TFM for platform assemblies from the version
-            if (apiSource == SourceKind.Platform && apiVersion != null)
-            {
-                var dotIndex = apiVersion.IndexOf('.');
-                if (dotIndex > 0)
+                if (runtimeError == null && runtimePath != null)
                 {
-                    var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
-                    var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
-                    selectedTfm = $"net{majorMinor}";
+                    runtimeAssemblyPath = runtimePath;
+                    logger.Log($"Using runtime library for PDB lookup: {runtimePath}");
                 }
             }
+        }
+        else
+        {
+            Console.Error.WriteLine("Error: No package, library, or platform specified.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Examples:");
+            Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
+            Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
+            return (null!, 1);
+        }
 
-            // Auto-select TFM when searchPath is a directory with multiple DLLs
-            if (Directory.Exists(searchPath))
+        string? selectedTfm = null;
+
+        // Derive TFM for platform assemblies from the version
+        if (apiSource == SourceKind.Platform && apiVersion != null)
+        {
+            var dotIndex = apiVersion.IndexOf('.');
+            if (dotIndex > 0)
             {
-                var dlls = TfmSelector.GetPackageDlls(searchPath);
-                if (dlls.Count > 1)
-                {
-                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
-                    if (selectedPath != null)
-                    {
-                        searchPath = selectedPath;
-                        selectedTfm = tfm;
-                        logger.Log($"Auto-selected TFM: {tfm}");
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
-                        return 1;
-                    }
-                }
+                var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
+                var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
+                selectedTfm = $"net{majorMinor}";
             }
+        }
 
-            if (string.IsNullOrEmpty(typeName))
+        // Auto-select TFM when searchPath is a directory with multiple DLLs
+        if (Directory.Exists(searchPath))
+        {
+            var dlls = TfmSelector.GetPackageDlls(searchPath);
+            if (dlls.Count > 1)
             {
-                // No type specified - list all types
-                var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
-                if (api == null)
+                var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
+                if (selectedPath != null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from library.");
-                    return 1;
-                }
-
-                if (apiDllPath != null)
-                    ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
-
-                if (!string.IsNullOrEmpty(options.PackagePath))
-                {
-                    var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
-                    api.Name = pkgName;
-                }
-                else if (apiDllPath != null)
-                {
-                    api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
-                }
-
-                var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                api.Tfm = selectedTfm;
-                api.Source = apiSource;
-                api.Version = apiVersion;
-                api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
-
-                if ((options.ShowDocs || options.ShowSamples) && pdbLookupPath != null)
-                {
-                    logger.Log("Enriching types with source info...");
-                    if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
-                    {
-                        SourceEnricher.EnrichTypesFromXmlDoc(api.Types, options, logger);
-                    }
-                    else
-                    {
-                        foreach (var type in api.Types)
-                        {
-                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
-                        }
-                    }
-                }
-
-                if (discoverSections)
-                {
-                    typePipeline.ListEffectiveSections(api);
-                    return 0;
-                }
-
-                WriteFullApiOutput(api, options, selectedTfm);
-
-                if (!options.IsRawOutput)
-                {
-                    var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
-                        : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
-                        : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
-                        : "";
-
-                    // Pick a representative type: prefer the one with most members
-                    var exampleType = api.Types
-                        .OrderByDescending(t => t.Members.Count)
-                        .FirstOrDefault();
-
-                    if (exampleType != null)
-                    {
-                        var simpleName = exampleType.FullName.Contains('.')
-                            ? exampleType.FullName[(exampleType.FullName.LastIndexOf('.') + 1)..] : exampleType.FullName;
-
-                        List<Tip> tips =
-                        [
-                            new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
-                            new(TypeCommand.Name, $"{sourceFlag} --shape", "view type shape"),
-                            new(TypeCommand.Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
-                        ];
-
-                        Hints.WriteTips(options.TipLevel, [.. tips]);
-                    }
-                }
-            }
-            else
-            {
-                typeName = GenericTypeNameConverter.Convert(typeName);
-
-                var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
-                if (api == null)
-                {
-                    Console.Error.WriteLine("Error: Could not extract API from library.");
-                    return 1;
-                }
-
-                if (apiDllPath != null)
-                    ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
-
-                var allTypeNames = api.Types.Select(t => t.FullName).ToList();
-                var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName);
-
-                if (lookupResult.Match != null)
-                {
-                    var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
-
-                    // Check each member filter before producing output
-                    if (options.MemberFilter.Count > 0)
-                    {
-                        var memberNames = apiType.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        List<string> missedFilters = [];
-
-                        foreach (var filter in options.MemberFilter)
-                        {
-                            bool isGlob = filter.Contains('*') || filter.Contains('?');
-                            bool anyMatch = isGlob
-                                ? memberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                                : memberNames.Any(n => string.Equals(n, filter, StringComparison.OrdinalIgnoreCase));
-
-                            if (!anyMatch)
-                                missedFilters.Add(filter);
-                        }
-
-                        if (missedFilters.Count > 0)
-                        {
-                            Console.Error.WriteLine($"Error: No members matched filter '{string.Join(", ", missedFilters)}'");
-                            var memberResult = TypeMatcher.LookupMembers(memberNames, missedFilters);
-                            if (memberResult.Suggestions.Count > 0)
-                            {
-                                Console.Error.WriteLine();
-                                Console.Error.WriteLine("Did you mean:");
-                                foreach (var s in memberResult.Suggestions)
-                                    Console.Error.WriteLine($"  {s}");
-                            }
-                            return 1;
-                        }
-                    }
-
-                    var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
-
-                    // Default --docs on for single-type view at Normal+ unless explicitly disabled
-                    var effectiveOptions = options;
-                    if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
-                        effectiveOptions = options with { ShowDocs = true };
-
-                    // Default --shape on for single-type view when no explicit format was chosen
-                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.IsDefaultInvocation
-                        && !effectiveOptions.IsMemberCommand)
-                        effectiveOptions = effectiveOptions with { ShapeOutput = true };
-
-                    // --index: select a specific overload and show IL
-                    if (options.OverloadIndex.HasValue)
-                    {
-                        if (options.MemberFilter.Count != 1)
-                        {
-                            Console.Error.WriteLine("Error: --index/Name:N requires exactly one member name.");
-                            return 1;
-                        }
-
-                        var memberName = options.MemberFilter.First();
-                        var overloads = apiType.Members
-                            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-
-                        int idx = options.OverloadIndex.Value;
-                        if (idx < 1 || idx > overloads.Count)
-                        {
-                            Console.Error.WriteLine($"Error: {memberName}:{idx} is out of range. Use {memberName}:1 through {memberName}:{overloads.Count}.");
-                            return 1;
-                        }
-
-                        var selected = overloads[idx - 1];
-                        apiType.Members = [selected];
-                        var exclude = effectiveOptions.ExcludeSections ?? [];
-                        exclude.Add("Remote Source");
-                        effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
-                    }
-
-                    // --params / -of: select overload by parameter type matching
-                    if (!options.OverloadIndex.HasValue && (options.ParamTypes != null || options.FirstParamType != null))
-                    {
-                        if (options.MemberFilter.Count != 1)
-                        {
-                            Console.Error.WriteLine("Error: --params/-of requires exactly one member name via -m.");
-                            return 1;
-                        }
-
-                        var memberName = options.MemberFilter.First();
-                        var overloads = apiType.Members
-                            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-
-                        var matches = new List<(ApiMember member, int index)>();
-                        for (int i = 0; i < overloads.Count; i++)
-                        {
-                            var sig = overloads[i].Signature;
-                            if (sig == null) continue;
-                            var paramTypes = ExtractParameterTypes(sig);
-
-                            if (options.ParamTypes != null)
-                            {
-                                if (MatchesParamTypes(paramTypes, options.ParamTypes))
-                                    matches.Add((overloads[i], i));
-                            }
-                            else if (options.FirstParamType != null)
-                            {
-                                if (paramTypes.Count > 0 && SimpleNameMatches(paramTypes[0], options.FirstParamType))
-                                    matches.Add((overloads[i], i));
-                            }
-                        }
-
-                        if (matches.Count == 0)
-                        {
-                            var filter = options.ParamTypes != null
-                                ? $"--params \"{string.Join(",", options.ParamTypes)}\""
-                                : $"-of \"{options.FirstParamType}\"";
-                            Console.Error.WriteLine($"Error: No overload of {memberName} matches {filter}.");
-                            return 1;
-                        }
-
-                        if (matches.Count > 1)
-                        {
-                            Console.Error.WriteLine($"Error: Multiple overloads of {memberName} match. Use --params with more specific types to disambiguate:");
-                            foreach (var (m, _) in matches)
-                                Console.Error.WriteLine($"  {m.Signature}");
-                            return 1;
-                        }
-
-                        var (selected, overloadIdx) = matches[0];
-                        apiType.Members = [selected];
-                        var exclude = effectiveOptions.ExcludeSections ?? [];
-                        exclude.Add("Remote Source");
-                        effectiveOptions = effectiveOptions with
-                        {
-                            DllPath = apiDllPath,
-                            ExcludeSections = exclude,
-                            OverloadIndex = overloadIdx + 1
-                        };
-                    }
-
-                    // Enrich with source/doc info. Network-dependent enrichment (PDB download,
-                    // SourceLink) limited to Detailed verbosity. Local XML docs at Normal+ for platform.
-                    {
-                        bool isPlatformLocal = !string.IsNullOrEmpty(effectiveOptions.PlatformAssembly)
-                            && effectiveOptions.ShowDocs;
-                        bool shouldEnrich = effectiveOptions.Verbosity >= Verbosity.Detailed || isPlatformLocal;
-
-                        if (shouldEnrich)
-                        {
-                            var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                            if (pdbLookupPath != null)
-                                await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
-                        }
-                    }
-
-                    // Resolve method source code for --index view (after PDB acquisition)
-                    if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null)
-                    {
-                        var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                        var methodSource = await ResolveMethodSourceAsync(
-                            pdbLookupPath, apiType.FullName,
-                            effectiveOptions.MemberFilter.First(),
-                            effectiveOptions.OverloadIndex.Value - 1,
-                            effectiveOptions, context.HttpClient, logger);
-
-                        if (methodSource != null)
-                            effectiveOptions = effectiveOptions with { MethodSource = methodSource };
-                    }
-
-                    if (discoverSections)
-                    {
-                        memberPipeline.ListEffectiveSections(apiType);
-                        return 0;
-                    }
-
-                    WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
-
-                    if (!effectiveOptions.IsRawOutput && !effectiveOptions.OverloadIndex.HasValue)
-                    {
-                        var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
-                            : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
-                            : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
-                            : "";
-
-                        var simpleName = apiType.FullName.Contains('.')
-                            ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
-
-                        // Pick a member with overloads for the Name:N example, or fall back to any method
-                        var overloadGroups = apiType.Members
-                            .Where(m => m.Kind is "method" or "constructor")
-                            .GroupBy(m => m.Name)
-                            .OrderByDescending(g => g.Count())
-                            .ToList();
-                        var exampleGroup = overloadGroups.FirstOrDefault();
-
-                        List<Tip> tips = [];
-
-                        if (exampleGroup != null)
-                        {
-                            var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
-                        }
-
-                        if (overloadGroups.Any(g => g.Count() > 1))
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} --select", "show Name:N overload index"));
-
-                        tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
-                        tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
-
-                        // Suggest diff for package sources when version is known
-                        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
-                            tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
-
-                        Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
-                    }
-                }
-                else if (lookupResult.Suggestions.Count > 0)
-                {
-                    bool isGlob = typeName.Contains('*') || typeName.Contains('?');
-                    if (isGlob)
-                    {
-                        // Glob matched multiple types — show types view with filter
-                        if (!string.IsNullOrEmpty(options.PackagePath))
-                        {
-                            var (pkgName, _) = PackageExtractor.ParsePackageReference(options.PackagePath);
-                            api.Name = pkgName;
-                        }
-                        else if (apiDllPath != null)
-                        {
-                            api.Name = Path.GetFileNameWithoutExtension(apiDllPath);
-                        }
-                        api.Tfm = selectedTfm;
-                        api.Source = apiSource;
-                        api.Version = apiVersion;
-                        api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
-
-                        options = options with
-                        {
-                            TypeFilter = typeName,
-                            Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
-                        };
-                        if (discoverSections)
-                        {
-                            typePipeline.ListEffectiveSections(api);
-                            return 0;
-                        }
-
-                        WriteFullApiOutput(api, options, selectedTfm);
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Did you mean:");
-                        foreach (var s in lookupResult.Suggestions)
-                            Console.Error.WriteLine($"  {s}");
-                        return 1;
-                    }
+                    searchPath = selectedPath;
+                    selectedTfm = tfm;
+                    logger.Log($"Auto-selected TFM: {tfm}");
                 }
                 else
                 {
-                    Console.Error.WriteLine($"Error: Type '{typeName}' not found.");
-                    return 1;
+                    Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
+                    return (null!, 1);
                 }
             }
+        }
 
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Error: {ex.Message}");
-            return 1;
-        }
-        finally
-        {
-            if (tempDir != null && Directory.Exists(tempDir))
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
-        }
+        return (new SourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion,
+            apiSource, apiVersion, selectedTfm, tempDir, typeName, context), null);
     }
 
     // ===== Full API Surface Rendering =====
 
-    private static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
+    internal static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         // Apply type filter
-        if (!string.IsNullOrEmpty(options.TypeFilter))
+        var typeFilter = (options as TypeOptions)?.TypeFilter;
+        if (!string.IsNullOrEmpty(typeFilter))
         {
             api.Types = api.Types
-                .Where(t => TypeMatcher.MatchesTypeFilter(t.FullName, options.TypeFilter))
+                .Where(t => TypeMatcher.MatchesTypeFilter(t.FullName, typeFilter))
                 .ToList();
             api.PublicTypeCount = api.Types.Count;
         }
@@ -747,7 +417,7 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    private static async Task<MethodSourceContext?> ResolveMethodSourceAsync(
+    internal static async Task<MethodSourceContext?> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger)
     {
@@ -785,8 +455,6 @@ public class ApiCommand
             int endLine = Math.Min(methodInfo.EndLine, lines.Length);
 
             // Scan backward from first sequence point to capture method signature
-            // Sequence points start at the first executable statement, so we need to
-            // go back past the opening brace, modifiers, attributes, etc.
             int sigStart = startLine;
             for (int i = startLine - 2; i >= Math.Max(0, startLine - 15); i--)
             {
@@ -796,26 +464,23 @@ public class ApiCommand
                     continue;
                 if (trimmed == "{")
                     continue;
-                // Stop at closing brace — that's the end of the previous member
                 if (trimmed.StartsWith("}"))
                 {
-                    sigStart = i + 2; // line after the brace (1-based)
+                    sigStart = i + 2;
                     break;
                 }
 
-                sigStart = i + 1; // 0-based → 1-based
-                // Check if this line looks like a method signature (has access modifier or return type)
+                sigStart = i + 1;
                 if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                     || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
                     || trimmed.StartsWith("static") || trimmed.Contains(methodName))
                     break;
             }
 
-            // Extract lines (convert from 1-based sequence points to 0-based array)
             int from = sigStart - 1;
-            int to = endLine; // endLine is 1-based, so endLine as exclusive index is correct
+            int to = endLine;
 
-            // Scan forward to include the closing brace (sequence points don't cover it)
+            // Scan forward to include the closing brace
             for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
             {
                 var trimmed = lines[i].TrimStart();
@@ -831,13 +496,11 @@ public class ApiCommand
             if (from < 0) from = 0;
             if (to > lines.Length) to = lines.Length;
 
-            // Skip leading blank lines
             while (from < to && lines[from].TrimStart().Length == 0)
                 from++;
 
             var methodLines = lines[from..to];
 
-            // Dedent: find minimum indentation and remove it
             int minIndent = methodLines
                 .Where(l => l.TrimStart().Length > 0)
                 .Select(l => l.Length - l.TrimStart().Length)
@@ -858,9 +521,9 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    private static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    internal static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
-        if (options.ShapeOutput)
+        if (options is TypeOptions { ShapeOutput: true })
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter);
             return;
@@ -878,26 +541,24 @@ public class ApiCommand
         if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
-        // Determine if we can use the full serializer for member tables
-        // Member command always shows tables: quiet gets summary, minimal+ gets full signatures
-        // Type command: quiet gets no tables, minimal gets summary, normal+ gets full
-        bool fullSerializer = options.IsMemberCommand || options.Verbosity != Verbosity.Quiet;
+        bool isMember = options is MemberOptions;
+        bool fullSerializer = isMember || options.Verbosity != Verbosity.Quiet;
 
         int truncatedCount = 0;
         string truncatedNoun = "";
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
+            if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
                 && type.Members.Any(m => m.Kind == "constructor"))
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
             }
-            else if (options.IsMemberCommand && options.Verbosity == Verbosity.Quiet)
+            else if (isMember && options.Verbosity == Verbosity.Quiet)
             {
                 (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
-            else if (options.Verbosity == Verbosity.Minimal && !options.IsMemberCommand)
+            else if (options.Verbosity == Verbosity.Minimal && !isMember)
             {
                 (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
@@ -907,20 +568,20 @@ public class ApiCommand
             }
 
             // --index: populate code sections and custom attributes
-            if (options.OverloadIndex.HasValue && options.DllPath != null)
+            if (options is MemberOptions { OverloadIndex: not null, DllPath: not null } mo4)
             {
                 var methods = type.Members
                     .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
                     .ToList();
                 if (methods.Count > 0)
-                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, options.DllPath, options.OverloadIndex.Value - 1);
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath, mo4.OverloadIndex.Value - 1);
             }
 
             // Source code (already resolved in command layer)
-            if (options.MethodSource != null)
+            if (options is MemberOptions { MethodSource: not null } mo5)
             {
                 view.MemberCode ??= new MemberCodeView();
-                view.MemberCode.SourceCode = new Markout.CodeSection("csharp", options.MethodSource.SourceCode);
+                view.MemberCode.SourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
             }
         }
 
@@ -991,11 +652,9 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
 
-    /// <summary>
-    /// Extracts parameter type names from a signature string like "TValue Method(System.IO.Stream s, int count)".
-    /// Returns fully qualified type names without parameter names or default values.
-    /// </summary>
-    static List<string> ExtractParameterTypes(string signature)
+    // ===== Parameter Type Matching Helpers =====
+
+    internal static List<string> ExtractParameterTypes(string signature)
     {
         List<string> types = [];
         int parenStart = signature.IndexOf('(');
@@ -1024,13 +683,8 @@ public class ApiCommand
         return types;
     }
 
-    /// <summary>
-    /// Extracts the type portion from a single parameter like "System.IO.Stream utf8Json" or "int count = 0".
-    /// Handles ref/out/in/params modifiers and generic types.
-    /// </summary>
     static string ExtractTypeFromParam(ReadOnlySpan<char> param)
     {
-        // Strip modifiers: ref, out, in, params, this (extension)
         var s = param.ToString();
         foreach (var mod in (ReadOnlySpan<string>)["ref ", "out ", "in ", "params ", "this "])
         {
@@ -1041,13 +695,10 @@ public class ApiCommand
             }
         }
 
-        // Strip default value: "Type name = default"
         int eqIdx = s.IndexOf(" = ");
         if (eqIdx > 0)
             s = s[..eqIdx];
 
-        // The type is everything before the last space (the parameter name).
-        // But generic types can have spaces inside <>, so find last space outside angle brackets.
         int depth = 0;
         int lastSpace = -1;
         for (int i = 0; i < s.Length; i++)
@@ -1060,17 +711,11 @@ public class ApiCommand
         return lastSpace > 0 ? s[..lastSpace] : s;
     }
 
-    /// <summary>
-    /// Checks if a fully qualified type name matches a simple (unqualified) type name.
-    /// "System.Text.Json.JsonDocument" matches "JsonDocument".
-    /// Also matches if the user provides the full name.
-    /// </summary>
-    static bool SimpleNameMatches(string fullTypeName, string simpleName)
+    internal static bool SimpleNameMatches(string fullTypeName, string simpleName)
     {
         if (string.Equals(fullTypeName, simpleName, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // Match simple name: extract after last '.' that is outside angle brackets
         int depth = 0;
         int lastDot = -1;
         for (int i = 0; i < fullTypeName.Length; i++)
@@ -1089,11 +734,7 @@ public class ApiCommand
         return false;
     }
 
-    /// <summary>
-    /// Checks if extracted parameter types match the user-specified type list.
-    /// Each entry is matched by simple name. Parameter count must match exactly.
-    /// </summary>
-    static bool MatchesParamTypes(List<string> extractedTypes, string[] requestedTypes)
+    internal static bool MatchesParamTypes(List<string> extractedTypes, string[] requestedTypes)
     {
         if (extractedTypes.Count != requestedTypes.Length) return false;
         for (int i = 0; i < extractedTypes.Count; i++)
@@ -1103,6 +744,4 @@ public class ApiCommand
         }
         return true;
     }
-
 }
-

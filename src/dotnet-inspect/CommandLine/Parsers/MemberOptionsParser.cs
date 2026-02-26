@@ -72,7 +72,7 @@ public static class MemberOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(ApiOptions Options) : MemberParseResult;
+    public record Success(MemberOptions Options) : MemberParseResult;
 
     /// <summary>
     /// Parses member command options asynchronously (due to source resolution).
@@ -141,7 +141,7 @@ public static class MemberOptionsParser
         // Determine docs behavior
         var (showDocs, docsExplicitlySet) = ParseDocsBehavior(parseResult, args);
 
-        var options = new ApiOptions
+        var options = new MemberOptions
         {
             TypeName = typeName,
             PackagePath = source.PackagePath,
@@ -171,11 +171,10 @@ public static class MemberOptionsParser
             IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
-                Columns = opts.ParseColumns(parseResult),
+            Columns = opts.ParseColumns(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            IsMemberCommand = true
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
         options = options with
