@@ -330,7 +330,7 @@ public class ApiCommand
                 api.Version = apiVersion;
                 api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
 
-                if ((options.ShowDocs || options.ShowSamples || options.SourceLinkOnly) && pdbLookupPath != null)
+                if ((options.ShowDocs || options.ShowSamples) && pdbLookupPath != null)
                 {
                     logger.Log("Enriching types with source info...");
                     if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
@@ -363,7 +363,6 @@ public class ApiCommand
 
                     // Pick a representative type: prefer the one with most members
                     var exampleType = api.Types
-                        .Where(t => !options.SourceLinkOnly || !string.IsNullOrEmpty(t.SourceUrl))
                         .OrderByDescending(t => t.Members.Count)
                         .FirstOrDefault();
 
@@ -443,9 +442,9 @@ public class ApiCommand
                     if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                         effectiveOptions = options with { ShowDocs = true };
 
-                    // Default --shape on for single-type view unless user explicitly chose a format
-                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.OneLine
-                        && !effectiveOptions.JsonOutput && !effectiveOptions.IsMemberCommand)
+                    // Default --shape on for single-type view when no explicit format was chosen
+                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.IsDefaultInvocation
+                        && !effectiveOptions.IsMemberCommand)
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
 
                     // --index: select a specific overload and show IL
@@ -693,15 +692,11 @@ public class ApiCommand
             api.PublicTypeCount = api.Types.Count;
         }
 
-        // Apply sourcelink-only filter
-        if (options.SourceLinkOnly)
+        // Apply kind filter (type kinds for multi-type listing)
+        if (options.KindFilter.Count > 0)
         {
-            api.Types = api.Types.Where(t => !string.IsNullOrEmpty(t.SourceUrl)).ToList();
+            api.Types = api.Types.Where(t => options.KindFilter.Contains(t.Kind)).ToList();
             api.PublicTypeCount = api.Types.Count;
-            api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(m => m.Kind is "method" or "constructor"));
-            api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
-            api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
-            api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
         }
 
         // Apply unsafe filter
@@ -867,7 +862,7 @@ public class ApiCommand
     {
         if (options.ShapeOutput)
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter);
+            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter);
             return;
         }
 

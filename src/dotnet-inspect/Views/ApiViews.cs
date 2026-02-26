@@ -13,10 +13,9 @@ public class TypeView
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
 
-    public string Kind { get; set; } = "";
-
-    [MarkoutSkipNull]
-    public string? Modifiers { get; set; }
+    // Top fields (rendered inline for -v:q compact summary only)
+    [MarkoutSkipNull] public string? Kind { get; set; }
+    [MarkoutSkipNull] public string? Modifiers { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("Base")]
@@ -32,14 +31,9 @@ public class TypeView
     [MarkoutPropertyName("Library")]
     public string? Assembly { get; set; }
 
-    [MarkoutSkipNull]
-    public string? Package { get; set; }
-
-    [MarkoutSkipNull]
-    public string? Version { get; set; }
-
-    [MarkoutSkipNull]
-    public string? Source { get; set; }
+    [MarkoutSkipNull] public string? Package { get; set; }
+    [MarkoutSkipNull] public string? Version { get; set; }
+    [MarkoutSkipNull] public string? Source { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]

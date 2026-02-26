@@ -57,7 +57,6 @@ public static class ApiCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
-        var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter types to those with SourceLink resolution" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
@@ -70,6 +69,12 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = true
         };
         memberOption.Aliases.Add("--member");
+        var kindOption = new Option<string[]>("-k")
+        {
+            Description = "Filter by kind (class, struct, interface, enum, delegate, method, property, field, event, constructor)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        kindOption.Aliases.Add("--kind");
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
@@ -80,7 +85,6 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Limit);
-        typeCommand.Options.Add(sourcelinkOnlyOption);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(oneLineOption);
@@ -88,6 +92,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(memberOption);
+        typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         opts.AddOutputOptionsTo(typeCommand);
@@ -95,8 +100,8 @@ public static class ApiCommandDefinitions
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, sourcelinkOnlyOption, compactOption, oneLineOption,
-            noHeaderOption, shapeOption, unsafeOption, memberOption);
+            allOption, typeFilterOption, compactOption, oneLineOption,
+            noHeaderOption, shapeOption, unsafeOption, memberOption, kindOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -120,6 +125,10 @@ public static class ApiCommandDefinitions
 
                 case TypeOptionsParser.VersionError error:
                     Console.Error.WriteLine(error.Message);
+                    return 1;
+
+                case TypeOptionsParser.UnrecognizedOption error:
+                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case TypeOptionsParser.Success success:

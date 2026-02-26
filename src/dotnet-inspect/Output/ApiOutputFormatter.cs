@@ -198,10 +198,15 @@ public static class ApiOutputFormatter
 
     // ===== Shape Output (--shape) =====
 
-    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)
+    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
     {
-        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter);
-        MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
+        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter);
+        Console.WriteLine(view.FullName);
+        if (view.Members is { Count: > 0 })
+        {
+            var writer = new MarkoutWriter(Console.Out);
+            writer.WriteTree([.. view.Members]);
+        }
     }
 
     // ===== View Model Factories =====
@@ -291,20 +296,22 @@ public static class ApiOutputFormatter
             }
         }
 
+        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+
         return new TypeView
         {
             Title = $"{FormatGenericFullName(type)}{packageInfo}",
             Description = description,
-            Kind = type.Kind,
-            Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-            BaseType = baseType,
+            Kind = topFieldsOnly ? type.Kind : null,
+            Modifiers = topFieldsOnly ? (modifiers.Count > 0 ? string.Join(", ", modifiers) : null) : null,
+            BaseType = topFieldsOnly ? baseType : null,
             TypeParametersInline = typeParamsInline,
-            Assembly = foundIn,
-            Package = packageName,
-            Version = packageVersion,
-            Source = apiSource,
-            Tfm = selectedTfm,
-            SamplesInfo = samplesInfo,
+            Assembly = topFieldsOnly ? foundIn : null,
+            Package = topFieldsOnly ? packageName : null,
+            Version = topFieldsOnly ? packageVersion : null,
+            Source = topFieldsOnly ? apiSource : null,
+            Tfm = topFieldsOnly ? selectedTfm : null,
+            SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity (non-member commands only; member command shows tables)
             Constructors = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
             Fields = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
@@ -320,7 +327,7 @@ public static class ApiOutputFormatter
         static int? NullIfZero(int count) => count > 0 ? count : null;
     }
 
-    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)
+    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
     {
         List<TreeNode> nodes = [];
 
@@ -355,6 +362,11 @@ public static class ApiOutputFormatter
             if (memberFilter.Count > 0)
             {
                 members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+            }
+
+            if (kindFilter?.Count > 0)
+            {
+                members = members.Where(m => kindFilter.Contains(m.Kind));
             }
 
             var membersByKind = members
@@ -426,7 +438,7 @@ public static class ApiOutputFormatter
 
     internal static (int truncated, string noun) PopulateMemberSections(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (0, "");
 
         // Flatten sorted for --limit application
@@ -528,7 +540,7 @@ public static class ApiOutputFormatter
     /// </summary>
     internal static (int truncated, string noun) PopulateMemberSummarySections(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (0, "");
 
         // Flatten all unique-name entries across kinds for --limit
@@ -621,7 +633,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateConstructorOverloads(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         var constructors = grouped
             .SelectMany(g => g.Value)
             .Where(m => m.Kind == "constructor")
@@ -718,7 +730,7 @@ public static class ApiOutputFormatter
 
     // ===== Helper Methods =====
 
-    internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false)
+    internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false, HashSet<string>? kindFilter = null)
     {
         var members = type.Members
             .Where(m => !IsCompilerGenerated(m.Name))
@@ -729,6 +741,9 @@ public static class ApiOutputFormatter
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
+
+        if (kindFilter?.Count > 0)
+            members = members.Where(m => kindFilter.Contains(m.Kind)).ToList();
 
         return members
             .GroupBy(m => m.Kind)
@@ -789,7 +804,7 @@ public static class ApiOutputFormatter
     /// </summary>
     internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (new ApiTypeOneLineView(), 0);
 
         var allEntries = grouped

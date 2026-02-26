@@ -15,7 +15,7 @@ public class VersionDisplayTests
 {
     private static string SerializeCompact(LibraryInspection inspection)
     {
-        var view = new LibraryInspectionView(inspection);
+        var view = new LibraryInspectionView(inspection, topFieldsOnly: true);
         var context = new MarkoutContext();
         return context.Serialize(view).TrimEnd();
     }
@@ -197,8 +197,8 @@ public class VersionDisplayTests
         var context = new MarkoutContext();
         var output = context.Serialize(view).TrimEnd();
 
-        Assert.Contains("Version: 10.0.1", output);
-        Assert.Contains("Informational Version: 10.0.1+abc123", output);
-        Assert.Contains("Assembly Version: 10.0.0.0", output);
+        Assert.Contains("| Version | 10.0.1 |", output);
+        Assert.Contains("| Informational Version | 10.0.1+abc123 |", output);
+        Assert.Contains("| Assembly Version | 10.0.0.0 |", output);
     }
 }

@@ -160,6 +160,7 @@ public static class MemberOptionsParser
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,

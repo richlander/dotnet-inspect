@@ -14,7 +14,7 @@ public class OutputFormatterTests
     [Fact]
     public void MultiAssemblyReport_HasSingleH1()
     {
-        var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
+        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
         var output = Serialize(report);
 
         Assert.Single(output.Split('\n'), l => l.StartsWith("# "));
@@ -32,7 +32,7 @@ public class OutputFormatterTests
     [Fact]
     public void MultiAssemblyReport_HasH2AssembliesSection()
     {
-        var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
+        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
         var output = Serialize(report);
 
         Assert.Contains("## Libraries", output);
@@ -41,7 +41,7 @@ public class OutputFormatterTests
     [Fact]
     public void MultiAssemblyReport_HasH3PerTfm()
     {
-        var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
+        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
         var output = Serialize(report);
 
         Assert.Contains("### Test.dll (net9.0)", output);
@@ -51,7 +51,7 @@ public class OutputFormatterTests
     [Fact]
     public void MultiAssemblyReport_HasH4SectionsPerItem()
     {
-        var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
+        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
         var output = Serialize(report);
 
         Assert.Contains("#### Library Info", output);
@@ -60,7 +60,7 @@ public class OutputFormatterTests
     [Fact]
     public void MultiAssemblyReport_HasCompactLine()
     {
-        var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
+        var report = CreateTestReport("Test.dll", true, "net9.0", "net8.0");
         var output = Serialize(report);
 
         // AutoFieldsCount = 7 renders the first 7 scalar properties as a compact hero line
@@ -70,7 +70,7 @@ public class OutputFormatterTests
     [Fact]
     public void MultiAssemblyReport_TitleFromPackageName()
     {
-        var report = CreateTestReport("Test.dll", "net9.0", "net8.0");
+        var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");
         var output = Serialize(report);
 
         Assert.StartsWith("# Test", output.TrimStart());
@@ -125,13 +125,13 @@ public class OutputFormatterTests
         };
     }
 
-    private static LibraryInspectionReport CreateTestReport(string fileName, params string[] tfms)
+    private static LibraryInspectionReport CreateTestReport(string fileName, bool topFieldsOnly, params string[] tfms)
     {
         var inspections = tfms.Select(tfm => CreateTestAudit(fileName, tfm)).ToList();
         return new LibraryInspectionReport
         {
             Title = Path.GetFileNameWithoutExtension(fileName),
-            Assemblies = inspections.Select(a => new LibraryInspectionView(a)).ToList()
+            Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
         };
     }
 
@@ -144,9 +144,9 @@ public class OutputFormatterTests
         return context.Serialize(report).TrimEnd();
     }
 
-    private static string Serialize(LibraryInspection inspection, HashSet<string>? excludeSections = null)
+    private static string Serialize(LibraryInspection inspection, HashSet<string>? excludeSections = null, bool topFieldsOnly = false)
     {
-        var view = new LibraryInspectionView(inspection);
+        var view = new LibraryInspectionView(inspection, topFieldsOnly);
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
             ExcludeSections = excludeSections
@@ -295,7 +295,7 @@ public class OutputFormatterTests
         var pipeline = LibrarySections.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
             inspection, Verbosity.Quiet);
-        var output = SerializeWithInclude(inspection, includeSections);
+        var output = SerializeWithInclude(inspection, includeSections, topFieldsOnly: true);
         var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None);
 
         Assert.Equal(3, lines.Length);
@@ -356,9 +356,9 @@ public class OutputFormatterTests
         return writer.ToString().TrimEnd();
     }
 
-    private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections)
+    private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections, bool topFieldsOnly = false)
     {
-        var view = new LibraryInspectionView(inspection);
+        var view = new LibraryInspectionView(inspection, topFieldsOnly);
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
             IncludeSections = includeSections
@@ -420,9 +420,9 @@ public class OutputFormatterTests
             LastModified = modified
         };
 
-        var platformOutput = Serialize(platform);
-        var nugetOutput = Serialize(nuget);
-        var fileOutput = Serialize(file);
+        var platformOutput = Serialize(platform, topFieldsOnly: true);
+        var nugetOutput = Serialize(nuget, topFieldsOnly: true);
+        var fileOutput = Serialize(file, topFieldsOnly: true);
 
         // Extract field names from compact line (format: "Name: value | Name: value | ...")
         static HashSet<string> ExtractFieldNames(string output)

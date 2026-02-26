@@ -8,12 +8,12 @@ namespace DotnetInspector.Views;
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
-    private readonly bool _suppressHero;
+    private readonly bool _topFieldsOnly;
 
-    public LibraryInspectionView(LibraryInspection data, bool suppressHero = false)
+    public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
     {
         _data = data;
-        _suppressHero = suppressHero;
+        _topFieldsOnly = topFieldsOnly;
     }
 
     [MarkoutIgnore]
@@ -22,31 +22,31 @@ public class LibraryInspectionView
     [MarkoutPropertyName("File")]
     public string FileName => _data.FileName;
 
-    // ===== Hero summary (first 7 auto-fields, suppressed when Library Info section is visible) =====
+    // ===== Top fields (first 7 auto-fields, rendered inline for -v:q compact summary) =====
 
     [MarkoutSkipNull]
-    public string? Name => _suppressHero ? null : _data.AssemblyInfo?.AssemblyName;
+    public string? Name => _topFieldsOnly ? _data.AssemblyInfo?.AssemblyName : null;
 
     [MarkoutSkipNull]
-    public string? Version => _suppressHero ? null : ResolveVersion();
+    public string? Version => _topFieldsOnly ? ResolveVersion() : null;
 
     [MarkoutPropertyName("TFM")]
     [MarkoutSkipNull]
-    public string? TargetFramework => _suppressHero ? null : _data.AssemblyInfo?.TargetFramework;
+    public string? TargetFramework => _topFieldsOnly ? _data.AssemblyInfo?.TargetFramework : null;
 
     [MarkoutPropertyName("Arch")]
     [MarkoutSkipNull]
-    public string? Architecture => _suppressHero ? null : _data.AssemblyInfo?.Architecture;
+    public string? Architecture => _topFieldsOnly ? _data.AssemblyInfo?.Architecture : null;
 
     [MarkoutPropertyName("Size")]
     [MarkoutSkipNull]
-    public string? FileSize => _suppressHero ? null : (_data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null);
+    public string? FileSize => _topFieldsOnly ? (_data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null) : null;
 
     [MarkoutSkipNull]
-    public string? Source => _suppressHero ? null : _data.Source;
+    public string? Source => _topFieldsOnly ? _data.Source : null;
 
     [MarkoutSkipNull]
-    public string? Modified => _suppressHero ? null : _data.LastModified?.ToString("yyyy-MM-dd");
+    public string? Modified => _topFieldsOnly ? _data.LastModified?.ToString("yyyy-MM-dd") : null;
 
     [MarkoutPropertyName("Library")]
     public string? AssemblySummary => _data.AssemblyInfo switch
@@ -345,7 +345,7 @@ public record TypeForwarderRow(
     [property: MarkoutPropertyName("Type")] string TypeName,
     [property: MarkoutPropertyName("Target Assembly")] string TargetAssembly);
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Vertical)]
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class LibraryInfoSection
 {
@@ -372,7 +372,7 @@ public class LibraryInfoSection
     public string? Modified { get; init; }
 }
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Vertical)]
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class SymbolsSection
 {
@@ -393,7 +393,7 @@ public class SymbolsSection
     public string? Recommendation { get; init; }
 }
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Vertical)]
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class SourceLinkAuditSection
 {

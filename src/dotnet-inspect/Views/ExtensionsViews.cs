@@ -5,7 +5,7 @@ namespace DotnetInspector.Views;
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),
-    FieldLayout = FieldLayout.Vertical)]
+    FieldLayout = FieldLayout.Table)]
 public class ExtensionsResultView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";

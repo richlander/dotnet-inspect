@@ -104,6 +104,7 @@ public static class RouterOptionsParser
                     IncludeMetadata = true,
                     JsonOutput = parseResult.GetValue(opts.Json),
                     Markdown = parseResult.GetValue(opts.Markdown),
+                    OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
                     IncludeSections = opts.ParseIncludeSections(parseResult),
@@ -138,10 +139,9 @@ public static class RouterOptionsParser
         // type names if platform resolution fails.
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
-            var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, bareName, hasExplicitVersion, explicitVersion);
-            var oneLine = opts.ResolveOneLine(parseResult, args.OneLineOption);
+            var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
             var noHeader = parseResult.GetValue(args.NoHeaderOption);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections, oneLine, noHeader);
+            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections, assemblyOptions.OneLine, noHeader);
         }
 
         // --version query
@@ -178,6 +178,7 @@ public static class RouterOptionsParser
     private static AssemblyOptions BuildPlatformAssemblyOptions(
         ParseResult parseResult,
         SharedOptions opts,
+        RouterCommandArgs args,
         string bareName,
         bool hasExplicitVersion,
         string? explicitVersion)
@@ -197,6 +198,7 @@ public static class RouterOptionsParser
             PlatformFramework = platformFrameworkSpec,
             JsonOutput = parseResult.GetValue(opts.Json),
             Markdown = parseResult.GetValue(opts.Markdown),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             IncludeSections = opts.ParseIncludeSections(parseResult),

@@ -126,12 +126,17 @@ public record AssemblyOptions
     };
 
     /// <summary>
-    /// True when markdown output is requested (explicit or via verbosity).
+    /// True when no explicit output format was selected (default → oneline).
     /// </summary>
-    public bool UseMarkdown => Markdown || Verbosity >= Verbosity.Minimal;
+    public bool IsDefaultInvocation => OneLine && !JsonOutput;
+
+    /// <summary>
+    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// </summary>
+    public bool VerbosityEnabled => !OneLine && !JsonOutput;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || ExtractResources != null;
+    public bool IsRawOutput => JsonOutput || OneLine || ExtractResources != null;
 }

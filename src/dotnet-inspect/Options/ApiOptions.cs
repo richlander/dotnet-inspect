@@ -23,6 +23,7 @@ public record ApiOptions
     public int? Limit { get; init; }
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public HashSet<string> MemberFilter { get; init; } = [];
+    public HashSet<string> KindFilter { get; init; } = [];
     public bool ShowDocs { get; init; }
 
     /// <summary>
@@ -32,11 +33,11 @@ public record ApiOptions
     public bool DocsExplicitlySet { get; init; }
     public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
-    public bool SourceLinkOnly { get; init; }
     public bool BrowsableUrls { get; init; }
     public bool IncludeAll { get; init; }
     public string? TypeFilter { get; init; }
     public bool OneLine { get; init; }
+    public bool OneLineExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
     public bool ShapeOutput { get; init; }
 
@@ -64,6 +65,16 @@ public record ApiOptions
     /// True when invoked via the member command. Member always shows tables (quiet gets summary, minimal+ gets full).
     /// </summary>
     public bool IsMemberCommand { get; init; }
+
+    /// <summary>
+    /// True when no explicit output format was selected (default invocation).
+    /// </summary>
+    public bool IsDefaultInvocation => OneLine && !JsonOutput && !OneLineExplicitlySet;
+
+    /// <summary>
+    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// </summary>
+    public bool VerbosityEnabled => !OneLine && !JsonOutput;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

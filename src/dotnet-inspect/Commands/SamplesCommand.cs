@@ -277,7 +277,6 @@ public class SamplesCommand
             Tfm = options.Tfm,
             ShowDocs = true,
             ShowSamples = true,
-            SourceLinkOnly = true, // Only types with sourcelink
             BrowsableUrls = options.BrowsableUrls,
             Verbose = options.Verbose,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

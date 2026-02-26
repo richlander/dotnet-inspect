@@ -4,7 +4,7 @@ namespace DotnetInspector.Views;
 
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
-    FieldLayout = FieldLayout.Vertical)]
+    FieldLayout = FieldLayout.Table)]
 public class DiffOneLineView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";

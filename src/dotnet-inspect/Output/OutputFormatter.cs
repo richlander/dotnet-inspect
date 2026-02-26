@@ -96,10 +96,10 @@ public static class OutputFormatter
         {
             Console.WriteLine(JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection));
         }
-        else if (options.UseMarkdown)
+        else if (options.VerbosityEnabled)
         {
-            bool suppressHero = options.Verbosity > Verbosity.Quiet;
-            var auditView = new LibraryInspectionView(inspection, suppressHero);
+            bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+            var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
             var includeSections = pipeline?.ComputeIncludeSections(
                 inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
 
@@ -140,13 +140,13 @@ public static class OutputFormatter
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
         }
-        else if (options.UseMarkdown)
+        else if (options.VerbosityEnabled)
         {
-            bool suppressHero = options.Verbosity > Verbosity.Quiet;
+            bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
             var report = new LibraryInspectionReport
             {
                 Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
-                Assemblies = inspections.Select(a => new LibraryInspectionView(a, suppressHero)).ToList()
+                Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
             };
             var writerOptions = pipeline != null
                 ? new MarkoutWriterOptions
