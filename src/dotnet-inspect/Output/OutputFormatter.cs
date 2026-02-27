@@ -8,6 +8,12 @@ using Markout;
 namespace DotnetInspector.Output;
 
 /// <summary>
+/// Diagnostic returned when the rendering service detects an incompatibility
+/// between the requested sections and the formatter's capabilities.
+/// </summary>
+public record RenderDiagnostic(string Formatter, string Condition, string[] Sections);
+
+/// <summary>
 /// Handles output formatting for inspection results.
 /// </summary>
 public static class OutputFormatter
@@ -26,12 +32,18 @@ public static class OutputFormatter
         return context.Serialize(view).TrimEnd();
     }
 
-    public static void WritePackageOneLine(InspectionResult result, InspectionOptions options,
+    public static RenderDiagnostic? WritePackageOneLine(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult>? pipeline, bool showHeader)
     {
-        var view = new InspectionResultView(result);
         var writerOpts = BuildWriterOptions(result, options, pipeline);
+
+        if (writerOpts.IncludeSections is { Count: > 1 })
+            return new RenderDiagnostic("oneline", "multiple_sections",
+                writerOpts.IncludeSections.ToArray());
+
+        var view = new InspectionResultView(result);
         new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), writerOpts);
+        return null;
     }
 
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
