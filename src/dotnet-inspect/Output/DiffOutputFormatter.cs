@@ -99,7 +99,7 @@ public static class DiffOutputFormatter
     public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
-        var writer = new MarkdownWriter();
+        var writer = new MarkdownFormatter();
         new MarkoutContext().Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }

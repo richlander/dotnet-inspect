@@ -70,7 +70,7 @@ public class FindCommand
 
         if (options.OneLine)
         {
-            var writer = new OneLineWriter(Console.Out, showHeader: !options.NoHeader);
+            var writer = new OneLineFormatter(Console.Out, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(view, writer);
         }
         else

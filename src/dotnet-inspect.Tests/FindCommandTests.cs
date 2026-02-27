@@ -9,12 +9,12 @@ using Markout;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for FindCommand output formatting via OneLineWriter.
+/// Tests for FindCommand output formatting via OneLineFormatter.
 /// </summary>
 public class FindCommandTests
 {
     [Fact]
-    public void OneLineWriter_MultiPattern_OutputsColumnarResults()
+    public void OneLineFormatter_MultiPattern_OutputsColumnarResults()
     {
         var results = new List<TypeFindResult>
         {
@@ -28,7 +28,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        var writer = new OneLineWriter(sw, showHeader: false);
+        var writer = new OneLineFormatter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
         var lines = sw.ToString().TrimEnd().Split(Environment.NewLine);
 
@@ -39,11 +39,11 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void OneLineWriter_EmptyResults_NoOutput()
+    public void OneLineFormatter_EmptyResults_NoOutput()
     {
         var view = FindOutputFormatter.BuildView([]);
         var sw = new StringWriter();
-        var writer = new OneLineWriter(sw, showHeader: false);
+        var writer = new OneLineFormatter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
 
         Assert.Equal("", sw.ToString().TrimEnd());
@@ -88,7 +88,7 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void OneLineWriter_WithHeader_IncludesColumnHeaders()
+    public void OneLineFormatter_WithHeader_IncludesColumnHeaders()
     {
         var results = new List<TypeFindResult>
         {
@@ -98,7 +98,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        var writer = new OneLineWriter(sw, showHeader: true);
+        var writer = new OneLineFormatter(sw, showHeader: true);
         new MarkoutContext().Serialize(view, writer);
         var output = sw.ToString();
 
@@ -107,7 +107,7 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void OneLineWriter_NoHeader_OmitsColumnHeaders()
+    public void OneLineFormatter_NoHeader_OmitsColumnHeaders()
     {
         var results = new List<TypeFindResult>
         {
@@ -117,7 +117,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        var writer = new OneLineWriter(sw, showHeader: false);
+        var writer = new OneLineFormatter(sw, showHeader: false);
         new MarkoutContext().Serialize(view, writer);
         var output = sw.ToString();
 

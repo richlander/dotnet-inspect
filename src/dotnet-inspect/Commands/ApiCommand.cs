@@ -403,13 +403,13 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
             };
-            var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+            var writer = new Markout.OneLineFormatter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            var writer = new Markout.MarkdownWriter(writerOptions);
+            var writer = new Markout.MarkdownFormatter(writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
             if (truncatedCount > 0)
@@ -596,13 +596,13 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
             };
-            var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
+            var writer = new Markout.OneLineFormatter(Console.Out, writerOpts, showHeader: !options.NoHeader);
             new MarkoutContext().Serialize(oneLineView, writer);
         }
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var writer = new Markout.MarkdownWriter(writerOptions);
+            var writer = new Markout.MarkdownFormatter(writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
             if (view.MemberCode != null)

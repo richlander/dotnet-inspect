@@ -128,7 +128,7 @@ public static class OutputFormatter
                 IncludeSections = includeSections ?? options.IncludeSections,
                 Projection = BuildProjection(options.Select, options.Columns),
             };
-            var writer = new OneLineWriter(Console.Out, writerOpts);
+            var writer = new OneLineFormatter(Console.Out, writerOpts);
             new MarkoutContext().Serialize(auditView, writer);
         }
     }
@@ -176,7 +176,7 @@ public static class OutputFormatter
                     IncludeSections = includeSections ?? options.IncludeSections,
                     Projection = BuildProjection(options.Select, options.Columns),
                 };
-                var writer = new OneLineWriter(Console.Out, writerOpts);
+                var writer = new OneLineFormatter(Console.Out, writerOpts);
                 new MarkoutContext().Serialize(auditView, writer);
             }
         }

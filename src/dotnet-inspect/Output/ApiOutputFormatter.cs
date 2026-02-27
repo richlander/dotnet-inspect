@@ -129,7 +129,7 @@ public static class ApiOutputFormatter
 
     public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
-        var writer = new MarkdownWriter(BuildTypeWriterOptions(type, options));
+        var writer = new MarkdownFormatter(BuildTypeWriterOptions(type, options));
         RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         return writer.ToString().TrimEnd();
     }

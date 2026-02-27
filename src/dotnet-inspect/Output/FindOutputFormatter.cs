@@ -9,7 +9,7 @@ namespace DotnetInspector.Output;
 public static class FindOutputFormatter
 {
     /// <summary>
-    /// Builds a unified view from raw find results. Works with both OneLineWriter and MarkdownWriter.
+    /// Builds a unified view from raw find results. Works with both OneLineFormatter and MarkdownFormatter.
     /// </summary>
     public static FindResultView BuildView(
         List<TypeFindResult> results,

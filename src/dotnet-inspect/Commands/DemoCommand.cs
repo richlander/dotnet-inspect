@@ -91,7 +91,7 @@ public class DemoCommand
 
     public static async Task<int> ExecuteListAsync()
     {
-        var writer = new MarkdownWriter(Console.Out);
+        var writer = new MarkdownFormatter(Console.Out);
         writer.WriteHeading(1, "Demo Queries");
 
         for (int i = 0; i < Demos.Length; i++)
