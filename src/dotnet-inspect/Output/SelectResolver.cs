@@ -1,5 +1,6 @@
 namespace DotnetInspector.Output;
 
+using DotnetInspector.Metadata;
 using Markout;
 
 /// <summary>
@@ -69,111 +70,111 @@ public static class SelectResolver
 
     /// <summary>
     /// Resolves -S/--select values as section names for backpressure.
-    /// Returns a HashSet of matched section names (case-insensitive).
-    /// Supports wildcard patterns (e.g., "Lib*", "Source*").
-    /// Unmatched values are silently ignored (they may be field/column names for projection).
+    /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
+    /// Values that exactly match a known field or column are silently passed through for projection.
+    /// Unmatched values produce "Did you mean:" errors with suggestions.
     /// </summary>
-    public static HashSet<string>? ResolveSelectAsSections(string[]? select, string[] knownSections)
+    public static HashSet<string>? ResolveSelectAsSections(
+        string[]? select, string[] knownSections, out bool hasError,
+        params MarkoutSchemaInfo?[] schemas)
     {
+        hasError = false;
         if (select is not { Length: > 0 })
             return null;
 
+        var knownFields = schemas.Where(s => s != null)
+            .SelectMany(s => s!.GetFieldNames())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var knownColumns = schemas.Where(s => s != null)
+            .SelectMany(s => s!.GetColumnNames())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unresolved = new List<string>();
+
         foreach (var value in select)
         {
             if (value.Contains('*') || value.Contains('?'))
             {
-                // Wildcard match against known sections
                 foreach (var section in knownSections)
                 {
-                    if (WildcardMatch(section, value))
+                    if (TypeMatcher.MatchesGlob(section, value))
                         matched.Add(section);
                 }
             }
             else
             {
-                // Exact match (case-insensitive)
-                var match = knownSections.FirstOrDefault(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
+                // Exact match (case-insensitive) against sections
+                var match = knownSections.FirstOrDefault(s =>
+                    s.Equals(value, StringComparison.OrdinalIgnoreCase));
                 if (match != null)
                 {
                     matched.Add(match);
                     continue;
                 }
 
-                // Prefix match (case-insensitive): "sym" → "Symbols"
-                var prefixMatches = knownSections.Where(s =>
-                    s.StartsWith(value, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (prefixMatches.Count > 0)
-                {
-                    foreach (var pm in prefixMatches)
-                        matched.Add(pm);
-                    WriteMatchHint(value, prefixMatches);
+                // Known field or column → pass through for projection
+                if (IsKnownName(value, knownFields) || IsKnownName(value, knownColumns))
                     continue;
-                }
 
-                // Fuzzy match: find the closest section name
-                var valueLower = value.ToLowerInvariant();
-                var best = knownSections
-                    .Select(s => (Section: s, Score: DotnetInspector.Metadata.StringDistance.Similarity(
-                        valueLower, s.ToLowerInvariant())))
-                    .Where(x => x.Score >= 0.6)
-                    .OrderByDescending(x => x.Score)
-                    .FirstOrDefault();
-                if (best.Section != null)
+                unresolved.Add(value);
+            }
+        }
+
+        if (unresolved.Count > 0)
+        {
+            var allNames = knownSections
+                .Concat(knownFields).Concat(knownColumns)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+            foreach (var value in unresolved)
+            {
+                Console.Error.WriteLine($"Error: Select value '{value}' not found.");
+                var suggestions = GetSuggestions(value, allNames);
+                if (suggestions.Count > 0)
                 {
-                    matched.Add(best.Section);
-                    WriteMatchHint(value, [best.Section]);
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("Did you mean:");
+                    foreach (var s in suggestions)
+                        Console.Error.WriteLine($"  {s}");
                 }
             }
+            hasError = true;
         }
 
         return matched.Count > 0 ? matched : null;
     }
 
-    private static void WriteMatchHint(string input, List<string> resolved)
-    {
-        if (resolved.Count == 1)
-            Console.Error.WriteLine($"Matched '{input}' -> {resolved[0]}");
-        else
-            Console.Error.WriteLine($"Matched '{input}' -> {string.Join(", ", resolved)}");
-    }
+    private static bool IsKnownName(string value, string[] names)
+        => names.Any(n => n.Equals(value, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Simple case-insensitive wildcard match supporting * and ?.
+    /// Generates suggestions using prefix + fuzzy matching, ranked by similarity.
+    /// Same strategy as TypeMatcher.LookupMembers.
     /// </summary>
-    private static bool WildcardMatch(string input, string pattern)
+    private static List<string> GetSuggestions(string value, string[] allNames, int maxResults = 6)
     {
-        int i = 0, p = 0, starI = -1, starP = -1;
-        var inputLower = input.ToLowerInvariant();
-        var patternLower = pattern.ToLowerInvariant();
+        var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        while (i < inputLower.Length)
+        // Prefix matches
+        foreach (var name in allNames)
+            if (name.StartsWith(value, StringComparison.OrdinalIgnoreCase))
+                suggestions.Add(name);
+
+        // Fuzzy matches
+        var valueLower = value.ToLowerInvariant();
+        foreach (var name in allNames)
         {
-            if (p < patternLower.Length && (patternLower[p] == '?' || patternLower[p] == inputLower[i]))
-            {
-                i++;
-                p++;
-            }
-            else if (p < patternLower.Length && patternLower[p] == '*')
-            {
-                starI = i;
-                starP = p++;
-            }
-            else if (starP >= 0)
-            {
-                i = ++starI;
-                p = starP + 1;
-            }
-            else
-            {
-                return false;
-            }
+            var score = StringDistance.Similarity(valueLower, name.ToLowerInvariant());
+            if (score >= 0.5)
+                suggestions.Add(name);
         }
 
-        while (p < patternLower.Length && patternLower[p] == '*')
-            p++;
-
-        return p == patternLower.Length;
+        return suggestions
+            .OrderByDescending(s => StringDistance.Similarity(
+                value.ToLowerInvariant(), s.ToLowerInvariant()))
+            .Take(maxResults)
+            .ToList();
     }
 
     /// <summary>

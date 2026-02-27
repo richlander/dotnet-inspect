@@ -40,8 +40,12 @@ public class PackageCommand
             return 0;
         }
 
-        // -S/--select with values: resolve as section filter for backpressure (supports wildcards)
-        var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
+        // -S/--select with values: resolve as section filter for backpressure
+        // Exact or glob match only; unmatched values error with suggestions.
+        var pkgSchema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
+        var selectSections = SelectResolver.ResolveSelectAsSections(
+            options.Select, sectionNames, out var selectError, pkgSchema);
+        if (selectError) return 1;
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
 

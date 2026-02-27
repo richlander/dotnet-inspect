@@ -76,8 +76,13 @@ public class ApiCommand
             return (null!, 0);
         }
 
-        // -S/--select with values: resolve as section filter for backpressure (supports wildcards)
-        var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
+        // -S/--select with values: resolve as section filter for backpressure
+        var apiContext = new MarkoutContext();
+        var selectSections = SelectResolver.ResolveSelectAsSections(
+            options.Select, allApiSections, out var selectError,
+            apiContext.GetSchemaInfo<CliApiSurface>(), apiContext.GetSchemaInfo<TypeView>());
+        if (selectError)
+            return (null!, 1);
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
 

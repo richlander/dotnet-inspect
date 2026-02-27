@@ -37,8 +37,11 @@ public class AssemblyCommand
             return 0;
         }
 
-        // -S/--select with values: resolve as section filter for backpressure (supports wildcards)
-        var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
+        // -S/--select with values: resolve as section filter for backpressure
+        var asmSchema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
+        var selectSections = SelectResolver.ResolveSelectAsSections(
+            options.Select, pipeline.AllSectionNames, out var selectError, asmSchema);
+        if (selectError) return 1;
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
 
