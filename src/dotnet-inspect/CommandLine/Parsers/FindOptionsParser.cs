@@ -94,6 +94,7 @@ public static class FindOptionsParser
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
+            Columns = opts.ParseColumns(parseResult),
             PackagePrefix = packagePrefix,
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };

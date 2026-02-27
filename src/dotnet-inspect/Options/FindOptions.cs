@@ -83,6 +83,11 @@ public record FindOptions : IAssemblySourceOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
+    /// Column projection (include only named columns).
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

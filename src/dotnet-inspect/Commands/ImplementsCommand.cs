@@ -4,6 +4,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -22,6 +23,14 @@ public class ImplementsCommand
 
         try
         {
+            // Discovery mode: bare --columns lists available column names
+            if (options.Columns is { Length: 0 })
+            {
+                var schema = new MarkoutContext().GetSchemaInfo<ImplementsResultView>();
+                SelectResolver.Discover(null, options.Columns, null, schema);
+                return 0;
+            }
+
             // Safety fallback — default to all platform frameworks
             if (!options.HasAnyScope)
             {
@@ -70,7 +79,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader);
+                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns);
             }
 
             return 0;
@@ -123,13 +132,17 @@ public class ImplementsCommand
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
         if (oneLine)
         {
-            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader));
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(null, columns)
+            };
+            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), writerOpts);
         }
         else
         {

@@ -22,6 +22,14 @@ public class FindCommand
 
         try
         {
+            // Discovery mode: bare --columns lists available column names
+            if (options.Columns is { Length: 0 })
+            {
+                var schema = new MarkoutContext().GetSchemaInfo<FindResultView>();
+                SelectResolver.Discover(null, options.Columns, null, schema);
+                return 0;
+            }
+
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
             {
@@ -70,7 +78,11 @@ public class FindCommand
 
         if (options.OneLine)
         {
-            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader));
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(null, options.Columns)
+            };
+            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
         }
         else
         {

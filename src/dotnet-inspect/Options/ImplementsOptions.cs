@@ -68,6 +68,11 @@ public record ImplementsOptions : IAssemblySourceOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
+    /// Column projection (include only named columns).
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
