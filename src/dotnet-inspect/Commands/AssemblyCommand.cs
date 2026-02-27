@@ -59,12 +59,6 @@ public class AssemblyCommand
         // Warn if --oneline combined with detailed verbosity without section selector
         OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
-#if DEBUG
-        // Detailed verbosity legitimately needs network for PDB/SourceLink
-        if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)
-            DotnetInspector.Core.HttpClientFactory.AllowNetwork();
-#endif
-
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
             options.Verbosity, options.IncludeSections, options.ExcludeSections);
