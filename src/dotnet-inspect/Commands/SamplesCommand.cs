@@ -178,7 +178,7 @@ public class SamplesCommand
 
     private static int PrintAllLocalSamples(List<TypedSample> samples, string fileDir, string filePath)
     {
-        var writer = new MarkdownFormatter(Console.Out);
+        var writer = new MarkoutOrchestrator(Console.Out, new MarkdownFormatter());
         writer.WriteHeading(1, $"Samples: {Path.GetFileName(filePath)}");
 
         for (int i = 0; i < samples.Count; i++)
@@ -379,7 +379,7 @@ public class SamplesCommand
         HttpClient httpClient)
     {
         var fetcher = new SourceFetcher(httpClient);
-        var writer = new MarkdownFormatter(Console.Out);
+        var writer = new MarkoutOrchestrator(Console.Out, new MarkdownFormatter());
 
         // H1 title - output immediately
         SamplesOutputFormatter.WriteSamplesTitle(writer, assemblyName, packageName, packageVersion);

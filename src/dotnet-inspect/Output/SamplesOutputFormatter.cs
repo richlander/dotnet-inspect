@@ -46,7 +46,7 @@ public static class SamplesOutputFormatter
     }
 
     public static void WriteSamplesWithContent(
-        MarkoutWriter writer,
+        MarkoutOrchestrator writer,
         int index,
         TypedSample typedSample,
         string? content)
@@ -72,7 +72,7 @@ public static class SamplesOutputFormatter
     }
 
     public static void WriteSamplesTitle(
-        MarkoutWriter writer,
+        MarkoutOrchestrator writer,
         string? assemblyName,
         string? packageName,
         string? packageVersion)

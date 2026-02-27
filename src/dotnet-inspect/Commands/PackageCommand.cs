@@ -84,7 +84,7 @@ public class PackageCommand
                 return 1;
             }
 
-            var versionWriter = new Markout.OneLineFormatter(Console.Out, showHeader: false);
+            var versionWriter = new Markout.MarkoutOrchestrator(Console.Out, new Markout.OneLineFormatter(showHeader: false));
             versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
 
             return 0;
@@ -260,8 +260,7 @@ public class PackageCommand
                 {
                     Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
                 };
-                var writer = new Markout.OneLineFormatter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-                new MarkoutContext().Serialize(oneLineView, writer);
+                new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
             }
             else
             {
@@ -441,7 +440,7 @@ public class PackageCommand
             ? fileNames.Take(options.Limit.Value)
             : fileNames;
 
-        var fileWriter = new Markout.OneLineFormatter(Console.Out, showHeader: false);
+        var fileWriter = new Markout.MarkoutOrchestrator(Console.Out, new Markout.OneLineFormatter(showHeader: false));
         fileWriter.WriteList(results.ToArray());
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
@@ -478,7 +477,7 @@ public class PackageCommand
             .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
             .ToList();
 
-        var tfmWriter = new Markout.OneLineFormatter(Console.Out, showHeader: false);
+        var tfmWriter = new Markout.MarkoutOrchestrator(Console.Out, new Markout.OneLineFormatter(showHeader: false));
         tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
     }
 

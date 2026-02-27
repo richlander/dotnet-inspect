@@ -349,7 +349,7 @@ public class OutputFormatterTests
     {
         var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
         var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-        var writer = new MarkdownFormatter(writerOptions);
+        var writer = new MarkoutOrchestrator(new MarkdownFormatter(), writerOptions);
         new MarkoutContext().Serialize(view, writer);
         if (truncatedCount > 0)
             writer.WriteParagraph($"... *and {truncatedCount} more types*");

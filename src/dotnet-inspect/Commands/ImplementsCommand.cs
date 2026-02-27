@@ -129,8 +129,7 @@ public class ImplementsCommand
 
         if (oneLine)
         {
-            var writer = new OneLineFormatter(Console.Out, showHeader: !noHeader);
-            new MarkoutContext().Serialize(view, writer);
+            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader));
         }
         else
         {

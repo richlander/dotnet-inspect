@@ -28,8 +28,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        var writer = new OneLineFormatter(sw, showHeader: false);
-        new MarkoutContext().Serialize(view, writer);
+        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
         var lines = sw.ToString().TrimEnd().Split(Environment.NewLine);
 
         Assert.Equal(3, lines.Length);
@@ -43,10 +42,9 @@ public class FindCommandTests
     {
         var view = FindOutputFormatter.BuildView([]);
         var sw = new StringWriter();
-        var writer = new OneLineFormatter(sw, showHeader: false);
-        new MarkoutContext().Serialize(view, writer);
+        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
 
-        Assert.Equal("", sw.ToString().TrimEnd());
+        Assert.Equal("No types found matching the pattern.", sw.ToString().TrimEnd());
     }
 
     [Fact]
@@ -98,8 +96,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        var writer = new OneLineFormatter(sw, showHeader: true);
-        new MarkoutContext().Serialize(view, writer);
+        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: true));
         var output = sw.ToString();
 
         Assert.Contains("TYPE", output);
@@ -117,8 +114,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        var writer = new OneLineFormatter(sw, showHeader: false);
-        new MarkoutContext().Serialize(view, writer);
+        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
         var output = sw.ToString();
 
         Assert.DoesNotContain("TYPE", output);

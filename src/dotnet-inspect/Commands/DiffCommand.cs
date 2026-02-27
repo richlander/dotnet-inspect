@@ -93,8 +93,7 @@ public class DiffCommand
                 {
                     Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
                 };
-                var writer = new Markout.OneLineFormatter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-                new MarkoutContext().Serialize(view, writer);
+                new MarkoutContext().Serialize(view, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
             }
             else
             {
@@ -246,7 +245,7 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            var nameWriter = new Markout.OneLineFormatter(new StringWriter());
+            var nameWriter = new Markout.MarkoutOrchestrator(new Markout.OneLineFormatter());
             DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
             return nameWriter.ToString();
         }
