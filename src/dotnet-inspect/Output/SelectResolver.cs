@@ -107,6 +107,7 @@ public static class SelectResolver
                 {
                     foreach (var pm in prefixMatches)
                         matched.Add(pm);
+                    WriteMatchHint(value, prefixMatches);
                     continue;
                 }
 
@@ -119,11 +120,22 @@ public static class SelectResolver
                     .OrderByDescending(x => x.Score)
                     .FirstOrDefault();
                 if (best.Section != null)
+                {
                     matched.Add(best.Section);
+                    WriteMatchHint(value, [best.Section]);
+                }
             }
         }
 
         return matched.Count > 0 ? matched : null;
+    }
+
+    private static void WriteMatchHint(string input, List<string> resolved)
+    {
+        if (resolved.Count == 1)
+            Console.Error.WriteLine($"Matched '{input}' -> {resolved[0]}");
+        else
+            Console.Error.WriteLine($"Matched '{input}' -> {string.Join(", ", resolved)}");
     }
 
     /// <summary>
