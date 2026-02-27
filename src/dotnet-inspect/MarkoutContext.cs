@@ -48,8 +48,6 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ApiOneLineRow))]
 [MarkoutContext(typeof(ApiSurfaceOneLineView))]
 [MarkoutContext(typeof(ApiSurfaceOneLineRow))]
-[MarkoutContext(typeof(PackageOneLineView))]
-[MarkoutContext(typeof(PackageOneLineRow))]
 [MarkoutContext(typeof(SamplesListView))]
 [MarkoutContext(typeof(SampleRow))]
 [MarkoutContext(typeof(EmptyDepsView))]

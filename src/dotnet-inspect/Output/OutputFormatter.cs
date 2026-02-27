@@ -20,24 +20,24 @@ public static class OutputFormatter
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
-        return RenderMarkout(result, options, pipeline);
+        var view = new InspectionResultView(result);
+        var writerOptions = BuildWriterOptions(result, options, pipeline);
+        var context = new MarkoutContext(writerOptions);
+        return context.Serialize(view).TrimEnd();
     }
 
-    public static PackageOneLineView BuildPackageOneLineView(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult>? pipeline = null)
+    public static void WritePackageOneLine(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult>? pipeline, bool showHeader)
     {
         var view = new InspectionResultView(result);
-        var fields = view.Metadata;
-        var rows = fields.Select(f => new PackageOneLineRow(f.Key, f.Value ?? "")).ToList();
-        return new PackageOneLineView { Rows = rows };
+        var writerOpts = BuildWriterOptions(result, options, pipeline);
+        new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), writerOpts);
     }
 
-    private static string RenderMarkout(InspectionResult result, InspectionOptions options,
+    internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult>? pipeline)
     {
-        var view = new InspectionResultView(result);
-
-        var writerOptions = pipeline != null
+        return pipeline != null
             ? new MarkoutWriterOptions
             {
                 IncludeSections = pipeline.ComputeIncludeSections(
@@ -52,9 +52,6 @@ public static class OutputFormatter
                 IncludeDescription = options.Verbosity != Verbosity.Quiet,
                 Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields)
             };
-
-        var context = new MarkoutContext(writerOptions);
-        return context.Serialize(view).TrimEnd();
     }
 
     private static HashSet<string>? GetExcludeSections(InspectionOptions options)

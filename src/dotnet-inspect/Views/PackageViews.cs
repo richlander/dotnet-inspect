@@ -43,19 +43,6 @@ public partial class PackageDependenciesContext : MarkoutSerializerContext
 }
 
 /// <summary>
-/// View model for package --oneline output: metadata as PROPERTY | VALUE table.
-/// </summary>
-[MarkoutSerializable]
-public class PackageOneLineView
-{
-    [MarkoutSection(Name = "Package")]
-    public List<PackageOneLineRow>? Rows { get; set; }
-}
-
-[MarkoutSerializable]
-public record PackageOneLineRow(string Property, string Value);
-
-/// <summary>
 /// View model for empty dependency tree output (--dependencies with zero deps for a TFM).
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description))]

@@ -241,12 +241,7 @@ public class PackageCommand
             // Output results
             if (options.OneLine)
             {
-                var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
-                var writerOpts = new MarkoutWriterOptions
-                {
-                    Projection = OutputFormatter.BuildProjection(options.IncludeSections, options.Columns, options.Fields)
-                };
-                new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+                OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
             }
             else
             {
