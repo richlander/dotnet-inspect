@@ -92,9 +92,34 @@ public static class SelectResolver
             }
             else
             {
+                // Exact match (case-insensitive)
                 var match = knownSections.FirstOrDefault(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
                 if (match != null)
+                {
                     matched.Add(match);
+                    continue;
+                }
+
+                // Prefix match (case-insensitive): "sym" → "Symbols"
+                var prefixMatches = knownSections.Where(s =>
+                    s.StartsWith(value, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (prefixMatches.Count > 0)
+                {
+                    foreach (var pm in prefixMatches)
+                        matched.Add(pm);
+                    continue;
+                }
+
+                // Fuzzy match: find the closest section name
+                var valueLower = value.ToLowerInvariant();
+                var best = knownSections
+                    .Select(s => (Section: s, Score: DotnetInspector.Metadata.StringDistance.Similarity(
+                        valueLower, s.ToLowerInvariant())))
+                    .Where(x => x.Score >= 0.6)
+                    .OrderByDescending(x => x.Score)
+                    .FirstOrDefault();
+                if (best.Section != null)
+                    matched.Add(best.Section);
             }
         }
 
