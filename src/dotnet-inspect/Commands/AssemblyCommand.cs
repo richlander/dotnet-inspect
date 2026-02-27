@@ -32,17 +32,16 @@ public class AssemblyCommand
         if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
-            SelectResolver.Discover(options.Select, options.Columns, options.Fields,
-                SectionRegistry.LibrarySections, schema);
+            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields,
+                SectionRegistry.LibrarySections, schema));
             return 0;
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectSections = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.AllSectionNames, out var selectError);
-        if (selectError) return 1;
-        if (selectSections != null)
-            options = options with { IncludeSections = selectSections };
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
+        if (SelectOutput.WriteErrors(selectResult.Unresolved)) return 1;
+        if (selectResult.Sections != null)
+            options = options with { IncludeSections = selectResult.Sections };
 
         // --source-link-audit at non-detailed verbosity: implicitly select audit section
         if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed)

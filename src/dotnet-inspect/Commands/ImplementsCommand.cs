@@ -27,7 +27,7 @@ public class ImplementsCommand
             if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
             {
                 var schema = new MarkoutContext().GetSchemaInfo<ImplementsResultView>();
-                SelectResolver.Discover(null, options.Columns, options.Fields, null, schema);
+                SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(null, options.Columns, options.Fields, null, schema));
                 return 0;
             }
 

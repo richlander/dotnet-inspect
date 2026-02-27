@@ -71,18 +71,17 @@ public class ApiCommand
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
             var memberSchema = context2.GetSchemaInfo<TypeView>();
-            SelectResolver.Discover(options.Select, options.Columns, options.Fields,
-                allApiSections, typeSchema, memberSchema);
+            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields,
+                allApiSections, typeSchema, memberSchema));
             return (null!, 0);
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectSections = SelectResolver.ResolveSelectAsSections(
-            options.Select, allApiSections, out var selectError);
-        if (selectError)
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
+        if (SelectOutput.WriteErrors(selectResult.Unresolved))
             return (null!, 1);
-        if (selectSections != null)
-            options = options with { IncludeSections = selectSections };
+        if (selectResult.Sections != null)
+            options = options with { IncludeSections = selectResult.Sections };
 
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })

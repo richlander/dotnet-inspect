@@ -36,17 +36,15 @@ public class PackageCommand
         if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-            SelectResolver.Discover(options.Select, options.Columns, options.Fields, sectionNames, schema);
+            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields, sectionNames, schema));
             return 0;
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        // Exact or glob match only; unmatched values error with suggestions.
-        var selectSections = SelectResolver.ResolveSelectAsSections(
-            options.Select, sectionNames, out var selectError);
-        if (selectError) return 1;
-        if (selectSections != null)
-            options = options with { IncludeSections = selectSections };
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
+        if (SelectOutput.WriteErrors(selectResult.Unresolved)) return 1;
+        if (selectResult.Sections != null)
+            options = options with { IncludeSections = selectResult.Sections };
 
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })

@@ -62,7 +62,7 @@ public static class RouterCommandDefinition
 
                 case RouterOptionsParser.Discovery d:
                     var routerSchema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-                    SelectResolver.Discover(d.Select, d.Columns, d.Fields, null, routerSchema);
+                    SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(d.Select, d.Columns, d.Fields, null, routerSchema));
                     return 0;
 
                 case RouterOptionsParser.ParseError error:

@@ -24,7 +24,7 @@ public class DiffCommand
         if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
-            SelectResolver.Discover(options.Select, options.Columns, options.Fields, null, schema);
+            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields, null, schema));
             return 0;
         }
 
