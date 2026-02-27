@@ -38,9 +38,8 @@ public class AssemblyCommand
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var asmSchema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
         var selectSections = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.AllSectionNames, out var selectError, asmSchema);
+            options.Select, pipeline.AllSectionNames, out var selectError);
         if (selectError) return 1;
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };

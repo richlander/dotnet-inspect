@@ -4,7 +4,7 @@ using DotnetInspector.Metadata;
 using Markout;
 
 /// <summary>
-/// Handles discovery and projection for --select and --columns.
+/// Handles discovery and projection for --select, --columns, and --fields.
 /// Discovery mode: any bare flag lists available names.
 /// Execute mode: all flags have values, used for filtering.
 /// </summary>
@@ -20,23 +20,16 @@ public static class SelectResolver
 
     /// <summary>
     /// Runs discovery for the given schema and section names.
-    /// Scoped: if --select has a value, discovery is scoped to that section's schema.
+    /// -S lists sections. --columns lists columns. --fields lists fields.
     /// </summary>
     public static void Discover(string[]? select, string[]? columns, string[]? fields,
         string[]? sectionNames, params MarkoutSchemaInfo?[] schemas)
     {
-        // Bare --select: list sections + root fields
+        // Bare --select: list sections only
         if (select is { Length: 0 })
         {
-            var entries = new List<(string, string)>();
             if (sectionNames != null)
-                entries.AddRange(sectionNames.Select(n => (n, "section")));
-            foreach (var schema in schemas)
-            {
-                if (schema == null) continue;
-                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
-            }
-            WriteDiscoveryLines(entries);
+                WriteDiscoveryLines(sectionNames.Select(n => (n, "section")));
             return;
         }
 
@@ -71,23 +64,14 @@ public static class SelectResolver
     /// <summary>
     /// Resolves -S/--select values as section names for backpressure.
     /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
-    /// Values that exactly match a known field or column are silently passed through for projection.
     /// Unmatched values produce "Did you mean:" errors with suggestions.
     /// </summary>
     public static HashSet<string>? ResolveSelectAsSections(
-        string[]? select, string[] knownSections, out bool hasError,
-        params MarkoutSchemaInfo?[] schemas)
+        string[]? select, string[] knownSections, out bool hasError)
     {
         hasError = false;
         if (select is not { Length: > 0 })
             return null;
-
-        var knownFields = schemas.Where(s => s != null)
-            .SelectMany(s => s!.GetFieldNames())
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var knownColumns = schemas.Where(s => s != null)
-            .SelectMany(s => s!.GetColumnNames())
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<string>();
@@ -104,7 +88,6 @@ public static class SelectResolver
             }
             else
             {
-                // Exact match (case-insensitive) against sections
                 var match = knownSections.FirstOrDefault(s =>
                     s.Equals(value, StringComparison.OrdinalIgnoreCase));
                 if (match != null)
@@ -113,24 +96,16 @@ public static class SelectResolver
                     continue;
                 }
 
-                // Known field or column → pass through for projection
-                if (IsKnownName(value, knownFields) || IsKnownName(value, knownColumns))
-                    continue;
-
                 unresolved.Add(value);
             }
         }
 
         if (unresolved.Count > 0)
         {
-            var allNames = knownSections
-                .Concat(knownFields).Concat(knownColumns)
-                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-
             foreach (var value in unresolved)
             {
                 Console.Error.WriteLine($"Error: Select value '{value}' not found.");
-                var suggestions = GetSuggestions(value, allNames);
+                var suggestions = GetSuggestions(value, knownSections);
                 if (suggestions.Count > 0)
                 {
                     Console.Error.WriteLine();
@@ -145,9 +120,6 @@ public static class SelectResolver
         return matched.Count > 0 ? matched : null;
     }
 
-    private static bool IsKnownName(string value, string[] names)
-        => names.Any(n => n.Equals(value, StringComparison.OrdinalIgnoreCase));
-
     /// <summary>
     /// Generates suggestions using prefix + fuzzy matching, ranked by similarity.
     /// Same strategy as TypeMatcher.LookupMembers.
@@ -156,12 +128,10 @@ public static class SelectResolver
     {
         var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Prefix matches
         foreach (var name in allNames)
             if (name.StartsWith(value, StringComparison.OrdinalIgnoreCase))
                 suggestions.Add(name);
 
-        // Fuzzy matches
         var valueLower = value.ToLowerInvariant();
         foreach (var name in allNames)
         {

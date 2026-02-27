@@ -77,10 +77,8 @@ public class ApiCommand
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var apiContext = new MarkoutContext();
         var selectSections = SelectResolver.ResolveSelectAsSections(
-            options.Select, allApiSections, out var selectError,
-            apiContext.GetSchemaInfo<CliApiSurface>(), apiContext.GetSchemaInfo<TypeView>());
+            options.Select, allApiSections, out var selectError);
         if (selectError)
             return (null!, 1);
         if (selectSections != null)

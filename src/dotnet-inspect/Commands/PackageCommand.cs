@@ -42,9 +42,8 @@ public class PackageCommand
 
         // -S/--select with values: resolve as section filter for backpressure
         // Exact or glob match only; unmatched values error with suggestions.
-        var pkgSchema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
         var selectSections = SelectResolver.ResolveSelectAsSections(
-            options.Select, sectionNames, out var selectError, pkgSchema);
+            options.Select, sectionNames, out var selectError);
         if (selectError) return 1;
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
