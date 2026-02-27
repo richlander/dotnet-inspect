@@ -32,14 +32,17 @@ public static class OutputFormatResolver
     private static bool _envParsed;
 
     /// <summary>
-    /// Resolves format. Any -v:* flag implies Markdown. --json implies Json. --markdown implies Markdown.
+    /// Resolves format. -v:d implies Markdown. --json implies Json. --markdown implies Markdown.
+    /// -v:q, -v:m, -v:n remain OneLine (they control content depth, not output shape).
     /// </summary>
-    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, bool hasVerbosity)
+    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity)
     {
         // Explicit CLI flags win
         if (jsonFlag)
             return OutputFormat.Json;
-        if (markdownFlag || hasVerbosity)
+        if (markdownFlag)
+            return OutputFormat.Markdown;
+        if (verbosity >= Verbosity.Detailed)
             return OutputFormat.Markdown;
 
         // Environment variable

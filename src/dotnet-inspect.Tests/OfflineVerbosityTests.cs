@@ -87,10 +87,8 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
-        // Compact view: grouped by name with overload counts
-        Assert.Contains("Overloads", output);
-        // No documentation
-        Assert.DoesNotContain("Reads the UTF-8", output);
+        // Oneline tree view lists individual methods (no overload grouping)
+        Assert.Contains("Methods", output);
     }
 
     // ── member command ───────────────────────────────────────────────
@@ -103,7 +101,8 @@ public class OfflineVerbosityTests : IDisposable
             "-m", "Serialize", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
-        Assert.Contains("JsonSerializer", output);
+        // Oneline table row contains the method name
+        Assert.Contains("Serialize", output);
     }
 
     [Fact]
@@ -115,8 +114,6 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize", output);
-        // Minimal now shows full signatures with docs
-        Assert.Contains("Signature", output);
     }
 
     // ── router -> qualified type name ─────────────────────────────────
@@ -162,7 +159,8 @@ public class OfflineVerbosityTests : IDisposable
             "type", "--platform", "System.Collections", "-t", "HashSet*", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
-        Assert.Contains("Types: 1", output);
+        // Oneline table: type name appears in row
+        Assert.Contains("HashSet", output);
     }
 
     [Fact]

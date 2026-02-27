@@ -195,7 +195,8 @@ public class SharedOptions
         bool jsonFlag = parseResult.GetValue(Json);
         bool markdownFlag = parseResult.GetValue(Markdown);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, hasVerbosity);
+        Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity);
     }
 
     /// <summary>
