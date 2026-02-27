@@ -129,6 +129,12 @@ public record InspectionOptions
     public bool OneLine { get; init; }
 
     /// <summary>
+    /// True when --oneline was explicitly passed (not just the default format).
+    /// Used to distinguish "user wants oneline" from "oneline is the default".
+    /// </summary>
+    public bool OneLineExplicitlySet { get; init; }
+
+    /// <summary>
     /// Suppress column headers (use with --oneline).
     /// </summary>
     public bool NoHeader { get; init; }

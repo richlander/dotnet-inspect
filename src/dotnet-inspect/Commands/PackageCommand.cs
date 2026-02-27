@@ -239,15 +239,26 @@ public class PackageCommand
             // Output results
             if (options.OneLine)
             {
-                var diagnostic = OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
+                // Multi-section check: auto-promote to markdown if format wasn't explicitly requested
+                var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
                 if (diagnostic != null)
                 {
-                    Console.Error.WriteLine($"Error: Selection matches {diagnostic.Sections.Length} sections: {string.Join(", ", diagnostic.Sections)}.");
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Oneline format displays one section at a time.");
-                    Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
-                    return 1;
+                    if (options.OneLineExplicitlySet)
+                    {
+                        Console.Error.WriteLine($"Error: Selection matches {diagnostic.Sections.Length} sections: {string.Join(", ", diagnostic.Sections)}.");
+                        Console.Error.WriteLine();
+                        Console.Error.WriteLine("Oneline format displays one section at a time.");
+                        Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
+                        return 1;
+                    }
+
+                    // Auto-promote to markdown
+                    var output = OutputFormatter.FormatResult(result, options, pipeline);
+                    Console.WriteLine(output);
+                    return 0;
                 }
+
+                OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
             }
             else
             {

@@ -32,17 +32,25 @@ public static class OutputFormatter
         return context.Serialize(view).TrimEnd();
     }
 
-    public static RenderDiagnostic? WritePackageOneLine(InspectionResult result, InspectionOptions options,
+    public static void WritePackageOneLine(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult>? pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
+        var view = new InspectionResultView(result);
+        new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), writerOpts);
+    }
 
+    /// <summary>
+    /// Checks whether the computed writer options would produce multiple sections.
+    /// Used by commands to decide whether to auto-promote to markdown or error.
+    /// </summary>
+    public static RenderDiagnostic? CheckMultiSection(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult>? pipeline)
+    {
+        var writerOpts = BuildWriterOptions(result, options, pipeline);
         if (writerOpts.IncludeSections is { Count: > 1 })
             return new RenderDiagnostic("oneline", "multiple_sections",
                 writerOpts.IncludeSections.ToArray());
-
-        var view = new InspectionResultView(result);
-        new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), writerOpts);
         return null;
     }
 
@@ -137,7 +145,17 @@ public static class OutputFormatter
                 IncludeSections = includeSections ?? options.IncludeSections,
                 Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields),
             };
-            new MarkoutContext().Serialize(auditView, Console.Out, new OneLineFormatter(), writerOpts);
+
+            // Auto-promote to markdown when multiple sections and oneline wasn't explicitly requested
+            if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
+            {
+                var context = new MarkoutContext(writerOpts);
+                Console.WriteLine(context.Serialize(auditView).TrimEnd());
+            }
+            else
+            {
+                new MarkoutContext().Serialize(auditView, Console.Out, new OneLineFormatter(), writerOpts);
+            }
         }
     }
 

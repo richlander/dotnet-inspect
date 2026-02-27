@@ -73,6 +73,11 @@ public record AssemblyOptions
     public bool OneLine { get; init; }
 
     /// <summary>
+    /// True when --oneline was explicitly passed (not just the default format).
+    /// </summary>
+    public bool OneLineExplicitlySet { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
