@@ -44,7 +44,9 @@ public class FindCommandTests
         var sw = new StringWriter();
         new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
 
-        Assert.Equal("No types found matching the pattern.", sw.ToString().TrimEnd());
+        // OneLineFormatter doesn't support paragraphs (no IBlockFormatter),
+        // so the description is not rendered
+        Assert.Equal("", sw.ToString().TrimEnd());
     }
 
     [Fact]

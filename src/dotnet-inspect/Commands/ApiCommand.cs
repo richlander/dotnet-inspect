@@ -408,7 +408,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            var writer = new Markout.MarkoutOrchestrator(new Markout.MarkdownFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(new Markout.MarkdownFormatter(), writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
             if (truncatedCount > 0)
@@ -600,7 +600,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var writer = new Markout.MarkoutOrchestrator(new Markout.MarkdownFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(new Markout.MarkdownFormatter(), writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
             if (view.MemberCode != null)

@@ -129,12 +129,12 @@ public static class ApiOutputFormatter
 
     public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
-        var writer = new MarkoutOrchestrator(new MarkdownFormatter(), BuildTypeWriterOptions(type, options));
+        var writer = new MarkoutWriter(new MarkdownFormatter(), BuildTypeWriterOptions(type, options));
         RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         return writer.ToString().TrimEnd();
     }
 
-    public static void RenderTypeMarkdown(MarkoutOrchestrator writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    public static void RenderTypeMarkdown(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         // Build the view model
         var view = BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
@@ -205,7 +205,7 @@ public static class ApiOutputFormatter
         Console.WriteLine(view.FullName);
         if (view.Members is { Count: > 0 })
         {
-            var writer = new MarkoutOrchestrator(Console.Out, new MarkdownFormatter());
+            var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
             writer.WriteTree([.. view.Members]);
         }
     }

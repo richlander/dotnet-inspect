@@ -245,7 +245,7 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            var nameWriter = new Markout.MarkoutOrchestrator(new Markout.OneLineFormatter());
+            var nameWriter = new Markout.MarkoutWriter(new Markout.OneLineFormatter());
             DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
             return nameWriter.ToString();
         }

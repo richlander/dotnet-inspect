@@ -9,7 +9,7 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
-    public static void RenderNameOnly(MarkoutOrchestrator writer, IReadOnlyList<TypeDiff> typeDiffs)
+    public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
         foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
         {
@@ -99,7 +99,7 @@ public static class DiffOutputFormatter
     public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
-        var writer = new MarkoutOrchestrator(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter());
         new MarkoutContext().Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
