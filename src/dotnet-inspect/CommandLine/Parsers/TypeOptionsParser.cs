@@ -45,7 +45,7 @@ public static class TypeOptionsParser
     /// <summary>
     /// Indicates projection discovery (--select or --columns bare).
     /// </summary>
-    public record Discovery(string[]? Select, string[]? Columns) : TypeParseResult;
+    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : TypeParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -88,7 +88,7 @@ public static class TypeOptionsParser
             if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 return new ListSections();
             if (opts.IsDiscoveryMode(parseResult))
-                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult));
+                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
             return new ShowHelp();
         }
 
@@ -142,6 +142,7 @@ public static class TypeOptionsParser
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

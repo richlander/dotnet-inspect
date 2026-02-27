@@ -73,6 +73,11 @@ public record ImplementsOptions : IAssemblySourceOptions
     public string[]? Columns { get; init; }
 
     /// <summary>
+    /// Field projection (include only named fields).
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

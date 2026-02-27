@@ -103,6 +103,11 @@ public record AssemblyOptions
     public string[]? Columns { get; init; }
 
     /// <summary>
+    /// Field names to include. Null means all.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

@@ -40,10 +40,10 @@ public class PackageCommand
         }
 
         // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns))
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-            SelectResolver.Discover(options.Select, options.Columns, sectionNames, schema);
+            SelectResolver.Discover(options.Select, options.Columns, options.Fields, sectionNames, schema);
             return 0;
         }
 
@@ -258,7 +258,7 @@ public class PackageCommand
                 var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
+                    Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
                 };
                 new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
             }

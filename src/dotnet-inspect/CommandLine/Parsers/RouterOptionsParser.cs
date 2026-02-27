@@ -36,7 +36,7 @@ public static class RouterOptionsParser
     /// <summary>
     /// Indicates projection discovery (--select or --columns bare).
     /// </summary>
-    public record Discovery(string[]? Select, string[]? Columns) : RouterParseResult;
+    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : RouterParseResult;
 
     /// <summary>
     /// Indicates an error occurred during parsing.
@@ -83,7 +83,7 @@ public static class RouterOptionsParser
         if (packageArgs.Length < 1)
         {
             if (opts.IsDiscoveryMode(parseResult))
-                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult));
+                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
             return new ShowHelp();
         }
 
@@ -111,6 +111,7 @@ public static class RouterOptionsParser
                     ExcludeSections = opts.ParseExcludeSections(parseResult),
                     Select = opts.ParseSelect(parseResult),
                     Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
             }
@@ -164,6 +165,7 @@ public static class RouterOptionsParser
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
@@ -205,6 +207,7 @@ public static class RouterOptionsParser
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
         };
     }
 }

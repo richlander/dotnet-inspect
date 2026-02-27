@@ -15,14 +15,14 @@ public static class SelectResolver
     /// <summary>
     /// Returns true if any projection flag is in discovery mode (bare, no value).
     /// </summary>
-    public static bool IsDiscovery(string[]? select, string[]? columns)
-        => select is { Length: 0 } || columns is { Length: 0 };
+    public static bool IsDiscovery(string[]? select, string[]? columns, string[]? fields = null)
+        => select is { Length: 0 } || columns is { Length: 0 } || fields is { Length: 0 };
 
     /// <summary>
     /// Runs discovery for the given schema and section names.
     /// Scoped: if --select has a value, discovery is scoped to that section's schema.
     /// </summary>
-    public static void Discover(string[]? select, string[]? columns,
+    public static void Discover(string[]? select, string[]? columns, string[]? fields,
         string[]? sectionNames, params MarkoutSchemaInfo?[] schemas)
     {
         // Bare --select: list sections + root fields
@@ -49,6 +49,19 @@ public static class SelectResolver
                 if (schema == null) continue;
                 foreach (var n in schema.GetColumnNames())
                     entries.Add((n, "column"));
+            }
+            WriteDiscoveryLines(entries);
+            return;
+        }
+
+        // Bare --fields: list fields from schema
+        if (fields is { Length: 0 })
+        {
+            var entries = new List<(string, string)>();
+            foreach (var schema in schemas)
+            {
+                if (schema == null) continue;
+                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
             }
             WriteDiscoveryLines(entries);
             return;

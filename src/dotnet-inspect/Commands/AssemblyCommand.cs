@@ -28,10 +28,10 @@ public class AssemblyCommand
         options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
 
         // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns))
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
-            SelectResolver.Discover(options.Select, options.Columns,
+            SelectResolver.Discover(options.Select, options.Columns, options.Fields,
                 SectionRegistry.LibrarySections, schema);
             return 0;
         }

@@ -23,11 +23,11 @@ public class ImplementsCommand
 
         try
         {
-            // Discovery mode: bare --columns lists available column names
-            if (options.Columns is { Length: 0 })
+            // Discovery mode: bare --columns/--fields lists available names
+            if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
             {
                 var schema = new MarkoutContext().GetSchemaInfo<ImplementsResultView>();
-                SelectResolver.Discover(null, options.Columns, null, schema);
+                SelectResolver.Discover(null, options.Columns, options.Fields, null, schema);
                 return 0;
             }
 
@@ -79,7 +79,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns);
+                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns, options.Fields);
             }
 
             return 0;
@@ -132,7 +132,7 @@ public class ImplementsCommand
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns, string[]? fields)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
@@ -140,7 +140,7 @@ public class ImplementsCommand
         {
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(null, columns)
+                Projection = OutputFormatter.BuildProjection(null, columns, fields)
             };
             new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), writerOpts);
         }

@@ -52,7 +52,7 @@ public static class MemberOptionsParser
     /// <summary>
     /// Indicates projection discovery (--select or --columns bare).
     /// </summary>
-    public record Discovery(string[]? Select, string[]? Columns) : MemberParseResult;
+    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : MemberParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -95,7 +95,7 @@ public static class MemberOptionsParser
             if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
                 return new ListSections();
             if (opts.IsDiscoveryMode(parseResult))
-                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult));
+                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
             return new ShowHelp();
         }
 
@@ -172,6 +172,7 @@ public static class MemberOptionsParser
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

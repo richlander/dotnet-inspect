@@ -22,11 +22,11 @@ public class FindCommand
 
         try
         {
-            // Discovery mode: bare --columns lists available column names
-            if (options.Columns is { Length: 0 })
+            // Discovery mode: bare --columns/--fields lists available names
+            if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
             {
                 var schema = new MarkoutContext().GetSchemaInfo<FindResultView>();
-                SelectResolver.Discover(null, options.Columns, null, schema);
+                SelectResolver.Discover(null, options.Columns, options.Fields, null, schema);
                 return 0;
             }
 
@@ -80,7 +80,7 @@ public class FindCommand
         {
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(null, options.Columns)
+                Projection = OutputFormatter.BuildProjection(null, options.Columns, options.Fields)
             };
             new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
         }

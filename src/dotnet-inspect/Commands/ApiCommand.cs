@@ -77,12 +77,12 @@ public class ApiCommand
         }
 
         // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns))
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
         {
             var context2 = new MarkoutContext();
             var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
             var memberSchema = context2.GetSchemaInfo<TypeView>();
-            SelectResolver.Discover(options.Select, options.Columns,
+            SelectResolver.Discover(options.Select, options.Columns, options.Fields,
                 allApiSections, typeSchema, memberSchema);
             return (null!, 0);
         }
@@ -401,7 +401,7 @@ public class ApiCommand
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
+                Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
             };
             new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
         }
@@ -593,7 +593,7 @@ public class ApiCommand
             var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(options.Select, options.Columns)
+                Projection = OutputFormatter.BuildProjection(options.Select, options.Columns, options.Fields)
             };
             new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
         }

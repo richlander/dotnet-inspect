@@ -88,6 +88,11 @@ public record FindOptions : IAssemblySourceOptions
     public string[]? Columns { get; init; }
 
     /// <summary>
+    /// Field projection (include only named fields).
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

@@ -33,6 +33,7 @@ public class SharedOptions
     // Projection options
     public Option<string?> Select { get; }
     public Option<string?> Columns { get; }
+    public Option<string?> Fields { get; }
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -78,6 +79,12 @@ public class SharedOptions
             Description = "Filter columns by name (comma-separated). Use --columns alone to discover.",
             Arity = ArgumentArity.ZeroOrOne
         };
+
+        Fields = new Option<string?>("--fields")
+        {
+            Description = "Filter fields by name (comma-separated). Use --fields alone to discover.",
+            Arity = ArgumentArity.ZeroOrOne
+        };
     }
 
     /// <summary>
@@ -108,6 +115,7 @@ public class SharedOptions
         command.Options.Add(ExcludeSections);
         command.Options.Add(Select);
         command.Options.Add(Columns);
+        command.Options.Add(Fields);
     }
 
     /// <summary>
@@ -218,12 +226,20 @@ public class SharedOptions
         => ParseProjectionList(parseResult, Columns);
 
     /// <summary>
+    /// Parses fields list from parse result.
+    /// Returns null if not specified, empty array for bare --fields (discovery), or populated array.
+    /// </summary>
+    public string[]? ParseFields(ParseResult parseResult)
+        => ParseProjectionList(parseResult, Fields);
+
+    /// <summary>
     /// Returns true if any projection flag is bare (discovery mode).
     /// </summary>
     public bool IsDiscoveryMode(ParseResult parseResult)
     {
         return ParseSelect(parseResult) is { Length: 0 }
-            || ParseColumns(parseResult) is { Length: 0 };
+            || ParseColumns(parseResult) is { Length: 0 }
+            || ParseFields(parseResult) is { Length: 0 };
     }
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)

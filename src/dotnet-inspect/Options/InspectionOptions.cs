@@ -144,6 +144,11 @@ public record InspectionOptions
     public string[]? Columns { get; init; }
 
     /// <summary>
+    /// Field names to include. Null means all.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
