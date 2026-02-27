@@ -32,7 +32,6 @@ public static class MemberCommand
         if (error.HasValue) return error.Value;
 
         options = (MemberOptions)preamble.Options;
-        var discoverSections = preamble.DiscoverSections;
         var memberPipeline = preamble.MemberPipeline;
 
         // Shared source resolution
@@ -243,11 +242,6 @@ public static class MemberCommand
                     effectiveOptions = effectiveOptions with { MethodSource = methodSource };
             }
 
-            if (discoverSections)
-            {
-                memberPipeline.ListEffectiveSections(apiType);
-                return 0;
-            }
 
             ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
 

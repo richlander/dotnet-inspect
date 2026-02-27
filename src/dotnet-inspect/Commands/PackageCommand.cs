@@ -26,18 +26,11 @@ public class PackageCommand
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
 
-        // Validate section filters
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            sectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
+        // Validate exclude section filters
+        var (_, resolvedExclude) = SectionRegistry.ResolveFilters(
+            sectionNames, null, options.ExcludeSections, out var sectionError);
         if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
-
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } && packageArgs.Length < 1)
-        {
-            SectionRegistry.ListSections(sectionNames);
-            return 0;
-        }
+        options = options with { ExcludeSections = resolvedExclude };
 
         // Discovery mode: any bare projection flag lists available names
         if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
@@ -47,15 +40,12 @@ public class PackageCommand
             return 0;
         }
 
-        // --select with values: resolve as section filter for backpressure
+        // -S/--select with values: resolve as section filter for backpressure (supports wildcards)
         var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
 
-        // Bare -s with input: discover which sections have data (set flag for later)
-        bool discoverSections = options.IncludeSections is { Count: 0 };
-
-        // Auto-promote verbosity when -s targets specific sections
+        // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
             var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -244,13 +234,6 @@ public class PackageCommand
 
             // Filter output based on options
             FilterResultForOutput(result, options);
-
-            // Bare -s with input: list sections that have content and exit
-            if (discoverSections)
-            {
-                pipeline.ListEffectiveSections(result);
-                return 0;
-            }
 
             // Output results
             if (options.OneLine)

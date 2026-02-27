@@ -50,31 +50,20 @@ public class ApiCommand
 
     internal record PreambleResult(
         ApiOptions Options,
-        bool DiscoverSections,
         SectionPipeline<ApiSurface> TypePipeline,
         SectionPipeline<ApiType> MemberPipeline);
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
-        // Validate section filters against all known api sections
+        // Validate exclude section filters against all known api sections
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            allApiSections, options.IncludeSections, options.ExcludeSections, out var sectionError);
+        var (_, resolvedExclude) = SectionRegistry.ResolveFilters(
+            allApiSections, null, options.ExcludeSections, out var sectionError);
         if (sectionError)
             return (null!, 1);
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
-
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.AssemblyPath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            SectionRegistry.ListSections(allApiSections);
-            return (null!, 0);
-        }
+        options = options with { ExcludeSections = resolvedExclude };
 
         // Discovery mode: any bare projection flag lists available names
         if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
@@ -87,15 +76,12 @@ public class ApiCommand
             return (null!, 0);
         }
 
-        // --select with values: resolve as section filter for backpressure
+        // -S/--select with values: resolve as section filter for backpressure (supports wildcards)
         var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
 
-        // Bare -s with input: discover which sections have data (set flag for later)
-        bool discoverSections = options.IncludeSections is { Count: 0 };
-
-        // Auto-promote verbosity when -s targets specific sections
+        // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
             var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -106,10 +92,9 @@ public class ApiCommand
         }
 
         // Warn if --oneline combined with detailed verbosity without section selector
-        if (!discoverSections)
-            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+        OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
-        return (new PreambleResult(options, discoverSections, typePipeline, memberPipeline), null);
+        return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }
 
     // ===== Shared Source Resolution =====

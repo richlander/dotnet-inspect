@@ -82,11 +82,9 @@ public static class TypeOptionsParser
         bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
-        // Handle section listing, projection discovery, or help
+        // Handle projection discovery or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
-            if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                return new ListSections();
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
             return new ShowHelp();
@@ -138,7 +136,6 @@ public static class TypeOptionsParser
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),

@@ -109,10 +109,6 @@ public static class ApiCommandDefinitions
 
             switch (result)
             {
-                case TypeOptionsParser.ListSections:
-                    SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
-                    return 0;
-
                 case TypeOptionsParser.Discovery d:
                     var typeSchema = new MarkoutContext().GetSchemaInfo<CliApiSurface>();
                     SelectResolver.Discover(d.Select, d.Columns, d.Fields,
@@ -223,10 +219,6 @@ public static class ApiCommandDefinitions
 
             switch (result)
             {
-                case MemberOptionsParser.ListSections:
-                    SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
-                    return 0;
-
                 case MemberOptionsParser.Discovery d:
                     var memberSchema = new MarkoutContext().GetSchemaInfo<TypeView>();
                     SelectResolver.Discover(d.Select, d.Columns, d.Fields,

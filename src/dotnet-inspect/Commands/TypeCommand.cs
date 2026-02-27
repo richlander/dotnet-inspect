@@ -28,7 +28,6 @@ public static class TypeCommand
         if (error.HasValue) return error.Value;
 
         options = (TypeOptions)preamble.Options;
-        var discoverSections = preamble.DiscoverSections;
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
 
@@ -95,11 +94,6 @@ public static class TypeCommand
                     }
                 }
 
-                if (discoverSections)
-                {
-                    typePipeline.ListEffectiveSections(api);
-                    return 0;
-                }
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
 
@@ -209,11 +203,6 @@ public static class TypeCommand
                         }
                     }
 
-                    if (discoverSections)
-                    {
-                        memberPipeline.ListEffectiveSections(apiType);
-                        return 0;
-                    }
 
                     ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
 
@@ -279,11 +268,6 @@ public static class TypeCommand
                             TypeFilter = typeName,
                             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
                         };
-                        if (discoverSections)
-                        {
-                            typePipeline.ListEffectiveSections(api);
-                            return 0;
-                        }
 
                         ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
                     }

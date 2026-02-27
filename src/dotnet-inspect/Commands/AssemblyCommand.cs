@@ -22,10 +22,11 @@ public class AssemblyCommand
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
         // Validate section filters
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            pipeline.AllSectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
+        // Validate exclude section filters
+        var (_, resolvedExclude) = SectionRegistry.ResolveFilters(
+            pipeline.AllSectionNames, null, options.ExcludeSections, out var sectionError);
         if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
+        options = options with { ExcludeSections = resolvedExclude };
 
         // Discovery mode: any bare projection flag lists available names
         if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
@@ -36,42 +37,26 @@ public class AssemblyCommand
             return 0;
         }
 
-        // --select with values: resolve as section filter for backpressure
+        // -S/--select with values: resolve as section filter for backpressure (supports wildcards)
         var selectSections = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
         if (selectSections != null)
             options = options with { IncludeSections = selectSections };
 
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } &&
-            string.IsNullOrEmpty(assemblyPath) &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            SectionRegistry.ListSections(pipeline.AllSectionNames);
-            return 0;
-        }
-
-        // Bare -s with input: discover which sections have data.
-        // Presence flags are populated cheaply during initial metadata load,
-        // so we don't need to promote verbosity or run scanners.
-        bool discoverSections = options.IncludeSections is { Count: 0 };
-
         // --source-link-audit at non-detailed verbosity: implicitly select audit section
-        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed && !discoverSections)
+        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed)
         {
             HashSet<string> sections = options.IncludeSections != null ? [.. options.IncludeSections] : [];
             sections.Add("Source Link Audit");
             options = options with { IncludeSections = sections };
         }
 
-        // -s targeting specific sections: promote verbosity to ensure data collection
+        // -S targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
         // Warn if --oneline combined with detailed verbosity without section selector
-        if (!discoverSections)
-            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+        OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
 #if DEBUG
         // Detailed verbosity legitimately needs network for PDB/SourceLink
@@ -134,11 +119,6 @@ public class AssemblyCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspection);
-                    return 0;
-                }
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
@@ -178,11 +158,6 @@ public class AssemblyCommand
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspections[0]);
-                    return 0;
-                }
 
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -212,11 +187,6 @@ public class AssemblyCommand
 
                 inspection.Source = SourceKind.File;
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspection);
-                    return 0;
-                }
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);

@@ -54,7 +54,7 @@ public static class RouterOptionsParser
     /// <param name="OriginalArg">Original package argument (e.g., "System.CommandLine@2.0.2") preserved for fallback
     /// to package command. Platform candidates like "System.CommandLine" are tried as platform libraries first,
     /// but if resolution fails they fall through to NuGet package inspection and need the version preserved.</param>
-    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, HashSet<string>? IncludeSections, bool OneLine, bool NoHeader) : RouterParseResult;
+    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, bool OneLine, bool NoHeader) : RouterParseResult;
 
     /// <summary>
     /// Handle --version query with cache check first.
@@ -107,7 +107,6 @@ public static class RouterOptionsParser
                     OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
-                    IncludeSections = opts.ParseIncludeSections(parseResult),
                     ExcludeSections = opts.ParseExcludeSections(parseResult),
                     Select = opts.ParseSelect(parseResult),
                     Columns = opts.ParseColumns(parseResult),
@@ -132,7 +131,6 @@ public static class RouterOptionsParser
         bool isVersionQuery = showVersion || showLatestVersion || showVersions;
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var includeSections = opts.ParseIncludeSections(parseResult);
 
         // Platform candidate check (skip for version queries)
         // Note: Qualified type names (e.g., System.Text.Json.JsonSerializer) are also platform candidates
@@ -142,7 +140,7 @@ public static class RouterOptionsParser
         {
             var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
             var noHeader = parseResult.GetValue(args.NoHeaderOption);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections, assemblyOptions.OneLine, noHeader);
+            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
         }
 
         // --version query
@@ -161,7 +159,6 @@ public static class RouterOptionsParser
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
-            IncludeSections = includeSections,
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
@@ -170,7 +167,7 @@ public static class RouterOptionsParser
             ForceLatest = forceLatest || showLatestVersion
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
@@ -203,7 +200,6 @@ public static class RouterOptionsParser
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),

@@ -68,8 +68,9 @@ public static class SelectResolver
     }
 
     /// <summary>
-    /// Resolves --select values as section names for backpressure.
+    /// Resolves -S/--select values as section names for backpressure.
     /// Returns a HashSet of matched section names (case-insensitive).
+    /// Supports wildcard patterns (e.g., "Lib*", "Source*").
     /// Unmatched values are silently ignored (they may be field/column names for projection).
     /// </summary>
     public static HashSet<string>? ResolveSelectAsSections(string[]? select, string[] knownSections)
@@ -80,13 +81,62 @@ public static class SelectResolver
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in select)
         {
-            // Section names win: if a --select value matches a known section, it's a section filter
-            var match = knownSections.FirstOrDefault(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-                matched.Add(match);
+            if (value.Contains('*') || value.Contains('?'))
+            {
+                // Wildcard match against known sections
+                foreach (var section in knownSections)
+                {
+                    if (WildcardMatch(section, value))
+                        matched.Add(section);
+                }
+            }
+            else
+            {
+                var match = knownSections.FirstOrDefault(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    matched.Add(match);
+            }
         }
 
         return matched.Count > 0 ? matched : null;
+    }
+
+    /// <summary>
+    /// Simple case-insensitive wildcard match supporting * and ?.
+    /// </summary>
+    private static bool WildcardMatch(string input, string pattern)
+    {
+        int i = 0, p = 0, starI = -1, starP = -1;
+        var inputLower = input.ToLowerInvariant();
+        var patternLower = pattern.ToLowerInvariant();
+
+        while (i < inputLower.Length)
+        {
+            if (p < patternLower.Length && (patternLower[p] == '?' || patternLower[p] == inputLower[i]))
+            {
+                i++;
+                p++;
+            }
+            else if (p < patternLower.Length && patternLower[p] == '*')
+            {
+                starI = i;
+                starP = p++;
+            }
+            else if (starP >= 0)
+            {
+                i = ++starI;
+                p = starP + 1;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        while (p < patternLower.Length && patternLower[p] == '*')
+            p++;
+
+        return p == patternLower.Length;
     }
 
     /// <summary>

@@ -62,17 +62,6 @@ public static class OptionParsers
         return sections.Count > 0 ? sections : null;
     }
 
-    /// <summary>
-    /// Parses -s option, distinguishing "not specified" (null) from bare "-s" (empty set).
-    /// </summary>
-    public static HashSet<string>? ParseIncludeSections(ParseResult parseResult, Option<string?> option)
-    {
-        var sections = ParseSectionList(parseResult.GetValue(option));
-        // Bare -s with no value: return empty set (signals "list sections")
-        if (sections == null && parseResult.GetResult(option) != null)
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return sections;
-    }
 
     /// <summary>
     /// Creates NuGetSourceOptions from parsed command line values.
