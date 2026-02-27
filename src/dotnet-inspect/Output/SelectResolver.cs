@@ -1,6 +1,5 @@
 namespace DotnetInspector.Output;
 
-using System.Diagnostics;
 using Markout;
 
 /// <summary>
@@ -92,16 +91,13 @@ public static class SelectResolver
 
     /// <summary>
     /// Writes discovery lines (name + kind) with consistent padding.
-    /// Debug-asserts if any name overflows into the kind column.
     /// </summary>
     public static void WriteDiscoveryLines(IEnumerable<(string Name, string Kind)> entries)
     {
         var items = entries.ToList();
-        var overflow = items.Where(e => e.Name.Length >= DiscoveryPadding).ToList();
-        Debug.Assert(overflow.Count == 0,
-            $"Discovery name(s) overflow {DiscoveryPadding}-char column: {string.Join(", ", overflow.Select(e => $"'{e.Name}' ({e.Name.Length})"))}");
+        var padding = Math.Max(DiscoveryPadding, items.Max(e => e.Name.Length) + 2);
 
         foreach (var (name, kind) in items)
-            Console.WriteLine($"{name,-24} {kind}");
+            Console.WriteLine($"{name.PadRight(padding)} {kind}");
     }
 }
