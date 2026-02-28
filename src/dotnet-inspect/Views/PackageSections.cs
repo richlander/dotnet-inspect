@@ -6,6 +6,7 @@ namespace DotnetInspector.Views;
 /// </summary>
 public static class PackageSections
 {
+    public const string Summary = "Summary";
     public const string Package = "Package";
     public const string Statistics = "Statistics";
     public const string PackageDependencies = "Package Dependencies";

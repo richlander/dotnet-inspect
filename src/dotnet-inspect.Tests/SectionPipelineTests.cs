@@ -521,7 +521,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(7, pipeline.AllSectionNames.Length);
+        Assert.Equal(8, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -530,6 +530,7 @@ public class SectionPipelineTests
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var names = pipeline.AllSectionNames;
 
+        Assert.Contains("Summary", names);
         Assert.Contains("Package", names);
         Assert.Contains("Statistics", names);
         Assert.Contains("Package Dependencies", names);
@@ -540,14 +541,15 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Quiet_NoSections()
+    public void PackagePipeline_Quiet_OnlySummary()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Quiet);
 
-        Assert.Empty(effective);
+        Assert.Single(effective);
+        Assert.Equal("Summary", effective[0]);
     }
 
     [Fact]

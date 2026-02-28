@@ -29,7 +29,7 @@ public class InspectionResultView
 
     // ===== Field Collections for Serializer =====
 
-    [MarkoutIgnoreInTable]
+    [MarkoutSection(Name = PackageSections.Summary, Headless = true)]
     public List<MarkoutField> Summary => GetCompactFields();
 
     [MarkoutSection(Name = PackageSections.Package)]

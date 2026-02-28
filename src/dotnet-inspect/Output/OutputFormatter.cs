@@ -57,21 +57,21 @@ public static class OutputFormatter
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult>? pipeline)
     {
-        return pipeline != null
-            ? new MarkoutWriterOptions
-            {
-                IncludeSections = pipeline.ComputeIncludeSections(
-                    result, options.Verbosity, options.IncludeSections, options.ExcludeSections),
-                IncludeDescription = options.Verbosity != Verbosity.Quiet,
-                Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields)
-            }
-            : new MarkoutWriterOptions
-            {
-                IncludeSections = options.IncludeSections,
-                ExcludeSections = GetExcludeSections(options),
-                IncludeDescription = options.Verbosity != Verbosity.Quiet,
-                Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields)
-            };
+        HashSet<string>? includeSections = null;
+
+        if (pipeline != null)
+        {
+            includeSections = pipeline.ComputeIncludeSections(
+                result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        }
+
+        return new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections,
+            ExcludeSections = includeSections == null ? GetExcludeSections(options) : null,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet,
+            Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields)
+        };
     }
 
     private static HashSet<string>? GetExcludeSections(InspectionOptions options)

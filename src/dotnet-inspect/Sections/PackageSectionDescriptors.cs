@@ -15,6 +15,7 @@ public static class PackageSectionDescriptors
     public static SectionPipeline<InspectionResult> CreatePipeline()
     {
         return new SectionPipeline<InspectionResult>()
+            .Add<Summary>()
             .Add<PackageInfo>()
             .Add<Statistics>()
             .Add<PackageDependencies>()
@@ -22,6 +23,16 @@ public static class PackageSectionDescriptors
             .Add<RidPackages>()
             .Add<RuntimeDependencies>()
             .Add<Files>();
+    }
+
+    // ===== Always-on sections (Quiet verbosity) =====
+
+    public sealed class Summary : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.Summary;
+        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model) => true;
     }
 
     // ===== Always-on sections (Minimal verbosity) =====

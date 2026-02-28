@@ -313,10 +313,7 @@ public class OutputFormatterTests
         var view = new InspectionResultView(result);
         var context = new MarkoutContext(new MarkoutWriterOptions
         {
-            ExcludeSections = [PackageSections.Package, PackageSections.Statistics,
-                PackageSections.PackageDependencies, PackageSections.Files,
-                PackageSections.Vulnerabilities, PackageSections.RidPackages,
-                PackageSections.RuntimeDependencies],
+            IncludeSections = [PackageSections.Summary],
             IncludeDescription = false
         });
         var output = context.Serialize(view).TrimEnd();
