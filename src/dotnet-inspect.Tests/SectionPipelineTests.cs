@@ -603,7 +603,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsStatisticsWhenPresent()
+    public void PackagePipeline_Detailed_ShowsStatisticsWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -613,16 +613,21 @@ public class SectionPipelineTests
             TotalDownloads = 1000
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Statistics", effective);
     }
 
     [Fact]
-    public void PackagePipeline_Normal_HidesStatisticsWhenNull()
+    public void PackagePipeline_Normal_HidesStatistics()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TotalDownloads = 1000
+        };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 

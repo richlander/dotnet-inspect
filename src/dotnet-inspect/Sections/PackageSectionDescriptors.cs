@@ -54,15 +54,6 @@ public static class PackageSectionDescriptors
 
     // ===== Normal verbosity sections =====
 
-    public sealed class Statistics : ISectionDescriptor<InspectionResult>
-    {
-        public static string Name => PackageSections.Statistics;
-        public static Verbosity MinVerbosity => Verbosity.Normal;
-        public static string? ScannerKey => null;
-        public static bool CanRender(InspectionResult model)
-            => model.TotalDownloads != null;
-    }
-
     public sealed class PackageDependencies : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.PackageDependencies;
@@ -73,6 +64,15 @@ public static class PackageSectionDescriptors
     }
 
     // ===== Detailed verbosity sections =====
+
+    public sealed class Statistics : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.Statistics;
+        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.TotalDownloads != null;
+    }
 
     public sealed class Vulnerabilities : ISectionDescriptor<InspectionResult>
     {
