@@ -2,10 +2,11 @@
 
 ## Summary
 
-dotnet-inspect can adopt streaming output today with minimal changes.
-The byte-level zero-allocation model (IUtf8StreamingTableFormatter) is not
-a natural fit because dotnet-inspect's data originates as managed strings
-from metadata readers and XML/JSON parsers — not from raw byte streams.
+dotnet-inspect has two distinct data pipelines with different streaming
+profiles. Assembly metadata originates as managed strings and fits the
+string-streaming model. NuGet service data arrives as JSON over HTTP —
+the same pattern where byte-streaming proved effective in the Markout
+SdkDownloads prototype.
 
 ## Current Architecture
 
@@ -16,9 +17,44 @@ Command → Inspector → InspectionResult (model) → View (LINQ transforms) �
 Every step materializes fully before the next begins. `Serialize()` returns
 a `string` containing the entire markdown document.
 
-## What Streaming Means Here
+## Data Pipeline Analysis
 
-There are three levels of streaming, each progressively harder:
+dotnet-inspect has two fundamentally different data sources:
+
+### Pipeline A: Assembly Metadata (strings are natural)
+
+- `MetadataReader` returns `string` for type names, method signatures
+- NuSpec is XML parsed via `XDocument` into strings
+- View transforms compute display strings (type signatures, version ranges)
+- Source generator emits `WriteTableRow(ReadOnlySpan<string>)`
+
+This pipeline's data originates as managed strings. Byte-streaming would
+require encoding at the boundary, negating the zero-alloc benefit.
+
+### Pipeline B: NuGet Service Data (bytes from the network)
+
+Several paths fetch JSON over HTTP and iterate the results into table rows:
+
+| Path | API | Pattern | Streaming Fit |
+| --- | --- | --- | --- |
+| **Vulnerability scan** | NuGet vuln index → pages | Paginated JSON, entry-by-entry iteration | Strong |
+| **Search results** | NuGet search API | JSON array → table rows | Strong |
+| **Version listing** | Flat-container index.json | JSON versions array → list | Moderate |
+| **deps.json** | Local file | `File.ReadAllText` → `JsonDocument` | Moderate |
+| **Package metadata** | Registration + search APIs | Multi-endpoint aggregation | Weak |
+
+Today all of these use `GetStringAsync → JsonDocument.Parse`, which
+materializes the entire HTTP response as a managed string, then allocates
+a DOM tree. This is the same pattern the SdkDownloads prototype replaced
+with `GetStreamAsync → Utf8JsonReader → ValueSpan`.
+
+**Vulnerability scanning is the strongest candidate.** It fetches multiple
+JSON pages sequentially, iterates entries one at a time, checks version
+ranges, and accumulates matching results into a list. This could instead
+stream each match directly through Markout as a table row — no `List<T>`
+accumulation, no `JsonDocument` tree, no `GetString()` per field.
+
+## Streaming Levels
 
 ### Level 1: String-Streaming Output (Easy — works today)
 
@@ -35,6 +71,8 @@ by `MarkdownFormatter`) enables this path automatically.
 packages). Output begins appearing as soon as the first section is ready.
 
 **Effort:** A few lines in `OutputFormatter.cs`. No model or view changes.
+
+**Applies to:** Both pipelines.
 
 ### Level 2: Incremental Section Output (Moderate)
 
@@ -59,40 +97,58 @@ most for `--verbosity detailed` where metadata fetching adds seconds.
 The `Downloader<T>` already yields results in completion order, so library
 inspection sections could stream as each assembly finishes.
 
-### Level 3: Byte-Streaming (IUtf8StreamingTableFormatter) (Not Recommended)
+**Applies to:** Both pipelines.
 
-**Why it doesn't fit:**
+### Level 3: Byte-Streaming NuGet Service Data (Targeted)
 
-1. **Data originates as strings.** Assembly metadata comes from
-   `MetadataReader` which returns `string`. NuSpec is XML (string).
-   Package metadata is JSON deserialized to `string`. There is no raw
-   byte pipeline to preserve.
+**Change:** For Pipeline B paths, replace:
 
-2. **View transforms create strings.** Type signatures, method names,
-   version ranges — all computed as `string` in the view layer. Converting
-   to UTF-8 bytes would require encoding at the boundary, negating the
-   zero-alloc benefit.
+```text
+GetStringAsync → JsonDocument.Parse → iterate → GetString() per field → List<T> → Serialize
+```
 
-3. **Source generator emits string calls.** The generated serializer calls
-   `WriteTableRow(ReadOnlySpan<string>)`. A parallel byte-based code
-   generation path would be a major undertaking for no practical gain here.
+With:
 
-4. **Volume doesn't justify it.** The largest dotnet-inspect output is
-   perhaps 200KB of markdown (a deeply inspected large package). The
-   SdkDownloads demo processes megabytes of JSON per section. The
-   allocation pressure is qualitatively different.
+```text
+GetStreamAsync → Utf8JsonReader → ValueSpan (zero-alloc) → Markout WriteUtf8 → Stream
+```
 
-The byte-streaming model excels when data arrives as UTF-8 bytes (JSON
-from HTTP, binary protocols) and output goes to a byte stream — a
-network-to-network or network-to-file pipeline. dotnet-inspect is a
-metadata-to-terminal tool where strings are the natural representation.
+This is the same transformation proven in the SdkDownloads prototype.
+
+**Best candidates:**
+
+1. **Vulnerability scanning** (`PackageMetadataService.cs` lines 263–328):
+   Fetches a vulnerability index, then iterates multiple JSON pages.
+   Each vulnerability entry that matches the package version becomes a
+   table row. Today accumulates into `List<PackageVulnerability>`. Could
+   instead stream each match through `IUtf8StreamingTableFormatter` as
+   it's found — no list, no DOM, no strings for advisory URLs/IDs.
+
+2. **Search results** (`PackageSearchOutputFormatter.cs`): JSON array from
+   search API, each result rendered as a table row. The formatter already
+   iterates results one at a time — converting to `Utf8JsonReader` +
+   byte-based Markout would eliminate string allocation for package IDs,
+   versions, and descriptions.
+
+3. **deps.json** (`DepsJsonParser.cs`): Currently `File.ReadAllText` +
+   `JsonDocument.Parse`. Could use `FileStream` + `Utf8JsonReader` to
+   avoid materializing the entire file as a string.
+
+**Does not apply to:** Assembly metadata (Pipeline A), NuSpec XML parsing,
+or package metadata aggregation (requires random access across multiple
+API responses).
+
+**Effort:** Per-path conversion similar to SdkDownloads. Each path needs
+its own `Utf8JsonReader` state machine. The Markout byte API
+(`IUtf8StreamingTableFormatter`) is already available.
 
 ## Recommendation
 
-Adopt **Level 1** immediately — it's a one-line change in
-`OutputFormatter.cs` that eliminates the output string allocation. Consider
-**Level 2** if users report slow time-to-first-output on large packages.
-Skip **Level 3**.
+1. **Level 1 now** — one-line change, benefits everything.
+2. **Level 3 for vulnerability scanning** — strongest ROI. Vulnerability
+   pages can be large, the iteration pattern is a direct match for
+   `Utf8JsonReader`, and the output is a simple table.
+3. **Level 2 as needed** — if users report slow time-to-first-output.
 
 ## Reference
 
@@ -106,6 +162,7 @@ with two comparison demos:
 | Total alloc | 540 KB | 432 KB |
 | Wall-clock time | ~0.9 s | ~0.9 s |
 
-The byte path achieves zero per-row allocation but wall-clock time is
-identical because network I/O dominates. The same dynamic applies to
-dotnet-inspect — rendering is not the bottleneck.
+The byte path achieves zero per-row allocation. Wall-clock time is
+identical at this scale because network I/O dominates, but the allocation
+reduction matters for GC pressure in longer-running or higher-throughput
+scenarios.
