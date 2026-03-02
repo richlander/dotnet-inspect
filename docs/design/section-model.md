@@ -386,3 +386,5 @@ Same data, different rendering. The formatter is orthogonal to the query.
 | dotnet-inspect | `--columns`/`--fields` | `--oneline/--markdown/--json` | `-S` sections | **Yes** |
 
 The pattern most tools share is flat column projection. Our model's differentiator is hierarchical scoping — sections first, then columns/fields within them. `-S Package --columns Version,TFM` is a two-level projection that none of these tools express natively. It's closer to a GraphQL "pick your subtree" model than a traditional CLI column selector.
+
+There's a deeper philosophical split, too. Most of these tools use `-o` — "output" — to mean "restyle what you already computed." It's a last-mile formatting knob. Our `-S` is different. It's not restyling output; it's defining what work the system does. When you select a section, the unselected sections never run — no network calls, no decompilation, no computation. **Scoping the system, not styling the surface.** That's the backpressure idea expressed as a single design choice: the selection flag is a query operator, not a format directive.
