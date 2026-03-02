@@ -330,3 +330,59 @@ Docker's approach differs in that projection requires Go template syntax rather 
 | Docker | `docker images --format "table {{.Repository}}\t{{.Size}}"` |
 
 ZFS and dotnet-inspect use the simpler comma-separated name list. Docker's Go template approach is more powerful (supports conditionals, formatting functions, padding) but harder to type and remember. The name-based approach covers the common case — selecting which columns appear — without requiring template syntax. Docker's JSONL output (`{{json .}}`) is also worth noting; dotnet-inspect uses the same pattern for `--json` on commands that produce rows.
+
+### kubectl
+
+kubectl's `custom-columns` output is the closest analog to our model:
+
+```bash
+$ kubectl get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase
+```
+
+It also has `--field-selector` for server-side filtering — the API server skips work for fields you don't request, which parallels our section-scoped backpressure. The difference is that kubectl's field paths address a JSON tree (`.metadata.name`), while our model uses named sections and columns as the addressing layer. kubectl also supports jsonpath and Go templates for power users.
+
+### GitHub CLI
+
+`gh` combines field selection with output format in a single `--json` flag:
+
+```bash
+$ gh pr list --json number,title,author
+```
+
+This is simpler surface area — one flag does both "output JSON" and "select these fields." Our model keeps them orthogonal: `--fields` for projection, `--json` for format. The tradeoff is an extra flag vs the ability to project fields in any format, not just JSON.
+
+### PowerShell
+
+PowerShell separates view modeling from data in the same way we do:
+
+```powershell
+Get-Process | Select-Object Name,CPU | Format-Table
+```
+
+This is the pipeline version of our "scope → filter → pick formatter" flow. PowerShell's `.format.ps1xml` files define default views per type — declarative view model registrations, which is what our verbosity presets do in code via `SectionPipeline` descriptors.
+
+### DuckDB
+
+DuckDB's CLI modes map almost 1:1 to our formatter selection:
+
+| DuckDB | dotnet-inspect |
+| ------ | -------------- |
+| `.mode line` | `--oneline` |
+| `.mode markdown` | `--markdown` |
+| `.mode json` | `--json` |
+
+Same data, different rendering. The formatter is orthogonal to the query.
+
+### Summary
+
+| Tool | Projection | Format selection | Backpressure | Hierarchical |
+| ---- | ---------- | ---------------- | ------------ | ------------ |
+| ZFS | `-o name,used` (names) | — | No | No |
+| Docker | `--format` (Go templates) | `--format {{json .}}` | No | No |
+| kubectl | `custom-columns` / jsonpath | `-o json/yaml/wide` | `--field-selector` | jsonpath only |
+| gh | `--json field1,field2` | `--json` (combined) | No | No |
+| PowerShell | `Select-Object` | `Format-Table/List/Wide` | No | No |
+| DuckDB | SQL `SELECT` | `.mode` | SQL `WHERE` | No |
+| dotnet-inspect | `--columns`/`--fields` | `--oneline/--markdown/--json` | `-S` sections | **Yes** |
+
+The pattern most tools share is flat column projection. Our model's differentiator is hierarchical scoping — sections first, then columns/fields within them. `-S Package --columns Version,TFM` is a two-level projection that none of these tools express natively. It's closer to a GraphQL "pick your subtree" model than a traditional CLI column selector.
