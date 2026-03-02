@@ -133,22 +133,4 @@ public class SectionRegistryTests
         Assert.Contains("Library Info", result);
         Assert.False(hasError);
     }
-
-    [Fact]
-    public void LibrarySections_ContainsExpectedSections()
-    {
-        Assert.Contains("Library Info", SectionRegistry.LibrarySections);
-        Assert.Contains("Symbols", SectionRegistry.LibrarySections);
-        Assert.Contains("Extension Methods", SectionRegistry.LibrarySections);
-        Assert.Contains("Custom Attributes", SectionRegistry.LibrarySections);
-        Assert.Contains("Type Forwarders", SectionRegistry.LibrarySections);
-    }
-
-    [Fact]
-    public void PackageCommandSections_ContainsExpectedSections()
-    {
-        Assert.Contains("Package", SectionRegistry.PackageCommandSections);
-        Assert.Contains("Statistics", SectionRegistry.PackageCommandSections);
-        Assert.Contains("Files", SectionRegistry.PackageCommandSections);
-    }
 }

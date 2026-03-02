@@ -33,7 +33,7 @@ public class AssemblyCommand
         {
             var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
             SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields,
-                SectionRegistry.LibrarySections, schema));
+                pipeline.AllSectionNames, schema));
             return 0;
         }
 

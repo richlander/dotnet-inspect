@@ -6,36 +6,6 @@ namespace DotnetInspector.Views;
 /// </summary>
 public static class SectionRegistry
 {
-    /// <summary>Sections available in the library command.</summary>
-    public static readonly string[] LibrarySections =
-    [
-        "Library Info",
-        "Symbols",
-        "Source Coverage",
-        "Library References",
-        "Library References (Transitive)",
-        "Dependencies",
-        "Extension Methods",
-        "Unsafe Methods",
-        "P/Invoke Methods",
-        "Resources",
-        "Custom Attributes",
-        "Type Forwarders",
-        "Non-normalized Paths",
-        "Missing Sources",
-    ];
-
-    /// <summary>Sections available in the package command.</summary>
-    public static readonly string[] PackageCommandSections =
-    [
-        PackageSections.Package,
-        PackageSections.Statistics,
-        PackageSections.PackageDependencies,
-        PackageSections.Files,
-        PackageSections.Vulnerabilities,
-        PackageSections.RidPackages,
-        PackageSections.RuntimeDependencies,
-    ];
 
     /// <summary>Sections available in the api type-list view.</summary>
     public static readonly string[] ApiTypeSections =
