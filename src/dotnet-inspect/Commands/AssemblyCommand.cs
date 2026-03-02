@@ -56,6 +56,16 @@ public class AssemblyCommand
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
+        // Explicit --oneline with multiple sections: error
+        if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
+        {
+            Console.Error.WriteLine($"Error: Selection matches {options.IncludeSections.Count} sections: {string.Join(", ", options.IncludeSections)}.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Oneline format displays one section at a time.");
+            Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
+            return 1;
+        }
+
         // Warn if --oneline combined with detailed verbosity without section selector
         OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
