@@ -261,11 +261,11 @@ public class PackageCommand
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
             if (options.OneLine)
             {
-                // Multi-section check: auto-promote to markdown if format wasn't explicitly requested
+                // Multi-section check: narrow to main section or error if user explicitly selected multiple sections
                 var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
                 if (diagnostic != null)
                 {
-                    if (options.OneLineExplicitlySet)
+                    if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
                     {
                         Console.Error.WriteLine($"Error: Selection matches {diagnostic.Sections.Length} sections: {string.Join(", ", diagnostic.Sections)}.");
                         Console.Error.WriteLine();
@@ -274,12 +274,8 @@ public class PackageCommand
                         return 1;
                     }
 
-                    // Auto-promote to markdown
-                    var output = OutputFormatter.FormatResult(result, options, pipeline);
-                    if (hasProjection)
-                        ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
-                    Console.WriteLine(output);
-                    return 0;
+                    // Narrow to the Package section for oneline
+                    options = options with { IncludeSections = new HashSet<string> { PackageSections.Package } };
                 }
 
                 if (hasProjection)
