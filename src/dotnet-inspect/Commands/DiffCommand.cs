@@ -24,9 +24,9 @@ public class DiffCommand
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
         {
-            var schemaMap = new SectionSchemaMap()
+            var schemaMap = new DocumentSchema()
                 .Add("Changes", "column", "Change", "Type", "Detail");
-            return DiscoverOutput.Execute(options.Discover, ["Changes"], schemaMap,
+            return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: false, markdown: !options.OneLine);
         }
 

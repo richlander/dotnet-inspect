@@ -72,7 +72,7 @@ public class ApiCommand
             var typeSchemaMap = ApiTypeSectionDescriptors.CreateSchemaMap();
             var memberSchemaMap = ApiMemberSectionDescriptors.CreateSchemaMap();
             // Use combined section names for discovery
-            return (null!, DiscoverOutput.Execute(options.Discover, allApiSections, typeSchemaMap,
+            return (null!, DiscoverOutput.Execute(options.Discover, typeSchemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
         }
 

@@ -1,3 +1,4 @@
+using Markout;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 
@@ -21,9 +22,9 @@ public static class ApiTypeSectionDescriptors
     }
 
     /// <summary>Builds the section schema map for type-list discovery (-D).</summary>
-    public static SectionSchemaMap CreateSchemaMap()
+    public static DocumentSchema CreateSchemaMap()
     {
-        return new SectionSchemaMap()
+        return new DocumentSchema()
             .Add("Classes", "column", "Name", "Namespace", "Kind", "Visibility")
             .Add("Structs", "column", "Name", "Namespace", "Kind", "Visibility")
             .Add("Interfaces", "column", "Name", "Namespace", "Kind", "Visibility")
@@ -105,9 +106,9 @@ public static class ApiMemberSectionDescriptors
     }
 
     /// <summary>Builds the section schema map for type-detail discovery (-D).</summary>
-    public static SectionSchemaMap CreateSchemaMap()
+    public static DocumentSchema CreateSchemaMap()
     {
-        return new SectionSchemaMap()
+        return new DocumentSchema()
             .Add("Values", "column", "Name", "Value")
             .Add("Type Parameters", "column", "Name")
             .Add("Interfaces", "column", "Name")

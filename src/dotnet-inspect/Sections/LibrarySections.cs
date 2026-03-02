@@ -1,3 +1,4 @@
+using Markout;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
@@ -41,9 +42,9 @@ public static class LibrarySections
     }
 
     /// <summary>Builds the section schema map for discovery (-D).</summary>
-    public static SectionSchemaMap CreateSchemaMap()
+    public static DocumentSchema CreateSchemaMap()
     {
-        return new SectionSchemaMap()
+        return new DocumentSchema()
             .Add("Library Info", "field",
                 "Name", "Version", "Informational Version", "Assembly Version",
                 "Target Framework", "Architecture", "Compilation", "Product", "Company",

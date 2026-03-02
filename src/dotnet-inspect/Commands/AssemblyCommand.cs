@@ -39,7 +39,7 @@ public class AssemblyCommand
             }
             else
             {
-                return DiscoverOutput.Execute(options.Discover, pipeline.AllSectionNames, schemaMap,
+                return DiscoverOutput.Execute(options.Discover, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
             }
         }

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using Markout;
 
@@ -16,13 +15,13 @@ public static class DiscoverOutput
     /// Runs discovery and writes output.
     /// Bare -D lists sections. -D SectionName lists items within that section.
     /// </summary>
-    public static int Execute(string[]? discover, string[] allSectionNames, SectionSchemaMap schemaMap,
+    public static int Execute(string[]? discover, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false)
     {
         if (tree)
-            return WriteTree(discover, allSectionNames, schemaMap);
+            return WriteTree(discover, schema);
 
-        var rows = GetDiscoveryRows(discover, allSectionNames, schemaMap);
+        var rows = GetDiscoveryRows(discover, schema);
         if (rows == null)
             return 1;
 
@@ -48,31 +47,40 @@ public static class DiscoverOutput
     /// <summary>
     /// Runs discovery with effective filtering (only sections with data).
     /// </summary>
-    public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, SectionSchemaMap schemaMap,
+    public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false)
     {
-        return Execute(discover, effectiveSections.ToArray(), schemaMap, tree, markdown, json);
+        // Build a filtered schema with only effective sections
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
+        {
+            var section = schema.GetSection(name);
+            if (section != null)
+                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
+            else
+                filtered.AddSection(name);
+        }
+        return Execute(discover, filtered, tree, markdown, json);
     }
 
-    private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, string[] allSectionNames, SectionSchemaMap schemaMap)
+    private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema)
     {
         // Bare -D: list sections
         if (discover is null or { Length: 0 })
         {
-            return allSectionNames.Select(n => new DiscoveryRow(n, "section")).ToList();
+            var items = schema.Discover()!;
+            return items.Select(i => new DiscoveryRow(i.Name, i.Kind)).ToList();
         }
 
         // -D SectionName: list items within section
         var rows = new List<DiscoveryRow>();
         foreach (var name in discover)
         {
-            var match = allSectionNames.FirstOrDefault(s =>
-                s.Equals(name, StringComparison.OrdinalIgnoreCase));
-
-            if (match == null)
+            var resolved = schema.ResolveSection(name);
+            if (resolved == null)
             {
                 Console.Error.WriteLine($"Error: Section '{name}' not found.");
-                var suggestions = allSectionNames
+                var suggestions = schema.SectionNames
                     .Where(s => s.StartsWith(name, StringComparison.OrdinalIgnoreCase))
                     .ToList();
                 if (suggestions.Count > 0)
@@ -85,25 +93,25 @@ public static class DiscoverOutput
                 return null;
             }
 
-            var schema = schemaMap.GetSchema(match);
-            if (schema != null)
+            var items = schema.Discover(resolved);
+            if (items != null)
             {
-                foreach (var itemName in schema.ItemNames)
-                    rows.Add(new DiscoveryRow(itemName, schema.ItemKind));
+                foreach (var item in items)
+                    rows.Add(new DiscoveryRow(item.Name, item.Kind));
             }
         }
 
         return rows;
     }
 
-    private static int WriteTree(string[]? discover, string[] allSectionNames, SectionSchemaMap schemaMap)
+    private static int WriteTree(string[]? discover, DocumentSchema schema)
     {
         var nodes = new List<TreeNode>();
 
         if (discover is { Length: > 0 })
         {
             // Specific section: show items as top-level tree
-            var rows = GetDiscoveryRows(discover, allSectionNames, schemaMap);
+            var rows = GetDiscoveryRows(discover, schema);
             if (rows == null) return 1;
             foreach (var row in rows)
                 nodes.Add(new TreeNode($"{row.Name} ({row.Kind})"));
@@ -111,14 +119,14 @@ public static class DiscoverOutput
         else
         {
             // Full tree: sections → items
-            foreach (var sectionName in allSectionNames)
+            foreach (var sectionName in schema.SectionNames)
             {
                 var children = new List<TreeNode>();
-                var schema = schemaMap.GetSchema(sectionName);
-                if (schema != null)
+                var section = schema.GetSection(sectionName);
+                if (section != null)
                 {
-                    foreach (var itemName in schema.ItemNames)
-                        children.Add(new TreeNode($"{itemName} ({schema.ItemKind})"));
+                    foreach (var item in section.Items)
+                        children.Add(new TreeNode($"{item.Name} ({item.Kind})"));
                 }
                 nodes.Add(new TreeNode(sectionName) { Children = children });
             }

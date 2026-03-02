@@ -36,7 +36,7 @@ public class PackageCommand
         if (options.Discover != null && !options.Effective)
         {
             var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
-            return DiscoverOutput.Execute(options.Discover, sectionNames, schemaMap,
+            return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
         }
 

@@ -1,3 +1,4 @@
+using Markout;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Views;
@@ -26,9 +27,10 @@ public static class PackageSectionDescriptors
     }
 
     /// <summary>Builds the section schema map for discovery (-D).</summary>
-    public static SectionSchemaMap CreateSchemaMap()
+    public static DocumentSchema CreateSchemaMap()
     {
-        return new SectionSchemaMap()
+        return new DocumentSchema()
+            .AddSection(PackageSections.Summary)
             .Add(PackageSections.Package, "field",
                 "Version", "Type", "Size", "TFM", "Built", "Published", "Source",
                 "Authors", "Owners", "License", "Repository", "Verified",
