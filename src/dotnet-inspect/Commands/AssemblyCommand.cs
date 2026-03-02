@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -134,6 +135,14 @@ public class AssemblyCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
+                // Check effective sections cache before running full inspection
+                if (effectiveDiscovery)
+                {
+                    var cached = TryGetCachedEffective(resolvedPath!);
+                    if (cached != null)
+                        return RenderEffective(FilterEffective(cached, options), options);
+                }
+
                 var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
@@ -146,7 +155,7 @@ public class AssemblyCommand
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(inspection, options, pipeline);
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
@@ -163,6 +172,14 @@ public class AssemblyCommand
 
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
                 tempDir = extractTempDir;
+
+                // Check effective sections cache before running full inspection
+                if (effectiveDiscovery && assemblyPaths.Count > 0)
+                {
+                    var cached = TryGetCachedEffective(assemblyPaths[0]);
+                    if (cached != null)
+                        return RenderEffective(FilterEffective(cached, options), options);
+                }
 
                 // Verify package signature if nupkg is available
                 SignatureVerificationResult? signatureResult = null;
@@ -187,7 +204,7 @@ public class AssemblyCommand
                     insp.Source = SourceKind.NuGet;
 
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(inspections[0], options, pipeline);
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline);
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -208,6 +225,14 @@ public class AssemblyCommand
                     return 1;
                 }
 
+                // Check effective sections cache before running full inspection
+                if (effectiveDiscovery)
+                {
+                    var cached = TryGetCachedEffective(assemblyPath!);
+                    if (cached != null)
+                        return RenderEffective(FilterEffective(cached, options), options);
+                }
+
                 var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
@@ -218,7 +243,7 @@ public class AssemblyCommand
                 inspection.Source = SourceKind.File;
 
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(inspection, options, pipeline);
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
@@ -247,10 +272,54 @@ public class AssemblyCommand
         }
     }
 
-    private static int WriteEffectiveSections(LibraryInspection inspection, AssemblyOptions options,
-        SectionPipeline<LibraryInspection> pipeline)
+    private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
+        AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline)
     {
-        var effective = pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        // Compute unfiltered effective sections at Detailed verbosity for caching
+        var allEffective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
+        CacheEffective(assemblyPath, allEffective);
+
+        // Apply user filters
+        var effective = FilterEffective(allEffective, options);
+        return RenderEffective(effective, options);
+    }
+
+    // ── Effective sections cache ──
+
+    private const string EffectiveCategory = "effective";
+
+    private static List<string>? TryGetCachedEffective(string assemblyPath)
+    {
+        string key = GetEffectiveCacheKey(assemblyPath);
+        var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "txt");
+        if (cached == null) return null;
+        return cached.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+    }
+
+    private static void CacheEffective(string assemblyPath, List<string> sections)
+    {
+        string key = GetEffectiveCacheKey(assemblyPath);
+        CoreCache.Set(EffectiveCategory, key, string.Join('\n', sections), extension: "txt");
+    }
+
+    private static string GetEffectiveCacheKey(string assemblyPath)
+    {
+        // Include file size for invalidation when local files change
+        var size = new FileInfo(assemblyPath).Length;
+        return $"{assemblyPath}#{size}";
+    }
+
+    private static List<string> FilterEffective(List<string> sections, AssemblyOptions options)
+    {
+        if (options.IncludeSections is { Count: > 0 })
+            sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
+        if (options.ExcludeSections is { Count: > 0 })
+            sections = sections.Where(s => !options.ExcludeSections.Contains(s)).ToList();
+        return sections;
+    }
+
+    private static int RenderEffective(List<string> effective, AssemblyOptions options)
+    {
         var schemaMap = LibrarySections.CreateSchemaMap();
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
             tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
