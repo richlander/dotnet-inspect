@@ -261,9 +261,6 @@ public class DependsCommand
             var view = new PackageDependenciesView
             {
                 Title = $"{packageName} ({version})",
-                Package = packageName,
-                Version = version,
-                Tfm = tfm,
                 Dependencies = ToDependencyTreeNodes(depNodes)
             };
             MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);

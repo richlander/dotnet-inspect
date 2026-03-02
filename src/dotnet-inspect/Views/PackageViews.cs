@@ -19,19 +19,11 @@ public partial class FileTreeContext : MarkoutSerializerContext
 /// <summary>
 /// View model for package dependency tree output (--dependencies).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title))]
+[MarkoutSerializable(TitleProperty = nameof(Title), Layout = DocumentLayout.Tree)]
 public class PackageDependenciesView
 {
     [MarkoutIgnore]
     public string Title { get; set; } = "";
-
-    public string Package { get; set; } = "";
-
-    public string Version { get; set; } = "";
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; set; }
 
     [MarkoutIgnoreInTable]
     public List<TreeNode> Dependencies { get; set; } = [];
