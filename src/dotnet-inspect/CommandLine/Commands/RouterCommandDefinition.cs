@@ -108,7 +108,7 @@ public static class RouterCommandDefinition
 
             if (assemblyExitCode == 0 && !route.Options.JsonOutput)
             {
-                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || ArgumentPreprocessor.HeadLines != null
+                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null
                     ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
                 TipWriter.WritePlatformTips(route.BareName, platformTipLevel, route.Verbosity);
             }
@@ -162,7 +162,7 @@ public static class RouterCommandDefinition
             SourceOptions = route.Options.SourceOptions
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
