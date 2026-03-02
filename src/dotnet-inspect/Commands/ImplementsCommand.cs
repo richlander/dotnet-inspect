@@ -23,12 +23,12 @@ public class ImplementsCommand
 
         try
         {
-            // Discovery mode: bare --columns/--fields lists available names
-            if (options.Columns is { Length: 0 } || options.Fields is { Length: 0 })
+            // Discovery mode: -D/--discover lists schema
+            if (options.Discover != null)
             {
-                var schema = new MarkoutContext().GetSchemaInfo<ImplementsResultView>();
-                SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(null, options.Columns, options.Fields, null, schema));
-                return 0;
+                var schema = new DocumentSchema()
+                    .Add("Implementers", "column", "Type", "Kind", "Relationship", "Library", "Source");
+                return DiscoverOutput.Execute(options.Discover, schema, tree: options.Tree);
             }
 
             // Safety fallback — default to all platform frameworks

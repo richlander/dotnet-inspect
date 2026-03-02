@@ -2,9 +2,8 @@ using System.CommandLine;
 using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
-using DotnetInspector.Views;
-using Markout;
 
 namespace DotnetInspector.CommandLine;
 
@@ -110,10 +109,8 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case TypeOptionsParser.Discovery d:
-                    var typeSchema = new MarkoutContext().GetSchemaInfo<CliApiSurface>();
-                    SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(d.Select, d.Columns, d.Fields,
-                        SectionRegistry.ApiTypeSections, typeSchema));
-                    return 0;
+                    var typeSchemaMap = ApiTypeSectionDescriptors.CreateSchemaMap();
+                    return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree);
 
                 case TypeOptionsParser.ShowHelp:
                     new HelpAction().Invoke(parseResult);
@@ -220,10 +217,8 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case MemberOptionsParser.Discovery d:
-                    var memberSchema = new MarkoutContext().GetSchemaInfo<TypeView>();
-                    SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(d.Select, d.Columns, d.Fields,
-                        SectionRegistry.ApiMemberSections, memberSchema));
-                    return 0;
+                    var memberSchemaMap = ApiMemberSectionDescriptors.CreateSchemaMap();
+                    return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree);
 
                 case MemberOptionsParser.ShowHelp:
                     new HelpAction().Invoke(parseResult);

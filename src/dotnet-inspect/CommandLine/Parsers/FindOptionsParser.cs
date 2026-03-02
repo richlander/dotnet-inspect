@@ -96,6 +96,8 @@ public static class FindOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };

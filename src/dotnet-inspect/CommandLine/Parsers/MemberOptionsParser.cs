@@ -50,9 +50,9 @@ public static class MemberOptionsParser
     public record ListSections : MemberParseResult;
 
     /// <summary>
-    /// Indicates projection discovery (--select or --columns bare).
+    /// Indicates schema discovery (-D/--discover).
     /// </summary>
-    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : MemberParseResult;
+    public record Discovery(string[]? Discover, bool Tree) : MemberParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -93,7 +93,7 @@ public static class MemberOptionsParser
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
             if (opts.IsDiscoveryMode(parseResult))
-                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
+                return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
 

@@ -7,15 +7,6 @@ namespace DotnetInspector.Output;
 public static class SelectOutput
 {
     /// <summary>
-    /// Prints discovery entries to Console.Out.
-    /// </summary>
-    public static void WriteDiscovery(IEnumerable<(string Name, string Kind)> entries)
-    {
-        foreach (var line in SelectResolver.FormatDiscoveryLines(entries))
-            Console.WriteLine(line);
-    }
-
-    /// <summary>
     /// Prints unresolved select values with "Did you mean:" suggestions to Console.Error.
     /// Returns true if any errors were printed.
     /// </summary>

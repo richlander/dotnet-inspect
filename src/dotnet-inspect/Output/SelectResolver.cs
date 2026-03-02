@@ -1,7 +1,6 @@
 namespace DotnetInspector.Output;
 
 using DotnetInspector.Metadata;
-using Markout;
 
 /// <summary>
 /// An unresolved -S/--select value with suggestions for what the user may have meant.
@@ -17,78 +16,11 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
 }
 
 /// <summary>
-/// Handles discovery and projection for --select, --columns, and --fields.
-/// Discovery mode: any bare flag lists available names.
-/// Execute mode: all flags have values, used for filtering.
+/// Handles selection for --select, --columns, and --fields.
 /// All methods return data — no Console usage.
 /// </summary>
 public static class SelectResolver
 {
-    private const int DiscoveryPadding = 24;
-
-    /// <summary>
-    /// Returns true if any projection flag is in discovery mode (bare, no value).
-    /// </summary>
-    public static bool IsDiscovery(string[]? select, string[]? columns, string[]? fields = null)
-        => select is { Length: 0 } || columns is { Length: 0 } || fields is { Length: 0 };
-
-    /// <summary>
-    /// Returns discovery entries for the given schema and section names.
-    /// -S lists sections. --columns lists columns. --fields lists fields.
-    /// </summary>
-    public static List<(string Name, string Kind)> GetDiscoveryEntries(string[]? select, string[]? columns, string[]? fields,
-        string[]? sectionNames, params MarkoutSchemaInfo?[] schemas)
-    {
-        // Bare --select: list sections only
-        if (select is { Length: 0 })
-        {
-            var entries = new List<(string, string)>();
-            if (sectionNames != null)
-                entries.AddRange(sectionNames.Select(n => (n, "section")));
-            return entries;
-        }
-
-        // Bare --columns: list columns from schema
-        if (columns is { Length: 0 })
-        {
-            var entries = new List<(string, string)>();
-            foreach (var schema in schemas)
-            {
-                if (schema == null) continue;
-                foreach (var n in schema.GetColumnNames())
-                    entries.Add((n, "column"));
-            }
-            return entries;
-        }
-
-        // Bare --fields: list fields from schema
-        if (fields is { Length: 0 })
-        {
-            var entries = new List<(string, string)>();
-            foreach (var schema in schemas)
-            {
-                if (schema == null) continue;
-                entries.AddRange(schema.GetFieldNames().Select(n => (n, "field")));
-            }
-            return entries;
-        }
-
-        return [];
-    }
-
-    /// <summary>
-    /// Formats discovery entries as padded lines for display.
-    /// </summary>
-    public static IEnumerable<string> FormatDiscoveryLines(IEnumerable<(string Name, string Kind)> entries)
-    {
-        var items = entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
-        if (items.Count == 0) yield break;
-        var padding = Math.Max(DiscoveryPadding, items.Max(e => e.Name.Length) + 2);
-
-        foreach (var (name, kind) in items)
-            yield return $"{name.PadRight(padding)} {kind}";
-    }
-
     /// <summary>
     /// Resolves -S/--select values as section names for backpressure.
     /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.

@@ -43,9 +43,9 @@ public static class TypeOptionsParser
     public record ListSections : TypeParseResult;
 
     /// <summary>
-    /// Indicates projection discovery (--select or --columns bare).
+    /// Indicates schema discovery (-D/--discover).
     /// </summary>
-    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : TypeParseResult;
+    public record Discovery(string[]? Discover, bool Tree) : TypeParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -86,7 +86,7 @@ public static class TypeOptionsParser
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
             if (opts.IsDiscoveryMode(parseResult))
-                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
+                return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
 

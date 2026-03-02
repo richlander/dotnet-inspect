@@ -78,6 +78,16 @@ public record ImplementsOptions : IAssemblySourceOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
+    /// Discovery mode (-D/--discover). Null = not requested, empty = bare, populated = section name.
+    /// </summary>
+    public string[]? Discover { get; init; }
+
+    /// <summary>
+    /// Show discovery as a tree.
+    /// </summary>
+    public bool Tree { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

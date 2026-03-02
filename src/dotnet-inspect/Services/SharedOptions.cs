@@ -250,6 +250,8 @@ public class SharedOptions
         return parseResult.GetResult(Discover) is { Implicit: false };
     }
 
+    public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
+
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {
         var values = ParseCommaSeparatedList(parseResult.GetValue(option));
