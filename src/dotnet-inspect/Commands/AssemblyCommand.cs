@@ -242,8 +242,8 @@ public class AssemblyCommand
     private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        var empty = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-        if (empty.Count > 0)
+        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        if (empty.Count > 0 && empty.Count == requested)
         {
             var label = empty.Count == 1 ? "section has" : "sections have";
             Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");

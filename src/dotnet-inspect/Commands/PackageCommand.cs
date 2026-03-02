@@ -333,8 +333,8 @@ public class PackageCommand
         SectionPipeline<InspectionResult>? pipeline)
     {
         if (pipeline == null) return;
-        var empty = pipeline.GetEmptySections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-        if (empty.Count > 0)
+        var (empty, requested) = pipeline.GetEmptySections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        if (empty.Count > 0 && empty.Count == requested)
         {
             var label = empty.Count == 1 ? "section has" : "sections have";
             Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");

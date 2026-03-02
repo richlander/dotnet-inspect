@@ -64,21 +64,23 @@ public sealed class SectionPipeline<TModel>
     /// filtered out by <see cref="SectionEntry{TModel}.CanRender"/> (no data).
     /// Empty when no explicit include was set or all requested sections have data.
     /// </summary>
-    public List<string> GetEmptySections(TModel model, Verbosity verbosity,
+    public (List<string> Empty, int RequestedCount) GetEmptySections(TModel model, Verbosity verbosity,
         HashSet<string>? include = null, HashSet<string>? exclude = null)
     {
         if (include is not { Count: > 0 })
-            return [];
+            return ([], 0);
 
         List<string> empty = [];
+        int requested = 0;
         foreach (var entry in _entries)
         {
             if (!IsRequested(entry, verbosity, include, exclude))
                 continue;
+            requested++;
             if (!entry.CanRender(model))
                 empty.Add(entry.Name);
         }
-        return empty;
+        return (empty, requested);
     }
 
     /// <summary>
