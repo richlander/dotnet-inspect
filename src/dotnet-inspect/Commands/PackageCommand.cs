@@ -574,16 +574,11 @@ public class PackageCommand
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
             client, group.Dependencies, tfm, globalSeen, logger.Log);
 
-        var view = new PackageDependenciesView
-        {
-            Title = $"{result.PackageName} ({result.Version})",
-            Package = result.PackageName,
-            Version = result.Version,
-            Tfm = tfm,
-            Dependencies = ToTreeNodes(depNodes)
-        };
-
-        MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+        // Tree with root package as first node
+        var childNodes = ToTreeNodes(depNodes);
+        Console.WriteLine($"{result.PackageName} {result.Version}");
+        var writer = new Markout.MarkoutWriter(Console.Out, new Markout.UnicodeFormatter());
+        writer.WriteTree(childNodes.ToArray());
         return 0;
     }
 
