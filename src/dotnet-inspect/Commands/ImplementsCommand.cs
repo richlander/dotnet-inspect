@@ -140,7 +140,7 @@ public class ImplementsCommand
         {
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(null, columns, fields)
+                Projection = OutputFormatter.BuildProjection(columns, fields)
             };
             new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), writerOpts);
         }

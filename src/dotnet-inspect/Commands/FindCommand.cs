@@ -80,7 +80,7 @@ public class FindCommand
         {
             var writerOpts = new MarkoutWriterOptions
             {
-                Projection = OutputFormatter.BuildProjection(null, options.Columns, options.Fields)
+                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
             new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
         }

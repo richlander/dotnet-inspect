@@ -93,7 +93,7 @@ public class DiffCommand
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(null, options.Columns, options.Fields)
+                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
                 };
                 new MarkoutContext().Serialize(view, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
             }
