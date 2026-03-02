@@ -237,6 +237,7 @@ public class PackageCommand
             FilterResultForOutput(result, options);
 
             // Output results
+            WarnEmptySections(result, options, pipeline);
             if (options.OneLine)
             {
                 // Multi-section check: auto-promote to markdown if format wasn't explicitly requested
@@ -315,6 +316,18 @@ public class PackageCommand
         result.IsToolPackage = nuspec.IsToolPackage;
         result.ReadmeFile = nuspec.ReadmeFile;
         result.DependencyGroups = nuspec.DependencyGroups;
+    }
+
+    private static void WarnEmptySections(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult>? pipeline)
+    {
+        if (pipeline == null) return;
+        var empty = pipeline.GetEmptySections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        if (empty.Count > 0)
+        {
+            var label = empty.Count == 1 ? "section has" : "sections have";
+            Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
+        }
     }
 
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)

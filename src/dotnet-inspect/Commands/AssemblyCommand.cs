@@ -124,7 +124,7 @@ public class AssemblyCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-
+                WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
@@ -163,7 +163,7 @@ public class AssemblyCommand
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
 
-
+                WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
@@ -192,7 +192,7 @@ public class AssemblyCommand
 
                 inspection.Source = SourceKind.File;
 
-
+                WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
                 return 0;
@@ -217,6 +217,17 @@ public class AssemblyCommand
                     // Ignore cleanup errors
                 }
             }
+        }
+    }
+
+    private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var empty = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        if (empty.Count > 0)
+        {
+            var label = empty.Count == 1 ? "section has" : "sections have";
+            Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
         }
     }
 
