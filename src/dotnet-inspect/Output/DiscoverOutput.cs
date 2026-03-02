@@ -19,6 +19,10 @@ public static class DiscoverOutput
     public static int Execute(string[]? discover, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false)
     {
+        // Auto-promote to tree when discovering items from multiple sections
+        if (!tree && discover is { Length: > 0 } && ResolvedSectionCount(discover, schema) > 1)
+            tree = true;
+
         if (tree)
             return WriteTree(discover, schema);
 
@@ -92,6 +96,20 @@ public static class DiscoverOutput
         return rows;
     }
 
+    private static int ResolvedSectionCount(string[] discover, DocumentSchema schema)
+    {
+        int count = 0;
+        foreach (var name in discover)
+        {
+            if (schema.ResolveSection(name) != null)
+                count++;
+            else if ((name.Contains('*') || name.Contains('?')) &&
+                     schema.SectionNames.Any(s => TypeMatcher.MatchesGlob(s, name)))
+                count++;
+        }
+        return count;
+    }
+
     /// <summary>
     /// Resolves a section name for discovery. Supports exact match (case-insensitive)
     /// and glob patterns (* / ?). Globs must match exactly one section.
@@ -142,11 +160,33 @@ public static class DiscoverOutput
 
         if (discover is { Length: > 0 })
         {
-            // Specific section: show items as top-level tree
-            var rows = GetDiscoveryRows(discover, schema);
-            if (rows == null) return 1;
-            foreach (var row in rows)
-                nodes.Add(new TreeNode($"{row.Name} ({row.Kind})"));
+            // Resolve each section and build grouped tree
+            foreach (var name in discover)
+            {
+                var resolved = ResolveDiscoverSection(name, schema);
+                if (resolved == null) return 1;
+
+                var section = schema.GetSection(resolved);
+                if (section == null || section.Items.Length == 0)
+                {
+                    nodes.Add(new TreeNode(resolved));
+                    continue;
+                }
+
+                // Single section: show items as top-level tree
+                if (discover.Length == 1)
+                {
+                    foreach (var item in section.Items)
+                        nodes.Add(new TreeNode($"{item.Name} ({item.Kind})"));
+                }
+                else
+                {
+                    var children = section.Items
+                        .Select(i => new TreeNode($"{i.Name} ({i.Kind})"))
+                        .ToList();
+                    nodes.Add(new TreeNode(resolved) { Children = children });
+                }
+            }
         }
         else
         {
