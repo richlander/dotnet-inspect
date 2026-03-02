@@ -6,7 +6,7 @@ using Markout;
 /// <summary>
 /// An unresolved -S/--select value with suggestions for what the user may have meant.
 /// </summary>
-public record SelectMiss(string Value, IReadOnlyList<string> Suggestions);
+public record SelectMiss(string Value, IReadOnlyList<string> Suggestions, bool IsGlob = false);
 
 /// <summary>
 /// Result of resolving -S/--select values against known section names.
@@ -106,11 +106,17 @@ public static class SelectResolver
         {
             if (value.Contains('*') || value.Contains('?'))
             {
+                bool anyGlobMatch = false;
                 foreach (var section in knownSections)
                 {
                     if (TypeMatcher.MatchesGlob(section, value))
+                    {
                         matched.Add(section);
+                        anyGlobMatch = true;
+                    }
                 }
+                if (!anyGlobMatch)
+                    unresolved.Add(new SelectMiss(value, knownSections.ToList(), IsGlob: true));
             }
             else
             {

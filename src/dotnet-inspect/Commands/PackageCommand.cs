@@ -42,7 +42,7 @@ public class PackageCommand
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
-        if (SelectOutput.WriteErrors(selectResult.Unresolved)) return 1;
+        if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 

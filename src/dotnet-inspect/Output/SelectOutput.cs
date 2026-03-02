@@ -36,4 +36,45 @@ public static class SelectOutput
         }
         return true;
     }
+
+    /// <summary>
+    /// Writes unresolved select values to stderr.
+    /// Returns true only for total failure (nothing matched — command should exit).
+    /// Partial matches (some resolved, some not) write warnings and return false.
+    /// </summary>
+    public static bool WriteUnresolved(SelectResult result)
+    {
+        if (result.Unresolved.Count == 0) return false;
+
+        bool totalFailure = result.Sections is null or { Count: 0 };
+        string prefix = totalFailure ? "Error" : "Warning";
+
+        foreach (var miss in result.Unresolved)
+        {
+            if (miss.IsGlob)
+            {
+                Console.Error.WriteLine($"{prefix}: No sections match '{miss.Value}'.");
+                if (totalFailure && miss.Suggestions.Count > 0)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("Available sections:");
+                    foreach (var s in miss.Suggestions)
+                        Console.Error.WriteLine($"  {s}");
+                }
+            }
+            else
+            {
+                Console.Error.WriteLine($"{prefix}: Select value '{miss.Value}' not found.");
+                if (miss.Suggestions.Count > 0)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("Did you mean:");
+                    foreach (var s in miss.Suggestions)
+                        Console.Error.WriteLine($"  {s}");
+                }
+            }
+        }
+
+        return totalFailure;
+    }
 }

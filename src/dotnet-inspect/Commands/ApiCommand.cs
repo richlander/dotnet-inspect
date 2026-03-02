@@ -78,7 +78,7 @@ public class ApiCommand
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
-        if (SelectOutput.WriteErrors(selectResult.Unresolved))
+        if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
