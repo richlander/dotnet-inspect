@@ -135,6 +135,19 @@ public static class OutputFormatter
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(auditView).TrimEnd());
         }
+        else if (options.Verbosity == Verbosity.Quiet)
+        {
+            var auditView = new LibraryInspectionView(inspection, topFieldsOnly: true);
+            var includeSections = pipeline?.ComputeIncludeSections(
+                inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            var writerOptions = new MarkoutWriterOptions
+            {
+                IncludeSections = includeSections,
+                Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields)
+            };
+            var context = new MarkoutContext(writerOptions);
+            Console.WriteLine(context.Serialize(auditView).TrimEnd());
+        }
         else
         {
             var auditView = new LibraryInspectionView(inspection);
@@ -189,6 +202,22 @@ public static class OutputFormatter
                 };
             var context = new MarkoutContext(writerOptions);
             Console.WriteLine(context.Serialize(report).TrimEnd());
+        }
+        else if (options.Verbosity == Verbosity.Quiet)
+        {
+            foreach (var inspection in inspections)
+            {
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly: true);
+                var includeSections = pipeline?.ComputeIncludeSections(
+                    inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    IncludeSections = includeSections,
+                    Projection = BuildProjection(options.IncludeSections, options.Columns, options.Fields),
+                };
+                var context = new MarkoutContext(writerOpts);
+                Console.WriteLine(context.Serialize(auditView).TrimEnd());
+            }
         }
         else
         {
