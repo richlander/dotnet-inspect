@@ -155,6 +155,11 @@ public record InspectionOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
+    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// </summary>
+    public bool Effective { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;

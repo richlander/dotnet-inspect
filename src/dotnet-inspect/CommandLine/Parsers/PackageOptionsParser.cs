@@ -81,6 +81,7 @@ public static class PackageOptionsParser
             Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+            Effective = parseResult.GetValue(opts.Effective),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

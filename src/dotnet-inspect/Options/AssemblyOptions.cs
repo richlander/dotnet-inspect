@@ -113,6 +113,11 @@ public record AssemblyOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
+    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// </summary>
+    public bool Effective { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

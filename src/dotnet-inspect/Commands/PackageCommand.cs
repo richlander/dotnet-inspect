@@ -33,12 +33,17 @@ public class PackageCommand
         options = options with { ExcludeSections = resolvedExclude };
 
         // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields) && !options.Effective)
         {
             var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
             SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields, sectionNames, schema));
             return 0;
         }
+
+        // --effective with bare -S: run pipeline at Detailed to show sections with data
+        bool effectiveDiscovery = options.Effective && options.Select is { Length: 0 };
+        if (effectiveDiscovery)
+            options = options with { Verbosity = Verbosity.Detailed };
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
@@ -237,6 +242,12 @@ public class PackageCommand
             FilterResultForOutput(result, options);
 
             // Output results
+            if (effectiveDiscovery)
+            {
+                var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+                SelectOutput.WriteDiscovery(effective.Select(n => (n, "section")));
+                return 0;
+            }
             WarnEmptySections(result, options, pipeline);
             if (options.OneLine)
             {

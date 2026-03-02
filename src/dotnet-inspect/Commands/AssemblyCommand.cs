@@ -29,13 +29,18 @@ public class AssemblyCommand
         options = options with { ExcludeSections = resolvedExclude };
 
         // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
+        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields) && !options.Effective)
         {
             var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
             SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields,
                 SectionRegistry.LibrarySections, schema));
             return 0;
         }
+
+        // --effective with bare -S: run pipeline at Detailed to show sections with data
+        bool effectiveDiscovery = options.Effective && options.Select is { Length: 0 };
+        if (effectiveDiscovery)
+            options = options with { Verbosity = Verbosity.Detailed };
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
@@ -124,6 +129,8 @@ public class AssemblyCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(inspection, options, pipeline);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
@@ -163,6 +170,8 @@ public class AssemblyCommand
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
 
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(inspections[0], options, pipeline);
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -192,6 +201,8 @@ public class AssemblyCommand
 
                 inspection.Source = SourceKind.File;
 
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(inspection, options, pipeline);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
@@ -218,6 +229,14 @@ public class AssemblyCommand
                 }
             }
         }
+    }
+
+    private static int WriteEffectiveSections(LibraryInspection inspection, AssemblyOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var effective = pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        SelectOutput.WriteDiscovery(effective.Select(n => (n, "section")));
+        return 0;
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,

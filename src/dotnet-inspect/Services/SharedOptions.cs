@@ -33,6 +33,7 @@ public class SharedOptions
     public Option<string?> Select { get; }
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
+    public Option<bool> Effective { get; } = new("--effective") { Description = "Show sections with data (runs full pipeline)" };
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -109,6 +110,7 @@ public class SharedOptions
         command.Options.Add(Select);
         command.Options.Add(Columns);
         command.Options.Add(Fields);
+        command.Options.Add(Effective);
     }
 
     /// <summary>
