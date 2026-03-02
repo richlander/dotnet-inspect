@@ -72,7 +72,8 @@ public class AssemblyCommand
         }
 
         // Warn if --oneline combined with detailed verbosity without section selector
-        OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+        if (!effectiveDiscovery)
+            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
