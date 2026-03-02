@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Metadata;
 using DotnetInspector.Views;
 using Markout;
 
@@ -76,22 +77,9 @@ public static class DiscoverOutput
         var rows = new List<DiscoveryRow>();
         foreach (var name in discover)
         {
-            var resolved = schema.ResolveSection(name);
+            var resolved = ResolveDiscoverSection(name, schema);
             if (resolved == null)
-            {
-                Console.Error.WriteLine($"Error: Section '{name}' not found.");
-                var suggestions = schema.SectionNames
-                    .Where(s => s.StartsWith(name, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-                if (suggestions.Count > 0)
-                {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Did you mean:");
-                    foreach (var s in suggestions)
-                        Console.Error.WriteLine($"  {s}");
-                }
                 return null;
-            }
 
             var items = schema.Discover(resolved);
             if (items != null)
@@ -102,6 +90,50 @@ public static class DiscoverOutput
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Resolves a section name for discovery. Supports exact match (case-insensitive)
+    /// and glob patterns (* / ?). Globs must match exactly one section.
+    /// </summary>
+    private static string? ResolveDiscoverSection(string name, DocumentSchema schema)
+    {
+        // Try exact match first
+        var resolved = schema.ResolveSection(name);
+        if (resolved != null)
+            return resolved;
+
+        // Try glob match
+        if (name.Contains('*') || name.Contains('?'))
+        {
+            var matches = schema.SectionNames
+                .Where(s => TypeMatcher.MatchesGlob(s, name))
+                .ToList();
+
+            if (matches.Count == 1)
+                return matches[0];
+
+            if (matches.Count > 1)
+            {
+                Console.Error.WriteLine($"Error: '{name}' matches {matches.Count} sections: {string.Join(", ", matches)}.");
+                Console.Error.WriteLine("Discovery requires exactly one section. Be more specific.");
+                return null;
+            }
+        }
+
+        // No match — show suggestions
+        Console.Error.WriteLine($"Error: Section '{name}' not found.");
+        var suggestions = schema.SectionNames
+            .Where(s => s.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (suggestions.Count > 0)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Did you mean:");
+            foreach (var s in suggestions)
+                Console.Error.WriteLine($"  {s}");
+        }
+        return null;
     }
 
     private static int WriteTree(string[]? discover, DocumentSchema schema)
