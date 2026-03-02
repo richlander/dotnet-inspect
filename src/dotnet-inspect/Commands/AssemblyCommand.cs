@@ -28,17 +28,24 @@ public class AssemblyCommand
         if (sectionError) return 1;
         options = options with { ExcludeSections = resolvedExclude };
 
-        // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields) && !options.Effective)
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null)
         {
-            var schema = new MarkoutContext().GetSchemaInfo<LibraryInspectionView>();
-            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields,
-                pipeline.AllSectionNames, schema));
-            return 0;
+            var schemaMap = LibrarySections.CreateSchemaMap();
+            if (options.Effective)
+            {
+                // Need to run pipeline to determine effective sections — handled after data collection below
+                // For now, fall through to --effective with bare -D
+            }
+            else
+            {
+                return DiscoverOutput.Execute(options.Discover, pipeline.AllSectionNames, schemaMap,
+                    tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
+            }
         }
 
-        // --effective with bare -S: run pipeline at Detailed to show sections with data
-        bool effectiveDiscovery = options.Effective && options.Select is { Length: 0 };
+        // --effective with -D: run pipeline at Detailed to show sections with data
+        bool effectiveDiscovery = options.Effective && options.Discover != null;
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
@@ -236,8 +243,9 @@ public class AssemblyCommand
         SectionPipeline<LibraryInspection> pipeline)
     {
         var effective = pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-        SelectOutput.WriteDiscovery(effective.Select(n => (n, "section")));
-        return 0;
+        var schemaMap = LibrarySections.CreateSchemaMap();
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
+            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,

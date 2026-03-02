@@ -32,16 +32,16 @@ public class PackageCommand
         if (sectionError) return 1;
         options = options with { ExcludeSections = resolvedExclude };
 
-        // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields) && !options.Effective)
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null && !options.Effective)
         {
-            var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields, sectionNames, schema));
-            return 0;
+            var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+            return DiscoverOutput.Execute(options.Discover, sectionNames, schemaMap,
+                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
         }
 
-        // --effective with bare -S: run pipeline at Detailed to show sections with data
-        bool effectiveDiscovery = options.Effective && options.Select is { Length: 0 };
+        // --effective with -D: run pipeline at Detailed to show sections with data
+        bool effectiveDiscovery = options.Effective && options.Discover != null;
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
@@ -245,8 +245,9 @@ public class PackageCommand
             if (effectiveDiscovery)
             {
                 var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
-                SelectOutput.WriteDiscovery(effective.Select(n => (n, "section")));
-                return 0;
+                var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+                return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
+                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
             }
             WarnEmptySections(result, options, pipeline);
             if (options.OneLine)

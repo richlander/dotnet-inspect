@@ -65,15 +65,15 @@ public class ApiCommand
             return (null!, 1);
         options = options with { ExcludeSections = resolvedExclude };
 
-        // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null)
         {
-            var context2 = new MarkoutContext();
-            var typeSchema = context2.GetSchemaInfo<CliApiSurface>();
-            var memberSchema = context2.GetSchemaInfo<TypeView>();
-            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields,
-                allApiSections, typeSchema, memberSchema));
-            return (null!, 0);
+            // Combine type-list and member-detail schema maps
+            var typeSchemaMap = ApiTypeSectionDescriptors.CreateSchemaMap();
+            var memberSchemaMap = ApiMemberSectionDescriptors.CreateSchemaMap();
+            // Use combined section names for discovery
+            return (null!, DiscoverOutput.Execute(options.Discover, allApiSections, typeSchemaMap,
+                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
         }
 
         // -S/--select with values: resolve as section filter for backpressure

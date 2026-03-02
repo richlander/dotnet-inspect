@@ -137,6 +137,8 @@ public static class TypeOptionsParser
             ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),

@@ -40,6 +40,31 @@ public static class LibrarySections
             .Add<NonNormalizedPaths>();
     }
 
+    /// <summary>Builds the section schema map for discovery (-D).</summary>
+    public static SectionSchemaMap CreateSchemaMap()
+    {
+        return new SectionSchemaMap()
+            .Add("Library Info", "field",
+                "Name", "Version", "Informational Version", "Assembly Version",
+                "Target Framework", "Architecture", "Compilation", "Product", "Company",
+                "Copyright", "Signed", "Public Key Token", "Deterministic", "Reproducible",
+                "File Size", "Types", "Methods", "Source", "Modified")
+            .Add("Symbols", "field",
+                "PDB Format", "PDB Location", "Symbol Server", "PDB Path",
+                "Source Link", "Builder", "Publisher", "Repository", "Repository URL")
+            .Add("Source Link Audit", "field", "Status", "Embedded")
+            .Add("Library References", "column", "Name", "Version", "Public Key Token")
+            .Add("Library References (Transitive)", "tree", "Name")
+            .Add("Dependencies", "tree", "Name")
+            .Add("Extension Methods", "column", "Name", "Kind", "Extended Type", "Class")
+            .Add("Unsafe Methods", "column", "Name", "Declaring Type", "Signature")
+            .Add("P/Invoke Methods", "column", "Name", "Declaring Type", "Module", "Signature")
+            .Add("Resources", "column", "Name", "Visibility", "Size")
+            .Add("Custom Attributes", "column", "Name", "Target", "Value")
+            .Add("Type Forwarders", "column", "Type", "Target Assembly")
+            .Add("Non-normalized Paths", "list", "Path");
+    }
+
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>
     public static ScannerRegistry CreateScannerRegistry()
     {

@@ -5,6 +5,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -61,9 +62,10 @@ public static class RouterCommandDefinition
                     return 0;
 
                 case RouterOptionsParser.Discovery d:
-                    var routerSchema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-                    SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(d.Select, d.Columns, d.Fields, null, routerSchema));
-                    return 0;
+                    // Router-level discovery: show package sections (no input required)
+                    var routerSchemaMap = PackageSectionDescriptors.CreateSchemaMap();
+                    var routerSections = PackageSectionDescriptors.CreatePipeline().AllSectionNames;
+                    return DiscoverOutput.Execute(d.Discover, routerSections, routerSchemaMap, tree: d.Tree);
 
                 case RouterOptionsParser.ParseError error:
                     Console.Error.WriteLine(error.Message);
@@ -128,8 +130,10 @@ public static class RouterCommandDefinition
                 Verbosity = route.Verbosity,
                 IncludeSections = null,
                 ExcludeSections = route.Options.ExcludeSections,
+                Discover = route.Options.Discover,
                 Select = route.Options.Select,
                 Columns = route.Options.Columns,
+                Fields = route.Options.Fields,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -145,12 +149,17 @@ public static class RouterCommandDefinition
             PackageArgs = [route.OriginalArg],
             JsonOutput = route.Options.JsonOutput,
             OneLine = route.OneLine,
+            OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
             NoHeader = route.NoHeader,
             Verbose = route.Options.Verbose,
             Verbosity = route.Verbosity,
             ExcludeSections = route.Options.ExcludeSections,
+            Discover = route.Options.Discover,
+            Tree = route.Options.Tree,
             Select = route.Options.Select,
             Columns = route.Options.Columns,
+            Fields = route.Options.Fields,
+            Effective = route.Options.Effective,
             SourceOptions = route.Options.SourceOptions
         };
 

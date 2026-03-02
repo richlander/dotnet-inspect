@@ -78,6 +78,8 @@ public static class PackageOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),

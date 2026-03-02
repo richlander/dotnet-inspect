@@ -36,7 +36,7 @@ public static class RouterOptionsParser
     /// <summary>
     /// Indicates projection discovery (--select or --columns bare).
     /// </summary>
-    public record Discovery(string[]? Select, string[]? Columns, string[]? Fields) : RouterParseResult;
+    public record Discovery(string[]? Discover, bool Tree) : RouterParseResult;
 
     /// <summary>
     /// Indicates an error occurred during parsing.
@@ -83,7 +83,7 @@ public static class RouterOptionsParser
         if (packageArgs.Length < 1)
         {
             if (opts.IsDiscoveryMode(parseResult))
-                return new Discovery(opts.ParseSelect(parseResult), opts.ParseColumns(parseResult), opts.ParseFields(parseResult));
+                return new Discovery(opts.ParseDiscover(parseResult), parseResult.GetValue(opts.Tree));
             return new ShowHelp();
         }
 
@@ -109,6 +109,8 @@ public static class RouterOptionsParser
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
                     ExcludeSections = opts.ParseExcludeSections(parseResult),
+                    Discover = opts.ParseDiscover(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
                     Select = opts.ParseSelect(parseResult),
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
@@ -163,6 +165,8 @@ public static class RouterOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
@@ -206,6 +210,8 @@ public static class RouterOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),

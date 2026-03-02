@@ -179,6 +179,8 @@ public static class InspectionCommandDefinitions
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 ExcludeSections = opts.ParseExcludeSections(parseResult),
+                Discover = opts.ParseDiscover(parseResult),
+                Tree = parseResult.GetValue(opts.Tree),
                 Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

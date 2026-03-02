@@ -3,6 +3,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -20,12 +21,13 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
 
-        // Discovery mode: any bare projection flag lists available names
-        if (SelectResolver.IsDiscovery(options.Select, options.Columns, options.Fields))
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null)
         {
-            var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
-            SelectOutput.WriteDiscovery(SelectResolver.GetDiscoveryEntries(options.Select, options.Columns, options.Fields, null, schema));
-            return 0;
+            var schemaMap = new SectionSchemaMap()
+                .Add("Changes", "column", "Change", "Type", "Detail");
+            return DiscoverOutput.Execute(options.Discover, ["Changes"], schemaMap,
+                tree: options.Tree, json: false, markdown: !options.OneLine);
         }
 
         if (!hasPlatform && !hasPackage)
@@ -290,6 +292,8 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
+    public string[]? Discover { get; init; }
+    public bool Tree { get; init; }
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }

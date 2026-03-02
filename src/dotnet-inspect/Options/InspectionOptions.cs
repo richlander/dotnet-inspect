@@ -140,6 +140,13 @@ public record InspectionOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
+    /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
+    /// </summary>
+    public string[]? Discover { get; init; }
+
+    public bool Tree { get; init; }
+
+    /// <summary>
     /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }

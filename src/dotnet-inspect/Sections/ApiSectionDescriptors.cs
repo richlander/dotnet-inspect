@@ -20,6 +20,17 @@ public static class ApiTypeSectionDescriptors
             .Add<Delegates>();
     }
 
+    /// <summary>Builds the section schema map for type-list discovery (-D).</summary>
+    public static SectionSchemaMap CreateSchemaMap()
+    {
+        return new SectionSchemaMap()
+            .Add("Classes", "column", "Name", "Namespace", "Kind", "Visibility")
+            .Add("Structs", "column", "Name", "Namespace", "Kind", "Visibility")
+            .Add("Interfaces", "column", "Name", "Namespace", "Kind", "Visibility")
+            .Add("Enums", "column", "Name", "Namespace", "Kind", "Visibility")
+            .Add("Delegates", "column", "Name", "Namespace", "Kind", "Visibility");
+    }
+
     public sealed class Classes : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Classes";
@@ -91,6 +102,22 @@ public static class ApiMemberSectionDescriptors
             .Add<ILBody>()
             .Add<AnnotatedIL>()
             .Add<LoweredCSharp>();
+    }
+
+    /// <summary>Builds the section schema map for type-detail discovery (-D).</summary>
+    public static SectionSchemaMap CreateSchemaMap()
+    {
+        return new SectionSchemaMap()
+            .Add("Values", "column", "Name", "Value")
+            .Add("Type Parameters", "column", "Name")
+            .Add("Interfaces", "column", "Name")
+            .Add("Baseclass", "column", "Name")
+            .Add("Remote Source", "field", "URL")
+            .Add("Constructors", "column", "Signature")
+            .Add("Fields", "column", "Name", "Type", "Visibility")
+            .Add("Properties", "column", "Name", "Type", "Visibility")
+            .Add("Methods", "column", "Name", "Signature", "Visibility")
+            .Add("Events", "column", "Name", "Type", "Visibility");
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====

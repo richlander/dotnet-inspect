@@ -29,11 +29,15 @@ public class SharedOptions
         Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
     };
 
+    // Discovery option
+    public Option<string?> Discover { get; }
+
     // Projection options
     public Option<string?> Select { get; }
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
     public Option<bool> Effective { get; } = new("--effective") { Description = "Show sections with data (runs full pipeline)" };
+    public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -60,10 +64,17 @@ public class SharedOptions
         };
         Tips.Aliases.Add("-T");
 
+        Discover = new Option<string?>("-D")
+        {
+            Description = "Discover schema: sections, or items within a section",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        Discover.Aliases.Add("--discover");
+
         Select = new Option<string?>("-S")
         {
-            Description = "Select sections, columns, or fields by name (comma-separated, supports wildcards). Use -S alone to discover.",
-            Arity = ArgumentArity.ZeroOrOne
+            Description = "Select sections by name (comma-separated, supports wildcards)",
+            Arity = ArgumentArity.ExactlyOne
         };
         Select.Aliases.Add("--select");
         Select.Aliases.Add("-s");
@@ -71,13 +82,13 @@ public class SharedOptions
 
         Columns = new Option<string?>("--columns")
         {
-            Description = "Filter columns by name (comma-separated). Use --columns alone to discover.",
+            Description = "Filter columns by name (comma-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
 
         Fields = new Option<string?>("--fields")
         {
-            Description = "Filter fields by name (comma-separated). Use --fields alone to discover.",
+            Description = "Filter fields by name (comma-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
     }
@@ -106,11 +117,13 @@ public class SharedOptions
     /// </summary>
     public void AddSectionOptionsTo(Command command)
     {
+        command.Options.Add(Discover);
         command.Options.Add(ExcludeSections);
         command.Options.Add(Select);
         command.Options.Add(Columns);
         command.Options.Add(Fields);
         command.Options.Add(Effective);
+        command.Options.Add(Tree);
     }
 
     /// <summary>
@@ -203,33 +216,38 @@ public class SharedOptions
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, empty array for bare -S (discovery), or populated array.
+    /// Returns null if not specified, or populated array with section names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Select);
+        => ParseCommaSeparatedList(parseResult.GetValue(Select));
+
+    /// <summary>
+    /// Parses discover flag from parse result.
+    /// Returns null if not specified, empty array for bare -D, or populated array with section name.
+    /// </summary>
+    public string[]? ParseDiscover(ParseResult parseResult)
+        => ParseProjectionList(parseResult, Discover);
 
     /// <summary>
     /// Parses columns list from parse result.
-    /// Returns null if not specified, empty array for bare --columns (discovery), or populated array.
+    /// Returns null if not specified, or populated array with column names.
     /// </summary>
     public string[]? ParseColumns(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Columns);
+        => ParseCommaSeparatedList(parseResult.GetValue(Columns));
 
     /// <summary>
     /// Parses fields list from parse result.
-    /// Returns null if not specified, empty array for bare --fields (discovery), or populated array.
+    /// Returns null if not specified, or populated array with field names.
     /// </summary>
     public string[]? ParseFields(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Fields);
+        => ParseCommaSeparatedList(parseResult.GetValue(Fields));
 
     /// <summary>
-    /// Returns true if any projection flag is bare (discovery mode).
+    /// Returns true if -D/--discover flag is present.
     /// </summary>
     public bool IsDiscoveryMode(ParseResult parseResult)
     {
-        return ParseSelect(parseResult) is { Length: 0 }
-            || ParseColumns(parseResult) is { Length: 0 }
-            || ParseFields(parseResult) is { Length: 0 };
+        return parseResult.GetResult(Discover) is { Implicit: false };
     }
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
