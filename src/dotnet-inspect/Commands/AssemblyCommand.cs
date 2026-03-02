@@ -28,10 +28,11 @@ public class AssemblyCommand
         if (sectionError) return 1;
         options = options with { ExcludeSections = resolvedExclude };
 
+        var schemaMap = LibrarySections.CreateSchemaMap();
+
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
         {
-            var schemaMap = LibrarySections.CreateSchemaMap();
             if (options.Effective)
             {
                 // Need to run pipeline to determine effective sections — handled after data collection below
@@ -67,6 +68,13 @@ public class AssemblyCommand
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
+
+        // Pre-render validation: check --fields/--columns names against the section schema
+        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+        {
+            foreach (var section in options.IncludeSections)
+                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
+        }
 
         // Explicit --oneline with multiple sections: error
         if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })

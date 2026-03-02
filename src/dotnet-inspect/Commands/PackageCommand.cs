@@ -59,6 +59,14 @@ public class PackageCommand
                 options = options with { Verbosity = requiredVerbosity };
         }
 
+        // Pre-render validation: check --fields/--columns names against the section schema
+        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+        {
+            var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+            foreach (var section in options.IncludeSections)
+                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
+        }
+
         if (packageArgs.Length < 1)
         {
             Console.Error.WriteLine("Error: Package name or path required.");
@@ -250,6 +258,7 @@ public class PackageCommand
                     tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
             }
             WarnEmptySections(result, options, pipeline);
+            bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
             if (options.OneLine)
             {
                 // Multi-section check: auto-promote to markdown if format wasn't explicitly requested
@@ -267,15 +276,33 @@ public class PackageCommand
 
                     // Auto-promote to markdown
                     var output = OutputFormatter.FormatResult(result, options, pipeline);
+                    if (hasProjection)
+                        ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
                     Console.WriteLine(output);
                     return 0;
                 }
 
-                OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
+                if (hasProjection)
+                {
+                    // Capture output for projection diagnostics
+                    var sw = new StringWriter();
+                    var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
+                    var view = new InspectionResultView(result);
+                    new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+                    var rendered = sw.ToString();
+                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+                    Console.Out.Write(rendered);
+                }
+                else
+                {
+                    OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
+                }
             }
             else
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
+                if (hasProjection)
+                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
                     File.WriteAllText(options.OutputPath, output);
