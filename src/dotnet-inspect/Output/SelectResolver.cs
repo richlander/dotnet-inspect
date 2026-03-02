@@ -81,7 +81,7 @@ public static class SelectResolver
     /// </summary>
     public static IEnumerable<string> FormatDiscoveryLines(IEnumerable<(string Name, string Kind)> entries)
     {
-        var items = entries.ToList();
+        var items = entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
         if (items.Count == 0) yield break;
         var padding = Math.Max(DiscoveryPadding, items.Max(e => e.Name.Length) + 2);
 
