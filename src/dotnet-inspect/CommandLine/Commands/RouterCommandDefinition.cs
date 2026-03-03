@@ -79,6 +79,9 @@ public static class RouterCommandDefinition
                 case RouterOptionsParser.HandleVersionQuery query:
                     return await ExecuteVersionQueryAsync(query, opts, parseResult, routerVersionsOption);
 
+                case RouterOptionsParser.RouteToType route:
+                    return await ExecuteTypeCommandAsync(route, opts, parseResult, commandArgs);
+
                 case RouterOptionsParser.RouteToPackage route:
                     return await ExecutePackageCommandAsync(route);
 
@@ -232,6 +235,48 @@ public static class RouterCommandDefinition
         };
 
         return await PackageCommand.ExecuteAsync(options);
+    }
+
+    private static async Task<int> ExecuteTypeCommandAsync(
+        RouterOptionsParser.RouteToType route,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
+    {
+        var source = await SourceResolver.ResolveAsync(
+            route.Args, null, null, null,
+            parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+
+        if (source.VersionError)
+        {
+            Console.Error.WriteLine(source.VersionErrorMessage);
+            return 1;
+        }
+
+        var verbosity = opts.ParseVerbosity(parseResult);
+
+        var typeOptions = new TypeOptions
+        {
+            TypeName = source.TypeName,
+            PackagePath = source.PackagePath,
+            PlatformAssembly = source.PlatformAssembly,
+            PlatformFramework = source.FrameworkOverride,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            OneLine = opts.ResolveOneLine(parseResult, commandArgs.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(commandArgs.OneLineOption) is { Implicit: false },
+            NoHeader = parseResult.GetValue(commandArgs.NoHeaderOption),
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+        };
+
+        return await ApiCommand.ExecuteAsync(typeOptions);
     }
 
     private static async Task<int> ExecutePackageCommandAsync(RouterOptionsParser.RouteToPackage route)

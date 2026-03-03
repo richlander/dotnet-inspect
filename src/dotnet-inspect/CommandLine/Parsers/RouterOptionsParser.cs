@@ -66,6 +66,11 @@ public static class RouterOptionsParser
         NuGetSourceOptions SourceOptions) : RouterParseResult;
 
     /// <summary>
+    /// Route to type command when second positional arg is a type name.
+    /// </summary>
+    public record RouteToType(string[] Args) : RouterParseResult;
+
+    /// <summary>
     /// Route to package command.
     /// </summary>
     public record RouteToPackage(InspectionOptions Options, string BareName, Verbosity Verbosity) : RouterParseResult;
@@ -89,9 +94,14 @@ public static class RouterOptionsParser
 
         var name = packageArgs[0];
 
-        // Detect version number passed as a separate positional argument
-        if (packageArgs.Length >= 2 && CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
-            return new ParseError($"Error: '{packageArgs[1]}' looks like a version number. Use '{name}@{packageArgs[1]}' to specify a version.");
+        // Second positional argument: version number → auto-combine, otherwise → type name
+        if (packageArgs.Length >= 2)
+        {
+            if (CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
+                name = $"{packageArgs[0]}@{packageArgs[1]}";
+            else
+                return new RouteToType(packageArgs);
+        }
 
         // Route file paths to the appropriate command
         if (CommandLineHelpers.TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
