@@ -68,7 +68,7 @@ public class SharedOptions
         Select = new Option<string?>("-S")
         {
             Description = "Select sections by name (comma-separated, supports wildcards)",
-            Arity = ArgumentArity.ExactlyOne
+            Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");
         Select.Aliases.Add("-s");
@@ -210,10 +210,16 @@ public class SharedOptions
 
     /// <summary>
     /// Parses discover flag from parse result.
-    /// Returns null if not specified, empty array for bare -D, or populated array with section name.
+    /// Returns null if not specified, empty array for bare -D or bare -S, or populated array with section name.
     /// </summary>
     public string[]? ParseDiscover(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Discover);
+    {
+        var discover = ParseProjectionList(parseResult, Discover);
+        // Bare -S (no value) also triggers section discovery
+        if (discover == null && IsBareFlag(parseResult, Select))
+            return [];
+        return discover;
+    }
 
     /// <summary>
     /// Parses columns list from parse result.
@@ -230,11 +236,15 @@ public class SharedOptions
         => ParseCommaSeparatedList(parseResult.GetValue(Fields));
 
     /// <summary>
-    /// Returns true if -D/--discover flag is present.
+    /// Returns true if -D/--discover flag is present, or bare -S (no value) is used.
     /// </summary>
     public bool IsDiscoveryMode(ParseResult parseResult)
     {
-        return parseResult.GetResult(Discover) is { Implicit: false };
+        if (parseResult.GetResult(Discover) is { Implicit: false })
+            return true;
+
+        // Bare -S (no value) also triggers discovery (lists sections)
+        return IsBareFlag(parseResult, Select);
     }
 
     public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
@@ -246,6 +256,12 @@ public class SharedOptions
         if (values == null && parseResult.GetResult(option) != null)
             return [];
         return values;
+    }
+
+    private static bool IsBareFlag(ParseResult parseResult, Option<string?> option)
+    {
+        return parseResult.GetResult(option) is { Implicit: false } &&
+               string.IsNullOrWhiteSpace(parseResult.GetValue(option));
     }
 
     private static string[]? ParseCommaSeparatedList(string? value)
