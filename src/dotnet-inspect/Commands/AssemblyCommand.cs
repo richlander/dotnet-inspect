@@ -139,12 +139,14 @@ public class AssemblyCommand
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
                 // Check effective sections cache before running full inspection
-                // Only for bare -D --effective; section-specific needs field-level filtering
                 if (effectiveDiscovery && options.Discover is { Length: 0 })
                 {
                     var cached = TryGetCachedEffective(resolvedPath!);
                     if (cached != null)
-                        return RenderEffective(FilterEffective(cached, options), options, userVerbosity);
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                    }
                 }
 
                 var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
@@ -178,12 +180,14 @@ public class AssemblyCommand
                 tempDir = extractTempDir;
 
                 // Check effective sections cache before running full inspection
-                // Only for bare -D --effective; section-specific needs field-level filtering
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0]);
                     if (cached != null)
-                        return RenderEffective(FilterEffective(cached, options), options, userVerbosity);
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                    }
                 }
 
                 // Verify package signature if nupkg is available
@@ -231,12 +235,14 @@ public class AssemblyCommand
                 }
 
                 // Check effective sections cache before running full inspection
-                // Only for bare -D --effective; section-specific needs field-level filtering
                 if (effectiveDiscovery && options.Discover is { Length: 0 })
                 {
                     var cached = TryGetCachedEffective(assemblyPath!);
                     if (cached != null)
-                        return RenderEffective(FilterEffective(cached, options), options, userVerbosity);
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                    }
                 }
 
                 var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
@@ -283,37 +289,59 @@ public class AssemblyCommand
     {
         // Compute unfiltered effective sections at Detailed verbosity for caching
         var allEffective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
-        CacheEffective(assemblyPath, allEffective);
+        var schemaMap = LibrarySections.CreateSchemaMap();
+
+        // Field-level filtering on ALL effective sections (unfiltered) for caching
+        var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
+        CacheEffective(assemblyPath, allEffective, filteredSchema);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
-        var schemaMap = LibrarySections.CreateSchemaMap();
 
-        // Field-level filtering: when -D targets specific sections, detect effective fields
-        if (options.Discover is { Length: > 0 })
-            schemaMap = FilterSchemaToEffectiveFields(inspection, effective, schemaMap, pipeline, options.Discover);
-
-        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
+        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-            verbosity: (int)userVerbosity);
+            verbosity: (int)userVerbosity, rootLabel: rootLabel);
     }
 
     // ── Effective sections cache ──
 
     private const string EffectiveCategory = "effective";
 
-    private static List<string>? TryGetCachedEffective(string assemblyPath)
+    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath)
     {
         string key = GetEffectiveCacheKey(assemblyPath);
-        var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "txt");
+        var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
         if (cached == null) return null;
-        return cached.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        var sections = new List<string>();
+        var schema = new DocumentSchema();
+        foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('\t');
+            var name = parts[0];
+            sections.Add(name);
+            if (parts.Length >= 3)
+                schema.Add(name, parts[1], parts[2].Split(','));
+            else
+                schema.AddSection(name);
+        }
+        return (sections, schema);
     }
 
-    private static void CacheEffective(string assemblyPath, List<string> sections)
+    private static void CacheEffective(string assemblyPath, List<string> sections, DocumentSchema filteredSchema)
     {
         string key = GetEffectiveCacheKey(assemblyPath);
-        CoreCache.Set(EffectiveCategory, key, string.Join('\n', sections), extension: "txt");
+        var sb = new System.Text.StringBuilder();
+        foreach (var name in sections)
+        {
+            var section = filteredSchema.GetSection(name);
+            if (section != null && section.Items.Length > 0)
+                sb.AppendLine($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}");
+            else
+                sb.AppendLine(name);
+        }
+        CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
 
     private static string GetEffectiveCacheKey(string assemblyPath)
@@ -332,12 +360,12 @@ public class AssemblyCommand
         return sections;
     }
 
-    private static int RenderEffective(List<string> effective, AssemblyOptions options, Verbosity userVerbosity = Verbosity.Minimal)
+    private static int RenderEffective(List<string> effective, DocumentSchema schema, AssemblyOptions options,
+        Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
     {
-        var schemaMap = LibrarySections.CreateSchemaMap();
-        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-            verbosity: (int)userVerbosity);
+            verbosity: (int)userVerbosity, rootLabel: rootLabel);
     }
 
     /// <summary>

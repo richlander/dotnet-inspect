@@ -257,13 +257,13 @@ public class PackageCommand
                 var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
                 var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
 
-                // Field-level filtering: when -D targets specific sections, detect effective fields
-                if (options.Discover is { Length: > 0 })
+                // Field-level filtering: detect which fields produced output
+                // For bare -D, target all effective sections; for -D SectionName, target specific ones
+                var discoverTargets = options.Discover is { Length: > 0 } ? options.Discover : effective.ToArray();
                 {
                     var view = new InspectionResultView(result);
-                    // Render only the discovered sections for accurate field detection
                     var targetSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var d in options.Discover)
+                    foreach (var d in discoverTargets)
                     {
                         var resolved = schemaMap.ResolveSection(d);
                         if (resolved != null && effective.Contains(resolved))
@@ -279,7 +279,7 @@ public class PackageCommand
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
-                    verbosity: (int)userVerbosity);
+                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}");
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };

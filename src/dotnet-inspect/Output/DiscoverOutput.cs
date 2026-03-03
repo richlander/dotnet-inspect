@@ -18,7 +18,8 @@ public static class DiscoverOutput
     /// At Detailed verbosity, bare -D auto-promotes to tree (sections → items).
     /// </summary>
     public static int Execute(string[]? discover, DocumentSchema schema,
-        bool tree = false, bool markdown = false, bool json = false, int verbosity = 0)
+        bool tree = false, bool markdown = false, bool json = false, int verbosity = 0,
+        string? rootLabel = null)
     {
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree && discover is { Length: > 0 } && ResolvedSectionCount(discover, schema) > 1)
@@ -29,7 +30,7 @@ public static class DiscoverOutput
             tree = true;
 
         if (tree)
-            return WriteTree(discover, schema);
+            return WriteTree(discover, schema, rootLabel);
 
         var rows = GetDiscoveryRows(discover, schema);
         if (rows == null)
@@ -58,7 +59,8 @@ public static class DiscoverOutput
     /// Runs discovery with effective filtering (only sections with data).
     /// </summary>
     public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
-        bool tree = false, bool markdown = false, bool json = false, int verbosity = 0)
+        bool tree = false, bool markdown = false, bool json = false, int verbosity = 0,
+        string? rootLabel = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -70,7 +72,7 @@ public static class DiscoverOutput
             else
                 filtered.AddSection(name);
         }
-        return Execute(discover, filtered, tree, markdown, json, verbosity);
+        return Execute(discover, filtered, tree, markdown, json, verbosity, rootLabel);
     }
 
     private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema)
@@ -159,7 +161,7 @@ public static class DiscoverOutput
         return null;
     }
 
-    private static int WriteTree(string[]? discover, DocumentSchema schema)
+    private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -208,6 +210,10 @@ public static class DiscoverOutput
                 nodes.Add(new TreeNode(sectionName) { Children = children });
             }
         }
+
+        // Wrap in root node when label is provided and showing full tree
+        if (rootLabel != null && discover is null or { Length: 0 })
+            nodes = [new TreeNode(rootLabel) { Children = nodes }];
 
         var view = new DiscoveryTreeView { Sections = nodes };
         MarkoutSerializer.Serialize(view, Console.Out, DiscoveryContext.Default);
