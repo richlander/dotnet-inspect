@@ -15,12 +15,17 @@ public static class DiscoverOutput
     /// <summary>
     /// Runs discovery and writes output.
     /// Bare -D lists sections. -D SectionName lists items within that section.
+    /// At Detailed verbosity, bare -D auto-promotes to tree (sections → items).
     /// </summary>
     public static int Execute(string[]? discover, DocumentSchema schema,
-        bool tree = false, bool markdown = false, bool json = false)
+        bool tree = false, bool markdown = false, bool json = false, int verbosity = 0)
     {
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree && discover is { Length: > 0 } && ResolvedSectionCount(discover, schema) > 1)
+            tree = true;
+
+        // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
+        if (!tree && discover is null or { Length: 0 } && verbosity >= 3)
             tree = true;
 
         if (tree)

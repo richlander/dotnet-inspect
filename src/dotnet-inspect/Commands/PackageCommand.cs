@@ -37,7 +37,8 @@ public class PackageCommand
         {
             var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
+                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                verbosity: (int)options.Verbosity);
         }
 
         // --effective with -D: run pipeline at Detailed to show sections with data
