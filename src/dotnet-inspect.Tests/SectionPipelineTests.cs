@@ -110,18 +110,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void GetEffectiveSections_ExcludeRemovesSection()
-    {
-        var pipeline = CreateTestPipeline();
-        var model = new TestModel("test", 5);
-        var exclude = new HashSet<string> { "Always" };
-
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed, exclude: exclude);
-
-        Assert.Equal(["Normal", "Detailed"], effective);
-    }
-
-    [Fact]
     public void ComputeIncludeSections_AllEffective_ReturnsNull()
     {
         var pipeline = CreateTestPipeline();

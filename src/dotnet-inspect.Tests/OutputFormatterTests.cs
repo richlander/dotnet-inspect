@@ -80,8 +80,9 @@ public class OutputFormatterTests
     public void SingleAudit_ExcludesSymbols_AtNormalVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
-        var options = new AssemblyOptions();
-        var output = Serialize(inspection, GetLibraryExcludeSections(options));
+        var pipeline = LibrarySections.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(inspection, Verbosity.Normal);
+        var output = SerializeWithInclude(inspection, includeSections);
 
         Assert.DoesNotContain("## Symbols", output);
     }
@@ -90,8 +91,9 @@ public class OutputFormatterTests
     public void SingleAudit_IncludesSymbols_AtDetailedVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
-        var options = new AssemblyOptions { Verbosity = Verbosity.Detailed };
-        var output = Serialize(inspection, GetLibraryExcludeSections(options));
+        var pipeline = LibrarySections.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(inspection, Verbosity.Detailed);
+        var output = SerializeWithInclude(inspection, includeSections);
 
         Assert.Contains("## Symbols", output);
     }
@@ -135,39 +137,17 @@ public class OutputFormatterTests
         };
     }
 
-    private static string Serialize(LibraryInspectionReport report, HashSet<string>? excludeSections = null)
+    private static string Serialize(LibraryInspectionReport report)
     {
-        var context = new MarkoutContext(new MarkoutWriterOptions
-        {
-            ExcludeSections = excludeSections
-        });
+        var context = new MarkoutContext();
         return context.Serialize(report).TrimEnd();
     }
 
-    private static string Serialize(LibraryInspection inspection, HashSet<string>? excludeSections = null, bool topFieldsOnly = false)
+    private static string Serialize(LibraryInspection inspection, bool topFieldsOnly = false)
     {
         var view = new LibraryInspectionView(inspection, topFieldsOnly);
-        var context = new MarkoutContext(new MarkoutWriterOptions
-        {
-            ExcludeSections = excludeSections
-        });
+        var context = new MarkoutContext();
         return context.Serialize(view).TrimEnd();
-    }
-
-    // Mirror the logic from OutputFormatter.GetLibraryExcludeSections
-    private static HashSet<string>? GetLibraryExcludeSections(AssemblyOptions options)
-    {
-        HashSet<string> excluded = ["Source Link Audit"];
-
-        if (options.Verbosity != Verbosity.Detailed)
-            excluded.Add("Symbols");
-
-        if (options.IncludeSourcelinkAudit)
-        {
-            excluded.Remove("Source Link Audit");
-        }
-
-        return excluded.Count > 0 ? excluded : null;
     }
 
     // ===== API Output Formatter Tests =====
