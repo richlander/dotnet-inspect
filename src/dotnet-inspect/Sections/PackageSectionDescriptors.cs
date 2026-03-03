@@ -1,4 +1,3 @@
-using Markout;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Views;
@@ -24,28 +23,6 @@ public static class PackageSectionDescriptors
             .Add<RidPackages>()
             .Add<RuntimeDependencies>()
             .Add<Files>();
-    }
-
-    /// <summary>Builds the section schema map for discovery (-D).</summary>
-    public static DocumentSchema CreateSchemaMap()
-    {
-        return new DocumentSchema()
-            .AddSection(PackageSections.Summary)
-            .Add(PackageSections.Package, "field",
-                "Version", "Type", "Size", "TFM", "Built", "Published", "Source",
-                "Authors", "Owners", "License", "Repository", "Verified",
-                "Content", "Target Frameworks", "Runtime Identifiers", "Libraries",
-                "Readme", "Vulnerabilities", "Tool Commands")
-            .Add(PackageSections.Statistics, "field",
-                "Published", "Downloads", "Version Downloads", "Version Count")
-            .Add(PackageSections.PackageDependencies, "column",
-                "Target Framework", "Id", "Version")
-            .Add(PackageSections.Vulnerabilities, "list", "Vulnerability")
-            .Add(PackageSections.RidPackages, "column",
-                "RID", "Package", "Version")
-            .Add(PackageSections.RuntimeDependencies, "column",
-                "Id", "Version", "Type")
-            .Add(PackageSections.Files, "list", "Path");
     }
 
     // ===== Always-on sections (Quiet verbosity) =====

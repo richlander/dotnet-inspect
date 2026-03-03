@@ -4,6 +4,8 @@ using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.CommandLine;
 
@@ -109,7 +111,7 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case TypeOptionsParser.Discovery d:
-                    var typeSchemaMap = ApiTypeSectionDescriptors.CreateSchemaMap();
+                    var typeSchemaMap = MarkoutContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree);
 
                 case TypeOptionsParser.ShowHelp:
@@ -217,7 +219,7 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case MemberOptionsParser.Discovery d:
-                    var memberSchemaMap = ApiMemberSectionDescriptors.CreateSchemaMap();
+                    var memberSchemaMap = MarkoutContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
                     return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree);
 
                 case MemberOptionsParser.ShowHelp:

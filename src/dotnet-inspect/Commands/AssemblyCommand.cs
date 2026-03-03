@@ -23,7 +23,7 @@ public class AssemblyCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        var schemaMap = LibrarySections.CreateSchemaMap();
+        var schemaMap = MarkoutContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
 
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
@@ -282,7 +282,7 @@ public class AssemblyCommand
     {
         // Compute unfiltered effective sections at Detailed verbosity for caching
         var allEffective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
-        var schemaMap = LibrarySections.CreateSchemaMap();
+        var schemaMap = MarkoutContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());

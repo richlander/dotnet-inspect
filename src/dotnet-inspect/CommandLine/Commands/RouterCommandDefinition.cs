@@ -63,7 +63,7 @@ public static class RouterCommandDefinition
 
                 case RouterOptionsParser.Discovery d:
                     // Router-level discovery: show package sections (no input required)
-                    var routerSchemaMap = PackageSectionDescriptors.CreateSchemaMap();
+                    var routerSchemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                     return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree);
 
                 case RouterOptionsParser.ParseError error:

@@ -63,8 +63,8 @@ public class ApiCommand
         if (options.Discover != null)
         {
             // Combine type-list and member-detail schema maps
-            var typeSchemaMap = ApiTypeSectionDescriptors.CreateSchemaMap();
-            var memberSchemaMap = ApiMemberSectionDescriptors.CreateSchemaMap();
+            var typeSchemaMap = MarkoutContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            var memberSchemaMap = MarkoutContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
             // Use combined section names for discovery
             return (null!, DiscoverOutput.Execute(options.Discover, typeSchemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));

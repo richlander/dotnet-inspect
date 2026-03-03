@@ -29,7 +29,7 @@ public class PackageCommand
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null && !options.Effective)
         {
-            var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+            var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
                 verbosity: (int)options.Verbosity);
@@ -58,7 +58,7 @@ public class PackageCommand
         // Pre-render validation: check --fields/--columns names against the section schema
         if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
         {
-            var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+            var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             foreach (var section in options.IncludeSections)
                 ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
         }
@@ -249,7 +249,7 @@ public class PackageCommand
             if (effectiveDiscovery)
             {
                 var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections);
-                var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+                var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
 
                 // Field-level filtering: detect which fields produced output
                 // For bare -D, target all effective sections; for -D SectionName, target specific ones
