@@ -58,7 +58,7 @@ public static class DiscoverOutput
     /// Runs discovery with effective filtering (only sections with data).
     /// </summary>
     public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
-        bool tree = false, bool markdown = false, bool json = false)
+        bool tree = false, bool markdown = false, bool json = false, int verbosity = 0)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -70,7 +70,7 @@ public static class DiscoverOutput
             else
                 filtered.AddSection(name);
         }
-        return Execute(discover, filtered, tree, markdown, json);
+        return Execute(discover, filtered, tree, markdown, json, verbosity);
     }
 
     private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema)

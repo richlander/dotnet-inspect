@@ -50,6 +50,7 @@ public class AssemblyCommand
 
         // --effective with -D: run pipeline at Detailed to show sections with data
         bool effectiveDiscovery = options.Effective && options.Discover != null;
+        var userVerbosity = options.Verbosity; // preserve for display formatting
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
@@ -143,7 +144,7 @@ public class AssemblyCommand
                 {
                     var cached = TryGetCachedEffective(resolvedPath!);
                     if (cached != null)
-                        return RenderEffective(FilterEffective(cached, options), options);
+                        return RenderEffective(FilterEffective(cached, options), options, userVerbosity);
                 }
 
                 var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
@@ -158,7 +159,7 @@ public class AssemblyCommand
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline);
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
@@ -182,7 +183,7 @@ public class AssemblyCommand
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0]);
                     if (cached != null)
-                        return RenderEffective(FilterEffective(cached, options), options);
+                        return RenderEffective(FilterEffective(cached, options), options, userVerbosity);
                 }
 
                 // Verify package signature if nupkg is available
@@ -208,7 +209,7 @@ public class AssemblyCommand
                     insp.Source = SourceKind.NuGet;
 
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline);
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity);
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
@@ -235,7 +236,7 @@ public class AssemblyCommand
                 {
                     var cached = TryGetCachedEffective(assemblyPath!);
                     if (cached != null)
-                        return RenderEffective(FilterEffective(cached, options), options);
+                        return RenderEffective(FilterEffective(cached, options), options, userVerbosity);
                 }
 
                 var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
@@ -248,7 +249,7 @@ public class AssemblyCommand
                 inspection.Source = SourceKind.File;
 
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline);
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity);
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
@@ -278,7 +279,7 @@ public class AssemblyCommand
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
-        AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline)
+        AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
     {
         // Compute unfiltered effective sections at Detailed verbosity for caching
         var allEffective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
@@ -293,7 +294,8 @@ public class AssemblyCommand
             schemaMap = FilterSchemaToEffectiveFields(inspection, effective, schemaMap, pipeline, options.Discover);
 
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
+            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
+            verbosity: (int)userVerbosity);
     }
 
     // ── Effective sections cache ──
@@ -330,11 +332,12 @@ public class AssemblyCommand
         return sections;
     }
 
-    private static int RenderEffective(List<string> effective, AssemblyOptions options)
+    private static int RenderEffective(List<string> effective, AssemblyOptions options, Verbosity userVerbosity = Verbosity.Minimal)
     {
         var schemaMap = LibrarySections.CreateSchemaMap();
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
+            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
+            verbosity: (int)userVerbosity);
     }
 
     /// <summary>

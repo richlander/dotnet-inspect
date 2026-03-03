@@ -43,6 +43,7 @@ public class PackageCommand
 
         // --effective with -D: run pipeline at Detailed to show sections with data
         bool effectiveDiscovery = options.Effective && options.Discover != null;
+        var userVerbosity = options.Verbosity; // preserve for display formatting
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
@@ -277,7 +278,8 @@ public class PackageCommand
                 }
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
+                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                    verbosity: (int)userVerbosity);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
