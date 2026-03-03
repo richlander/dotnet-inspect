@@ -9,7 +9,7 @@ namespace DotnetInspector.Sections;
 public sealed class SectionEntry<TModel>
 {
     public required string Name { get; init; }
-    public required Verbosity MinVerbosity { get; init; }
+    public required bool IsExpensive { get; init; }
     public required string? ScannerKey { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
@@ -17,6 +17,11 @@ public sealed class SectionEntry<TModel>
 /// <summary>
 /// Pipeline that computes the effective set of sections to render
 /// based on registered descriptors, verbosity, and <c>-S</c> filters.
+/// Verbosity is mapped to section selection via two axes:
+/// <list type="bullet">
+///   <item><b>Position</b>: index 0 is the primary section (index 0–1 if the first entry is named "Summary").</item>
+///   <item><b>IsExpensive</b>: sections requiring network or heavy computation are only shown at Detailed.</item>
+/// </list>
 /// </summary>
 public sealed class SectionPipeline<TModel>
 {
@@ -31,7 +36,7 @@ public sealed class SectionPipeline<TModel>
         _entries.Add(new SectionEntry<TModel>
         {
             Name = TDescriptor.Name,
-            MinVerbosity = TDescriptor.MinVerbosity,
+            IsExpensive = TDescriptor.IsExpensive,
             ScannerKey = TDescriptor.ScannerKey,
             CanRender = TDescriptor.CanRender,
         });
@@ -49,9 +54,10 @@ public sealed class SectionPipeline<TModel>
         HashSet<string>? include = null)
     {
         List<string> result = [];
-        foreach (var entry in _entries)
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (!IsRequested(entry, verbosity, include))
+            var entry = _entries[i];
+            if (!IsRequested(entry, i, verbosity, include))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);
@@ -72,9 +78,10 @@ public sealed class SectionPipeline<TModel>
 
         List<string> empty = [];
         int requested = 0;
-        foreach (var entry in _entries)
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (!IsRequested(entry, verbosity, include))
+            var entry = _entries[i];
+            if (!IsRequested(entry, i, verbosity, include))
                 continue;
             requested++;
             if (!entry.CanRender(model))
@@ -120,11 +127,25 @@ public sealed class SectionPipeline<TModel>
         if (include == null || include.Count == 0)
             return Verbosity.Quiet;
 
+        int primaryThreshold = GetPrimaryThreshold();
         var maxVerbosity = Verbosity.Quiet;
-        foreach (var entry in _entries)
+
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (include.Contains(entry.Name) && entry.MinVerbosity > maxVerbosity)
-                maxVerbosity = entry.MinVerbosity;
+            var entry = _entries[i];
+            if (!include.Contains(entry.Name))
+                continue;
+
+            Verbosity required;
+            if (entry.IsExpensive)
+                required = Verbosity.Detailed;
+            else if (i > primaryThreshold)
+                required = Verbosity.Normal;
+            else
+                required = Verbosity.Quiet;
+
+            if (required > maxVerbosity)
+                maxVerbosity = required;
         }
         return maxVerbosity;
     }
@@ -137,24 +158,58 @@ public sealed class SectionPipeline<TModel>
         HashSet<string>? include = null)
     {
         HashSet<string> scanners = [];
-        foreach (var entry in _entries)
+        for (int i = 0; i < _entries.Count; i++)
         {
+            var entry = _entries[i];
             if (entry.ScannerKey == null)
                 continue;
-            if (IsRequested(entry, verbosity, include))
+            if (IsRequested(entry, i, verbosity, include))
                 scanners.Add(entry.ScannerKey);
         }
         return scanners;
     }
 
-    private static bool IsRequested(SectionEntry<TModel> entry, Verbosity verbosity,
+    /// <summary>
+    /// The primary threshold index. Quiet renders no sections (hero line from view model).
+    /// Minimal shows entries at index ≤ this threshold.
+    /// If the first entry is named "Summary" (headless preamble), the threshold is 1
+    /// (Summary + the next entry). Otherwise, the threshold is everything before the
+    /// first expensive entry — or all entries if nothing is expensive.
+    /// </summary>
+    private int GetPrimaryThreshold()
+    {
+        if (_entries.Count == 0)
+            return 0;
+
+        // Summary convention: headless preamble extends primary to include next entry
+        if (_entries[0].Name == "Summary")
+            return Math.Min(1, _entries.Count - 1);
+
+        // Primary is everything before the first expensive entry
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].IsExpensive)
+                return Math.Max(0, i - 1);
+        }
+
+        // No expensive entries: all are primary
+        return _entries.Count - 1;
+    }
+
+    private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
         HashSet<string>? include)
     {
         // Explicit include overrides verbosity
         if (include is { Count: > 0 })
             return include.Contains(entry.Name);
 
-        // Verbosity gate
-        return verbosity >= entry.MinVerbosity;
+        // Verbosity-based selection using position and IsExpensive
+        return verbosity switch
+        {
+            Verbosity.Quiet => false, // Hero line rendered by view model, not sections
+            Verbosity.Minimal => index <= GetPrimaryThreshold(),
+            Verbosity.Normal => !entry.IsExpensive,
+            _ => true, // Detailed: all sections
+        };
     }
 }

@@ -16,7 +16,7 @@ public class SectionPipelineTests
     private sealed class AlwaysSection : ISectionDescriptor<TestModel>
     {
         public static string Name => "Always";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => true;
     }
@@ -24,7 +24,7 @@ public class SectionPipelineTests
     private sealed class DetailedSection : ISectionDescriptor<TestModel>
     {
         public static string Name => "Detailed";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => true;
         public static string? ScannerKey => "DetailedScanner";
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
@@ -32,7 +32,7 @@ public class SectionPipelineTests
     private sealed class NormalSection : ISectionDescriptor<TestModel>
     {
         public static string Name => "Normal";
-        public static Verbosity MinVerbosity => Verbosity.Normal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => "NormalScanner";
         public static bool CanRender(TestModel model) => model.Name != null;
     }
@@ -54,14 +54,15 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void GetEffectiveSections_MinimalVerbosity_ReturnsOnlyMinimalSections()
+    public void GetEffectiveSections_MinimalVerbosity_ReturnsPrimarySections()
     {
         var pipeline = CreateTestPipeline();
         var model = new TestModel("test", 5);
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        Assert.Equal(["Always"], effective);
+        // Primary threshold = 1 (everything before first expensive at index 2)
+        Assert.Equal(["Always", "Normal"], effective);
     }
 
     [Fact]
@@ -126,11 +127,13 @@ public class SectionPipelineTests
         var pipeline = CreateTestPipeline();
         var model = new TestModel("test", 5);
 
+        // At Minimal, primary sections (Always + Normal) are effective but not Detailed
         var result = pipeline.ComputeIncludeSections(model, Verbosity.Minimal);
 
         Assert.NotNull(result);
-        Assert.Single(result);
         Assert.Contains("Always", result);
+        Assert.Contains("Normal", result);
+        Assert.DoesNotContain("Detailed", result);
     }
 
     [Fact]
@@ -168,13 +171,13 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void GetRequiredVerbosity_MinimalSection_ReturnsMinimal()
+    public void GetRequiredVerbosity_PrimarySection_ReturnsQuiet()
     {
         var pipeline = CreateTestPipeline();
 
         var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Always" });
 
-        Assert.Equal(Verbosity.Minimal, verbosity);
+        Assert.Equal(Verbosity.Quiet, verbosity);
     }
 
     [Fact]
@@ -226,29 +229,32 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Quiet);
 
+        // Quiet renders hero line via view model, pipeline returns no sections
         Assert.Empty(effective);
     }
 
     [Fact]
-    public void LibraryPipeline_CustomAttributesRequiresDetailed()
+    public void LibraryPipeline_CustomAttributesRequiresNormal()
     {
         var pipeline = LibrarySections.CreatePipeline();
 
         var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Custom Attributes" });
 
-        Assert.Equal(Verbosity.Detailed, verbosity);
+        Assert.Equal(Verbosity.Normal, verbosity);
     }
 
     // ===== Scanner tests =====
 
     [Fact]
-    public void GetRequiredScanners_MinimalVerbosity_ReturnsEmpty()
+    public void GetRequiredScanners_MinimalVerbosity_ReturnsPrimaryScanners()
     {
         var pipeline = CreateTestPipeline();
 
         var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal);
 
-        Assert.Empty(scanners);
+        // NormalSection (index 1) is within primary threshold, has ScannerKey
+        Assert.Single(scanners);
+        Assert.Contains("NormalScanner", scanners);
     }
 
     [Fact]
@@ -529,15 +535,15 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Quiet_OnlySummary()
+    public void PackagePipeline_Quiet_NoSections()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Quiet);
 
-        Assert.Single(effective);
-        Assert.Equal("Summary", effective[0]);
+        // Quiet renders hero line via view model, pipeline returns no sections
+        Assert.Empty(effective);
     }
 
     [Fact]
@@ -561,7 +567,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Minimal_ShowsRidPackagesWhenPresent()
+    public void PackagePipeline_Normal_ShowsRidPackagesWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -571,13 +577,13 @@ public class SectionPipelineTests
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
         Assert.Contains("RID Packages", effective);
     }
 
     [Fact]
-    public void PackagePipeline_Minimal_ShowsRuntimeDepsWhenPresent()
+    public void PackagePipeline_Normal_ShowsRuntimeDepsWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -587,7 +593,7 @@ public class SectionPipelineTests
             RuntimeDependencies = [new PackageDependency { Id = "Dep", Version = "1.0.0" }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
         Assert.Contains("Runtime Dependencies", effective);
     }
@@ -700,7 +706,7 @@ public class SectionPipelineTests
 
         var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Package" });
 
-        Assert.Equal(Verbosity.Minimal, required);
+        Assert.Equal(Verbosity.Quiet, required);
     }
 
     [Fact]
@@ -786,7 +792,7 @@ public class SectionPipelineTests
             ]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
         Assert.Equal(5, effective.Count);
     }
@@ -822,7 +828,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberPipeline_EnumValues_RequiresNormalVerbosity()
+    public void ApiMemberPipeline_EnumValues_PrimaryAtMinimal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -834,12 +840,13 @@ public class SectionPipelineTests
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
         var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        Assert.DoesNotContain("Values", atMinimal);
+        // Values is index 0 (primary) — shown at Minimal for enums
+        Assert.Contains("Values", atMinimal);
         Assert.Contains("Values", atNormal);
     }
 
     [Fact]
-    public void ApiMemberPipeline_TypeParameters_RequiresNormalVerbosity()
+    public void ApiMemberPipeline_TypeParameters_ShowsAtMinimal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -849,14 +856,13 @@ public class SectionPipelineTests
         };
 
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
-        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        Assert.DoesNotContain("Type Parameters", atMinimal);
-        Assert.Contains("Type Parameters", atNormal);
+        // TypeParameters is within primary threshold (before first expensive)
+        Assert.Contains("Type Parameters", atMinimal);
     }
 
     [Fact]
-    public void ApiMemberPipeline_Interfaces_RequiresDetailedVerbosity()
+    public void ApiMemberPipeline_Interfaces_ShowsAtMinimal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -865,11 +871,10 @@ public class SectionPipelineTests
             Interfaces = ["IDisposable"]
         };
 
-        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
-        var atDetailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        Assert.DoesNotContain("Interfaces", atNormal);
-        Assert.Contains("Interfaces", atDetailed);
+        // Interfaces is within primary threshold (before first expensive)
+        Assert.Contains("Interfaces", atMinimal);
     }
 
     [Fact]
@@ -889,7 +894,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberPipeline_MemberSections_AtMinimal()
+    public void ApiMemberPipeline_MemberSections_AtNormal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -903,7 +908,7 @@ public class SectionPipelineTests
             ]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
         Assert.Contains("Constructors", effective);
         Assert.Contains("Properties", effective);
@@ -917,9 +922,10 @@ public class SectionPipelineTests
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
 
+        // Interfaces is within primary threshold — no promotion needed
         var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Interfaces" });
 
-        Assert.Equal(Verbosity.Detailed, required);
+        Assert.Equal(Verbosity.Quiet, required);
     }
 
     [Fact]
@@ -934,10 +940,7 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        // Remote Source section requires Normal+ verbosity (no network at Minimal)
-        Assert.DoesNotContain("Remote Source", effective);
-
-        effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        // Remote Source is within primary threshold (before first expensive)
         Assert.Contains("Remote Source", effective);
     }
 }
