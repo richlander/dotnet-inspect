@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -136,7 +137,8 @@ public class AssemblyCommand
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery)
+                // Only for bare -D --effective; section-specific needs field-level filtering
+                if (effectiveDiscovery && options.Discover is { Length: 0 })
                 {
                     var cached = TryGetCachedEffective(resolvedPath!);
                     if (cached != null)
@@ -174,7 +176,8 @@ public class AssemblyCommand
                 tempDir = extractTempDir;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && assemblyPaths.Count > 0)
+                // Only for bare -D --effective; section-specific needs field-level filtering
+                if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0]);
                     if (cached != null)
@@ -226,7 +229,8 @@ public class AssemblyCommand
                 }
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery)
+                // Only for bare -D --effective; section-specific needs field-level filtering
+                if (effectiveDiscovery && options.Discover is { Length: 0 })
                 {
                     var cached = TryGetCachedEffective(assemblyPath!);
                     if (cached != null)
@@ -281,7 +285,14 @@ public class AssemblyCommand
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
-        return RenderEffective(effective, options);
+        var schemaMap = LibrarySections.CreateSchemaMap();
+
+        // Field-level filtering: when -D targets specific sections, detect effective fields
+        if (options.Discover is { Length: > 0 })
+            schemaMap = FilterSchemaToEffectiveFields(inspection, effective, schemaMap, pipeline, options.Discover);
+
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
+            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
     }
 
     // ── Effective sections cache ──
@@ -323,6 +334,53 @@ public class AssemblyCommand
         var schemaMap = LibrarySections.CreateSchemaMap();
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
             tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown);
+    }
+
+    /// <summary>
+    /// Renders the targeted sections and filters the schema to only fields that produced output.
+    /// </summary>
+    private static DocumentSchema FilterSchemaToEffectiveFields(LibraryInspection inspection,
+        List<string> effectiveSections, DocumentSchema schema, SectionPipeline<LibraryInspection> pipeline,
+        string[] discover)
+    {
+        // Resolve which sections are being discovered
+        var targetSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in discover)
+        {
+            var resolved = schema.ResolveSection(d);
+            if (resolved != null && effectiveSections.Contains(resolved))
+                targetSections.Add(resolved);
+        }
+        if (targetSections.Count == 0) return schema;
+
+        var view = new LibraryInspectionView(inspection);
+        var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
+        var rendered = new MarkoutContext(writerOpts).Serialize(view);
+
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
+        {
+            var section = schema.GetSection(name);
+            if (section == null) { filtered.AddSection(name); continue; }
+
+            // Only filter fields for discovered sections; keep others intact
+            if (!targetSections.Contains(name))
+            {
+                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
+                continue;
+            }
+
+            var effectiveItems = section.Items
+                .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Name)
+                .ToArray();
+
+            if (effectiveItems.Length > 0)
+                filtered.Add(name, section.ItemKind, effectiveItems);
+            else
+                filtered.AddSection(name);
+        }
+        return filtered;
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,

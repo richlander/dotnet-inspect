@@ -254,6 +254,27 @@ public class PackageCommand
             {
                 var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
                 var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
+
+                // Field-level filtering: when -D targets specific sections, detect effective fields
+                if (options.Discover is { Length: > 0 })
+                {
+                    var view = new InspectionResultView(result);
+                    // Render only the discovered sections for accurate field detection
+                    var targetSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var d in options.Discover)
+                    {
+                        var resolved = schemaMap.ResolveSection(d);
+                        if (resolved != null && effective.Contains(resolved))
+                            targetSections.Add(resolved);
+                    }
+                    if (targetSections.Count > 0)
+                    {
+                        var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
+                        var rendered = new MarkoutContext(writerOpts).Serialize(view);
+                        schemaMap = FilterSchemaToEffectiveFields(effective, schemaMap, rendered);
+                    }
+                }
+
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput);
             }
@@ -379,6 +400,28 @@ public class PackageCommand
                     .ToList();
             }
         }
+    }
+
+    private static DocumentSchema FilterSchemaToEffectiveFields(
+        List<string> effectiveSections, DocumentSchema schema, string rendered)
+    {
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
+        {
+            var section = schema.GetSection(name);
+            if (section == null) { filtered.AddSection(name); continue; }
+
+            var effectiveItems = section.Items
+                .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Name)
+                .ToArray();
+
+            if (effectiveItems.Length > 0)
+                filtered.Add(name, section.ItemKind, effectiveItems);
+            else
+                filtered.AddSection(name);
+        }
+        return filtered;
     }
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
