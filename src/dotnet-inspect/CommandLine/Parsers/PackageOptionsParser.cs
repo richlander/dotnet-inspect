@@ -77,7 +77,6 @@ public static class PackageOptionsParser
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),

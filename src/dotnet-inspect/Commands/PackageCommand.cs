@@ -26,12 +26,6 @@ public class PackageCommand
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
 
-        // Validate exclude section filters
-        var (_, resolvedExclude) = SectionRegistry.ResolveFilters(
-            sectionNames, null, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { ExcludeSections = resolvedExclude };
-
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null && !options.Effective)
         {
@@ -254,7 +248,7 @@ public class PackageCommand
             // Output results
             if (effectiveDiscovery)
             {
-                var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+                var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections);
                 var schemaMap = PackageSectionDescriptors.CreateSchemaMap();
 
                 // Field-level filtering: detect which fields produced output
@@ -378,10 +372,9 @@ public class PackageCommand
     }
 
     private static void WarnEmptySections(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult>? pipeline)
+        SectionPipeline<InspectionResult> pipeline)
     {
-        if (pipeline == null) return;
-        var (empty, requested) = pipeline.GetEmptySections(result, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        var (empty, requested) = pipeline.GetEmptySections(result, options.Verbosity, options.IncludeSections);
         if (empty.Count > 0 && empty.Count == requested)
         {
             var label = empty.Count == 1 ? "section has" : "sections have";

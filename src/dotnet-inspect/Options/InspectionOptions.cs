@@ -103,11 +103,6 @@ public record InspectionOptions
     public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
-    /// Sections to exclude by heading name.
-    /// </summary>
-    public HashSet<string>? ExcludeSections { get; init; }
-
-    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

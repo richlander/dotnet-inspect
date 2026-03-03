@@ -23,13 +23,6 @@ public class AssemblyCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        // Validate section filters
-        // Validate exclude section filters
-        var (_, resolvedExclude) = SectionRegistry.ResolveFilters(
-            pipeline.AllSectionNames, null, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { ExcludeSections = resolvedExclude };
-
         var schemaMap = LibrarySections.CreateSchemaMap();
 
         // Discovery mode: -D/--discover lists schema
@@ -96,7 +89,7 @@ public class AssemblyCommand
 
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            options.Verbosity, options.IncludeSections);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -355,8 +348,6 @@ public class AssemblyCommand
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
-        if (options.ExcludeSections is { Count: > 0 })
-            sections = sections.Where(s => !options.ExcludeSections.Contains(s)).ToList();
         return sections;
     }
 
@@ -418,7 +409,7 @@ public class AssemblyCommand
     private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
         if (empty.Count > 0 && empty.Count == requested)
         {
             var label = empty.Count == 1 ? "section has" : "sections have";

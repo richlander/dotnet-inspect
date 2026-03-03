@@ -23,12 +23,6 @@ public class SharedOptions
     public Option<int?> Limit { get; } = new("-n") { Description = "Limit output lines (like head -n)" };
     public Option<string?> Tips { get; }
 
-    // Section filtering options
-    public Option<string?> ExcludeSections { get; } = new("-x")
-    {
-        Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
-    };
-
     // Discovery option
     public Option<string?> Discover { get; }
 
@@ -118,7 +112,6 @@ public class SharedOptions
     public void AddSectionOptionsTo(Command command)
     {
         command.Options.Add(Discover);
-        command.Options.Add(ExcludeSections);
         command.Options.Add(Select);
         command.Options.Add(Columns);
         command.Options.Add(Fields);
@@ -181,12 +174,6 @@ public class SharedOptions
     /// </summary>
     public TipLevel ParseTipLevel(ParseResult parseResult)
         => OptionParsers.ParseTipLevel(parseResult.GetValue(Tips), parseResult.GetResult(Tips) != null);
-
-    /// <summary>
-    /// Parses exclude sections from parse result.
-    /// </summary>
-    public HashSet<string>? ParseExcludeSections(ParseResult parseResult)
-        => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
 
     /// <summary>
     /// Resolves the output format from parse result.

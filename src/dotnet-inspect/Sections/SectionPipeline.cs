@@ -16,7 +16,7 @@ public sealed class SectionEntry<TModel>
 
 /// <summary>
 /// Pipeline that computes the effective set of sections to render
-/// based on registered descriptors, verbosity, and <c>-s</c>/<c>-x</c> filters.
+/// based on registered descriptors, verbosity, and <c>-S</c> filters.
 /// </summary>
 public sealed class SectionPipeline<TModel>
 {
@@ -43,15 +43,15 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>
     /// Returns the names of sections that would produce output for the given model,
-    /// filtered by verbosity and <c>-s</c>/<c>-x</c>.
+    /// filtered by verbosity and <c>-S</c>.
     /// </summary>
     public List<string> GetEffectiveSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
         List<string> result = [];
         foreach (var entry in _entries)
         {
-            if (!IsRequested(entry, verbosity, include, exclude))
+            if (!IsRequested(entry, verbosity, include))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);
@@ -65,7 +65,7 @@ public sealed class SectionPipeline<TModel>
     /// Empty when no explicit include was set or all requested sections have data.
     /// </summary>
     public (List<string> Empty, int RequestedCount) GetEmptySections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
         if (include is not { Count: > 0 })
             return ([], 0);
@@ -74,7 +74,7 @@ public sealed class SectionPipeline<TModel>
         int requested = 0;
         foreach (var entry in _entries)
         {
-            if (!IsRequested(entry, verbosity, include, exclude))
+            if (!IsRequested(entry, verbosity, include))
                 continue;
             requested++;
             if (!entry.CanRender(model))
@@ -85,7 +85,7 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>
     /// Lists sections that have content at <see cref="Verbosity.Detailed"/>.
-    /// Used by bare <c>-s</c> with input to discover which sections have data.
+    /// Used by bare <c>-S</c> with input to discover which sections have data.
     /// </summary>
     public void ListEffectiveSections(TModel model)
     {
@@ -99,9 +99,9 @@ public sealed class SectionPipeline<TModel>
     /// all sections should be rendered (no filtering needed).
     /// </summary>
     public HashSet<string>? ComputeIncludeSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
-        var effective = GetEffectiveSections(model, verbosity, include, exclude);
+        var effective = GetEffectiveSections(model, verbosity, include);
 
         // If all registered sections are effective, no filter needed
         if (effective.Count == _entries.Count)
@@ -113,7 +113,7 @@ public sealed class SectionPipeline<TModel>
     /// <summary>
     /// Returns the minimum verbosity needed to show all sections in the
     /// <paramref name="include"/> set. Used to auto-promote verbosity when
-    /// <c>-s</c> targets specific sections.
+    /// <c>-S</c> targets specific sections.
     /// </summary>
     public Verbosity GetRequiredVerbosity(HashSet<string>? include)
     {
@@ -134,29 +134,25 @@ public sealed class SectionPipeline<TModel>
     /// Sections with a null scanner key are always collected and not included.
     /// </summary>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
         HashSet<string> scanners = [];
         foreach (var entry in _entries)
         {
             if (entry.ScannerKey == null)
                 continue;
-            if (IsRequested(entry, verbosity, include, exclude))
+            if (IsRequested(entry, verbosity, include))
                 scanners.Add(entry.ScannerKey);
         }
         return scanners;
     }
 
     private static bool IsRequested(SectionEntry<TModel> entry, Verbosity verbosity,
-        HashSet<string>? include, HashSet<string>? exclude)
+        HashSet<string>? include)
     {
         // Explicit include overrides verbosity
         if (include is { Count: > 0 })
             return include.Contains(entry.Name);
-
-        // Explicit exclude
-        if (exclude?.Contains(entry.Name) == true)
-            return false;
 
         // Verbosity gate
         return verbosity >= entry.MinVerbosity;

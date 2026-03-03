@@ -40,7 +40,7 @@ public class ApiCommand
             OneLine = options.OneLine, OneLineExplicitlySet = options.OneLineExplicitlySet,
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
-            IncludeSections = options.IncludeSections, ExcludeSections = options.ExcludeSections,
+            IncludeSections = options.IncludeSections,
             Select = options.Select, Columns = options.Columns, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
         })
@@ -55,15 +55,9 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
-        // Validate exclude section filters against all known api sections
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
-        var (_, resolvedExclude) = SectionRegistry.ResolveFilters(
-            allApiSections, null, options.ExcludeSections, out var sectionError);
-        if (sectionError)
-            return (null!, 1);
-        options = options with { ExcludeSections = resolvedExclude };
 
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)

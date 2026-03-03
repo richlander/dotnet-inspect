@@ -166,7 +166,6 @@ public static class MemberOptionsParser
             ParamTypes = SharedParsers.ParseParamTypes(parseResult.GetValue(args.ParamsOption)),
             FirstParamType = parseResult.GetValue(args.OfOption),
             ShowSelect = parseResult.GetValue(args.SelectOption),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),

@@ -46,7 +46,6 @@ public record ApiOptions
     public HashSet<string> KindFilter { get; init; } = [];
     public bool UnsafeOnly { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
-    public HashSet<string>? ExcludeSections { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }

@@ -178,7 +178,6 @@ public static class InspectionCommandDefinitions
                 OneLine = opts.ResolveFormat(parseResult) == OutputFormat.OneLine,
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = opts.ParseSelect(parseResult),

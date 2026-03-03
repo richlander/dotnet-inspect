@@ -115,7 +115,7 @@ public static class ApiOutputFormatter
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
-            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            api, options.Verbosity, options.IncludeSections);
 
         return new MarkoutWriterOptions
         {
@@ -187,7 +187,7 @@ public static class ApiOutputFormatter
 
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections, options.ExcludeSections);
+            type, effectiveVerbosity, options.IncludeSections);
 
         return new MarkoutWriterOptions
         {

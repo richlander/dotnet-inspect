@@ -147,9 +147,11 @@ public static class MemberCommand
 
                 var selected = overloads[idx - 1];
                 apiType.Members = [selected];
-                var exclude = effectiveOptions.ExcludeSections ?? [];
-                exclude.Add("Remote Source");
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath, ExcludeSections = exclude };
+                // Exclude "Remote Source" for single-overload view by computing include set
+                var memberSections = ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames;
+                var include = effectiveOptions.IncludeSections ?? new HashSet<string>(memberSections, StringComparer.OrdinalIgnoreCase);
+                include.Remove(SectionNames.RemoteSource);
+                effectiveOptions = effectiveOptions with { DllPath = apiDllPath, IncludeSections = include };
             }
 
             // --params / -of: select overload by parameter type matching
@@ -204,12 +206,14 @@ public static class MemberCommand
 
                 var (selectedMember, overloadIdx) = matches[0];
                 apiType.Members = [selectedMember];
-                var excludeSections = effectiveOptions.ExcludeSections ?? [];
-                excludeSections.Add("Remote Source");
+                // Exclude "Remote Source" for single-overload view by computing include set
+                var memberSections = ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames;
+                var includeSections = effectiveOptions.IncludeSections ?? new HashSet<string>(memberSections, StringComparer.OrdinalIgnoreCase);
+                includeSections.Remove(SectionNames.RemoteSource);
                 effectiveOptions = effectiveOptions with
                 {
                     DllPath = apiDllPath,
-                    ExcludeSections = excludeSections,
+                    IncludeSections = includeSections,
                     OverloadIndex = overloadIdx + 1
                 };
             }

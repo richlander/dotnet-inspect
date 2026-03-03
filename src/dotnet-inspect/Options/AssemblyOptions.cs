@@ -93,11 +93,6 @@ public record AssemblyOptions
     public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
-    /// Sections to exclude by heading name.
-    /// </summary>
-    public HashSet<string>? ExcludeSections { get; init; }
-
-    /// <summary>
     /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
     /// </summary>
     public string[]? Discover { get; init; }
