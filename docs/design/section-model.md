@@ -8,16 +8,17 @@ There are three major aspects in play:
 - Filter (data to shave off / retain)
 - How to render the data
 
-## Scoping
+## Query paths
 
-Scope plays two different ways:
+There are three query paths, each offering a different level of curation and customization:
 
-- section queries
-- curated queries, primarily set via verbosity
+1. **Verbosity** (curation) — `-v:q`, `-v:m`, `-v:n`, `-v:d` select curated presets that control which sections appear, which fields are shown, and how they render. This is the opinionated path: the tool decides what matters at each level.
 
-The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told for the specific sections requesting. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
+2. **Selection** (customize which curated sections to display) — `-S <name>` picks specific sections by name, with glob and comma support. This gives you control over *which* sections appear while keeping the curated field sets and formatting within each section.
 
-You can ask for the inventory of available sections for a given command. In this case, we're asking the "router" (default) command.
+3. **Discovery + projection** (complete customization) — `-D <section>` drills into a section's schema, then `--fields` or `--columns` projects exactly the fields or columns you want. This is the power-user path. Note that the current UX only allows showing one section at a time when using field or column projection.
+
+These paths share a common starting point: both bare `-S` and bare `-D` list the available sections, so you can orient yourself before choosing a path.
 
 ```bash=
 $ dotnet run --project src/dotnet-inspect -- System.CommandLine -S
@@ -30,14 +31,20 @@ Runtime Dependencies     section
 Files                    section
 ```
 
-Note: This content should be itself be data and printable with any of the renderers using the same system as "actual data". I consider this view to be oneline + no-heading. One can imagine either of the following (which would include a heading).
+The same output is produced by `-D` with no argument.
+
+The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told the specific sections being requested. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
+
+Note: This content should itself be data and printable with any of the renderers using the same system as "actual data". I consider this view to be oneline + no-heading. One can imagine either of the following (which would include a heading).
 
 ```bash=
 dotnet run --project src/dotnet-inspect -- System.CommandLine -S --markdown
 dotnet run --project src/dotnet-inspect -- System.CommandLine -S --json
 ```
 
-The following prints a section.
+## Section selection
+
+The following selects and prints a section.
 
 ```bash=
 $ dotnet run --project src/dotnet-inspect -- System.CommandLine -S Package
@@ -92,13 +99,13 @@ You can then filter the section.
 dotnet run --project src/dotnet-inspect -- System.CommandLine -S Package --fields "Version,License,Read*"
 ```
 
-We dont' currently have support for specifying multiple sections and using field selection.
+## Field and column discovery
+
+You can drill into a section's schema with `-D <section>` to discover what fields or columns are available. This is the entry point for the third query path — complete customization. Note that we don't currently support specifying multiple sections with field or column projection.
 
 ## Verbosity queries
 
-The other option is the curated verbosity queries. These mix query and formattting.
-
-The following is the quiet verbosity command for a package.
+The first query path is the curated verbosity presets. These mix query and formatting.
 
 ```bash=
 $ dotnet run --project src/dotnet-inspect -- System.CommandLine -v:q
@@ -141,18 +148,7 @@ Support for parsing command lines, supporting both POSIX and Windows conventions
 | Readme | Yes |
 ```
 
-The detailed view prints all the sections available.
-
-```bash=
-$ dotnet run --project src/dotnet-inspect -- System.CommandLine -S
-Package                  section
-Statistics               section
-Package Dependencies     section
-Vulnerabilities          section
-RID Packages             section
-Runtime Dependencies     section
-Files                    section
-```
+The detailed verbosity (`-v:d`) prints all sections. This is the curated equivalent of bare `-S` — both show you the full set, but `-v:d` runs the full pipeline with opinionated rendering.
 
 Each view can be paired with a formatter
 
