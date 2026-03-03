@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.CommandLine.Help;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Views;
 using Markout;
 
@@ -29,29 +31,12 @@ public class CliSchemaCommand
                 verbosity = Verbosity.Detailed;
         }
 
-        // Quiet: single command shows description + flags, all commands shows space-separated names
+        // Quiet: use DocumentSchema + DiscoverOutput for consistent oneline output
         if (verbosity == Verbosity.Quiet)
         {
-            if (!string.IsNullOrEmpty(commandFilter))
-            {
-                var cmd = commands[0];
-                var label = cmd.Name;
-                if (!string.IsNullOrEmpty(cmd.Description))
-                    label += $"  {cmd.Description}";
-                Console.WriteLine(label);
-
-                var flags = cmd.Options
-                    .Where(o => !o.Hidden && o is not HelpOption)
-                    .Select(o => o.Name)
-                    .ToList();
-                if (flags.Count > 0)
-                    Console.WriteLine(string.Join(" ", flags));
-            }
-            else
-            {
-                Console.WriteLine(string.Join(" ", commands.Select(c => c.Name)));
-            }
-            return 0;
+            var schema = rootCommand.ToDocumentSchema();
+            var discover = !string.IsNullOrEmpty(commandFilter) ? new[] { commandFilter } : null;
+            return DiscoverOutput.Execute(discover, schema);
         }
 
         var nodes = commands.Select(c => BuildCommandNode(c, verbosity)).ToList();
