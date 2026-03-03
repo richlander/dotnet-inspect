@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Metadata;
 using DotnetInspector.Views;
 using Markout;
 
@@ -108,10 +107,8 @@ public static class DiscoverOutput
         int count = 0;
         foreach (var name in discover)
         {
-            if (schema.ResolveSection(name) != null)
-                count++;
-            else if ((name.Contains('*') || name.Contains('?')) &&
-                     schema.SectionNames.Any(s => TypeMatcher.MatchesGlob(s, name)))
+            var (matches, _) = SelectResolver.ResolveSingle(name, schema.SectionNames, singleGlob: true);
+            if (matches.Count == 1)
                 count++;
         }
         return count;
@@ -123,41 +120,32 @@ public static class DiscoverOutput
     /// </summary>
     private static string? ResolveDiscoverSection(string name, DocumentSchema schema)
     {
-        // Try exact match first
-        var resolved = schema.ResolveSection(name);
-        if (resolved != null)
-            return resolved;
+        var (matches, miss) = SelectResolver.ResolveSingle(name, schema.SectionNames, singleGlob: true);
 
-        // Try glob match
-        if (name.Contains('*') || name.Contains('?'))
+        if (miss == null && matches.Count == 1)
+            return matches[0];
+
+        // Multi-glob match: the miss contains the matches as suggestions
+        if (miss != null && miss.IsGlob && matches.Count > 1)
         {
-            var matches = schema.SectionNames
-                .Where(s => TypeMatcher.MatchesGlob(s, name))
-                .ToList();
+            Console.Error.WriteLine($"Error: '{name}' matches {matches.Count} sections: {string.Join(", ", matches)}.");
+            Console.Error.WriteLine("Discovery requires exactly one section. Be more specific.");
+            return null;
+        }
 
-            if (matches.Count == 1)
-                return matches[0];
-
-            if (matches.Count > 1)
+        // No match — write error with suggestions
+        if (miss != null)
+        {
+            Console.Error.WriteLine($"Error: Section '{miss.Value}' not found.");
+            if (miss.Suggestions.Count > 0)
             {
-                Console.Error.WriteLine($"Error: '{name}' matches {matches.Count} sections: {string.Join(", ", matches)}.");
-                Console.Error.WriteLine("Discovery requires exactly one section. Be more specific.");
-                return null;
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Did you mean:");
+                foreach (var s in miss.Suggestions)
+                    Console.Error.WriteLine($"  {s}");
             }
         }
 
-        // No match — show suggestions
-        Console.Error.WriteLine($"Error: Section '{name}' not found.");
-        var suggestions = schema.SectionNames
-            .Where(s => s.StartsWith(name, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (suggestions.Count > 0)
-        {
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Did you mean:");
-            foreach (var s in suggestions)
-                Console.Error.WriteLine($"  {s}");
-        }
         return null;
     }
 
