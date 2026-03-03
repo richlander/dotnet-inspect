@@ -21,7 +21,7 @@
 | `find` command | ec02273 | 0.2.x | ✓ | Search for types across packages and assemblies |
 | `extensions` command | 8f48d5e | 0.2.x | ✓ | Find extension methods for a type |
 | `implements` command | 7a59766 | 0.1.x | ✓ | Find types implementing an interface |
-| `cli` command | b2bb428 | 0.2.x | ✓ | Display CLI structure as API listing |
+| `cli` command | b2bb428 | 0.2.x | ✓ | Display CLI structure as API listing (now `--help -v`) |
 | `skill` command | 385ba19 | 0.2.x | ✓ | Print SKILL.md for Claude Code |
 | `demo` command | c378030 | 0.4.0 | ✓ | Run curated demo queries |
 | `depends` command | c378030 | 0.4.0 | ✓ | Walk type dependency graphs upward |

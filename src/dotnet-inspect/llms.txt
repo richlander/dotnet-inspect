@@ -22,7 +22,7 @@ dotnet-inspect implements Stream                    # Interface implementers
 dotnet-inspect depends 'INumber<TSelf>'              # Type dependency hierarchy
 dotnet-inspect samples Markout MarkoutWriter        # Code samples
 dotnet-inspect demo list                            # Curated showcase queries
-dotnet-inspect cli                                  # CLI args explorer
+dotnet-inspect -v:n                                 # CLI tree view (args explorer)
 ```
 
 ## LLM Usage Guide
@@ -457,15 +457,15 @@ dotnet-inspect cache                                # Show cache size breakdown
 dotnet-inspect cache --clean                        # Clear the cache
 ```
 
-### cli
+### Help Tree View
 
-CLI args explorer — tree view of command structure.
+CLI args explorer — tree view of command structure via `-v` on the root command.
 
 ```bash
-dotnet-inspect cli                                  # Tree view (single level)
-dotnet-inspect cli -v:d                             # Deep view (all levels)
-dotnet-inspect cli -v:q                             # Command names only (oneliner)
-dotnet-inspect cli type                             # Explore args for specific command
+dotnet-inspect -v:m                                 # Tree view (command names + descriptions)
+dotnet-inspect -v:n                                 # Tree view (commands, args, options)
+dotnet-inspect -v:d                                 # Deep view (all levels with descriptions)
+dotnet-inspect -v:q                                 # Command names only (oneliner)
 ```
 
 ## Output Control

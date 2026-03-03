@@ -85,7 +85,7 @@ Each eval scenario uses the `prompt` → `bash` → `expect` pattern:
 ### Running an eval
 
 1. Parse `prompt` blocks as eval inputs.
-2. Give the LLM the prompt + tool description (from `dotnet-inspect cli`).
+2. Give the LLM the prompt + tool description (from `dotnet-inspect -v:d`).
 3. Check if the LLM produces a command matching or equivalent to the `bash` block.
 4. Run the command and verify `expect` assertions against output.
 5. Score: correct command + passing assertions = pass.

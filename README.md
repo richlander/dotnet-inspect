@@ -28,7 +28,6 @@ dnx dotnet-inspect -y -- <command>
 | `find X` | Search for types across packages, frameworks, and local assets |
 | `samples X` | Fetch and display code samples |
 | `platform` | List installed frameworks |
-| `cli` | CLI args explorer (tree view) |
 
 ### Bare Names
 
@@ -224,12 +223,13 @@ dotnet-inspect cache                                # Show cache size breakdown
 dotnet-inspect cache --clean                        # Clear the cache
 ```
 
-### cli
+### Help Tree View
 
 ```bash
-dotnet-inspect cli                                  # Tree view (single level)
-dotnet-inspect cli -v:d                             # Deep view (all levels)
-dotnet-inspect cli api                              # Specific command with options
+dotnet-inspect -v:m                                 # Tree view (command names + descriptions)
+dotnet-inspect -v:n                                 # Tree view (commands, args, options)
+dotnet-inspect -v:d                                 # Deep view (all levels with descriptions)
+dotnet-inspect -v:q                                 # Command names only (oneliner)
 ```
 
 ## Output Control

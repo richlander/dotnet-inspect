@@ -214,9 +214,9 @@ User input: -S Package --fields Authors,Owners
 
 Steps 4 and 6 are what schema querying adds. Steps 1-3 and 5 are unchanged.
 
-## The `cli` command as second consumer
+## The help tree view as second consumer
 
-The `cli` command already displays command structure as a tree. It has its own schema — commands have arguments and options. Using Markout's schema query:
+The help tree view (triggered by `dotnet-inspect -v`) already displays command structure as a tree. It has its own schema — commands have arguments and options. Using Markout's schema query:
 
 ```csharp
 var cliSchema = new DocumentSchema()
@@ -228,9 +228,8 @@ var cliSchema = new DocumentSchema()
 Then `-D`, `-S`, `--fields`, and diagnostics would work identically for CLI introspection:
 
 ```bash
-dotnet-inspect cli -D              # list commands (sections)
-dotnet-inspect cli -D package      # list options for package command
-dotnet-inspect cli -S package      # show full command help
+dotnet-inspect -v -D              # list commands (sections)
+dotnet-inspect -v -D package      # list options for package command
 ```
 
 The schema is different (commands instead of data sections), but the query operations are the same. Both consumers reference Markout — which they already do for rendering.
@@ -261,7 +260,7 @@ kubectl's `--field-selector` and `explain` commands are the closest CLI analog. 
 
 4. **Extend source generator** to emit `DocumentSchema` from view model attributes. This replaces the manual maps with generated ones. Same generator, same attribute walk, new output.
 
-5. **Wire `cli` command** as second consumer. Validates the abstraction.
+5. **Wire help tree view** as second consumer. Validates the abstraction.
 
 Steps 1-3 can ship together as a Markout release. Step 4 is a follow-up generator enhancement. Step 5 is a proof point.
 

@@ -8,7 +8,7 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the cache, demo, samples, cli, llmstxt, skill, perf, and perf-test commands.
+/// Defines the cache, demo, samples, llmstxt, skill, perf, and perf-test commands.
 /// </summary>
 public static class UtilityCommandDefinitions
 {
@@ -190,22 +190,6 @@ public static class UtilityCommandDefinitions
         });
 
         return samplesCommand;
-    }
-
-    public static Command CreateCliCommand(RootCommand rootCommand, SharedOptions opts)
-    {
-        var schemaCommand = new Command("cli", "Show CLI command structure as API listing");
-        var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
-        schemaCommand.Arguments.Add(schemaCommandArg);
-        schemaCommand.Options.Add(opts.Verbosity);
-        schemaCommand.Options.Add(opts.Limit);
-        schemaCommand.SetAction((parseResult) =>
-        {
-            var commandFilter = parseResult.GetValue(schemaCommandArg);
-            var verbosity = OptionParsers.ParseVerbosity(parseResult.GetValue(opts.Verbosity));
-            return CliSchemaCommand.Execute(rootCommand, commandFilter, verbosity);
-        });
-        return schemaCommand;
     }
 
     public static Command CreateLlmsTxtCommand(SharedOptions opts)

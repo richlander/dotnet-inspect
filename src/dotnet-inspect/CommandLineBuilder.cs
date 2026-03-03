@@ -101,9 +101,6 @@ public static class CommandLineBuilder
         // Samples command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSamplesCommand(opts));
 
-        // CLI command (meta command)
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCliCommand(rootCommand, opts));
-
         // LLMs.txt command (meta command, listed last)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateLlmsTxtCommand(opts));
 
@@ -116,9 +113,16 @@ public static class CommandLineBuilder
         // Perf-test command (hidden, for profiling)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreatePerfTestCommand());
 
-        // No-args: show help + tips
+        // No-args: show help + tips (with -v: show CLI tree view)
         rootCommand.SetAction((parseResult) =>
         {
+            var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
+            var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
+
+            // -v flag present: show CLI tree view (like former `cli` command)
+            if (hasVerbosity)
+                return CliSchemaCommand.Execute(rootCommand, commandFilter: null, verbosity);
+
             var sw = new System.IO.StringWriter();
             var original = Console.Out;
             Console.SetOut(sw);
@@ -126,8 +130,7 @@ public static class CommandLineBuilder
             Console.SetOut(original);
             Console.WriteLine(sw.ToString().TrimEnd());
 
-            var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-            var tipLevel = verbosity == Verbosity.Quiet || HeadLines != null
+            var tipLevel = HeadLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
@@ -137,6 +140,7 @@ public static class CommandLineBuilder
                 new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
                 new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
+            return 0;
         });
 
         return rootCommand;
