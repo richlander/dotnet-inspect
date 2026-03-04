@@ -139,8 +139,8 @@ public static class ApiOutputFormatter
         // Build the view model
         var view = BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
-        // Populate enum values declaratively for Normal+ enums
-        if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
+        // Populate enum values declaratively (pipeline controls visibility via IncludeSections)
+        if (type.Kind == "enum")
             PopulateEnumValues(view, type, options);
 
         int truncatedCount = 0;
@@ -230,10 +230,9 @@ public static class ApiOutputFormatter
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
             baseType = type.BaseType;
 
-        // Type parameters inline (for quiet/minimal only)
+        // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
         string? typeParamsInline = null;
-        if (type.TypeParameters.Count > 0 &&
-            (options.Verbosity == Verbosity.Quiet || options.Verbosity == Verbosity.Minimal))
+        if (type.TypeParameters.Count > 0 && options.Verbosity == Verbosity.Quiet)
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
@@ -252,27 +251,27 @@ public static class ApiOutputFormatter
         if ((options.ShowDocs || options.ShowSamples) && type.Documentation.Samples.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
 
-        // Type parameters table (Normal+)
+        // Type parameters table (pipeline controls visibility via IncludeSections)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (type.TypeParameters.Count > 0 && options.Verbosity >= Verbosity.Normal)
+        if (type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = tp.ConstraintsSummary ?? "" })
                 .ToList();
         }
 
-        // Interfaces (Detailed+)
+        // Interfaces (pipeline controls visibility via IncludeSections)
         List<InterfaceRow>? interfaceRows = null;
-        if (type.Interfaces.Count > 0 && options.Verbosity >= Verbosity.Detailed)
+        if (type.Interfaces.Count > 0)
         {
             interfaceRows = type.Interfaces.Order()
                 .Select(i => new InterfaceRow { Interface = i })
                 .ToList();
         }
 
-        // Baseclass (Detailed+, filtered for trivial bases)
+        // Baseclass (pipeline controls visibility via IncludeSections; filtered for trivial bases)
         List<BaseclassRow>? baseclassRows = null;
-        if (baseType != null && options.Verbosity >= Verbosity.Detailed)
+        if (baseType != null)
         {
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
