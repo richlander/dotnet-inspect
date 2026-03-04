@@ -242,7 +242,11 @@ public class OutputFormatterTests
         };
         var options = new ApiOptions { Verbosity = Verbosity.Quiet };
 
-        var output = ApiOutputFormatter.RenderTypeMarkdown(type, "TestLib", "TestLib", "1.0.0", "NuGet", "net10.0", options);
+        var view = ApiOutputFormatter.BuildTypeView(type, "TestLib", "TestLib", "1.0.0", "NuGet", "net10.0", options);
+        var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+        var writer = new MarkoutWriter(new MarkdownFormatter(), writerOptions);
+        new MarkoutContext().Serialize(view, writer);
+        var output = writer.ToString().TrimEnd();
 
         Assert.Contains("Source: NuGet", output);
         Assert.Contains("TFM: net10.0", output);
@@ -260,7 +264,11 @@ public class OutputFormatterTests
         };
         var options = new ApiOptions { Verbosity = Verbosity.Minimal };
 
-        var output = ApiOutputFormatter.RenderTypeMarkdown(type, "TestLib", null, null, null, null, options);
+        var view = ApiOutputFormatter.BuildTypeView(type, "TestLib", null, null, null, null, options);
+        var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+        var writer = new MarkoutWriter(new MarkdownFormatter(), writerOptions);
+        new MarkoutContext().Serialize(view, writer);
+        var output = writer.ToString().TrimEnd();
 
         Assert.DoesNotContain("Source:", output);
         Assert.DoesNotContain("TFM:", output);

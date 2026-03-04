@@ -521,8 +521,8 @@ public class ApiCommand
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
 
-        // Populate enum values declaratively for Normal+ enums
-        if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
+        // Populate enum values declaratively (pipeline controls visibility via IncludeSections)
+        if (type.Kind == "enum")
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
         bool isMember = options is MemberOptions;

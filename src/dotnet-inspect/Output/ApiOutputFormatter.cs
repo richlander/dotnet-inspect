@@ -125,60 +125,6 @@ public static class ApiOutputFormatter
         };
     }
 
-    // ===== Single Type Rendering =====
-
-    public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
-    {
-        var writer = new MarkoutWriter(new MarkdownFormatter(), BuildTypeWriterOptions(type, options));
-        RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-        return writer.ToString().TrimEnd();
-    }
-
-    public static void RenderTypeMarkdown(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
-    {
-        // Build the view model
-        var view = BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-
-        // Populate enum values declaratively (pipeline controls visibility via IncludeSections)
-        if (type.Kind == "enum")
-            PopulateEnumValues(view, type, options);
-
-        int truncatedCount = 0;
-        string truncatedNoun = "";
-
-        // Populate member sections declaratively (unless quiet or enum)
-        bool isMember = options is MemberOptions;
-        bool fullSerializer = isMember || options.Verbosity != Verbosity.Quiet;
-
-        if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
-        {
-            if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
-                && type.Members.Any(m => m.Kind == "constructor"))
-            {
-                PopulateConstructorOverloads(view, type, options);
-            }
-            else if (isMember && options.Verbosity == Verbosity.Quiet)
-            {
-                (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
-            }
-            else if (options.Verbosity == Verbosity.Minimal && !isMember)
-            {
-                (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
-            }
-            else
-            {
-                (truncatedCount, truncatedNoun) = PopulateMemberSections(view, type, options);
-            }
-        }
-
-        // Serialize the complete view
-        new MarkoutContext().Serialize(view, writer);
-
-        // Truncation message
-        if (truncatedCount > 0)
-            writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
-    }
-
     internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
     {
         // Member command at quiet still needs sections rendered (summary tables)
