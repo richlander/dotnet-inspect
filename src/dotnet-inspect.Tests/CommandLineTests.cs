@@ -55,7 +55,7 @@ public class CommandLineTests
         try
         {
             Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
-            Assert.Contains("Tips:", errWriter.ToString());
+            Assert.Contains("# Tips", errWriter.ToString());
         }
         finally
         {

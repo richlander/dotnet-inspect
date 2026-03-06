@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
@@ -114,6 +112,7 @@ public static class NuGetCache
                 var nugetPackageDir = Path.Combine(nugetCachePath, normalizedName, normalizedVersion);
                 if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
                 {
+                    InfoTracker.RecordCacheHit();
                     return nugetPackageDir;
                 }
             }
@@ -126,10 +125,12 @@ public static class NuGetCache
             var appPackageDir = Path.Combine(appCachePath, normalizedName, normalizedVersion);
             if (Directory.Exists(appPackageDir) && IsCachedPackageValid(appPackageDir, normalizedName))
             {
+                InfoTracker.RecordCacheHit();
                 return appPackageDir;
             }
         }
 
+        InfoTracker.RecordCacheMiss();
         return null;
     }
 

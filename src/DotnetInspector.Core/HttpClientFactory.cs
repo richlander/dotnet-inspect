@@ -63,6 +63,9 @@ public static class HttpClientFactory
         if (_offline)
             handler = new OfflineHandler(handler);
 
+        if (InfoTracker.Enabled)
+            handler = new CountingHandler(handler);
+
         handler = new NetworkGuardHandler(handler);
 
         var client = new HttpClient(handler);
@@ -101,6 +104,19 @@ internal sealed class NetworkGuardHandler(HttpMessageHandler inner) : Delegating
             Console.Error.WriteLine($"Network guard: {request.Method} {request.RequestUri}");
         }
 #endif
+        return base.SendAsync(request, cancellationToken);
+    }
+}
+
+/// <summary>
+/// A handler that counts HTTP requests for <see cref="InfoTracker"/>.
+/// </summary>
+internal sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        InfoTracker.RecordHttpRequest();
         return base.SendAsync(request, cancellationToken);
     }
 }

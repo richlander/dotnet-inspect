@@ -21,6 +21,7 @@ public class SharedOptions
 
     // Output control options
     public Option<int?> Limit { get; } = new("-n") { Description = "Limit output lines (like head -n)" };
+    public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
     // Discovery option
@@ -95,6 +96,7 @@ public class SharedOptions
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
         command.Options.Add(Tips);
+        command.Options.Add(Info);
         command.Options.Add(Limit);
     }
 

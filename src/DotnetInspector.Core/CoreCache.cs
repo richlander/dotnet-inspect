@@ -70,13 +70,16 @@ public static class CoreCache
         {
             try
             {
-                return File.ReadAllText(path);
+                var result = File.ReadAllText(path);
+                InfoTracker.RecordCacheHit();
+                return result;
             }
             catch
             {
                 return null;
             }
         }
+        InfoTracker.RecordCacheMiss();
         return null;
     }
 
@@ -91,13 +94,16 @@ public static class CoreCache
         {
             try
             {
-                return File.ReadAllBytes(path);
+                var result = File.ReadAllBytes(path);
+                InfoTracker.RecordCacheHit();
+                return result;
             }
             catch
             {
                 return null;
             }
         }
+        InfoTracker.RecordCacheMiss();
         return null;
     }
 
@@ -113,13 +119,16 @@ public static class CoreCache
             var info = new FileInfo(path);
             if (info.Exists && (DateTime.UtcNow - info.LastWriteTimeUtc) < maxAge)
             {
-                return File.ReadAllBytes(path);
+                var result = File.ReadAllBytes(path);
+                InfoTracker.RecordCacheHit();
+                return result;
             }
         }
         catch
         {
             // Best-effort
         }
+        InfoTracker.RecordCacheMiss();
         return null;
     }
 
@@ -135,13 +144,16 @@ public static class CoreCache
             var info = new FileInfo(path);
             if (info.Exists && (DateTime.UtcNow - info.LastWriteTimeUtc) < maxAge)
             {
-                return File.ReadAllText(path);
+                var result = File.ReadAllText(path);
+                InfoTracker.RecordCacheHit();
+                return result;
             }
         }
         catch
         {
             // Best-effort
         }
+        InfoTracker.RecordCacheMiss();
         return null;
     }
 

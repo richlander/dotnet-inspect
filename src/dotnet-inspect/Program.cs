@@ -1,12 +1,21 @@
 using DotnetInspector;
+using DotnetInspector.Core;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Views;
+using Markout;
 
 // Parse --offline early (before command parsing) to configure HttpClientFactory
 bool offline = args.Contains("--offline")
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1");
 if (offline)
     args = args.Where(a => a != "--offline").ToArray();
+
+// Parse --info early (before command parsing) to install counting writer
+bool showInfo = args.Contains("--info")
+    || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_INFO"), "1");
+if (showInfo)
+    args = args.Where(a => a != "--info").ToArray();
 
 // Parse --isolated <name> and --no-nuget-cache early
 string? sessionName = null;
@@ -42,6 +51,14 @@ if (isolated && cacheBasePath == null)
 // Initialize library configuration
 DotnetInspector.Core.HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
+
+// Start info tracking (installs counting writer on Console.Out)
+if (showInfo)
+{
+    InfoTracker.Start();
+    // Suppress tips when --info is active (show info instead)
+    args = [.. args, "-T:q"];
+}
 
 #if DEBUG
 // DEBUG-only: network guard is always on to catch unintended network access.
@@ -88,5 +105,31 @@ if (CommandLineBuilder.HeadLines is int headLines)
 var rootCommand = CommandLineBuilder.CreateRootCommand();
 var result = rootCommand.Parse(args);
 var exitCode = await result.InvokeAsync();
+
+// Write info metrics to stderr if --info was requested
+if (showInfo)
+{
+    Console.Out.Flush();
+
+    var elapsed = InfoTracker.Elapsed;
+    var timeStr = elapsed.TotalSeconds >= 1
+        ? $"{elapsed.TotalSeconds:F2}s"
+        : $"{elapsed.TotalMilliseconds:F0}ms";
+
+    var view = new InfoView
+    {
+        Output = CacheOutputFormatter.FormatSize(InfoTracker.CharsWritten),
+        Time = timeStr,
+        HTTP = InfoTracker.HttpRequests > 0
+            ? $"{InfoTracker.HttpRequests} {(InfoTracker.HttpRequests == 1 ? "request" : "requests")}"
+            : null,
+        Cache = InfoTracker.CacheHits > 0 || InfoTracker.CacheMisses > 0
+            ? $"{InfoTracker.CacheHits} {(InfoTracker.CacheHits == 1 ? "hit" : "hits")}, {InfoTracker.CacheMisses} {(InfoTracker.CacheMisses == 1 ? "miss" : "misses")}"
+            : null
+    };
+
+    Console.Error.WriteLine();
+    MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
+}
 
 return exitCode;

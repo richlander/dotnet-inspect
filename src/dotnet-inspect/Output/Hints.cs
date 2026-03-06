@@ -1,4 +1,6 @@
 using DotnetInspector.Options;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Output;
 
@@ -26,11 +28,13 @@ public static class Hints
             ? tips.OrderBy(_ => Random.Shared.Next()).Take(max).ToList()
             : tips.Take(max).ToList();
 
-        int commentColumn = visible.Max(t => t.CommandText.Length) + 3;
+        var view = new TipsView
+        {
+            Commands = visible.Select(t => new TipRow(t.CommandText, t.Comment)).ToList()
+        };
+
         Console.Out.Flush();
         Console.Error.WriteLine();
-        Console.Error.WriteLine("Tips:");
-        foreach (var tip in visible)
-            Console.Error.WriteLine($"{tip.CommandText.PadRight(commentColumn)}# {tip.Comment}");
+        MarkoutSerializer.Serialize(view, Console.Error, TipsViewContext.Default);
     }
 }
