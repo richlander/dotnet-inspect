@@ -73,6 +73,25 @@ internal static class SignatureParser
     }
 
     /// <summary>
+    /// Extracts abbreviated parameter list from signature:
+    /// "int BinarySearch(int index, int count, T item)" → "(int, int, T)".
+    /// Returns empty string for parameterless methods.
+    /// </summary>
+    public static string ExtractParamList(string? signature)
+    {
+        var abbreviated = AbbreviateSignature(signature);
+        if (string.IsNullOrEmpty(abbreviated))
+            return "";
+
+        int parenStart = abbreviated.IndexOf('(');
+        if (parenStart < 0)
+            return "";
+
+        var paramPart = abbreviated[parenStart..];
+        return paramPart == "()" ? "" : paramPart;
+    }
+
+    /// <summary>
     /// Extracts just the type portion from "type name" or "type name = default".
     /// Handles keywords like "out", "ref", "in", "params" before the type.
     /// </summary>

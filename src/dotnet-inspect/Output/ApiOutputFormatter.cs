@@ -810,7 +810,8 @@ public static class ApiOutputFormatter
             var detail = e.kind switch
             {
                 "property" => SignatureParser.ExtractAccessors(m.Signature),
-                "constructor" or "method" => e.members.Count > 1 ? e.members.Count.ToString() : "",
+                "constructor" or "method" when e.members.Count > 1 => e.members.Count.ToString(),
+                "constructor" or "method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
                 _ => ""
             };
             return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
