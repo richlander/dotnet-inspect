@@ -127,6 +127,7 @@ public static class RouterCommandDefinition
                 TypeName = qtType,
                 PlatformAssembly = qtAssembly,
                 JsonOutput = route.Options.JsonOutput,
+                PlainText = route.Options.Format == OutputFormat.PlainText,
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
                 IncludeSections = null,

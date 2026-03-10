@@ -579,8 +579,8 @@ public static class PlatformResolver
                 return (null, null, null, error);
             }
 
-            var assemblyPath = Path.Combine(refPath!, assemblyName);
-            if (!File.Exists(assemblyPath))
+            var assemblyPath = FindAssemblyCaseInsensitive(refPath!, assemblyName);
+            if (assemblyPath == null)
             {
                 return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
             }
@@ -622,8 +622,8 @@ public static class PlatformResolver
             if (refPath == null)
                 continue;
 
-            var assemblyPath = Path.Combine(refPath, assemblyName);
-            if (!File.Exists(assemblyPath))
+            var assemblyPath = FindAssemblyCaseInsensitive(refPath, assemblyName);
+            if (assemblyPath == null)
                 continue;
 
             // Check if the runtime has a newer (or equal) version
@@ -721,13 +721,40 @@ public static class PlatformResolver
             version = versions[0]; // Latest
         }
 
-        var assemblyPath = Path.Combine(frameworkPath, version, assemblyName);
-        if (!File.Exists(assemblyPath))
+        var assemblyPath = FindAssemblyCaseInsensitive(Path.Combine(frameworkPath, version), assemblyName);
+        if (assemblyPath == null)
         {
             return (null, null, null, $"Library '{assemblyName}' not found in {frameworkName} runtime {version}");
         }
 
         return (assemblyPath, frameworkName, version, null);
+    }
+
+    /// <summary>
+    /// Finds a DLL in a directory using case-insensitive matching.
+    /// Returns the actual path if found, null otherwise.
+    /// Tries exact match first for performance, then falls back to directory scan on Linux.
+    /// </summary>
+    private static string? FindAssemblyCaseInsensitive(string directory, string assemblyFileName)
+    {
+        var exactPath = Path.Combine(directory, assemblyFileName);
+        if (File.Exists(exactPath))
+            return exactPath;
+
+        // On case-sensitive filesystems, try a directory scan
+        if (!Directory.Exists(directory))
+            return null;
+
+        try
+        {
+            var match = Directory.EnumerateFiles(directory, "*.dll")
+                .FirstOrDefault(f => Path.GetFileName(f).Equals(assemblyFileName, StringComparison.OrdinalIgnoreCase));
+            return match;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static int CountAssemblies(string refPath)

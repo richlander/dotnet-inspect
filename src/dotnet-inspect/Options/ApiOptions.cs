@@ -1,4 +1,6 @@
 using DotnetInspector.Packages;
+using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspector.Options;
 
@@ -40,6 +42,7 @@ public record ApiOptions
     public bool CompactJson { get; init; }
     public bool OneLine { get; init; }
     public bool OneLineExplicitlySet { get; init; }
+    public bool PlainText { get; init; }
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }
     public HashSet<string> MemberFilter { get; init; } = [];
@@ -57,6 +60,12 @@ public record ApiOptions
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).
     /// </summary>
     public bool VerbosityEnabled => !OneLine && !JsonOutput;
+
+    /// <summary>
+    /// Returns the appropriate Markout formatter for the current output format.
+    /// </summary>
+    public IMarkoutFormatter CreateFormatter() =>
+        PlainText ? new PlainTextFormatter() : new MarkdownFormatter();
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

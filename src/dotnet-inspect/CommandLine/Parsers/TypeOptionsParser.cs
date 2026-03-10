@@ -132,6 +132,7 @@ public static class TypeOptionsParser
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
+            PlainText = parseResult.GetValue(opts.PlainText),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },

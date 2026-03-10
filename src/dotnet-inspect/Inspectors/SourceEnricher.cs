@@ -502,6 +502,39 @@ internal static class SourceEnricher
         apiType.SourceResolution = "XmlDoc";
     }
 
+    /// <summary>
+    /// Enriches a type from local XML doc files only (no network).
+    /// Works for both platform assemblies (ref packs) and NuGet packages (alongside DLL).
+    /// </summary>
+    internal static void EnrichFromLocalXmlDocs(ApiType apiType, string dllPath, ApiOptions options, VerboseLogger logger)
+    {
+        // Platform path: use ref packs directory
+        if (!string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            EnrichFromXmlDocFile(apiType, apiType.FullName, options, logger);
+            return;
+        }
+
+        // Package/library path: look for XML alongside the DLL
+        var xmlDocPath = Path.ChangeExtension(dllPath, ".xml");
+        if (!File.Exists(xmlDocPath))
+        {
+            logger.Log($"XML doc file not found alongside DLL: {xmlDocPath}");
+            return;
+        }
+
+        logger.Log($"Loading XML documentation from: {xmlDocPath}");
+
+        var xmlParser = new XmlDocFileParser();
+        if (!xmlParser.Load(xmlDocPath))
+        {
+            logger.Log("Failed to load XML documentation file");
+            return;
+        }
+
+        EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+    }
+
     private static void EnrichFromXmlDocFile(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
     {
         if (string.IsNullOrEmpty(options.PlatformAssembly))

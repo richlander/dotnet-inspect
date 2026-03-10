@@ -375,7 +375,7 @@ public class ApiCommand
             return;
         }
 
-        var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
 
         if (options.OneLine)
         {
@@ -389,11 +389,8 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            var writer = new Markout.MarkoutWriter(new Markout.MarkdownFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(options.CreateFormatter(), writerOptions);
             new MarkoutContext().Serialize(view, writer);
-
-            if (truncatedCount > 0)
-                writer.WriteParagraph($"... *and {truncatedCount} more types*");
 
             Console.WriteLine(writer.ToString().TrimEnd());
         }
@@ -528,9 +525,6 @@ public class ApiCommand
         bool isMember = options is MemberOptions;
         bool fullSerializer = isMember || options.Verbosity != Verbosity.Quiet;
 
-        int truncatedCount = 0;
-        string truncatedNoun = "";
-
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
             if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
@@ -540,15 +534,15 @@ public class ApiCommand
             }
             else if (isMember && options.Verbosity == Verbosity.Quiet)
             {
-                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
+                ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
             else if (options.Verbosity == Verbosity.Minimal && !isMember)
             {
-                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
+                ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
             else
             {
-                (truncatedCount, truncatedNoun) = ApiOutputFormatter.PopulateMemberSections(view, type, options);
+                ApiOutputFormatter.PopulateMemberSections(view, type, options);
             }
 
             // --index: populate code sections and custom attributes
@@ -581,14 +575,11 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var writer = new Markout.MarkoutWriter(new Markout.MarkdownFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(options.CreateFormatter(), writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
             if (view.MemberCode != null)
                 new MarkoutContext().Serialize(view.MemberCode, writer);
-
-            if (truncatedCount > 0)
-                writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
 
             Console.WriteLine(writer.ToString().TrimEnd());
         }

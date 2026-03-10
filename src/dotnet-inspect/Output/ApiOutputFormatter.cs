@@ -148,11 +148,22 @@ public static class ApiOutputFormatter
     public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
     {
         var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter);
-        Console.WriteLine(view.FullName);
         if (view.Members is { Count: > 0 })
         {
+            Console.WriteLine(view.FullName);
             var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
             writer.WriteTree([.. view.Members]);
+        }
+        else if (kindFilter?.Count > 0 || memberFilter.Count > 0)
+        {
+            var filterDesc = kindFilter?.Count > 0
+                ? string.Join(", ", kindFilter)
+                : string.Join(", ", memberFilter);
+            Console.Error.WriteLine($"No matching members for filter: {filterDesc}");
+        }
+        else
+        {
+            Console.WriteLine(view.FullName);
         }
     }
 
@@ -275,32 +286,11 @@ public static class ApiOutputFormatter
 
     internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
     {
+        bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
         List<TreeNode> nodes = [];
 
-        // Inheritance (always show)
-        if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
-        {
-            nodes.Add(new TreeNode("Inherits") { Children = [new TreeNode(type.BaseType)] });
-        }
-
-        // Interfaces (always show)
-        if (type.Interfaces.Count > 0)
-        {
-            nodes.Add(new TreeNode("Implements") { Children = type.Interfaces.Select(i => new TreeNode(i)).ToList() });
-        }
-
-        // Type parameters with constraints (always show)
-        if (type.TypeParameters.Count > 0)
-        {
-            var typeParamDescriptions = type.TypeParameters
-                .Select(tp => tp.Constraints.Count > 0
-                    ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
-                    : tp.DisplayName)
-                .ToList();
-            nodes.Add(new TreeNode("Type Parameters") { Children = typeParamDescriptions.Select(t => new TreeNode(t)).ToList() });
-        }
-
         // Group members by kind
+        bool hasMemberNodes = false;
         if (type.Members.Count > 0)
         {
             var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
@@ -317,7 +307,10 @@ public static class ApiOutputFormatter
 
             var membersByKind = members
                 .GroupBy(m => m.Kind)
-                .OrderBy(g => GetTreeKindOrder(g.Key));
+                .OrderBy(g => GetTreeKindOrder(g.Key))
+                .ToList();
+
+            hasMemberNodes = membersByKind.Count > 0;
 
             foreach (var group in membersByKind)
             {
@@ -328,6 +321,36 @@ public static class ApiOutputFormatter
                     .ToList();
 
                 nodes.Add(new TreeNode(kindLabel) { Children = memberSignatures.Select(s => new TreeNode(s)).ToList() });
+            }
+        }
+
+        // Structural nodes (suppress when a filter is active but matched nothing)
+        if (!hasFilter || hasMemberNodes)
+        {
+            // Inheritance
+            if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
+            {
+                nodes.Insert(0, new TreeNode("Inherits") { Children = [new TreeNode(type.BaseType)] });
+            }
+
+            // Interfaces
+            if (type.Interfaces.Count > 0)
+            {
+                var insertAt = nodes.Count > 0 && nodes[0].Text == "Inherits" ? 1 : 0;
+                nodes.Insert(insertAt, new TreeNode("Implements") { Children = type.Interfaces.Select(i => new TreeNode(i)).ToList() });
+            }
+
+            // Type parameters with constraints
+            if (type.TypeParameters.Count > 0)
+            {
+                var typeParamDescriptions = type.TypeParameters
+                    .Select(tp => tp.Constraints.Count > 0
+                        ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                        : tp.DisplayName)
+                    .ToList();
+                var insertAt = nodes.FindIndex(n => n.Text != "Inherits" && n.Text != "Implements");
+                if (insertAt < 0) insertAt = nodes.Count;
+                nodes.Insert(insertAt, new TreeNode("Type Parameters") { Children = typeParamDescriptions.Select(t => new TreeNode(t)).ToList() });
             }
         }
 
