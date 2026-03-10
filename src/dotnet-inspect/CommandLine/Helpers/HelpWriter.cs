@@ -1,17 +1,17 @@
 using System.CommandLine;
 using System.CommandLine.Help;
 using System.CommandLine.Invocation;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Renders help output for CLI commands,
+/// Renders help output for CLI commands using Markout's PlainTextFormatter,
 /// replacing System.CommandLine's built-in HelpAction.
 /// </summary>
 public static class HelpWriter
 {
-    private const string Indent = "  ";
-
     public static void WriteHelp(Command command)
     {
         WriteHelp(command, Console.Out);
@@ -19,31 +19,26 @@ public static class HelpWriter
 
     public static void WriteHelp(Command command, TextWriter writer)
     {
-        var first = true;
+        var view = BuildHelpView(command);
+        MarkoutSerializer.Serialize(view, writer, new PlainTextFormatter(), HelpViewContext.Default);
+    }
+
+    internal static HelpView BuildHelpView(Command command)
+    {
+        var view = new HelpView();
 
         // Description
         if (!string.IsNullOrEmpty(command.Description))
-        {
-            WriteSection(writer, "Description:", [$"{Indent}{command.Description}"], ref first);
-        }
+            view.Description = [command.Description];
 
         // Usage
-        WriteSection(writer, "Usage:", [$"{Indent}{BuildUsageLine(command)}"], ref first);
+        view.Usage = [BuildUsageLine(command)];
 
         // Arguments
         var args = command.Arguments.Where(a => !a.Hidden).ToList();
         if (args.Count > 0)
-        {
-            int maxWidth = args.Max(a => $"<{a.Name}>".Length);
-            var lines = args.Select(a =>
-            {
-                var name = $"<{a.Name}>";
-                return string.IsNullOrEmpty(a.Description)
-                    ? $"{Indent}{name}"
-                    : $"{Indent}{name.PadRight(maxWidth)}  {a.Description}";
-            }).ToList();
-            WriteSection(writer, "Arguments:", lines, ref first);
-        }
+            view.Arguments = FormatEntries(args.Select(a =>
+                ($"<{a.Name}>", a.Description ?? "")));
 
         // Options (help/version last, matching S.CL convention)
         var options = command.Options
@@ -51,49 +46,33 @@ public static class HelpWriter
             .OrderBy(o => o is HelpOption || o is VersionOption ? 1 : 0)
             .ToList();
         if (options.Count > 0)
-        {
-            var formatted = options.Select(FormatOptionEntry).ToList();
-            int maxWidth = formatted.Max(e => e.Name.Length);
-            var lines = formatted.Select(e =>
-                string.IsNullOrEmpty(e.Description)
-                    ? $"{Indent}{e.Name}"
-                    : $"{Indent}{e.Name.PadRight(maxWidth)}  {e.Description}").ToList();
-            WriteSection(writer, "Options:", lines, ref first);
-        }
+            view.Options = FormatEntries(options.Select(FormatOptionEntry));
 
-        // Subcommands
-        var subcommands = command.Subcommands
-            .Where(c => !c.Hidden)
-            .ToList();
+        // Subcommands (excluding hidden, preserve insertion order)
+        var subcommands = command.Subcommands.Where(c => !c.Hidden).ToList();
         if (subcommands.Count > 0)
         {
-            var formatted = subcommands.Select(c =>
+            view.Commands = FormatEntries(subcommands.Select(c =>
             {
                 var name = c.Name;
                 var visibleArgs = c.Arguments.Where(a => !a.Hidden).ToList();
                 if (visibleArgs.Count > 0)
                     name += " " + string.Join(" ", visibleArgs.Select(a => $"<{a.Name}>"));
-                return (Name: name, Description: c.Description ?? "");
-            }).ToList();
-
-            int maxWidth = formatted.Max(e => e.Name.Length);
-            var lines = formatted.Select(e =>
-                string.IsNullOrEmpty(e.Description)
-                    ? $"{Indent}{e.Name}"
-                    : $"{Indent}{e.Name.PadRight(maxWidth)}  {e.Description}").ToList();
-            WriteSection(writer, "Commands:", lines, ref first);
+                return (name, c.Description ?? "");
+            }));
         }
+
+        return view;
     }
 
-    private static void WriteSection(TextWriter writer, string heading, List<string> lines, ref bool first)
+    private static List<string> FormatEntries(IEnumerable<(string Name, string Description)> entries)
     {
-        if (!first)
-            writer.WriteLine();
-        first = false;
-
-        writer.WriteLine(heading);
-        foreach (var line in lines)
-            writer.WriteLine(line);
+        var list = entries.ToList();
+        int maxWidth = list.Max(e => e.Name.Length);
+        return list.Select(e =>
+            string.IsNullOrEmpty(e.Description)
+                ? e.Name
+                : $"{e.Name.PadRight(maxWidth)}  {e.Description}").ToList();
     }
 
     private static string BuildUsageLine(Command command)
@@ -114,8 +93,7 @@ public static class HelpWriter
         parts.Add(string.Join(" ", path));
 
         // Arguments
-        var args = command.Arguments.Where(a => !a.Hidden).ToList();
-        foreach (var arg in args)
+        foreach (var arg in command.Arguments.Where(a => !a.Hidden))
         {
             var arity = arg.Arity;
             var name = $"<{arg.Name}>";
