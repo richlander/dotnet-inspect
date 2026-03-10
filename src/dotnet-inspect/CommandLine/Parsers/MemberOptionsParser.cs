@@ -112,7 +112,35 @@ public static class MemberOptionsParser
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
 
+        // If source resolution left us with an unresolved package that is actually
+        // a qualified type name (e.g., "System.Text.Json.JsonDocument"), split it
+        // so the user can write: member System.Text.Json.JsonDocument Parse
+        if (source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
+        {
+            var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
+            if (probe != null)
+            {
+                if (source.TypeName != null)
+                    positionalMembers.Insert(0, source.TypeName);
+                if (probe.Kind == SourceResolver.LocalSourceKind.Platform)
+                    source = source with { PackagePath = null, PlatformAssembly = probe.SourceName, TypeName = probe.Remainder };
+                else
+                    source = source with { PackagePath = probe.SourceName, TypeName = probe.Remainder };
+            }
+        }
+
         var typeName = source.TypeName;
+
+        // If the type name contains a dot and no member filters were provided,
+        // split at the last dot: the right part is a member filter.
+        // Handles: member System.Text.Json.JsonDocument.Parse
+        //   → source=System.Text.Json, type=JsonDocument, member=Parse
+        if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
+        {
+            var lastDot = typeName.LastIndexOf('.');
+            positionalMembers.Add(typeName[(lastDot + 1)..]);
+            typeName = typeName[..lastDot];
+        }
 
         // Check for unrecognized options in positional args
         var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));

@@ -205,7 +205,7 @@ public class SharedOptions
 
         if (explicitOneLine && explicitVerbosity)
         {
-            Console.Error.WriteLine("--oneline and -v cannot be combined. Use -v for markdown output, or omit -v for oneline.");
+            Console.Error.WriteLine("--oneline and -v cannot be combined. Use another formatter instead, or omit -v for oneline.");
             throw new OperationCanceledException();
         }
 

@@ -157,6 +157,16 @@ public static class RouterOptionsParser
             return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
         }
 
+        // For single-arg names that aren't platform candidates, try local peel-and-probe.
+        // If a local source (dotnet-inspect cache or NuGet cache) matches a prefix,
+        // route as a qualified type name (e.g., "Humanizer.Core.DateHumanize").
+        if (!isVersionQuery && packageArgs.Length == 1)
+        {
+            var probe = SourceResolver.TryProbeLocalQualifiedName(bareName);
+            if (probe != null)
+                return new RouteToType(packageArgs);
+        }
+
         // --version query
         if (showVersion)
             return new HandleVersionQuery(bareName, explicitVersion, forceLatest, opts.ParseNuGetSourceOptions(parseResult));

@@ -120,12 +120,15 @@ public static class RouterCommandDefinition
 
         // Platform resolution failed - check if this is a qualified type name
         // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
-        if (PlatformResolver.TryParseQualifiedTypeName(route.BareName, out var qtAssembly, out var qtType))
+        // Probes dotnet hive, dotnet-inspect cache, and NuGet global cache (local only).
+        var probe = SourceResolver.TryProbeLocalQualifiedName(route.BareName);
+        if (probe != null)
         {
             var typeOptions = new TypeOptions
             {
-                TypeName = qtType,
-                PlatformAssembly = qtAssembly,
+                TypeName = probe.Remainder,
+                PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
+                PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
                 JsonOutput = route.Options.JsonOutput,
                 PlainText = route.Options.Format == OutputFormat.PlainText,
                 Verbose = route.Options.Verbose,
