@@ -535,15 +535,16 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Quiet_NoSections()
+    public void PackagePipeline_Quiet_IncludesSummaryOnly()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult { PackageName = "Test", Version = "1.0.0" };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Quiet);
 
-        // Quiet renders hero line via view model, pipeline returns no sections
-        Assert.Empty(effective);
+        // Quiet includes the headless Summary section for compact field rendering
+        Assert.Single(effective);
+        Assert.Equal("Summary", effective[0]);
     }
 
     [Fact]

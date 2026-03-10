@@ -206,7 +206,7 @@ public sealed class SectionPipeline<TModel>
         // Verbosity-based selection using position and IsExpensive
         return verbosity switch
         {
-            Verbosity.Quiet => false, // Hero line rendered by view model, not sections
+            Verbosity.Quiet => index == 0 && entry.Name == "Summary", // Include headless summary at quiet
             Verbosity.Minimal => index <= GetPrimaryThreshold(),
             Verbosity.Normal => !entry.IsExpensive,
             _ => true, // Detailed: all sections
