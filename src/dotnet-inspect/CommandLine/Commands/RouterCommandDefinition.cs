@@ -131,13 +131,18 @@ public static class RouterCommandDefinition
                 PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
                 JsonOutput = route.Options.JsonOutput,
                 PlainText = route.Options.Format == OutputFormat.PlainText,
+                OneLine = route.OneLine,
+                OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
+                NoHeader = route.NoHeader,
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
                 IncludeSections = null,
                 Discover = route.Options.Discover,
+                Tree = route.Options.Tree,
                 Select = route.Options.Select,
                 Columns = route.Options.Columns,
                 Fields = route.Options.Fields,
+                SourceOptions = route.Options.SourceOptions,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
