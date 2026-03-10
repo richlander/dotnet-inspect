@@ -503,6 +503,34 @@ internal static class SourceEnricher
     }
 
     /// <summary>
+    /// Enriches multiple types from local XML doc files (no network).
+    /// For packages/libraries, looks for XML alongside the DLL.
+    /// </summary>
+    internal static void EnrichFromLocalXmlDocs(IEnumerable<ApiType> types, string dllPath, ApiOptions options, VerboseLogger logger)
+    {
+        var xmlDocPath = Path.ChangeExtension(dllPath, ".xml");
+        if (!File.Exists(xmlDocPath))
+        {
+            logger.Log($"XML doc file not found alongside DLL: {xmlDocPath}");
+            return;
+        }
+
+        logger.Log($"Loading XML documentation from: {xmlDocPath}");
+
+        var xmlParser = new XmlDocFileParser();
+        if (!xmlParser.Load(xmlDocPath))
+        {
+            logger.Log("Failed to load XML documentation file");
+            return;
+        }
+
+        foreach (var apiType in types)
+        {
+            EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+        }
+    }
+
+    /// <summary>
     /// Enriches a type from local XML doc files only (no network).
     /// Works for both platform assemblies (ref packs) and NuGet packages (alongside DLL).
     /// </summary>

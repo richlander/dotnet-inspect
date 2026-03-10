@@ -272,34 +272,34 @@ public class CliApiSurface
     public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
 
     // Per-kind type sections (5 kinds × with/without docs)
-    [MarkoutSection(Name = "Classes", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Classes", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Classes { get; set; }
     [MarkoutSection(Name = "Classes")]
     public List<TypeSummaryRow>? ClassesWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Structs", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Structs", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Structs { get; set; }
     [MarkoutSection(Name = "Structs")]
     public List<TypeSummaryRow>? StructsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Interfaces", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Interfaces", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Interfaces { get; set; }
     [MarkoutSection(Name = "Interfaces")]
     public List<TypeSummaryRow>? InterfacesWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Enums", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Enums", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Enums { get; set; }
     [MarkoutSection(Name = "Enums")]
     public List<TypeSummaryRow>? EnumsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Delegates", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Delegates", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Delegates { get; set; }
     [MarkoutSection(Name = "Delegates")]
     public List<TypeSummaryRow>? DelegatesWithDocs { get; set; }
 }
 
 [MarkoutSerializable]
-public record TypeSummaryRow(string Type, string Members, string? Description);
+public record TypeSummaryRow(string Kind, string Type, string Members, string? Description);
 
 [MarkoutSerializable]
 public record ForwarderSummaryRow(
@@ -412,8 +412,11 @@ public class ApiTypeOneLineView
 [MarkoutSerializable]
 public class ApiSurfaceOneLineView
 {
-    [MarkoutSection(Name = "Types")]
+    [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiSurfaceOneLineRow.Description))]
     public List<ApiSurfaceOneLineRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Types")]
+    public List<ApiSurfaceOneLineRow>? RowsWithDescription { get; set; }
 }
 
 [MarkoutSerializable]
@@ -422,7 +425,7 @@ public record ApiOneLineRow(string Kind, string Name,
     string Detail);
 
 [MarkoutSerializable]
-public record ApiSurfaceOneLineRow(string Kind, string Type, string Members);
+public record ApiSurfaceOneLineRow(string Kind, string Type, string Members, string? Description);
 
 /// <summary>
 /// Code sections for member command output (Source, Lowered C#, IL, Annotated IL).

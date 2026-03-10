@@ -78,19 +78,18 @@ public static class TypeCommand
                 api.Version = apiVersion;
                 api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
 
-                if ((options.ShowDocs || options.ShowSamples) && pdbLookupPath != null)
+                bool wantsDocs = options.ShowDocs || options.ShowSamples
+                    || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+                if (wantsDocs && pdbLookupPath != null)
                 {
                     logger.Log("Enriching types with source info...");
-                    if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
+                    if (!string.IsNullOrEmpty(options.PlatformAssembly))
                     {
                         SourceEnricher.EnrichTypesFromXmlDoc(api.Types, options, logger);
                     }
                     else
                     {
-                        foreach (var type in api.Types)
-                        {
-                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(type, type.FullName, pdbLookupPath, options, logger, context.HttpClient);
-                        }
+                        SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, options, logger);
                     }
                 }
 

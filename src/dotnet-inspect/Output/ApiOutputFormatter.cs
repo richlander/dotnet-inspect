@@ -61,7 +61,10 @@ public static class ApiOutputFormatter
             if (api.IsTypeForwardingAssembly)
                 view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
 
-            PopulateTypeSections(view, api.Types, options.ShowDocs);
+            var showDocs = options.ShowDocs
+                || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)
+                    || c.Equals("Kind", StringComparison.OrdinalIgnoreCase)) == true;
+            PopulateTypeSections(view, api.Types, showDocs);
         }
 
         return (view, truncatedCount);
@@ -87,7 +90,7 @@ public static class ApiOutputFormatter
                     desc = desc.ReplaceLineEndings(" ");
                     if (desc.Length > 80) desc = desc[..77] + "...";
                 }
-                return new TypeSummaryRow(fullName, members, desc);
+                return new TypeSummaryRow(group.Key, fullName, members, desc);
             }).ToList();
 
             switch (group.Key)
@@ -430,7 +433,9 @@ public static class ApiOutputFormatter
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToList();
 
-        bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
+        bool docsRequested = options.ShowDocs
+            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = options.Verbosity == Verbosity.Minimal;
         bool showSelect = options is MemberOptions mo && mo.ShowSelect;
 
@@ -828,16 +833,39 @@ public static class ApiOutputFormatter
             types = types.Take(options.Limit.Value).ToList();
         }
 
+        bool showDescription = options.ShowDocs
+            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+
         var rows = types
             .OrderBy(t => GetTypeKindSortOrder(t.Kind))
             .ThenBy(t => t.FullName)
-            .Select(t => new ApiSurfaceOneLineRow(
-                t.Kind,
-                FormatGenericFullName(t),
-                t.Members.Count.ToString()))
+            .Select(t =>
+            {
+                string? desc = null;
+                if (showDescription)
+                {
+                    desc = t.Documentation.Summary;
+                    if (desc != null)
+                    {
+                        desc = desc.ReplaceLineEndings(" ");
+                        if (desc.Length > 80) desc = desc[..77] + "...";
+                    }
+                }
+                return new ApiSurfaceOneLineRow(
+                    t.Kind,
+                    FormatGenericFullName(t),
+                    t.Members.Count.ToString(),
+                    desc);
+            })
             .ToList();
 
-        return (new ApiSurfaceOneLineView { Rows = rows }, truncated);
+        var view = new ApiSurfaceOneLineView();
+        if (showDescription)
+            view.RowsWithDescription = rows;
+        else
+            view.Rows = rows;
+
+        return (view, truncated);
     }
 
     private static int GetTypeKindSortOrder(string kind) => kind switch
