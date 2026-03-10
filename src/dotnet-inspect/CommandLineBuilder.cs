@@ -1,6 +1,5 @@
 using System.CommandLine;
 using DotnetInspector.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -113,6 +112,11 @@ public static class CommandLineBuilder
         // Perf-test command (hidden, for profiling)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreatePerfTestCommand());
 
+        // Override S.CL's built-in --help to use our own renderer
+        var helpOption = rootCommand.Options.OfType<System.CommandLine.Help.HelpOption>().FirstOrDefault();
+        if (helpOption != null)
+            helpOption.Action = new HelpOptionAction();
+
         // No-args: show help + tips (with -v: show CLI tree view)
         rootCommand.SetAction((parseResult) =>
         {
@@ -123,12 +127,7 @@ public static class CommandLineBuilder
             if (hasVerbosity)
                 return CliSchemaCommand.Execute(rootCommand, commandFilter: null, verbosity);
 
-            var sw = new System.IO.StringWriter();
-            var original = Console.Out;
-            Console.SetOut(sw);
-            new HelpAction().Invoke(parseResult);
-            Console.SetOut(original);
-            Console.WriteLine(sw.ToString().TrimEnd());
+            HelpWriter.WriteHelp(rootCommand);
 
             var tipLevel = HeadLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);

@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
@@ -115,7 +114,7 @@ public static class ApiCommandDefinitions
                     return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree);
 
                 case TypeOptionsParser.ShowHelp:
-                    new HelpAction().Invoke(parseResult);
+                    HelpWriter.WriteHelp(typeCommand);
                     return 0;
 
                 case TypeOptionsParser.VersionError error:
@@ -223,7 +222,7 @@ public static class ApiCommandDefinitions
                     return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree);
 
                 case MemberOptionsParser.ShowHelp:
-                    new HelpAction().Invoke(parseResult);
+                    HelpWriter.WriteHelp(memberCommand);
                     return 0;
 
                 case MemberOptionsParser.VersionError error:

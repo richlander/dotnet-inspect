@@ -176,6 +176,7 @@ public static class InspectionCommandDefinitions
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Markdown = parseResult.GetValue(opts.Markdown),
                 OneLine = opts.ResolveFormat(parseResult) == OutputFormat.OneLine,
+                Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),

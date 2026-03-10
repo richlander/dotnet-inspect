@@ -35,6 +35,6 @@ public static class Hints
 
         Console.Out.Flush();
         Console.Error.WriteLine();
-        MarkoutSerializer.Serialize(view, Console.Error, TipsViewContext.Default);
+        MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
     }
 }

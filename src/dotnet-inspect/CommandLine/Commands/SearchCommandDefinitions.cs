@@ -88,7 +88,7 @@ public static class SearchCommandDefinitions
             switch (result)
             {
                 case FindOptionsParser.ShowHelpWithTips:
-                    return TipWriter.ShowHelpWithTips(parseResult,
+                    return TipWriter.ShowHelpWithTips(findCommand,
                         "find Chat*                                # search default scope",
                         "find Chat* --platform                     # platform libraries only",
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
@@ -174,7 +174,7 @@ public static class SearchCommandDefinitions
 
             if (string.IsNullOrEmpty(targetType))
             {
-                return TipWriter.ShowHelpWithTips(parseResult,
+                return TipWriter.ShowHelpWithTips(implCommand,
                     "implements Stream                         # search default scope",
                     "implements Stream --platform              # platform libraries only",
                     "implements Stream --extensions             # Microsoft.Extensions packages",
@@ -288,7 +288,7 @@ public static class SearchCommandDefinitions
 
             if (string.IsNullOrEmpty(targetType))
             {
-                return TipWriter.ShowHelpWithTips(parseResult,
+                return TipWriter.ShowHelpWithTips(extCommand,
                     "extensions HttpClient                     # search default scope",
                     "extensions HttpClient --platform          # platform libraries only",
                     "extensions HttpClient --extensions         # Microsoft.Extensions packages",
@@ -399,7 +399,7 @@ public static class SearchCommandDefinitions
                 if (packages.Length == 1 && assemblies.Length == 0)
                     return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
 
-                return TipWriter.ShowHelpWithTips(parseResult,
+                return TipWriter.ShowHelpWithTips(dependsCommand,
                     "depends IFloatingPointIeee754 --platform   # type hierarchy",
                     "depends --library Microsoft.Extensions.AI   # assembly references",
                     "depends --package System.Text.Json          # NuGet dependencies");

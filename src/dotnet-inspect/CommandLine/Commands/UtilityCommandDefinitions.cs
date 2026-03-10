@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -90,7 +89,7 @@ public static class UtilityCommandDefinitions
             }
 
             // No index and no flag: show help + random demo tips
-            new HelpAction().Invoke(parseResult);
+            HelpWriter.WriteHelp(demoCommand);
             var tips = DemoCommand.Demos.Select((d, i) =>
                 new Tip("demo", $"{i + 1}", d.Title)).ToArray();
             Hints.WriteTips(TipLevel.Minimal, tips, randomize: true);

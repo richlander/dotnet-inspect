@@ -14,6 +14,7 @@ public class SharedOptions
     // Output format options
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
+    public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
@@ -138,6 +139,7 @@ public class SharedOptions
     {
         command.Options.Add(Json);
         command.Options.Add(Markdown);
+        command.Options.Add(PlainText);
         AddOutputOptionsTo(command);
         AddSectionOptionsTo(command);
         AddNuGetOptionsTo(command);
@@ -185,9 +187,10 @@ public class SharedOptions
     {
         bool jsonFlag = parseResult.GetValue(Json);
         bool markdownFlag = parseResult.GetValue(Markdown);
+        bool plainTextFlag = parseResult.GetValue(PlainText);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity);
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag);
     }
 
     /// <summary>

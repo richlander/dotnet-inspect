@@ -78,6 +78,11 @@ public record AssemblyOptions
     public bool OneLineExplicitlySet { get; init; }
 
     /// <summary>
+    /// Resolved output format.
+    /// </summary>
+    public OutputFormat Format { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

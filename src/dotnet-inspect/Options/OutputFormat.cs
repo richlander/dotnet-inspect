@@ -17,6 +17,11 @@ public enum OutputFormat
     Markdown,
 
     /// <summary>
+    /// Plain text without markdown syntax. Aligned fields, dashed table separators.
+    /// </summary>
+    PlainText,
+
+    /// <summary>
     /// JSON output.
     /// </summary>
     Json
@@ -35,13 +40,15 @@ public static class OutputFormatResolver
     /// Resolves format. Any -v flag implies Markdown. --json implies Json. --markdown implies Markdown.
     /// OneLine is the default when no -v flag is specified.
     /// </summary>
-    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity)
+    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity, bool plainTextFlag = false)
     {
         // Explicit CLI flags win
         if (jsonFlag)
             return OutputFormat.Json;
         if (markdownFlag)
             return OutputFormat.Markdown;
+        if (plainTextFlag)
+            return OutputFormat.PlainText;
         if (verbosity != null)
             return OutputFormat.Markdown;
 
@@ -76,6 +83,7 @@ public static class OutputFormatResolver
             {
                 "oneline" or "one-line" => OutputFormat.OneLine,
                 "markdown" or "md" => OutputFormat.Markdown,
+                "plaintext" or "plain-text" or "plain" or "text" => OutputFormat.PlainText,
                 "json" => OutputFormat.Json,
                 _ => null
             };

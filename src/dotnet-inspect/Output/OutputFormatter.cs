@@ -95,7 +95,11 @@ public static class OutputFormatter
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
-        if (options.VerbosityEnabled)
+        if (options.Format == OutputFormat.PlainText)
+        {
+            new MarkoutContext().Serialize(auditView, Console.Out, new PlainTextFormatter(), writerOpts);
+        }
+        else if (options.VerbosityEnabled)
         {
             var context = new MarkoutContext(writerOpts);
             Console.WriteLine(context.Serialize(auditView).TrimEnd());

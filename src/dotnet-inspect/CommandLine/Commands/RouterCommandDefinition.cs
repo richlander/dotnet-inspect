@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
@@ -58,7 +57,7 @@ public static class RouterCommandDefinition
             switch (result)
             {
                 case RouterOptionsParser.ShowHelp:
-                    new HelpAction().Invoke(parseResult);
+                    HelpWriter.WriteHelp(routerCommand);
                     return 0;
 
                 case RouterOptionsParser.Discovery d:

@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -12,11 +11,11 @@ namespace DotnetInspector.CommandLine;
 public static class TipWriter
 {
     /// <summary>
-    /// Shows help action followed by command-specific tips.
+    /// Shows help followed by command-specific tips.
     /// </summary>
-    public static int ShowHelpWithTips(ParseResult parseResult, params string[] tips)
+    public static int ShowHelpWithTips(Command command, params string[] tips)
     {
-        new HelpAction().Invoke(parseResult);
+        HelpWriter.WriteHelp(command);
         Console.Error.WriteLine();
         Console.Error.WriteLine("Tips:");
         foreach (var tip in tips)
