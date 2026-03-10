@@ -156,7 +156,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_ForwardedTypeMatchesFilter_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "-t", "HashSet*", "-v:q", "--offline");
+            "type", "--platform", "System.Collections", "-t", "HashSet*", "--offline");
 
         Assert.Equal(0, exit);
         // Oneline table: type name appears in row

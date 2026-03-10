@@ -196,11 +196,21 @@ public class SharedOptions
     /// <summary>
     /// Resolves whether oneline output should be used, considering the --oneline flag and format resolution.
     /// Explicit --oneline always wins; otherwise derived from ResolveFormat.
+    /// Throws if --oneline is combined with -v (contradictory: -v implies markdown).
     /// </summary>
     public bool ResolveOneLine(ParseResult parseResult, Option<bool> oneLineOption)
     {
+        bool explicitOneLine = parseResult.GetResult(oneLineOption) is { Implicit: false };
+        bool explicitVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
+
+        if (explicitOneLine && explicitVerbosity)
+        {
+            Console.Error.WriteLine("--oneline and -v cannot be combined. Use -v for markdown output, or omit -v for oneline.");
+            throw new OperationCanceledException();
+        }
+
         // Explicit --oneline flag always wins
-        if (parseResult.GetResult(oneLineOption) is { Implicit: false })
+        if (explicitOneLine)
             return parseResult.GetValue(oneLineOption);
 
         return ResolveFormat(parseResult) == OutputFormat.OneLine;

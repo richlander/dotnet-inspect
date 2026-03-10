@@ -104,7 +104,15 @@ if (CommandLineBuilder.HeadLines is int headLines)
 // Create and invoke command
 var rootCommand = CommandLineBuilder.CreateRootCommand();
 var result = rootCommand.Parse(args);
-var exitCode = await result.InvokeAsync();
+int exitCode;
+try
+{
+    exitCode = await result.InvokeAsync();
+}
+catch (OperationCanceledException)
+{
+    return 1;
+}
 
 // Write info metrics to stderr if --info was requested
 if (showInfo)
