@@ -53,6 +53,15 @@ public static class SourceResolver
     /// </summary>
     internal static LocalProbeResult? TryProbeLocalQualifiedName(string name)
     {
+        // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
+        // Single-dot names like "System.CommandLine" are ambiguous: could be
+        // a package name or assembly + type. Treat as a package to avoid
+        // false positives from greedy matches like System + CommandLine.
+        int dotCount = 0;
+        for (int j = 0; j < name.Length; j++)
+            if (name[j] == '.') dotCount++;
+        if (dotCount < 2) return null;
+
         for (int i = name.Length - 1; i >= 0; i--)
         {
             if (name[i] != '.') continue;
