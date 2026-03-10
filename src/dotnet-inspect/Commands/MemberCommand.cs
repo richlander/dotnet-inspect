@@ -124,6 +124,18 @@ public static class MemberCommand
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
 
+            // When filtering to specific members, exclude type-level context sections
+            // (leftover from when member and type shared the same view).
+            if (effectiveOptions.MemberFilter.Count > 0)
+            {
+                var memberSections = ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames;
+                var include = effectiveOptions.IncludeSections ?? new HashSet<string>(memberSections, StringComparer.OrdinalIgnoreCase);
+                include.Remove(SectionNames.TypeParameters);
+                include.Remove(SectionNames.TypeInterfaces);
+                include.Remove(SectionNames.Baseclass);
+                effectiveOptions = effectiveOptions with { IncludeSections = include };
+            }
+
             // --index: select a specific overload and show IL
             if (effectiveOptions.OverloadIndex.HasValue)
             {
