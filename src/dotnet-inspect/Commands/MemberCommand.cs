@@ -136,6 +136,18 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with { IncludeSections = include };
             }
 
+            // Auto-select the overload index when there's exactly one member with one overload.
+            // This lets "member Foo.Bar" show code sections without requiring ":1".
+            if (!effectiveOptions.OverloadIndex.HasValue && effectiveOptions.MemberFilter.Count == 1)
+            {
+                var autoMemberName = effectiveOptions.MemberFilter.First();
+                var autoOverloads = apiType.Members
+                    .Where(m => string.Equals(m.Name, autoMemberName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (autoOverloads.Count == 1)
+                    effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+            }
+
             // --index: select a specific overload and show IL
             if (effectiveOptions.OverloadIndex.HasValue)
             {
