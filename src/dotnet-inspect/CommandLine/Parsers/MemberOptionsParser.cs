@@ -135,11 +135,17 @@ public static class MemberOptionsParser
         // split at the last dot: the right part is a member filter.
         // Handles: member System.Text.Json.JsonDocument.Parse
         //   → source=System.Text.Json, type=JsonDocument, member=Parse
+        // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
+        // not a type.member pair.
         if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
         {
             var lastDot = typeName.LastIndexOf('.');
-            positionalMembers.Add(typeName[(lastDot + 1)..]);
-            typeName = typeName[..lastDot];
+            var rightPart = typeName[(lastDot + 1)..];
+            if (!rightPart.Contains('<'))
+            {
+                positionalMembers.Add(rightPart);
+                typeName = typeName[..lastDot];
+            }
         }
 
         // Check for unrecognized options in positional args
