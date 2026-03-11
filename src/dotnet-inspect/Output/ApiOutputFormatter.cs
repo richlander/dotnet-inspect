@@ -130,9 +130,7 @@ public static class ApiOutputFormatter
 
     internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
     {
-        // Member command at quiet still needs sections rendered (summary tables)
-        var effectiveVerbosity = options is MemberOptions && options.Verbosity == Verbosity.Quiet
-            ? Verbosity.Minimal : options.Verbosity;
+        var effectiveVerbosity = options.Verbosity;
 
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
@@ -272,12 +270,12 @@ public static class ApiOutputFormatter
             Source = topFieldsOnly ? apiSource : null,
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
-            // Member stats for quiet verbosity (non-member commands only; member command shows tables)
-            Constructors = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
-            Fields = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
-            Properties = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
-            Methods = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
-            Events = options.Verbosity == Verbosity.Quiet && options is not MemberOptions ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
+            // Member stats for quiet verbosity
+            Constructors = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Fields = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
+            Properties = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
+            Methods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Events = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,

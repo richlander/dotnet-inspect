@@ -176,6 +176,12 @@ public static class ApiCommandDefinitions
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
         var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
         var selectOption = new Option<bool>("--select") { Description = "Show member overload index (Name:N) column" };
+        var kindOption = new Option<string[]>("-k")
+        {
+            Description = "Filter by member kind (method, property, field, event, constructor)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        kindOption.Aliases.Add("--kind");
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -201,6 +207,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(paramsOption);
         memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
+        memberCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
@@ -211,7 +218,7 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, docsOption, noDocsOption, useLocalDocsOption,
             samplesOption, browsableUrlsOption, compactOption, oneLineOption, noHeaderOption,
-            unsafeOption, indexOption, paramsOption, ofOption, selectOption);
+            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

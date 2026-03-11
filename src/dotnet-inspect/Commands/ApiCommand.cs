@@ -523,7 +523,7 @@ public class ApiCommand
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
         bool isMember = options is MemberOptions;
-        bool fullSerializer = isMember || options.Verbosity != Verbosity.Quiet;
+        bool fullSerializer = options.Verbosity != Verbosity.Quiet;
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
@@ -531,10 +531,6 @@ public class ApiCommand
                 && type.Members.Any(m => m.Kind == "constructor"))
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
-            }
-            else if (isMember && options.Verbosity == Verbosity.Quiet)
-            {
-                ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
             else if (options.Verbosity == Verbosity.Minimal && !isMember)
             {

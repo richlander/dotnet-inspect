@@ -76,7 +76,7 @@ dnx dotnet-inspect -y -- type System.Text.Json --columns Kind,Type    # project 
 
 Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 
-- **(no flags)** — platform frameworks + Microsoft.Extensions.AI
+- **(no flags)** — all platform frameworks (runtime, aspnetcore, netstandard)
 - **`--platform`** — all platform frameworks
 - **`--extensions`** — curated Microsoft.Extensions.* packages
 - **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages
@@ -102,7 +102,7 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 ## Filtering and Limiting
 
 ```bash
-dnx dotnet-inspect -y -- type System.Text.Json -k enum               # filter by kind (type or member level)
+dnx dotnet-inspect -y -- type System.Text.Json -k enum               # filter by kind (type and member commands)
 dnx dotnet-inspect -y -- type System.Text.Json -t "*Converter*"      # glob filter on type names
 dnx dotnet-inspect -y -- member System.Text.Json JsonDocument -m Parse  # filter by member name
 dnx dotnet-inspect -y -- type System.Text.Json -5                    # first 5 lines (like head -5)
@@ -112,7 +112,7 @@ dnx dotnet-inspect -y -- type System.Text.Json -5                    # first 5 l
 
 - **`-n N` or `-N`** — line limit (like `head`). Keeps headers, truncates cleanly.
 - **`-m N`** (numeric) — item limit (members per kind section).
-- **`-k Kind`** — filter by kind: `class/struct/interface/enum/delegate` or `method/property/field/event/constructor`.
+- **`-k Kind`** — filter by kind: `class/struct/interface/enum/delegate` (type) or `method/property/field/event/constructor` (type single-type view, member).
 - **`-S Section`** — show only a specific section (glob-capable).
 
 ## Key Syntax
@@ -134,7 +134,7 @@ dnx dotnet-inspect -y -- <command>
 
 ## Full Documentation
 
-For comprehensive syntax, edge cases, and the flag compatibility matrix:
+For the full mental model, structured queries, and migration workflow:
 
 ```bash
 dnx dotnet-inspect -y -- llmstxt

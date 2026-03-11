@@ -37,7 +37,8 @@ public static class MemberOptionsParser
         Option<int?> IndexOption,
         Option<string> ParamsOption,
         Option<string> OfOption,
-        Option<bool> SelectOption);
+        Option<bool> SelectOption,
+        Option<string[]> KindOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -173,6 +174,9 @@ public static class MemberOptionsParser
         // Determine docs behavior
         var (showDocs, docsExplicitlySet) = ParseDocsBehavior(parseResult, args);
 
+        var kindValues = parseResult.GetValue(args.KindOption) ?? [];
+        var kindFilter = SharedParsers.ParseKindFilter(kindValues);
+
         var options = new MemberOptions
         {
             TypeName = typeName,
@@ -183,6 +187,7 @@ public static class MemberOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             MemberFilter = memberFilter,
+            KindFilter = kindFilter,
             Limit = memberLimit,
             ShowDocs = showDocs || parseResult.GetValue(args.UseLocalDocsOption),
             DocsExplicitlySet = docsExplicitlySet,

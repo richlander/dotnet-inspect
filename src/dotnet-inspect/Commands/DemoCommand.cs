@@ -84,7 +84,7 @@ public class DemoCommand
             ["package", "System.Text.Json", "-S"]),
 
         new("What types are in System.Text.Json — just the names?", "discovery",
-            ["type", "--package", "System.Text.Json", "-S", "Type"]),
+            ["type", "--package", "System.Text.Json", "--columns", "Type"]),
 
         new("What changed in System.Text.Json — types and changes only?", "migration",
             ["diff", "System.Text.Json@8.0.0..10.0.3", "--oneline", "-S", "Type,Change"]),
