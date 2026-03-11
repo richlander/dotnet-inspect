@@ -765,14 +765,102 @@ public static class CSharpEmitter
 
         void EmitSwitch(StructuredBlock block, int indent)
         {
+            // Extract the switch value expression from the switch block's last node
+            string switchValue = "/* value */";
+            if (block.SwitchBlockIndex >= 0 && _blockMap.TryGetValue(block.SwitchBlockIndex, out var switchBlock))
+            {
+                _consumedBlocks.Add(block.SwitchBlockIndex);
+                _currentBlockNodes = switchBlock.Nodes;
+
+                // Emit any statements before the switch instruction
+                for (int i = 0; i < switchBlock.Nodes.Count - 1; i++)
+                {
+                    if (switchBlock.Nodes[i] is ILAstStatement stmt)
+                        EmitStatement(stmt.Expression, indent);
+                    else if (switchBlock.Nodes[i] is ILAstAssignment assign)
+                    {
+                        WriteIndent(indent);
+                        _sb.Append($"{assign.Variable.Name} = ");
+                        EmitExpression(assign.Value);
+                        _sb.AppendLine(";");
+                    }
+                }
+
+                // Extract switch value from the last node (the switch instruction)
+                var lastNode = switchBlock.Nodes.LastOrDefault();
+                if (lastNode is ILAstStatement { Expression: var switchExpr }
+                    && switchExpr.OpCode == ILOpCode.Switch
+                    && switchExpr.Arguments.Count > 0)
+                {
+                    switchValue = ExpressionToString(switchExpr.Arguments[0]);
+                }
+
+                _currentBlockNodes = null;
+            }
+
             WriteIndent(indent);
-            _sb.AppendLine("switch (/* value */)");
+            _sb.AppendLine($"switch ({switchValue})");
             WriteIndent(indent);
             _sb.AppendLine("{");
-            WriteIndent(indent + 1);
-            _sb.AppendLine("// cases");
+
+            // Group cases that target the same block
+            var blockToCases = new Dictionary<int, List<int>>();
+            foreach (var (caseValue, targetIdx) in block.SwitchCases)
+            {
+                if (!blockToCases.TryGetValue(targetIdx, out var cases))
+                {
+                    cases = [];
+                    blockToCases[targetIdx] = cases;
+                }
+                cases.Add(caseValue);
+            }
+
+            // Emit case groups in order of first case value
+            foreach (var (targetIdx, cases) in blockToCases.OrderBy(kv => kv.Value[0]))
+            {
+                // Skip cases that target the default block (they fall through to default)
+                if (targetIdx == block.SwitchDefaultIndex)
+                    continue;
+
+                foreach (int caseVal in cases)
+                {
+                    WriteIndent(indent + 1);
+                    _sb.AppendLine($"case {caseVal}:");
+                }
+                EmitBasicBlock(targetIdx, indent + 2);
+                // Add break if block doesn't end with return/throw
+                if (!BlockEndsWithReturn(targetIdx))
+                {
+                    WriteIndent(indent + 2);
+                    _sb.AppendLine("break;");
+                }
+            }
+
+            // Emit default case
+            if (block.SwitchDefaultIndex >= 0)
+            {
+                WriteIndent(indent + 1);
+                _sb.AppendLine("default:");
+                EmitBasicBlock(block.SwitchDefaultIndex, indent + 2);
+                if (!BlockEndsWithReturn(block.SwitchDefaultIndex))
+                {
+                    WriteIndent(indent + 2);
+                    _sb.AppendLine("break;");
+                }
+            }
+
             WriteIndent(indent);
             _sb.AppendLine("}");
+        }
+
+        bool BlockEndsWithReturn(int blockIndex)
+        {
+            if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
+                return false;
+            var lastNode = astBlock.Nodes.LastOrDefault();
+            return lastNode is ILAstStatement { Expression.OpCode:
+                ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow
+                or ILOpCode.Br or ILOpCode.Br_s };
         }
 
         // --- Expression emission ---

@@ -211,6 +211,42 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("IL_", output);
     }
 
+    // --- Switch ---
+
+    [Fact]
+    public void SwitchStatement_HasSwitchKeyword()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("switch", output);
+    }
+
+    [Fact]
+    public void SwitchStatement_HasCaseLabels()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("case", output);
+    }
+
+    [Fact]
+    public void SwitchStatement_HasDefaultCase()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("default:", output);
+    }
+
+    [Fact]
+    public void SwitchStatement_HasStringReturns()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("return", output);
+        Assert.Contains("\"zero\"", output);
+        Assert.Contains("\"other\"", output);
+    }
+
     // --- Platform stress test ---
 
     [Fact]

@@ -36,6 +36,9 @@ public sealed class BasicBlock : IEquatable<BasicBlock>
     /// <summary>The opcode of the terminating branch instruction, if any.</summary>
     public ILOpCode TerminatingBranch { get; set; }
 
+    /// <summary>Ordered case targets for switch instructions (case 0, case 1, ...). Null if not a switch block.</summary>
+    public List<BasicBlock>? SwitchCaseTargets { get; set; }
+
     public override string ToString() => $"BB[IL_{Start:X4}..IL_{Start + Size:X4})";
     public override bool Equals(object? obj) => Equals(obj as BasicBlock);
     public bool Equals(BasicBlock? other) => other is not null && Start == other.Start;
@@ -89,6 +92,10 @@ public sealed class ControlFlowGraph
             -1 => null,
             int idx => BasicBlocks[idx]
         };
+
+    /// <summary>Find the index of the given basic block, or -1.</summary>
+    public int IndexOf(BasicBlock bb)
+        => LookupIndex(bb.Start);
 
     /// <summary>
     /// Enumerate all basic blocks whose start offsets fall within [ilOffsetStart, ilOffsetEnd].
@@ -168,18 +175,26 @@ public sealed class ControlFlowGraph
 
                 if (opc == ILOpCode.Switch)
                 {
+                    bb.TerminatingBranch = opc;
                     uint numCases = reader.ReadILUInt32();
                     int jmpBase = reader.Offset + checked((int)(numCases * 4));
                     var defaultBB = cfg.Lookup(jmpBase);
                     if (defaultBB is not null)
+                    {
                         bb.Targets.Add(defaultBB);
+                        bb.FallthroughTarget = defaultBB;
+                    }
 
+                    bb.SwitchCaseTargets = new List<BasicBlock>((int)numCases);
                     for (uint i = 0; i < numCases; i++)
                     {
                         int caseOfs = jmpBase + (int)reader.ReadILUInt32();
                         var caseBB = cfg.Lookup(caseOfs);
                         if (caseBB is not null)
+                        {
                             bb.Targets.Add(caseBB);
+                            bb.SwitchCaseTargets.Add(caseBB);
+                        }
                     }
                     break;
                 }

@@ -64,6 +64,15 @@ public class StructuredBlock
     /// <summary>Exception region (for TryCatchFinally).</summary>
     public ExceptionRegion? ExceptionRegion { get; init; }
 
+    /// <summary>Block index containing the switch instruction (for Switch).</summary>
+    public int SwitchBlockIndex { get; init; } = -1;
+
+    /// <summary>Ordered case targets: (case value, target block index). For Switch kind.</summary>
+    public List<(int CaseValue, int TargetBlockIndex)> SwitchCases { get; init; } = [];
+
+    /// <summary>Default target block index (for Switch). -1 if none.</summary>
+    public int SwitchDefaultIndex { get; init; } = -1;
+
     /// <summary>Label for the block.</summary>
     public string? Label { get; init; }
 
@@ -114,7 +123,19 @@ public class StructuredBlock
 
             case StructuredBlockKind.Switch:
                 WriteIndent(sb, indent);
-                sb.AppendLine("switch { ... }");
+                sb.AppendLine($"switch (Block_{SwitchBlockIndex}) {{");
+                foreach (var (caseVal, targetIdx) in SwitchCases)
+                {
+                    WriteIndent(sb, indent + 1);
+                    sb.AppendLine($"case {caseVal}: Block_{targetIdx}");
+                }
+                if (SwitchDefaultIndex >= 0)
+                {
+                    WriteIndent(sb, indent + 1);
+                    sb.AppendLine($"default: Block_{SwitchDefaultIndex}");
+                }
+                WriteIndent(sb, indent);
+                sb.AppendLine("}");
                 break;
         }
     }
@@ -223,6 +244,14 @@ public sealed class StructuredControlFlow
         {
             if (region.TryStartBlockIndex >= 0)
                 exRegionsByBlock.TryAdd(region.TryStartBlockIndex, region);
+        }
+
+        // Detect switch blocks by their terminating opcode
+        var switchBlocks = new Dictionary<int, int>(); // block index → CFG block index
+        for (int b = 0; b < cfg.BasicBlocks.Count; b++)
+        {
+            if (cfg.BasicBlocks[b].TerminatingBranch == ILOpCode.Switch)
+                switchBlocks[b] = b;
         }
 
         // Build the tree by walking blocks in order
@@ -436,6 +465,57 @@ public sealed class StructuredControlFlow
                     Kind = StructuredBlockKind.Loop,
                     LoopHeaderIndex = loop.HeaderIndex,
                     Children = loopChildren
+                });
+                continue;
+            }
+
+            // Switch detection: block terminates with IL switch opcode
+            if (switchBlocks.ContainsKey(i))
+            {
+                var bb = cfg.BasicBlocks[i];
+                var caseTargets = new List<(int CaseValue, int TargetBlockIndex)>();
+                var caseBlockIndices = new HashSet<int>();
+
+                if (bb.SwitchCaseTargets is not null)
+                {
+                    for (int c = 0; c < bb.SwitchCaseTargets.Count; c++)
+                    {
+                        int targetIdx = cfg.IndexOf(bb.SwitchCaseTargets[c]);
+                        if (targetIdx >= 0)
+                        {
+                            caseTargets.Add((c, targetIdx));
+                            caseBlockIndices.Add(targetIdx);
+                        }
+                    }
+                }
+
+                int defaultIdx = bb.FallthroughTarget is not null
+                    ? cfg.IndexOf(bb.FallthroughTarget)
+                    : -1;
+
+                // Mark case target blocks as processed (they belong to the switch)
+                foreach (int caseIdx in caseBlockIndices)
+                    processed.Add(caseIdx);
+                if (defaultIdx >= 0)
+                    processed.Add(defaultIdx);
+
+                processed.Add(i);
+                children.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.Switch,
+                    SwitchBlockIndex = i,
+                    SwitchCases = caseTargets,
+                    SwitchDefaultIndex = defaultIdx,
+                    Children = caseBlockIndices.OrderBy(x => x)
+                        .Concat(defaultIdx >= 0 ? [defaultIdx] : [])
+                        .Distinct()
+                        .Select(idx => new StructuredBlock
+                        {
+                            Kind = StructuredBlockKind.BasicBlock,
+                            BlockIndex = idx,
+                            Label = $"Block_{idx}"
+                        })
+                        .ToList()
                 });
                 continue;
             }

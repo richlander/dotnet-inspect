@@ -259,6 +259,20 @@ public class CfgSampleClass
         _ => "other"
     };
 
+    public static string SwitchStatement(int x)
+    {
+        switch (x)
+        {
+            case 0: return "zero";
+            case 1: return "one";
+            case 2: return "two";
+            case 3: return "three";
+            case 4: return "four";
+            case 5: return "five";
+            default: return "other";
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
