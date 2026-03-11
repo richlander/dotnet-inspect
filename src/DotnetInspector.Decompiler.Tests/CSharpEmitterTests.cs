@@ -191,6 +191,17 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void DoWhileLoop_EmitsDoWhile()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.DoWhileLoop));
+
+        Assert.Contains("do", output);
+        Assert.Contains("while", output);
+        // The do-while body should contain the increment
+        Assert.Contains("+ 1", output);
+    }
+
+    [Fact]
     public void NestedLoops_EmitsWhile()
     {
         string output = EmitMethod(nameof(CfgSampleClass.NestedLoops));

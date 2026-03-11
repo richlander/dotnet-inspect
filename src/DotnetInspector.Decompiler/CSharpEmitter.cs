@@ -452,7 +452,7 @@ public static class CSharpEmitter
                 return;
             }
 
-            // Try to extract the while condition from the header block's last node
+            // Try to extract the condition from the header block's last node
             string? condition = null;
             bool negateCondition = false;
             var lastNode = headerBlock.Nodes.LastOrDefault();
@@ -462,8 +462,6 @@ public static class CSharpEmitter
                 string? branchTarget = branchExpr.Operand as string;
 
                 // Determine if the branch goes into the loop body or exits
-                // If branch target is inside the loop → branch-on-true means "while (cond)"
-                // If branch target is outside the loop → branch-on-true means "while (!cond)"
                 bool branchGoesIntoLoop = false;
                 if (branchTarget is not null)
                 {
@@ -492,22 +490,64 @@ public static class CSharpEmitter
 
             if (condition is not null)
             {
-                // Emit any non-branch statements from the header before the while
-                EmitHeaderStatements(headerIdx, indent);
+                // Do-while detection: if header IS the only body block (self-loop)
+                // or all body blocks are empty, the body code lives in the header
+                // before the condition — emit as do { body } while (cond)
+                bool isDoWhile = bodyIndices.Count == 0 && headerBlock.Nodes.Count > 1;
 
-                WriteIndent(indent);
-                _sb.AppendLine($"while ({condition})");
-                WriteIndent(indent);
-                _sb.AppendLine("{");
+                if (isDoWhile)
+                {
+                    _consumedBlocks.Add(headerIdx);
+                    _currentBlockNodes = headerBlock.Nodes;
 
-                foreach (int bodyIdx in bodyIndices)
-                    EmitBasicBlockForLoop(bodyIdx, indent + 1, loop);
+                    WriteIndent(indent);
+                    _sb.AppendLine("do");
+                    WriteIndent(indent);
+                    _sb.AppendLine("{");
 
-                WriteIndent(indent);
-                _sb.AppendLine("}");
+                    // Emit all header statements except the last (the branch condition)
+                    for (int i = 0; i < headerBlock.Nodes.Count - 1; i++)
+                    {
+                        var node = headerBlock.Nodes[i];
+                        switch (node)
+                        {
+                            case ILAstAssignment assign:
+                                WriteIndent(indent + 1);
+                                _sb.Append($"{assign.Variable.Name} = ");
+                                EmitExpression(assign.Value);
+                                _sb.AppendLine(";");
+                                break;
+                            case ILAstStatement stmt:
+                                EmitStatement(stmt.Expression, indent + 1);
+                                break;
+                        }
+                    }
 
-                // Mark header as consumed so it doesn't emit separately
-                _consumedBlocks.Add(headerIdx);
+                    WriteIndent(indent);
+                    _sb.AppendLine("}");
+                    WriteIndent(indent);
+                    _sb.AppendLine($"while ({condition});");
+
+                    _currentBlockNodes = null;
+                }
+                else
+                {
+                    // Standard while loop
+                    EmitHeaderStatements(headerIdx, indent);
+
+                    WriteIndent(indent);
+                    _sb.AppendLine($"while ({condition})");
+                    WriteIndent(indent);
+                    _sb.AppendLine("{");
+
+                    foreach (int bodyIdx in bodyIndices)
+                        EmitBasicBlockForLoop(bodyIdx, indent + 1, loop);
+
+                    WriteIndent(indent);
+                    _sb.AppendLine("}");
+
+                    _consumedBlocks.Add(headerIdx);
+                }
             }
             else
             {
