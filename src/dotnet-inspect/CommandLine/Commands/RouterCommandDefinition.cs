@@ -45,10 +45,13 @@ public static class RouterCommandDefinition
         var routerVersionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
         routerVersionsOption.DefaultValueFactory = _ => null;
         routerCommand.Options.Add(routerVersionsOption);
+        var routerPrereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
+        routerPrereleaseOption.Aliases.Add("--prerelease");
+        routerCommand.Options.Add(routerPrereleaseOption);
 
         var commandArgs = new RouterOptionsParser.RouterCommandArgs(
             packageNameArg, routerVersionOption, routerLatestVersionOption, routerVersionsOption,
-            routerOneLineOption, routerNoHeaderOption);
+            routerPrereleaseOption, routerOneLineOption, routerNoHeaderOption);
 
         routerCommand.SetAction(async (parseResult, ct) =>
         {
