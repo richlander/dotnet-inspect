@@ -222,6 +222,19 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("IL_", output);
     }
 
+    [Fact]
+    public void MultipleCatch_HasBothCatchBlocks()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.MultipleCatch));
+
+        Assert.Contains("try", output);
+        Assert.Contains("FormatException", output);
+        Assert.Contains("OverflowException", output);
+        // Both catch blocks should appear — count occurrences of "catch"
+        int catchCount = output.Split("catch").Length - 1;
+        Assert.True(catchCount >= 2, $"Expected at least 2 catch blocks, found {catchCount} in:\n{output}");
+    }
+
     // --- Switch ---
 
     [Fact]

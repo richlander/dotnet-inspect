@@ -64,6 +64,9 @@ public class StructuredBlock
     /// <summary>Exception region (for TryCatchFinally).</summary>
     public ExceptionRegion? ExceptionRegion { get; init; }
 
+    /// <summary>Additional exception handlers sharing the same try range (for multiple catch).</summary>
+    public List<HandlerGroup> AdditionalHandlers { get; init; } = [];
+
     /// <summary>Block index containing the switch instruction (for Switch).</summary>
     public int SwitchBlockIndex { get; init; } = -1;
 
@@ -239,11 +242,18 @@ public sealed class StructuredControlFlow
         foreach (var cond in conditionals)
             conditionBlocks[cond.ConditionIndex] = cond;
 
-        var exRegionsByBlock = new Dictionary<int, ExceptionRegionInfo>();
+        var exRegionsByBlock = new Dictionary<int, List<ExceptionRegionInfo>>();
         foreach (var region in exRegions)
         {
             if (region.TryStartBlockIndex >= 0)
-                exRegionsByBlock.TryAdd(region.TryStartBlockIndex, region);
+            {
+                if (!exRegionsByBlock.TryGetValue(region.TryStartBlockIndex, out var list))
+                {
+                    list = [];
+                    exRegionsByBlock[region.TryStartBlockIndex] = list;
+                }
+                list.Add(region);
+            }
         }
 
         // Detect switch blocks by their terminating opcode
@@ -280,8 +290,9 @@ public sealed class StructuredControlFlow
             if (processed.Contains(i)) continue;
 
             // Exception regions take priority — process all blocks in the region together
-            if (exRegionsByBlock.TryGetValue(i, out var exRegion))
+            if (exRegionsByBlock.TryGetValue(i, out var exRegions2))
             {
+                var exRegion = exRegions2[0]; // All share the same try range
                 // Collect all blocks in the try body, recursively structuring conditionals within
                 var tryChildren = new List<StructuredBlock>();
                 int tryEnd = exRegion.Region.TryOffset + exRegion.Region.TryLength;
@@ -291,8 +302,9 @@ public sealed class StructuredControlFlow
                     if (processed.Contains(t)) continue;
 
                     // Check for nested exception regions within the try body
-                    if (exRegionsByBlock.TryGetValue(t, out var nestedRegion) && nestedRegion != exRegion)
+                    if (exRegionsByBlock.TryGetValue(t, out var nestedRegions) && nestedRegions != exRegions2)
                     {
+                        var nestedRegion = nestedRegions[0];
                         var nestedTryChildren = new List<StructuredBlock>();
                         int nestedTryEnd = nestedRegion.Region.TryOffset + nestedRegion.Region.TryLength;
                         for (int nt = t; nt < cfg.BasicBlocks.Count; nt++)
@@ -381,58 +393,17 @@ public sealed class StructuredControlFlow
                     }
                 }
 
-                // Collect all blocks in the handler body
-                var handlerChildren = new List<StructuredBlock>();
-                int handlerEnd = exRegion.Region.HandlerOffset + exRegion.Region.HandlerLength;
-                for (int h = exRegion.HandlerStartBlockIndex; h >= 0 && h < cfg.BasicBlocks.Count; h++)
+                // Collect handler blocks for each exception region sharing this try range
+                var handlerChildren = CollectHandlerBlocks(
+                    cfg, exRegion, processed, conditionBlocks);
+
+                var additionalHandlers = new List<HandlerGroup>();
+                for (int r = 1; r < exRegions2.Count; r++)
                 {
-                    if (cfg.BasicBlocks[h].Start >= handlerEnd) break;
-                    if (processed.Contains(h)) continue;
-                    processed.Add(h);
-
-                    // Check for conditionals within the handler
-                    if (conditionBlocks.TryGetValue(h, out var handlerCond))
-                    {
-                        var thenBlock = new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.BasicBlock,
-                            BlockIndex = handlerCond.ThenIndex,
-                            Label = $"Block_{handlerCond.ThenIndex}"
-                        };
-                        if (cfg.BasicBlocks[handlerCond.ThenIndex].Start < handlerEnd)
-                            processed.Add(handlerCond.ThenIndex);
-
-                        StructuredBlock? elseBlock = null;
-                        if (handlerCond.ElseIndex >= 0)
-                        {
-                            elseBlock = new StructuredBlock
-                            {
-                                Kind = StructuredBlockKind.BasicBlock,
-                                BlockIndex = handlerCond.ElseIndex,
-                                Label = $"Block_{handlerCond.ElseIndex}"
-                            };
-                            if (cfg.BasicBlocks[handlerCond.ElseIndex].Start < handlerEnd)
-                                processed.Add(handlerCond.ElseIndex);
-                        }
-
-                        handlerChildren.Add(new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.IfThenElse,
-                            ConditionBlockIndex = h,
-                            ThenBlock = thenBlock,
-                            ElseBlock = elseBlock,
-                            NegateCondition = handlerCond.NegateCondition
-                        });
-                    }
-                    else
-                    {
-                        handlerChildren.Add(new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.BasicBlock,
-                            BlockIndex = h,
-                            Label = $"Block_{h}"
-                        });
-                    }
+                    var addlRegion = exRegions2[r];
+                    var addlChildren = CollectHandlerBlocks(
+                        cfg, addlRegion, processed, conditionBlocks);
+                    additionalHandlers.Add(new HandlerGroup(addlRegion.Region, addlChildren));
                 }
 
                 children.Add(new StructuredBlock
@@ -441,7 +412,8 @@ public sealed class StructuredControlFlow
                     BlockIndex = i,
                     ExceptionRegion = exRegion.Region,
                     TryChildren = tryChildren,
-                    HandlerChildren = handlerChildren
+                    HandlerChildren = handlerChildren,
+                    AdditionalHandlers = additionalHandlers
                 });
                 continue;
             }
@@ -570,6 +542,66 @@ public sealed class StructuredControlFlow
         };
     }
 
+    static List<StructuredBlock> CollectHandlerBlocks(
+        ControlFlowGraph cfg,
+        ExceptionRegionInfo region,
+        HashSet<int> processed,
+        Dictionary<int, ConditionalPattern> conditionBlocks)
+    {
+        var handlerChildren = new List<StructuredBlock>();
+        int handlerEnd = region.Region.HandlerOffset + region.Region.HandlerLength;
+        for (int h = region.HandlerStartBlockIndex; h >= 0 && h < cfg.BasicBlocks.Count; h++)
+        {
+            if (cfg.BasicBlocks[h].Start >= handlerEnd) break;
+            if (processed.Contains(h)) continue;
+            processed.Add(h);
+
+            if (conditionBlocks.TryGetValue(h, out var handlerCond))
+            {
+                var thenBlock = new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.BasicBlock,
+                    BlockIndex = handlerCond.ThenIndex,
+                    Label = $"Block_{handlerCond.ThenIndex}"
+                };
+                if (cfg.BasicBlocks[handlerCond.ThenIndex].Start < handlerEnd)
+                    processed.Add(handlerCond.ThenIndex);
+
+                StructuredBlock? elseBlock = null;
+                if (handlerCond.ElseIndex >= 0)
+                {
+                    elseBlock = new StructuredBlock
+                    {
+                        Kind = StructuredBlockKind.BasicBlock,
+                        BlockIndex = handlerCond.ElseIndex,
+                        Label = $"Block_{handlerCond.ElseIndex}"
+                    };
+                    if (cfg.BasicBlocks[handlerCond.ElseIndex].Start < handlerEnd)
+                        processed.Add(handlerCond.ElseIndex);
+                }
+
+                handlerChildren.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.IfThenElse,
+                    ConditionBlockIndex = h,
+                    ThenBlock = thenBlock,
+                    ElseBlock = elseBlock,
+                    NegateCondition = handlerCond.NegateCondition
+                });
+            }
+            else
+            {
+                handlerChildren.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.BasicBlock,
+                    BlockIndex = h,
+                    Label = $"Block_{h}"
+                });
+            }
+        }
+        return handlerChildren;
+    }
+
     static List<ExceptionRegionInfo> MapExceptionRegions(MethodBodyContext context, ControlFlowGraph cfg)
     {
         List<ExceptionRegionInfo> result = [];
@@ -590,3 +622,10 @@ public sealed record ExceptionRegionInfo(
     ExceptionRegion Region,
     int TryStartBlockIndex,
     int HandlerStartBlockIndex);
+
+/// <summary>
+/// An additional catch/finally handler sharing the same try range.
+/// </summary>
+public sealed record HandlerGroup(
+    ExceptionRegion Region,
+    List<StructuredBlock> HandlerChildren);

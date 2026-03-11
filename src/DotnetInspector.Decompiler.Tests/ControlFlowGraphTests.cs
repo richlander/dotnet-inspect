@@ -303,6 +303,22 @@ public class CfgSampleClass
         finally { Console.WriteLine("done"); }
     }
 
+    public static int MultipleCatch(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (FormatException)
+        {
+            return -1;
+        }
+        catch (OverflowException)
+        {
+            return -2;
+        }
+    }
+
     public static void ThrowAndRethrow()
     {
         try { throw new InvalidOperationException("test"); }

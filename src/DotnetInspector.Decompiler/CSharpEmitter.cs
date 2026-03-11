@@ -913,6 +913,16 @@ public static class CSharpEmitter
             WriteIndent(indent);
             _sb.AppendLine("}");
 
+            // Emit the primary handler
+            EmitHandler(region, block.HandlerChildren, block, indent);
+
+            // Emit additional handlers (multiple catch)
+            foreach (var addl in block.AdditionalHandlers)
+                EmitHandler(addl.Region, addl.HandlerChildren, null, indent);
+        }
+
+        void EmitHandler(ExceptionRegion region, List<StructuredBlock> handlerChildren, StructuredBlock? block, int indent)
+        {
             if (region.Kind == ExceptionRegionKind.Catch)
             {
                 string exType = "Exception";
@@ -924,11 +934,10 @@ public static class CSharpEmitter
                         exType = SimplifyTypeName(resolved);
                 }
 
-                // Check if the first handler statement stores the exception to a local (stloc = S_in_0)
-                string? catchVarName = TryExtractCatchVariable(block);
+                // Check if the first handler statement stores the exception to a local
+                string? catchVarName = block is not null ? TryExtractCatchVariable(block) : null;
 
                 WriteIndent(indent);
-                // catch(System.Object) = bare catch in C#
                 if (exType is "object" or "System.Object")
                     _sb.AppendLine("catch");
                 else if (catchVarName is not null)
@@ -937,11 +946,8 @@ public static class CSharpEmitter
                     _sb.AppendLine($"catch ({exType})");
                 WriteIndent(indent);
                 _sb.AppendLine("{");
-                if (block.HandlerChildren.Count > 0)
-                {
-                    foreach (var child in block.HandlerChildren)
-                        EmitStructuredBlock(child, indent + 1);
-                }
+                foreach (var child in handlerChildren)
+                    EmitStructuredBlock(child, indent + 1);
                 WriteIndent(indent);
                 _sb.AppendLine("}");
             }
@@ -951,11 +957,8 @@ public static class CSharpEmitter
                 _sb.AppendLine("finally");
                 WriteIndent(indent);
                 _sb.AppendLine("{");
-                if (block.HandlerChildren.Count > 0)
-                {
-                    foreach (var child in block.HandlerChildren)
-                        EmitStructuredBlock(child, indent + 1);
-                }
+                foreach (var child in handlerChildren)
+                    EmitStructuredBlock(child, indent + 1);
                 WriteIndent(indent);
                 _sb.AppendLine("}");
             }
