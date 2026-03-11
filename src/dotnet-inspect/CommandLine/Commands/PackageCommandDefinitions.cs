@@ -76,16 +76,29 @@ public static class PackageCommandDefinitions
         {
             var result = PackageOptionsParser.Parse(parseResult, opts, commandArgs);
 
-            var exitCode = await PackageCommand.ExecuteAsync(result.Options);
-
-            if (exitCode == 0 && result.Options.PackageArgs.Length > 0 && !result.Options.IsRawOutput)
+            switch (result)
             {
-                var pkg = result.Options.PackageArgs[0];
-                if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
-                TipWriter.WritePackageTips(pkg, result.Options.TipLevel, result.Verbosity);
-            }
+                case PackageOptionsParser.UnrecognizedOption error:
+                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    return 1;
 
-            return exitCode;
+                case PackageOptionsParser.Success success:
+                {
+                    var exitCode = await PackageCommand.ExecuteAsync(success.Options);
+
+                    if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && !success.Options.IsRawOutput)
+                    {
+                        var pkg = success.Options.PackageArgs[0];
+                        if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
+                        TipWriter.WritePackageTips(pkg, success.Options.TipLevel, success.Verbosity);
+                    }
+
+                    return exitCode;
+                }
+
+                default:
+                    return 1;
+            }
         });
 
         return packageCommand;

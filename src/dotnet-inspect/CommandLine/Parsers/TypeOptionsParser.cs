@@ -91,7 +91,7 @@ public static class TypeOptionsParser
         }
 
         // Check for unrecognized options in positional args
-        var badOption = argsValue.FirstOrDefault(a => a.StartsWith("--"));
+        var badOption = argsValue.FirstOrDefault(a => a.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 

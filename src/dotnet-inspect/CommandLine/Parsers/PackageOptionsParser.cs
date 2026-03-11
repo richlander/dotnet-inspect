@@ -34,7 +34,17 @@ public static class PackageOptionsParser
     /// <summary>
     /// Result of parsing package command options.
     /// </summary>
-    public record PackageParseResult(InspectionOptions Options, Verbosity Verbosity);
+    public abstract record PackageParseResult;
+
+    /// <summary>
+    /// Indicates an unrecognized option was found in positional args.
+    /// </summary>
+    public record UnrecognizedOption(string Option) : PackageParseResult;
+
+    /// <summary>
+    /// Successfully parsed options ready for execution.
+    /// </summary>
+    public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
 
     /// <summary>
     /// Parses package command options.
@@ -45,6 +55,12 @@ public static class PackageOptionsParser
         PackageCommandArgs args)
     {
         var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
+
+        // Check for unrecognized options in positional args
+        var badOption = packageArgs.FirstOrDefault(a => a.StartsWith('-'));
+        if (badOption != null)
+            return new UnrecognizedOption(badOption);
+
         var explicitVersion = parseResult.GetValue(args.VersionOption);
 
         // Bare --version (no value): treat as --versions 1
@@ -90,6 +106,6 @@ public static class PackageOptionsParser
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
-        return new PackageParseResult(options, verbosity);
+        return new Success(options, verbosity);
     }
 }
