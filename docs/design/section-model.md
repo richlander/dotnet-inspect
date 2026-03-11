@@ -73,7 +73,7 @@ You can ask for multiple and they can use globs, invariant case, have a leading 
 
 A wrong section like "Foo" won't block the overall query. An error will be written for just that one request.
 
-Oneline doesn't support multiple sections, so that would flip over to markdown by default. The user could also request JSON. An explict request for 
+Oneline doesn't support multiple sections, so that would flip over to markdown by default. The user could also request JSON. An explict request for
 
 We can also ask for the list of fields if we want to know what to query for.
 
@@ -95,7 +95,7 @@ Readme             field
 
 You can then filter the section.
 
-```
+```bash
 dotnet run --project src/dotnet-inspect -- System.CommandLine -S Package --fields "Version,License,Read*"
 ```
 
@@ -332,7 +332,7 @@ ZFS and dotnet-inspect use the simpler comma-separated name list. Docker's Go te
 kubectl's `custom-columns` output is the closest analog to our model:
 
 ```bash
-$ kubectl get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase
+kubectl get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase
 ```
 
 It also has `--field-selector` for server-side filtering — the API server skips work for fields you don't request, which parallels our section-scoped backpressure. The difference is that kubectl's field paths address a JSON tree (`.metadata.name`), while our model uses named sections and columns as the addressing layer. kubectl also supports jsonpath and Go templates for power users.
@@ -342,7 +342,7 @@ It also has `--field-selector` for server-side filtering — the API server skip
 `gh` combines field selection with output format in a single `--json` flag:
 
 ```bash
-$ gh pr list --json number,title,author
+gh pr list --json number,title,author
 ```
 
 This is simpler surface area — one flag does both "output JSON" and "select these fields." Our model keeps them orthogonal: `--fields` for projection, `--json` for format. The tradeoff is an extra flag vs the ability to project fields in any format, not just JSON.

@@ -17,7 +17,7 @@ dnx dotnet-inspect -y -- <command>
 ## Quick Reference
 
 | Command | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `package X` | Package metadata, dependencies, files, versions |
 | `library X` | Library metadata, symbols, SourceLink audit, dependency tree |
 | `type` | Discover types (terse, no docs) — use `--shape` for hierarchy |
@@ -36,7 +36,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 ### Common Flags
 
 | Flag | Description |
-|------|-------------|
+| ------ | ------------- |
 | `-v:q/m/n/d` | Verbosity: quiet, minimal (default), normal, detailed |
 | `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |

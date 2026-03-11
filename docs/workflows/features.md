@@ -10,7 +10,7 @@
 ## Commands
 
 | Feature | Commit | Version | Status | Description |
-|---------|--------|---------|--------|-------------|
+| --------- | -------- | --------- | -------- | ------------- |
 | `dotnet-inspect` CLI | 6b773da | 0.1.0 | ✓ | Initial tool creation |
 | `api` command | de505ec | 0.1.0 | ⚠️ | API surface extraction (deprecated in 0.5.0, use `type`/`member`) |
 | `llmstxt` command | aaa289e | 0.1.0 | ✓ | Usage examples optimized for LLM consumption |
@@ -31,7 +31,7 @@
 ## Output Control
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | `-n` line limit | 826c64a | 0.1.0 | Limit output lines |
 | `-v` verbosity levels | 826c64a | 0.1.0 | quiet/minimal/normal/detailed |
 | `-s` section filtering | aaa289e | 0.1.0 | Include sections by name (glob-capable) |
@@ -49,7 +49,7 @@
 ## Type and Member Inspection
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Member filter (`-m`) | 3dbf984 | 0.1.0 | Filter to specific members |
 | `--docs` flag | 608cd77 | 0.1.0 | Include XML documentation |
 | `--interfaces` flag | 6cb5a2e | 0.1.0 | Show implemented interfaces |
@@ -76,7 +76,7 @@
 ## Package Inspection
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Package caching | f3a7beb | 0.1.0 | Local cache for downloaded packages |
 | `--tfm` flag | f3a7beb | 0.1.0 | Select target framework |
 | `@version` syntax | f3a7beb | 0.1.0 | Inline version specification |
@@ -98,7 +98,7 @@
 ## Library Inspection
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Native AOT detection | 1ff8b75 | 0.1.0 | Detect AOT vs CoreCLR binaries |
 | RID-specific support | d234f64 | 0.1.0 | Handle runtime-specific packages |
 | Symbol package support | 9ad5c92 | 0.1.7 | Download and inspect symbol packages |
@@ -119,7 +119,7 @@
 ## Platform Libraries
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | `--platform` flag | e516f96 | 0.2.x | Inspect platform assemblies |
 | Platform ref packs | af9b7be | 0.3.x | Download ref packs from NuGet |
 | `@version` for platform | 416afdc | 0.3.x | Pin platform library version |
@@ -130,7 +130,7 @@
 ## Search and Discovery
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | `--filter` option | 447d003 | 0.1.1 | Filter results by pattern |
 | `--project` scope | acef0e1 | 0.2.x | Search project dependencies |
 | `--bin` scope | acef0e1 | 0.2.x | Search build output directory |
@@ -145,7 +145,7 @@
 ## Samples and Source
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Sample linking | b6026dc | 0.1.8 | Link to code samples via XML docs |
 | `--print` option | 177d867 | 0.1.8 | Print specific sample by number |
 | Parallel batch fetching | 7f41248 | 0.1.8 | Optimize sample retrieval |
@@ -158,7 +158,7 @@
 ## NuGet Sources
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | `--source` flag | 7525d35 | 0.1.x | Custom NuGet source URL |
 | `--add-source` flag | 7525d35 | 0.1.x | Add NuGet source |
 | `--nugetconfig` flag | 7525d35 | 0.1.x | Path to nuget.config |
@@ -167,7 +167,7 @@
 ## Diff and Comparison
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Version range syntax | 0d3d24c | 0.1.7 | `@8.0.0..9.0.0` |
 | `--breaking` flag | — | 0.2.x | Show only breaking changes |
 | `--additive` flag | — | 0.2.x | Show only additive changes |
@@ -178,7 +178,7 @@
 ## Caching and Performance
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Package caching | f3a7beb | 0.1.0 | Local package cache |
 | Source content cache | aac88cc | 0.1.8 | Persistent disk cache |
 | Version cache | 8ec280f | 0.3.x | 1-hour TTL for version resolution |
@@ -192,7 +192,7 @@
 ## IL and Decompilation
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | IL disassembler | 5aae39f | 0.3.x | Foundation for IL analysis |
 | IL method body display | d79f787 | 0.3.x | Show IL in --index view |
 | Decompiler foundation | dde4d16 | 0.3.x | DotnetInspector.Decompiler library |
@@ -202,7 +202,7 @@
 ## Demo and Documentation
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | `demo` command | c378030 | 0.4.0 | Curated demo queries |
 | `demo list` | c378030 | 0.4.0 | List all demos |
 | `--feeling-lucky` | 07d1037 | 0.4.1 | Random demo selection |
@@ -211,7 +211,7 @@
 ## Plugin and Integration
 
 | Feature | Commit | Version | Description |
-|---------|--------|---------|-------------|
+| --------- | -------- | --------- | ------------- |
 | Copilot plugin | f5bcf7f | 0.1.8 | GitHub Copilot integration |
 | Claude plugin | f5bcf7f | 0.1.8 | Claude Code integration |
 | `skill` command | 385ba19 | 0.2.x | Print skill definition |
@@ -224,7 +224,7 @@
 The `api` command was the original all-in-one command for type and member inspection. In 0.5.0, it was split into two focused commands:
 
 | Original | Replacement | Reason |
-|----------|-------------|--------|
+| ---------- | ------------- | -------- |
 | `api --package Foo` | `type --package Foo` | Type discovery (terse, no docs) |
 | `api --package Foo Bar` | `member Bar --package Foo` | Member inspection (docs on by default) |
 | `api --package Foo Bar -m Baz` | `member Bar --package Foo -m Baz` | Member filtering |
@@ -236,7 +236,7 @@ The `api` command still works but shows a deprecation warning.
 The standalone `platform` command was removed in favor of the `--platform` flag on other commands:
 
 | Original | Replacement |
-|----------|-------------|
+| ---------- | ------------- |
 | `platform System.Text.Json` | `type --platform System.Text.Json` |
 | `platform list` | (use `--platform` flag with search commands) |
 
@@ -247,7 +247,7 @@ Commit: af5ecd0 "Simplify scope flags and remove platform command (#180)"
 The `--discover` flag for section discovery was replaced with bare `-s`:
 
 | Original | Replacement |
-|----------|-------------|
+| ---------- | ------------- |
 | `--discover` | `-s` (alone, no value) |
 
 Commit: 8d12a0b "Replace --discover with bare -s for section discovery (#100)"
@@ -257,20 +257,20 @@ Commit: 8d12a0b "Replace --discover with bare -s for section discovery (#100)"
 The `--fields-only` flag was replaced by section filtering:
 
 | Original | Replacement |
-|----------|-------------|
+| ---------- | ------------- |
 | `--fields-only` | `-x:Methods,Properties` |
 
 ### Flag Renames
 
 | Original | New | Version | Commit |
-|----------|-----|---------|--------|
+| ---------- | ----- | --------- | -------- |
 | `-t` (tips) | `-T` | 0.2.x | 0c679e4 |
 | (none) | `-t` (type filter) | 0.5.0 | 6ae1c1a |
 
 ## Version History
 
 | Version | Date | Key Changes |
-|---------|------|-------------|
+| --------- | ------ | ------------- |
 | 0.1.0 | — | Initial release with `api`, `package`, `library` commands |
 | 0.1.3 | — | `type` command, `--signatures-only`, parameter names |
 | 0.1.6 | — | `--unsafe`, `--ctor`, C#-style generic syntax |

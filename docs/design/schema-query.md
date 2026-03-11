@@ -18,7 +18,7 @@ This means adding a new section or field requires touching all three. And the di
 
 A narrow library that owns the query model over view model schemas. No rendering. No data fetching. Just: "given this schema, answer questions about it."
 
-```
+```text
 SchemaQuery (library)
   Schema:       what sections/fields/columns exist, and their kinds
   Discovery:    enumerate what's available
@@ -179,7 +179,7 @@ The section-level callback maps directly to `SectionEntry.CanRender`. The field-
 
 The source generator is the single point of truth. It reads the attributes once and emits both rendering code and schema metadata. The two concerns never diverge because they're generated from the same walk.
 
-```
+```text
 View Model (attributes)
     │
     └── Markout.SourceGeneration
@@ -201,7 +201,7 @@ The schema query system doesn't replace this. The pipeline is about execution �
 
 They compose: the pipeline computes effective sections, then schema query validates the projection within those sections.
 
-```
+```text
 User input: -S Package --fields Authors,Owners
 
 1. SelectResolver   → IncludeSections = {"Package"}

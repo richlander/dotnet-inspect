@@ -13,7 +13,7 @@ Top NuGet packages by download count, sourced from <https://www.nuget.org/stats/
 Flat lists of `.dll` filenames shipped with .NET 10.0. One filename per line (e.g. `System.Collections.dll`). Used to identify which assemblies belong to each platform pack, enabling de-duplication when resolving packages.
 
 | File | Source | Count |
-|------|--------|-------|
+| ------ | -------- | ------- |
 | `Microsoft.NETCore.App.Shared.txt` | `/usr/lib/dotnet/shared/Microsoft.NETCore.App/` | 172 |
 | `Microsoft.AspNetCore.App.Shared.txt` | `/usr/lib/dotnet/shared/Microsoft.AspNetCore.App/` | 141 |
 | `Microsoft.NETCore.App.Ref.txt` | `/usr/lib/dotnet/packs/Microsoft.NETCore.App.Ref/` | 167 |
