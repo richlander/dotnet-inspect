@@ -559,6 +559,15 @@ public static class PlatformResolver
         string? packsDirectory = null,
         bool useRuntimeAssemblies = false)
     {
+        // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
+        // and provide a helpful error message
+        var frameworkMatch = SharedFrameworkMappings
+            .FirstOrDefault(kv => string.Equals(kv.Value, assemblyName, StringComparison.OrdinalIgnoreCase));
+        if (frameworkMatch.Key != null)
+        {
+            return (null, null, null, $"'{assemblyName}' is a framework, not a library. Use '--framework {frameworkMatch.Key}' to select the framework, or 'find <pattern> --platform' to search across all platform libraries.");
+        }
+
         // Ensure .dll extension
         if (!assemblyName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
         {
