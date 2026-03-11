@@ -18,7 +18,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
 
@@ -64,7 +64,7 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Run markdownlint
         uses: DavidAnson/markdownlint-cli2-action@v19
@@ -89,10 +89,10 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -138,10 +138,10 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -150,7 +150,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
 
       - name: Upload pointer package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: package-pointer
           path: artifacts/package/release/*.nupkg
@@ -160,7 +160,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 
       - name: Upload any package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: package-any
           path: artifacts/package/release/*.nupkg
@@ -170,7 +170,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -r linux-x64 -p:OfficialAotBuild=true
 
       - name: Upload linux-x64 package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: package-linux-x64
           path: artifacts/package/release/*.nupkg
@@ -266,10 +266,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -278,7 +278,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
 
       - name: Upload RID package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: package-${{ matrix.rid }}
           path: artifacts/package/release/*.nupkg
