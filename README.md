@@ -120,10 +120,10 @@ dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json  
 dotnet-inspect member 'Option<T>' --package System.CommandLine          # Generic types (quote!)
 ```
 
-Member selection and decompilation — use `--select` to see `Name:N` addressing hints, then drill in:
+Member selection and decompilation — use `--show-index` to see `Name:N` addressing hints, then drill in:
 
 ```bash
-$ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options --select
+$ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options --show-index
 ## Constructors
 
 | Select | Name | Signature |

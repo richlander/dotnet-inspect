@@ -77,7 +77,7 @@ On `type`/`member`/`library`/`diff`, `--platform` takes a library name (string),
 | Command | Purpose |
 | ------- | ------- |
 | `type` | Discover types. All-types view (oneline table) or single-type view (tree/shape) |
-| `member` | Inspect members. Docs on by default. `--select` for overload indices, `Name:N` to drill in |
+| `member` | Inspect members. Docs on by default. `--show-index` for overload indices, `Name:N` to drill in |
 | `find` | Search types by glob or fuzzy match across scopes. Comma-separated batch patterns |
 | `diff` | Compare API surfaces between versions (`@old..new`). Breaking/additive classification |
 | `extensions` | Extension methods/properties for a type. `--reachable` walks the API surface |
@@ -105,7 +105,7 @@ When code breaks due to API changes:
 ```bash
 dotnet-inspect diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
 dotnet-inspect member Command --package System.CommandLine@2.0.3             # new API surface
-dotnet-inspect member Command --package System.CommandLine@2.0.3 --select    # overload indices
+dotnet-inspect member Command --package System.CommandLine@2.0.3 --show-index  # overload indices
 dotnet-inspect member Command --package System.CommandLine@2.0.3 -m SetAction:1  # drill in
 ```
 

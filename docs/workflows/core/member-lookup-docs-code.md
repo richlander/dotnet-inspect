@@ -185,12 +185,12 @@ Tips:
 
 ## 4. Select specific overload by index
 
-> Goal: Use `--select` to see overload indices, then use `Name:N` to target a specific one.
+> Goal: Use `--show-index` to see overload indices, then use `Name:N` to target a specific one.
 
 ### 4a. Show select column
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --select -v:d -n 25
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index -v:d -n 25
 ```
 
 ```expect

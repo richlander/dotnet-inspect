@@ -93,7 +93,7 @@ public class TypeView
     public List<SourceRow>? SourceRows { get; set; }
 
     // Member sections (populated by ApiOutputFormatter.PopulateMemberSections)
-    // Without --select: hide Select column
+    // Without --show-index: hide Select column
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorRows { get; set; }
@@ -129,7 +129,7 @@ public class TypeView
     [JsonIgnore]
     public List<MemberRow>? EventRowsWithDocs { get; set; }
 
-    // With --select: show Select column
+    // With --show-index: show Select column
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorSelectRows { get; set; }

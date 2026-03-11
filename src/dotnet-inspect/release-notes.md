@@ -15,7 +15,7 @@
 
 ### Commands and flags
 
-- `member` command — dedicated member inspection with docs on by default, dotted syntax (`-m Type.Member`), `--no-docs`, `--select` (#193)
+- `member` command — dedicated member inspection with docs on by default, dotted syntax (`-m Type.Member`), `--no-docs`, `--show-index` (#193)
 - `--flavor` flag — report CoreCLR or NativeAOT binary flavor (#220)
 - `--oneline` on package/router — purpose-built one-line views (#214)
 - `-m` on `type` command — member filter shortcut (#214)

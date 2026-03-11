@@ -290,7 +290,7 @@ public static class MemberCommand
                 }
 
                 if (overloadGroups.Any(g => g.Count() > 1))
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} --select", "show Name:N overload index"));
+                    tips.Add(new(Name, $"{simpleName} {sourceFlag} --show-index", "show Name:N overload index"));
 
                 tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
                 tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));

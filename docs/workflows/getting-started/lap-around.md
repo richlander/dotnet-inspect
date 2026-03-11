@@ -170,10 +170,10 @@ Kind: class
 Methods: 35
 ```
 
-For code, use `--select` to see addressing hints, then drill into a specific overload:
+For code, use `--show-index` to see addressing hints, then drill into a specific overload:
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --select
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index
 ```
 
 ```expect

@@ -401,10 +401,10 @@ browse type → select member → view decompiled output.
 
 ### Step 1: Browse the type
 
-Start with `--select` to see available members and the flags to target each one.
+Start with `--show-index` to see available members and the flags to target each one.
 
 ```sh
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory --select
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index
 ```
 
 This shows a methods table with a `Select` column containing the exact flags

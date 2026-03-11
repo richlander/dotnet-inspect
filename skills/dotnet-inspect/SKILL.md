@@ -16,7 +16,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **Need signatures?** → `member Type --package Foo -m Method` (default shows full signatures + docs)
 - **Need source/IL?** → `member Type --package Foo -m Method:1 -v:d` (Source, Lowered C#, IL)
 - **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
-- **Need all overloads?** → `member Type --package Foo --select` (shows `Name:N` indices)
+- **Need all overloads?** → `member Type --package Foo --show-index` (shows `Name:N` indices)
 - **Need package dependencies?** → `depends --package Foo`
 - **Need type hierarchy?** → `depends 'INumber<TSelf>'`
 - **Need specific fields?** → `-S Section --fields "PDB*"` (structured query, no DSL)
