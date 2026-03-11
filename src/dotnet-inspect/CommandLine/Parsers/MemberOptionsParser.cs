@@ -150,7 +150,7 @@ public static class MemberOptionsParser
         }
 
         // Check for unrecognized options in positional args
-        var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
+        var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 

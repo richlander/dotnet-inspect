@@ -69,6 +69,10 @@ public static class RouterCommandDefinition
                     Console.Error.WriteLine(error.Message);
                     return 1;
 
+                case RouterOptionsParser.UnrecognizedOption error:
+                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    return 1;
+
                 case RouterOptionsParser.RouteToAssemblyFile route:
                     return await AssemblyCommand.ExecuteAsync(route.Options);
 

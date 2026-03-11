@@ -44,6 +44,11 @@ public static class RouterOptionsParser
     public record ParseError(string Message) : RouterParseResult;
 
     /// <summary>
+    /// Indicates an unrecognized option was found in positional args.
+    /// </summary>
+    public record UnrecognizedOption(string Option) : RouterParseResult;
+
+    /// <summary>
     /// Route to assembly command for a .dll file.
     /// </summary>
     public record RouteToAssemblyFile(AssemblyOptions Options) : RouterParseResult;
@@ -91,6 +96,11 @@ public static class RouterOptionsParser
                 return new Discovery(opts.ParseDiscover(parseResult), parseResult.GetValue(opts.Tree));
             return new ShowHelp();
         }
+
+        // Check for unrecognized options in positional args
+        var badOption = packageArgs.FirstOrDefault(a => a.StartsWith('-'));
+        if (badOption != null)
+            return new UnrecognizedOption(badOption);
 
         var name = packageArgs[0];
 
