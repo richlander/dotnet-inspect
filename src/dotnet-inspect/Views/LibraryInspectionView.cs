@@ -232,12 +232,16 @@ public class LibraryInspectionView
         if (_data.TotalSourceFiles <= 0) return null;
 
         int accessible = _data.AccessibleSourceFiles + _data.EmbeddedSourceFiles;
-        string status = _data.AllSourcesAccessible == true ? "Yes" : "No";
+        string coverage = accessible == 0 ? "None"
+            : accessible >= _data.TotalSourceFiles ? "Complete"
+            : "Partial";
 
         return new SourceLinkAuditSection
         {
-            Status = $"{status} {accessible}/{_data.TotalSourceFiles} files accessible",
-            Embedded = _data.EmbeddedSourceFiles > 0 ? $"{_data.EmbeddedSourceFiles} files" : null,
+            Coverage = coverage,
+            Files = _data.TotalSourceFiles,
+            Accessible = accessible,
+            Embedded = _data.EmbeddedSourceFiles > 0 ? _data.EmbeddedSourceFiles : null,
         };
     }
 
@@ -397,6 +401,8 @@ public class SymbolsSection
 [MarkoutSkipNull]
 public class SourceLinkAuditSection
 {
-    public string? Status { get; init; }
-    public string? Embedded { get; init; }
+    public string? Coverage { get; init; }
+    public int Files { get; init; }
+    public int Accessible { get; init; }
+    public int? Embedded { get; init; }
 }
