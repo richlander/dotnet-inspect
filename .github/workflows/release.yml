@@ -21,10 +21,10 @@ jobs:
     environment: nuget-publish
     
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       
       - name: Download all packages from CI run
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: packages
           pattern: package-*
