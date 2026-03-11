@@ -150,7 +150,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -p:OfficialBuild=true
 
       - name: Upload pointer package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-pointer
           path: artifacts/package/release/*.nupkg
@@ -160,7 +160,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
 
       - name: Upload any package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-any
           path: artifacts/package/release/*.nupkg
@@ -170,7 +170,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -r linux-x64 -p:OfficialAotBuild=true
 
       - name: Upload linux-x64 package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-linux-x64
           path: artifacts/package/release/*.nupkg
@@ -278,7 +278,7 @@ jobs:
         run: dotnet pack src/dotnet-inspect -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
 
       - name: Upload RID package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-${{ matrix.rid }}
           path: artifacts/package/release/*.nupkg
