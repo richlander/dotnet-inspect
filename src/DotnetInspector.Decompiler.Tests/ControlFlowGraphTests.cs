@@ -369,4 +369,18 @@ public class CfgSampleClass
 
     public static string StringInterpolation(string name, int age)
         => $"Hello, {name}! You are {age} years old.";
+
+    public static int UsingStatement(string path)
+    {
+        using var stream = System.IO.File.OpenRead(path);
+        return stream.ReadByte();
+    }
+
+    public static List<string> ForeachLoop(IEnumerable<int> items)
+    {
+        var result = new List<string>();
+        foreach (var item in items)
+            result.Add(item.ToString());
+        return result;
+    }
 }

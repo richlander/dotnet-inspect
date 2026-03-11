@@ -64,8 +64,11 @@ public static class CSharpEmitter
         // Interpolated string handler parts: handler variable name → ordered list of parts
         readonly Dictionary<string, List<InterpolationPart>> _interpolationParts = [];
 
-        // Nodes to skip because they are part of an interpolated string handler pattern
-        readonly HashSet<ILAstNode> _interpolationSkipNodes = [];
+        // Nodes to skip because they are part of a recognized pattern (interpolation, using)
+        readonly HashSet<ILAstNode> _skipNodes = [];
+
+        // Local variable names to suppress from declaration (declared inline by using/etc.)
+        readonly HashSet<string> _suppressedLocals = [];
 
         // Return blocks whose gotos have been inlined — suppress the block itself
         readonly HashSet<string> _inlinedReturnLabels;
@@ -135,6 +138,9 @@ public static class CSharpEmitter
 
             // Scan all blocks for string interpolation handler patterns
             ScanForInterpolation(ast);
+
+            // Pre-detect using patterns to suppress local declarations
+            ScanForUsingPatterns(structure.Root);
         }
 
         void ScanForInterpolation(ILAstMethod ast)
@@ -218,7 +224,7 @@ public static class CSharpEmitter
                 {
                     _interpolationParts[handlerVar] = parts;
                     foreach (var n in skipNodes)
-                        _interpolationSkipNodes.Add(n);
+                        _skipNodes.Add(n);
                 }
             }
         }
@@ -248,6 +254,62 @@ public static class CSharpEmitter
                 return s;
             }
             return null;
+        }
+
+        void ScanForUsingPatterns(StructuredBlock block)
+        {
+            // Process sequences — look for BasicBlock followed by TryCatchFinally
+            if (block.Kind == StructuredBlockKind.Sequence)
+            {
+                for (int i = 0; i < block.Children.Count; i++)
+                {
+                    var child = block.Children[i];
+                    if (child.Kind == StructuredBlockKind.TryCatchFinally
+                        && child.ExceptionRegion is { Kind: ExceptionRegionKind.Finally })
+                    {
+                        string? disposeVar = TryDetectDisposeVariable(child);
+                        if (disposeVar is not null)
+                        {
+                            _suppressedLocals.Add(disposeVar);
+                            // Mark the init stloc in a preceding sibling for skipping
+                            for (int j = i - 1; j >= 0; j--)
+                            {
+                                var sibling = block.Children[j];
+                                if (sibling.Kind == StructuredBlockKind.BasicBlock
+                                    && sibling.BlockIndex >= 0
+                                    && _blockMap.TryGetValue(sibling.BlockIndex, out var sibAst))
+                                {
+                                    foreach (var node in sibAst.Nodes)
+                                    {
+                                        if (node is ILAstStatement { Expression: var stExpr }
+                                            && stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_0 or ILOpCode.Stloc_1
+                                                or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 or ILOpCode.Stloc_s
+                                            && stExpr.Operand == disposeVar)
+                                        {
+                                            _skipNodes.Add(node);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (block.Kind == StructuredBlockKind.TryCatchFinally
+                && block.ExceptionRegion is { Kind: ExceptionRegionKind.Finally })
+            {
+                string? disposeVar = TryDetectDisposeVariable(block);
+                if (disposeVar is not null)
+                    _suppressedLocals.Add(disposeVar);
+            }
+
+            foreach (var child in block.Children)
+                ScanForUsingPatterns(child);
+            foreach (var child in block.TryChildren)
+                ScanForUsingPatterns(child);
+            foreach (var child in block.HandlerChildren)
+                ScanForUsingPatterns(child);
         }
 
         void EmitInterpolatedString(List<InterpolationPart> parts)
@@ -309,8 +371,10 @@ public static class CSharpEmitter
             {
                 foreach (var local in _ast.Locals)
                 {
-                    // Skip handler variables consumed by interpolated string detection
+                    // Skip variables consumed by interpolated string or using detection
                     if (_interpolationParts.ContainsKey(local.Name))
+                        continue;
+                    if (_suppressedLocals.Contains(local.Name))
                         continue;
                     string typeName = SimplifyTypeName(local.TypeName ?? "var");
                     _sb.AppendLine($"{typeName} {local.Name};");
@@ -420,7 +484,7 @@ public static class CSharpEmitter
             {
                 if (_catchVariableStatements.Contains((blockIndex, nodeIdx)))
                     continue;
-                if (_interpolationSkipNodes.Contains(astBlock.Nodes[nodeIdx]))
+                if (_skipNodes.Contains(astBlock.Nodes[nodeIdx]))
                     continue;
 
                 var node = astBlock.Nodes[nodeIdx];
@@ -912,6 +976,8 @@ public static class CSharpEmitter
                     continue;
                 if (_forIncrementStatements.Contains((blockIndex, nodeIdx)))
                     continue;
+                if (_skipNodes.Contains(astBlock.Nodes[nodeIdx]))
+                    continue;
 
                 var node = astBlock.Nodes[nodeIdx];
                 switch (node)
@@ -1043,6 +1109,14 @@ public static class CSharpEmitter
         {
             if (block.ExceptionRegion is not { } region) return;
 
+            // Detect using pattern: try { body } finally { if (v != null) v.Dispose(); }
+            if (region.Kind == ExceptionRegionKind.Finally
+                && TryDetectDisposeVariable(block) is { } disposeVar)
+            {
+                EmitUsingBlock(block, disposeVar, indent);
+                return;
+            }
+
             WriteIndent(indent);
             _sb.AppendLine("try");
             WriteIndent(indent);
@@ -1110,6 +1184,140 @@ public static class CSharpEmitter
                     EmitStructuredBlock(child, indent + 1);
                 WriteIndent(indent);
                 _sb.AppendLine("}");
+            }
+        }
+
+        /// <summary>
+        /// Detect the dispose pattern in a finally handler:
+        /// IfThenElse { if (var != null) { var.Dispose(); } } + endfinally
+        /// Returns the variable name being disposed, or null.
+        /// </summary>
+        string? TryDetectDisposeVariable(StructuredBlock block)
+        {
+            foreach (var child in block.HandlerChildren)
+            {
+                if (child.Kind == StructuredBlockKind.IfThenElse && child.ThenBlock is { } thenBlock)
+                {
+                    // The then block should call Dispose on a variable
+                    if (thenBlock.BlockIndex >= 0 && _blockMap.TryGetValue(thenBlock.BlockIndex, out var thenAst))
+                    {
+                        foreach (var node in thenAst.Nodes)
+                        {
+                            if (node is ILAstStatement { Expression: var expr }
+                                && expr.Operand is string operand
+                                && operand.Contains("Dispose", StringComparison.Ordinal)
+                                && !expr.IsStaticCall
+                                && expr.Arguments.Count > 0)
+                            {
+                                return RenderReceiverName(expr.Arguments[0]);
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        void EmitUsingBlock(StructuredBlock block, string disposeVar, int indent)
+        {
+            _suppressedLocals.Add(disposeVar);
+            // Find the initialization assignment for the disposed variable
+            // It should be in the sequence block immediately before this try/catch
+            var parent = FindParentSequence(block);
+            int initBlockIndex = -1;
+
+            if (parent is not null)
+            {
+                // Look backwards through siblings for an assignment to disposeVar
+                for (int i = parent.Children.Count - 1; i >= 0; i--)
+                {
+                    var sibling = parent.Children[i];
+                    if (sibling == block) continue;
+                    if (sibling.Kind == StructuredBlockKind.BasicBlock
+                        && sibling.BlockIndex >= 0
+                        && _blockMap.TryGetValue(sibling.BlockIndex, out var sibAst))
+                    {
+                        for (int j = sibAst.Nodes.Count - 1; j >= 0; j--)
+                        {
+                            if (sibAst.Nodes[j] is ILAstStatement { Expression: var stExpr }
+                                && stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_0 or ILOpCode.Stloc_1
+                                    or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 or ILOpCode.Stloc_s
+                                && stExpr.Operand == disposeVar
+                                && stExpr.Arguments.Count > 0)
+                            {
+                                // Found the stloc that initializes the variable
+                                initBlockIndex = sibling.BlockIndex;
+                                break;
+                            }
+                        }
+                        if (initBlockIndex >= 0) break;
+                    }
+                }
+            }
+
+            // Emit: using (type var = expr) or using var var = expr;
+            if (initBlockIndex >= 0 && _blockMap.TryGetValue(initBlockIndex, out var initBlock))
+            {
+                // Find and emit the initialization
+                foreach (var node in initBlock.Nodes)
+                {
+                    if (node is ILAstStatement { Expression: var stExpr }
+                        && stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_0 or ILOpCode.Stloc_1
+                            or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 or ILOpCode.Stloc_s
+                        && stExpr.Operand == disposeVar
+                        && stExpr.Arguments.Count > 0)
+                    {
+                        // Suppress this node from future emission
+                        _skipNodes.Add(node);
+                        WriteIndent(indent);
+                        _sb.Append($"using var {disposeVar} = ");
+                        EmitExpression(stExpr.Arguments[0]);
+                        _sb.AppendLine(";");
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                // Couldn't find init — emit using without initializer
+                WriteIndent(indent);
+                _sb.AppendLine($"using ({disposeVar})");
+            }
+
+            // Emit the try body (without the try/finally wrapper)
+            if (block.TryChildren.Count > 0)
+            {
+                foreach (var child in block.TryChildren)
+                    EmitStructuredBlock(child, indent);
+            }
+            else
+            {
+                EmitBasicBlock(block.BlockIndex, indent);
+            }
+
+            // Mark handler blocks as consumed (don't emit the finally)
+            foreach (var child in block.HandlerChildren)
+            {
+                if (child.BlockIndex >= 0) _consumedBlocks.Add(child.BlockIndex);
+                if (child.ThenBlock?.BlockIndex >= 0) _consumedBlocks.Add(child.ThenBlock.BlockIndex);
+                if (child.ElseBlock?.BlockIndex >= 0) _consumedBlocks.Add(child.ElseBlock.BlockIndex);
+                if (child.ConditionBlockIndex >= 0) _consumedBlocks.Add(child.ConditionBlockIndex);
+            }
+        }
+
+        StructuredBlock? FindParentSequence(StructuredBlock target)
+        {
+            return FindParent(_structure.Root, target);
+
+            static StructuredBlock? FindParent(StructuredBlock current, StructuredBlock target)
+            {
+                foreach (var child in current.Children)
+                {
+                    if (child == target) return current;
+                    var found = FindParent(child, target);
+                    if (found is not null) return found;
+                }
+                return null;
             }
         }
 

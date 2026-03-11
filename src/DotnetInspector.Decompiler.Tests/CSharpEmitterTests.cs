@@ -300,6 +300,29 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void UsingStatement_EmitsUsingDeclaration()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UsingStatement));
+
+        Assert.Contains("using var", output);
+        Assert.Contains("OpenRead", output);
+        Assert.DoesNotContain("try", output);
+        Assert.DoesNotContain("finally", output);
+        Assert.DoesNotContain("Dispose", output);
+    }
+
+    [Fact]
+    public void ForeachLoop_EmitsUsingForEnumerator()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ForeachLoop));
+
+        // The enumerator should be wrapped in a using declaration
+        Assert.Contains("using var", output);
+        Assert.Contains("GetEnumerator", output);
+        Assert.DoesNotContain("Dispose", output);
+    }
+
+    [Fact]
     public void PlatformAssembly_EmitAll_NoCrashes()
     {
         var assembly = typeof(object).Assembly;
