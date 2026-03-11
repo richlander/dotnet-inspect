@@ -374,10 +374,10 @@ Kind: class | Base: Newtonsoft.Json.Linq.JContainer | Library: Newtonsoft.Json |
 
 You can also print detailed member pages, with code, using the following technique (to correctly address the member).
 
-Member docs normally show docs. You can opt them into the `--select` mode, which adds a `Select` column to the member tables. This column includes the argument that is needed for the detailed member doc to correctly identify/address that member.
+Member docs normally show docs. You can opt them into the `--show-index` mode, which adds a `Select` column to the member tables. This column includes the argument that is needed for the detailed member doc to correctly identify/address that member.
 
 ```bash
-$ dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --select
+$ dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index
 # Microsoft.Extensions.Options.OptionsFactory`1 (Microsoft.Extensions.Options 10.0.3)
 
 Kind: class | Type Parameters: TOptions : class | Library: Microsoft.Extensions.Options | Package: Microsoft.Extensions.Options | Version: 10.0.3 | Source: NuGet | TFM: net10.0

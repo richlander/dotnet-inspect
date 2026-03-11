@@ -61,7 +61,7 @@
 | Property mutability | 792319d | 0.1.7 | Show `{ get; set; }` vs `{ get; }` |
 | Parameter names in signatures | 7d2021d | 0.1.3 | Include param names in method signatures |
 | Enum values display | 217f15d | 0.2.x | Show enum member values |
-| `--select` flag | fe320a2 | 0.3.x | Show Name:N addressing hints |
+| `--show-index` flag | fe320a2 | 0.3.x | Show Name:N addressing hints |
 | `--index` option | d79f787 | 0.3.x | IL method body display |
 | `--params` option | b8bcb4d | 0.3.x | Overload selection by parameter types |
 | `-of` option | b8bcb4d | 0.3.x | Overload selection by return type |
@@ -277,7 +277,7 @@ The `--fields-only` flag was replaced by section filtering:
 | 0.1.7 | — | `diff` command, symbol package support |
 | 0.1.8 | — | `samples` command, Copilot/Claude plugins, Native AOT |
 | 0.2.x | — | `find`, `extensions`, `platform`, tips system, section pipeline |
-| 0.3.x | — | IL disassembly, `--select`, `--params`, platform ref packs, caching |
+| 0.3.x | — | IL disassembly, `--show-index`, `--params`, platform ref packs, caching |
 | 0.3.1 | — | Name:N shorthand for member targeting |
 | 0.4.0 | — | `demo`, `depends` commands, removed `platform` command |
 | 0.5.0 | — | Split `api` into `type`/`member`, nullability, `@latest`, `-n`/`-t`/`-m` redesign |

@@ -22,7 +22,7 @@ public static class FindOutputFormatter
             Title = title ?? "Find Results",
             Matches = matchCount,
             Description = matchCount == 0 ? "No types found matching the pattern." : null,
-            Results = results.Count == 0 ? null : results.Select(r => new FindRow(
+            Results = matchCount == 0 ? null : results.Select(r => new FindRow(
                 r.Pattern,
                 r.Match == MatchKind.NotFound ? "-" : r.Type,
                 r.Match == MatchKind.NotFound ? "-" : r.Namespace,

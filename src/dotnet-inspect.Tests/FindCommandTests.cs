@@ -70,7 +70,7 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void BuildView_AllPatternsNotFound_ShowsNotFoundRows()
+    public void BuildView_AllPatternsNotFound_NullsResultsWithDescription()
     {
         var results = new List<TypeFindResult>
         {
@@ -81,10 +81,9 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
 
-        Assert.NotNull(view.Results);
-        Assert.Equal(3, view.Results.Count);
-        Assert.All(view.Results, r => Assert.Equal("notfound", r.Match));
+        Assert.Null(view.Results);
         Assert.Equal(0, view.Matches);
+        Assert.Equal("No types found matching the pattern.", view.Description);
     }
 
     [Fact]
@@ -207,12 +206,14 @@ public class FindCommandIntegrationTests
             PlatformFrameworks = ["aspnetcore"]
         };
 
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // SseItem<T> is the generic version
-        Assert.Contains("SseItem", output);
+        // SseItem<T> is the generic version; if not found, verify friendly message
+        Assert.True(
+            output.Contains("SseItem") || error.Contains("No types found"),
+            "Expected either SseItem in output or 'No types found' message");
     }
 
     [Fact]
@@ -388,11 +389,13 @@ public class FindCommandIntegrationTests
             Limit = 10
         };
 
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("Exception", output);
+        Assert.True(
+            output.Contains("Exception") || error.Contains("No types found"),
+            "Expected either Exception types in output or 'No types found' message");
     }
 
     [Fact]

@@ -442,7 +442,7 @@ public static class ApiOutputFormatter
             var kind = group.Key;
             var members = group.OrderBy(m => m.Name).ThenBy(m => m.Signature).ToList();
 
-            // Pre-compute overload counts and indices for --select
+            // Pre-compute overload counts and indices for --show-index
             var overloadCounts = showSelect
                 ? members.GroupBy(m => m.Name).ToDictionary(g => g.Key, g => g.Count())
                 : null;

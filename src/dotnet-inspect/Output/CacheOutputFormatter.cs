@@ -26,7 +26,7 @@ public static class CacheOutputFormatter
         lines.Add("");
         lines.Add($"{"Total:",-10}{FormatSize(totalSize)}");
         lines.Add("");
-        lines.Add("Run 'dotnet-inspect cache --clean' to clear the cache.");
+        lines.Add("Run 'dotnet-inspect cache clear' to clear the cache.");
 
         return string.Join(Environment.NewLine, lines);
     }
