@@ -72,17 +72,21 @@ public static class PackageOptionsParser
             OutputPath = parseResult.GetValue(args.OutOption),
             Limit = bareVersion ? 1 : versionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
+            Effective = parseResult.GetValue(opts.Effective),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
-        var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null || options.Limit != null
+        var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 

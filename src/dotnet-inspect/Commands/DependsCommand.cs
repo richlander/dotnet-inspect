@@ -13,6 +13,11 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class DependsCommand
 {
+    /// <summary>
+    /// Returned when the target type was not found. The caller can fall back to library mode.
+    /// </summary>
+    internal const int TypeNotFoundExitCode = 2;
+
     public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
@@ -38,29 +43,32 @@ public class DependsCommand
             logger.Log($"Scanning {assemblyInfos.Count} libraries for type {options.TargetType}");
 
             var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
-            var tree = TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+            var result = TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
 
-            if (tree.Count == 0)
+            if (!result.Found)
             {
-                Console.Error.WriteLine($"Type '{options.TargetType}' not found in the specified scope.");
-                return 1;
+                return TypeNotFoundExitCode;
+            }
+
+            if (result.Tree.Count == 0)
+            {
+                Console.Error.WriteLine($"Type '{result.MatchedType}' has no type dependencies beyond System.Object.");
+                return 0;
             }
 
             if (options.JsonOutput)
             {
-                JsonOutputHelper.Write(tree,
+                JsonOutputHelper.Write(result.Tree,
                     DependsJsonContext.Default.ListTypeDependencyNode,
                     DependsCompactJsonContext.Default.ListTypeDependencyNode,
                     options.CompactJson);
             }
             else
             {
-                var view = new TypeDependenciesView
-                {
-                    Title = options.TargetType,
-                    Dependencies = ToTreeNodes(tree)
-                };
-                MarkoutSerializer.Serialize(view, Console.Out, TypeDependenciesContext.Default);
+                var rootName = options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!;
+                Console.Out.WriteLine(rootName);
+                var treeWriter = new TreeWriter(Console.Out);
+                treeWriter.WriteTree(ToTreeNodes(result.Tree).ToArray());
             }
 
             return 0;
@@ -156,15 +164,17 @@ public class DependsCommand
 
             var treeNodes = BuildNestedDependencyTree(refNodes);
 
-            var view = new AssemblyDependenciesView
-            {
-                Title = assemblyName,
-                AssemblyName = assemblyName,
-                Version = assemblyVersion,
-                Tfm = tfm,
-                Dependencies = treeNodes
-            };
-            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            // Render: title, identity line, then tree
+            Console.Out.WriteLine(assemblyName);
+            var identityParts = new List<string>();
+            if (!string.IsNullOrEmpty(assemblyVersion))
+                identityParts.Add($"Version: {assemblyVersion}");
+            if (!string.IsNullOrEmpty(tfm))
+                identityParts.Add($"TFM: {tfm}");
+            if (identityParts.Count > 0)
+                Console.Out.WriteLine(string.Join(" | ", identityParts));
+            var treeWriter = new TreeWriter(Console.Out);
+            treeWriter.WriteTree(treeNodes.ToArray());
             return 0;
         }
         catch (Exception ex)
@@ -244,12 +254,7 @@ public class DependsCommand
 
             if (group.Dependencies.Count == 0)
             {
-                var emptyView = new EmptyDepsView
-                {
-                    Title = $"{packageName} ({version})",
-                    Description = $"No additional dependencies for {tfm}."
-                };
-                Console.WriteLine(new MarkoutContext().Serialize(emptyView));
+                Console.Error.WriteLine($"No additional dependencies for {tfm}.");
                 return 0;
             }
 
@@ -261,9 +266,6 @@ public class DependsCommand
             var view = new PackageDependenciesView
             {
                 Title = $"{packageName} ({version})",
-                Package = packageName,
-                Version = version,
-                Tfm = tfm,
                 Dependencies = ToDependencyTreeNodes(depNodes)
             };
             MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
@@ -287,7 +289,7 @@ public class DependsCommand
     {
         return nodes.Select(n =>
             n.Children.Count > 0
-                ? new TreeNode(n.TypeName, ToTreeNodes(n.Children))
+                ? new TreeNode(n.TypeName) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(n.TypeName)
         ).ToList();
     }
@@ -300,7 +302,7 @@ public class DependsCommand
                 ? $"{n.PackageId} {n.Version} [{n.Author}]"
                 : $"{n.PackageId} {n.Version}";
             return n.Children.Count > 0
-                ? new TreeNode(label, ToDependencyTreeNodes(n.Children))
+                ? new TreeNode(label) { Children = ToDependencyTreeNodes(n.Children) }
                 : new TreeNode(label);
         }).ToList();
     }
@@ -329,7 +331,7 @@ public class DependsCommand
                 BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
             }
 
-            target.Add(children.Count > 0 ? new TreeNode(label, children) : new TreeNode(label));
+            target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
     }
 }

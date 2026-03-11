@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 
 namespace DotnetInspector.Services;
@@ -558,6 +559,15 @@ public static class PlatformResolver
         string? packsDirectory = null,
         bool useRuntimeAssemblies = false)
     {
+        // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
+        // and provide a helpful error message
+        var frameworkMatch = SharedFrameworkMappings
+            .FirstOrDefault(kv => string.Equals(kv.Value, assemblyName, StringComparison.OrdinalIgnoreCase));
+        if (frameworkMatch.Key != null)
+        {
+            return (null, null, null, $"'{assemblyName}' is a framework, not a library. Use '--framework {frameworkMatch.Key}' to select the framework, or 'find <pattern> --platform' to search across all platform libraries.");
+        }
+
         // Ensure .dll extension
         if (!assemblyName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
         {
@@ -579,8 +589,8 @@ public static class PlatformResolver
                 return (null, null, null, error);
             }
 
-            var assemblyPath = Path.Combine(refPath!, assemblyName);
-            if (!File.Exists(assemblyPath))
+            var assemblyPath = FindAssemblyCaseInsensitive(refPath!, assemblyName);
+            if (assemblyPath == null)
             {
                 return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
             }
@@ -622,8 +632,8 @@ public static class PlatformResolver
             if (refPath == null)
                 continue;
 
-            var assemblyPath = Path.Combine(refPath, assemblyName);
-            if (!File.Exists(assemblyPath))
+            var assemblyPath = FindAssemblyCaseInsensitive(refPath, assemblyName);
+            if (assemblyPath == null)
                 continue;
 
             // Check if the runtime has a newer (or equal) version
@@ -721,13 +731,40 @@ public static class PlatformResolver
             version = versions[0]; // Latest
         }
 
-        var assemblyPath = Path.Combine(frameworkPath, version, assemblyName);
-        if (!File.Exists(assemblyPath))
+        var assemblyPath = FindAssemblyCaseInsensitive(Path.Combine(frameworkPath, version), assemblyName);
+        if (assemblyPath == null)
         {
             return (null, null, null, $"Library '{assemblyName}' not found in {frameworkName} runtime {version}");
         }
 
         return (assemblyPath, frameworkName, version, null);
+    }
+
+    /// <summary>
+    /// Finds a DLL in a directory using case-insensitive matching.
+    /// Returns the actual path if found, null otherwise.
+    /// Tries exact match first for performance, then falls back to directory scan on Linux.
+    /// </summary>
+    private static string? FindAssemblyCaseInsensitive(string directory, string assemblyFileName)
+    {
+        var exactPath = Path.Combine(directory, assemblyFileName);
+        if (File.Exists(exactPath))
+            return exactPath;
+
+        // On case-sensitive filesystems, try a directory scan
+        if (!Directory.Exists(directory))
+            return null;
+
+        try
+        {
+            var match = Directory.EnumerateFiles(directory, "*.dll")
+                .FirstOrDefault(f => Path.GetFileName(f).Equals(assemblyFileName, StringComparison.OrdinalIgnoreCase));
+            return match;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static int CountAssemblies(string refPath)
@@ -782,6 +819,67 @@ public static class PlatformResolver
         }
 
         return new Version(0, 0, 0);
+    }
+
+    /// <summary>
+    /// Scans all platform ref assemblies in the runtime framework to find which
+    /// library contains a given type. Returns the library name (without .dll), or null.
+    /// </summary>
+    public static string? FindLibraryContainingType(string typeName)
+    {
+        var frameworks = GetInstalledFrameworks();
+        var runtime = frameworks.FirstOrDefault(f => f.ShortName == "runtime");
+        if (runtime == null) return null;
+
+        var refPath = GetRefAssemblyPath(runtime.Path, runtime.LatestVersion);
+        if (refPath == null) return null;
+
+        var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        foreach (var dll in Directory.GetFiles(refPath, "*.dll"))
+        {
+            if (HasType(dll, normalized))
+                return System.IO.Path.GetFileNameWithoutExtension(dll);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lightweight type existence check using raw metadata.
+    /// </summary>
+    public static bool HasType(string assemblyPath, string typeName)
+    {
+        var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata) return false;
+
+            var mdReader = peReader.GetMetadataReader();
+            foreach (var handle in mdReader.TypeDefinitions)
+            {
+                var typeDef = mdReader.GetTypeDefinition(handle);
+                var name = mdReader.GetString(typeDef.Name);
+                var ns = mdReader.GetString(typeDef.Namespace);
+                var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+                if (Metadata.TypeMatcher.Matches(fullName, normalized))
+                    return true;
+            }
+
+            foreach (var handle in mdReader.ExportedTypes)
+            {
+                var exported = mdReader.GetExportedType(handle);
+                if (!exported.IsForwarder) continue;
+                var name = mdReader.GetString(exported.Name);
+                var ns = mdReader.GetString(exported.Namespace);
+                var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+                if (Metadata.TypeMatcher.Matches(fullName, normalized))
+                    return true;
+            }
+        }
+        catch { }
+        return false;
     }
 }
 

@@ -24,13 +24,13 @@ public static class TypeOptionsParser
         Option<string?> TfmOption,
         Option<bool> AllOption,
         Option<string?> TypeFilterOption,
-        Option<bool> SourcelinkOnlyOption,
         Option<bool> CompactOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption,
         Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
-        Option<string[]> MemberOption);
+        Option<string[]> MemberOption,
+        Option<string[]> KindOption);
 
     /// <summary>
     /// Result of parsing type command options.
@@ -43,9 +43,9 @@ public static class TypeOptionsParser
     public record ListSections : TypeParseResult;
 
     /// <summary>
-    /// Indicates selectable names should be listed.
+    /// Indicates schema discovery (-D/--discover).
     /// </summary>
-    public record ListSelect : TypeParseResult;
+    public record Discovery(string[]? Discover, bool Tree) : TypeParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -58,9 +58,14 @@ public static class TypeOptionsParser
     public record VersionError(string Message) : TypeParseResult;
 
     /// <summary>
+    /// Indicates an unrecognized option was found.
+    /// </summary>
+    public record UnrecognizedOption(string Option) : TypeParseResult;
+
+    /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(ApiOptions Options) : TypeParseResult;
+    public record Success(TypeOptions Options) : TypeParseResult;
 
     /// <summary>
     /// Parses type command options asynchronously (due to source resolution).
@@ -77,15 +82,18 @@ public static class TypeOptionsParser
         bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
-        // Handle section listing, projection discovery, or help
+        // Handle projection discovery or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
-            if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                return new ListSections();
-            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
-                return new ListSelect();
+            if (opts.IsDiscoveryMode(parseResult))
+                return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
+
+        // Check for unrecognized options in positional args
+        var badOption = argsValue.FirstOrDefault(a => a.StartsWith("--"));
+        if (badOption != null)
+            return new UnrecognizedOption(badOption);
 
         // Resolve source
         var source = await SourceResolver.ResolveAsync(
@@ -102,7 +110,10 @@ public static class TypeOptionsParser
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
         var (memberFilter, memberLimit) = SharedParsers.ParseMemberFilter(memberValues);
 
-        var options = new ApiOptions
+        var kindValues = parseResult.GetValue(args.KindOption) ?? [];
+        var kindFilter = SharedParsers.ParseKindFilter(kindValues);
+
+        var options = new TypeOptions
         {
             TypeName = source.TypeName,
             PackagePath = source.PackagePath,
@@ -113,19 +124,24 @@ public static class TypeOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             TypeFilter = typeFilter,
             MemberFilter = memberFilter,
+            KindFilter = kindFilter,
             Limit = memberLimit ?? typeLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
-            SourceLinkOnly = parseResult.GetValue(args.SourcelinkOnlyOption),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
+            PlainText = parseResult.GetValue(opts.PlainText),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
+            ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

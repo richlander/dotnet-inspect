@@ -28,7 +28,8 @@ public static class DiffOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> NameOnlyOption,
         Option<bool> BreakingOption,
-        Option<bool> AdditiveOption);
+        Option<bool> AdditiveOption,
+        Option<bool> LegendOption);
 
     /// <summary>
     /// Result of parsing diff command options.
@@ -101,17 +102,22 @@ public static class DiffOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
             Additive = parseResult.GetValue(args.AdditiveOption),
+            Legend = parseResult.GetValue(args.LegendOption),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

@@ -91,15 +91,19 @@ public static class FindOptionsParser
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || options.Limit != null
+        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

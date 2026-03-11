@@ -9,14 +9,19 @@ namespace DotnetInspector.Sections;
 public sealed class SectionEntry<TModel>
 {
     public required string Name { get; init; }
-    public required Verbosity MinVerbosity { get; init; }
+    public required bool IsExpensive { get; init; }
     public required string? ScannerKey { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
 /// <summary>
 /// Pipeline that computes the effective set of sections to render
-/// based on registered descriptors, verbosity, and <c>-s</c>/<c>-x</c> filters.
+/// based on registered descriptors, verbosity, and <c>-S</c> filters.
+/// Verbosity is mapped to section selection via two axes:
+/// <list type="bullet">
+///   <item><b>Position</b>: index 0 is the primary section (index 0–1 if the first entry is named "Summary").</item>
+///   <item><b>IsExpensive</b>: sections requiring network or heavy computation are only shown at Detailed.</item>
+/// </list>
 /// </summary>
 public sealed class SectionPipeline<TModel>
 {
@@ -31,7 +36,7 @@ public sealed class SectionPipeline<TModel>
         _entries.Add(new SectionEntry<TModel>
         {
             Name = TDescriptor.Name,
-            MinVerbosity = TDescriptor.MinVerbosity,
+            IsExpensive = TDescriptor.IsExpensive,
             ScannerKey = TDescriptor.ScannerKey,
             CanRender = TDescriptor.CanRender,
         });
@@ -43,15 +48,16 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>
     /// Returns the names of sections that would produce output for the given model,
-    /// filtered by verbosity and <c>-s</c>/<c>-x</c>.
+    /// filtered by verbosity and <c>-S</c>.
     /// </summary>
     public List<string> GetEffectiveSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
         List<string> result = [];
-        foreach (var entry in _entries)
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (!IsRequested(entry, verbosity, include, exclude))
+            var entry = _entries[i];
+            if (!IsRequested(entry, i, verbosity, include))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);
@@ -60,8 +66,33 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Returns sections that were requested via <paramref name="include"/> but
+    /// filtered out by <see cref="SectionEntry{TModel}.CanRender"/> (no data).
+    /// Empty when no explicit include was set or all requested sections have data.
+    /// </summary>
+    public (List<string> Empty, int RequestedCount) GetEmptySections(TModel model, Verbosity verbosity,
+        HashSet<string>? include = null)
+    {
+        if (include is not { Count: > 0 })
+            return ([], 0);
+
+        List<string> empty = [];
+        int requested = 0;
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            var entry = _entries[i];
+            if (!IsRequested(entry, i, verbosity, include))
+                continue;
+            requested++;
+            if (!entry.CanRender(model))
+                empty.Add(entry.Name);
+        }
+        return (empty, requested);
+    }
+
+    /// <summary>
     /// Lists sections that have content at <see cref="Verbosity.Detailed"/>.
-    /// Used by bare <c>-s</c> with input to discover which sections have data.
+    /// Used by bare <c>-S</c> with input to discover which sections have data.
     /// </summary>
     public void ListEffectiveSections(TModel model)
     {
@@ -75,9 +106,9 @@ public sealed class SectionPipeline<TModel>
     /// all sections should be rendered (no filtering needed).
     /// </summary>
     public HashSet<string>? ComputeIncludeSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
-        var effective = GetEffectiveSections(model, verbosity, include, exclude);
+        var effective = GetEffectiveSections(model, verbosity, include);
 
         // If all registered sections are effective, no filter needed
         if (effective.Count == _entries.Count)
@@ -89,18 +120,32 @@ public sealed class SectionPipeline<TModel>
     /// <summary>
     /// Returns the minimum verbosity needed to show all sections in the
     /// <paramref name="include"/> set. Used to auto-promote verbosity when
-    /// <c>-s</c> targets specific sections.
+    /// <c>-S</c> targets specific sections.
     /// </summary>
     public Verbosity GetRequiredVerbosity(HashSet<string>? include)
     {
         if (include == null || include.Count == 0)
             return Verbosity.Quiet;
 
+        int primaryThreshold = GetPrimaryThreshold();
         var maxVerbosity = Verbosity.Quiet;
-        foreach (var entry in _entries)
+
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (include.Contains(entry.Name) && entry.MinVerbosity > maxVerbosity)
-                maxVerbosity = entry.MinVerbosity;
+            var entry = _entries[i];
+            if (!include.Contains(entry.Name))
+                continue;
+
+            Verbosity required;
+            if (entry.IsExpensive)
+                required = Verbosity.Detailed;
+            else if (i > primaryThreshold)
+                required = Verbosity.Normal;
+            else
+                required = Verbosity.Quiet;
+
+            if (required > maxVerbosity)
+                maxVerbosity = required;
         }
         return maxVerbosity;
     }
@@ -110,31 +155,61 @@ public sealed class SectionPipeline<TModel>
     /// Sections with a null scanner key are always collected and not included.
     /// </summary>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
-        HashSet<string>? include = null, HashSet<string>? exclude = null)
+        HashSet<string>? include = null)
     {
         HashSet<string> scanners = [];
-        foreach (var entry in _entries)
+        for (int i = 0; i < _entries.Count; i++)
         {
+            var entry = _entries[i];
             if (entry.ScannerKey == null)
                 continue;
-            if (IsRequested(entry, verbosity, include, exclude))
+            if (IsRequested(entry, i, verbosity, include))
                 scanners.Add(entry.ScannerKey);
         }
         return scanners;
     }
 
-    private static bool IsRequested(SectionEntry<TModel> entry, Verbosity verbosity,
-        HashSet<string>? include, HashSet<string>? exclude)
+    /// <summary>
+    /// The primary threshold index. Quiet renders no sections (hero line from view model).
+    /// Minimal shows entries at index ≤ this threshold.
+    /// If the first entry is named "Summary" (headless preamble), the threshold is 1
+    /// (Summary + the next entry). Otherwise, the threshold is everything before the
+    /// first expensive entry — or all entries if nothing is expensive.
+    /// </summary>
+    private int GetPrimaryThreshold()
+    {
+        if (_entries.Count == 0)
+            return 0;
+
+        // Summary convention: headless preamble extends primary to include next entry
+        if (_entries[0].Name == "Summary")
+            return Math.Min(1, _entries.Count - 1);
+
+        // Primary is everything before the first expensive entry
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].IsExpensive)
+                return Math.Max(0, i - 1);
+        }
+
+        // No expensive entries: all are primary
+        return _entries.Count - 1;
+    }
+
+    private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
+        HashSet<string>? include)
     {
         // Explicit include overrides verbosity
         if (include is { Count: > 0 })
             return include.Contains(entry.Name);
 
-        // Explicit exclude
-        if (exclude?.Contains(entry.Name) == true)
-            return false;
-
-        // Verbosity gate
-        return verbosity >= entry.MinVerbosity;
+        // Verbosity-based selection using position and IsExpensive
+        return verbosity switch
+        {
+            Verbosity.Quiet => index == 0 && entry.Name == "Summary", // Include headless summary at quiet
+            Verbosity.Minimal => index <= GetPrimaryThreshold(),
+            Verbosity.Normal => !entry.IsExpensive,
+            _ => true, // Detailed: all sections
+        };
     }
 }

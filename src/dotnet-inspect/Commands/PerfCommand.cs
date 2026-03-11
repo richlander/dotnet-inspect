@@ -125,7 +125,7 @@ public static class PerfCommand
         // Parse target as either platform library or package
         bool isPlatform = PlatformResolver.IsPlatformCandidate(target);
 
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = isPlatform ? target : null,
             PackagePath = isPlatform ? null : target,

@@ -10,19 +10,19 @@ These queries power the `demo` command (`dotnet-inspect demo`).
 ## 1. Shape: INumber\<TSelf> — generic math interface
 
 ```bash
-dotnet-inspect api System.Runtime "INumber<TSelf>" --shape
+dotnet-inspect type "System.Numerics.INumber<TSelf>"
 ```
 
 Shows the full type shape diagram for the `INumber<TSelf>` generic math interface.
 The self-referential constraint (`TSelf : INumber<TSelf>`), 23 implemented interfaces
 with varying type parameter combinations (`IAdditionOperators<TSelf, TSelf, TSelf>`,
 `IComparisonOperators<TSelf, TSelf, bool>`), and operator methods make this the
-ultimate showcase for `--shape` on an interface.
+ultimate showcase for the `type` command's shape view on an interface.
 
 ## 2. Shape: Int128 — generic math concrete type
 
 ```bash
-dotnet-inspect api System.Runtime Int128 --shape
+dotnet-inspect type Int128 --platform System.Runtime
 ```
 
 The concrete counterpart to demo #1. `Int128` is a struct implementing 31 generic
@@ -34,28 +34,28 @@ generic math hierarchy resolved with concrete types
 ## 3. Shape: ValueTuple — Create staircase
 
 ```bash
-dotnet-inspect api System.Runtime ValueTuple --shape
+dotnet-inspect type ValueTuple --platform System.Runtime
 ```
 
 The `ValueTuple` factory class has 9 `Create` overloads that grow from zero to
-eight type parameters, producing a visual staircase in the `--shape` output.
+eight type parameters, producing a visual staircase in the shape output.
 The 8-parameter version wraps into `ValueTuple<T1,...,T7,ValueTuple<T8>>` —
 showing how the runtime handles arbitrary-length tuples via nesting.
 
-## 4. API: JsonSerializer members
+## 4. Members: JsonSerializer
 
 ```bash
-dotnet-inspect api System.Text.Json JsonSerializer
+dotnet-inspect member JsonSerializer --package System.Text.Json
 ```
 
 Lists all public members of `JsonSerializer` — one of the most-used types in
 modern .NET. Shows overload grouping, return types, and parameter signatures.
-Good intro to the `api` command at member granularity.
+Good intro to the `member` command at member granularity.
 
 ## 5. Code: OptionsFactory.Create — source, lowered C#, and IL
 
 ```bash
-dotnet-inspect api --package Microsoft.Extensions.Options OptionsFactory Create
+dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options -m Create
 ```
 
 Shows the member detail page for `OptionsFactory<TOptions>.Create` — the

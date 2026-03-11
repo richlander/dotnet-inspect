@@ -37,7 +37,8 @@ public static class MemberOptionsParser
         Option<int?> IndexOption,
         Option<string> ParamsOption,
         Option<string> OfOption,
-        Option<bool> SelectOption);
+        Option<bool> SelectOption,
+        Option<string[]> KindOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -50,9 +51,9 @@ public static class MemberOptionsParser
     public record ListSections : MemberParseResult;
 
     /// <summary>
-    /// Indicates selectable names should be listed.
+    /// Indicates schema discovery (-D/--discover).
     /// </summary>
-    public record ListSelect : MemberParseResult;
+    public record Discovery(string[]? Discover, bool Tree) : MemberParseResult;
 
     /// <summary>
     /// Indicates help should be shown.
@@ -72,7 +73,7 @@ public static class MemberOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(ApiOptions Options) : MemberParseResult;
+    public record Success(MemberOptions Options) : MemberParseResult;
 
     /// <summary>
     /// Parses member command options asynchronously (due to source resolution).
@@ -89,13 +90,11 @@ public static class MemberOptionsParser
         bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
-        // Handle section listing, projection discovery, or help
+        // Handle projection discovery or help
         if (argsValue.Length == 0 && !hasExplicitSource)
         {
-            if (parseResult.GetResult(opts.IncludeSections) != null && parseResult.GetValue(opts.IncludeSections) == null)
-                return new ListSections();
-            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
-                return new ListSelect();
+            if (opts.IsDiscoveryMode(parseResult))
+                return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
 
@@ -114,7 +113,41 @@ public static class MemberOptionsParser
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
 
+        // If source resolution left us with an unresolved package that is actually
+        // a qualified type name (e.g., "System.Text.Json.JsonDocument"), split it
+        // so the user can write: member System.Text.Json.JsonDocument Parse
+        if (source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
+        {
+            var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
+            if (probe != null)
+            {
+                if (source.TypeName != null)
+                    positionalMembers.Insert(0, source.TypeName);
+                if (probe.Kind == SourceResolver.LocalSourceKind.Platform)
+                    source = source with { PackagePath = null, PlatformAssembly = probe.SourceName, TypeName = probe.Remainder };
+                else
+                    source = source with { PackagePath = probe.SourceName, TypeName = probe.Remainder };
+            }
+        }
+
         var typeName = source.TypeName;
+
+        // If the type name contains a dot and no member filters were provided,
+        // split at the last dot: the right part is a member filter.
+        // Handles: member System.Text.Json.JsonDocument.Parse
+        //   → source=System.Text.Json, type=JsonDocument, member=Parse
+        // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
+        // not a type.member pair.
+        if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
+        {
+            var lastDot = typeName.LastIndexOf('.');
+            var rightPart = typeName[(lastDot + 1)..];
+            if (!rightPart.Contains('<'))
+            {
+                positionalMembers.Add(rightPart);
+                typeName = typeName[..lastDot];
+            }
+        }
 
         // Check for unrecognized options in positional args
         var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith("--"));
@@ -141,7 +174,10 @@ public static class MemberOptionsParser
         // Determine docs behavior
         var (showDocs, docsExplicitlySet) = ParseDocsBehavior(parseResult, args);
 
-        var options = new ApiOptions
+        var kindValues = parseResult.GetValue(args.KindOption) ?? [];
+        var kindFilter = SharedParsers.ParseKindFilter(kindValues);
+
+        var options = new MemberOptions
         {
             TypeName = typeName,
             PackagePath = source.PackagePath,
@@ -151,6 +187,7 @@ public static class MemberOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             MemberFilter = memberFilter,
+            KindFilter = kindFilter,
             Limit = memberLimit,
             ShowDocs = showDocs || parseResult.GetValue(args.UseLocalDocsOption),
             DocsExplicitlySet = docsExplicitlySet,
@@ -159,7 +196,9 @@ public static class MemberOptionsParser
             BrowsableUrls = parseResult.GetValue(args.BrowsableUrlsOption),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
+            PlainText = parseResult.GetValue(opts.PlainText),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,
@@ -167,13 +206,14 @@ public static class MemberOptionsParser
             ParamTypes = SharedParsers.ParseParamTypes(parseResult.GetValue(args.ParamsOption)),
             FirstParamType = parseResult.GetValue(args.OfOption),
             ShowSelect = parseResult.GetValue(args.SelectOption),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            IsMemberCommand = true
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
         options = options with

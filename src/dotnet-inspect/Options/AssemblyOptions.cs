@@ -63,6 +63,26 @@ public record AssemblyOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Explicit markdown output requested.
+    /// </summary>
+    public bool Markdown { get; init; }
+
+    /// <summary>
+    /// One result per line, columnar output.
+    /// </summary>
+    public bool OneLine { get; init; }
+
+    /// <summary>
+    /// True when --oneline was explicitly passed (not just the default format).
+    /// </summary>
+    public bool OneLineExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Resolved output format.
+    /// </summary>
+    public OutputFormat Format { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }
@@ -78,14 +98,31 @@ public record AssemblyOptions
     public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
-    /// Sections to exclude by heading name.
+    /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
     /// </summary>
-    public HashSet<string>? ExcludeSections { get; init; }
+    public string[]? Discover { get; init; }
+
+    public bool Tree { get; init; }
 
     /// <summary>
-    /// Names to select (fields and columns). Null means all.
+    /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Column names to include. Null means all.
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Field names to include. Null means all.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
+    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// </summary>
+    public bool Effective { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.
@@ -111,7 +148,17 @@ public record AssemblyOptions
     };
 
     /// <summary>
+    /// True when no explicit output format was selected (default → oneline).
+    /// </summary>
+    public bool IsDefaultInvocation => OneLine && !JsonOutput;
+
+    /// <summary>
+    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// </summary>
+    public bool VerbosityEnabled => !OneLine && !JsonOutput;
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || ExtractResources != null;
+    public bool IsRawOutput => JsonOutput || OneLine || ExtractResources != null;
 }

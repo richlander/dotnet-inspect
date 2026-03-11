@@ -1,6 +1,5 @@
 using System.CommandLine;
 using DotnetInspector.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -101,9 +100,6 @@ public static class CommandLineBuilder
         // Samples command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSamplesCommand(opts));
 
-        // CLI command (meta command)
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCliCommand(rootCommand, opts));
-
         // LLMs.txt command (meta command, listed last)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateLlmsTxtCommand(opts));
 
@@ -116,18 +112,24 @@ public static class CommandLineBuilder
         // Perf-test command (hidden, for profiling)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreatePerfTestCommand());
 
-        // No-args: show help + tips
+        // Override S.CL's built-in --help to use our own renderer
+        var helpOption = rootCommand.Options.OfType<System.CommandLine.Help.HelpOption>().FirstOrDefault();
+        if (helpOption != null)
+            helpOption.Action = new HelpOptionAction();
+
+        // No-args: show help + tips (with -v: show CLI tree view)
         rootCommand.SetAction((parseResult) =>
         {
-            var sw = new System.IO.StringWriter();
-            var original = Console.Out;
-            Console.SetOut(sw);
-            new HelpAction().Invoke(parseResult);
-            Console.SetOut(original);
-            Console.WriteLine(sw.ToString().TrimEnd());
-
+            var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-            var tipLevel = verbosity == Verbosity.Quiet || HeadLines != null
+
+            // -v flag present: show CLI tree view (like former `cli` command)
+            if (hasVerbosity)
+                return CliSchemaCommand.Execute(rootCommand, commandFilter: null, verbosity);
+
+            HelpWriter.WriteHelp(rootCommand);
+
+            var tipLevel = HeadLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
@@ -137,6 +139,7 @@ public static class CommandLineBuilder
                 new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
                 new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
+            return 0;
         });
 
         return rootCommand;
@@ -146,8 +149,6 @@ public static class CommandLineBuilder
     public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
     public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
     public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
-    public static HashSet<string>? ParseIncludeSections(ParseResult parseResult, Option<string?> option)
-        => OptionParsers.ParseIncludeSections(parseResult, option);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)

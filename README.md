@@ -17,7 +17,7 @@ dnx dotnet-inspect -y -- <command>
 ## Quick Reference
 
 | Command | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `package X` | Package metadata, dependencies, files, versions |
 | `library X` | Library metadata, symbols, SourceLink audit, dependency tree |
 | `type` | Discover types (terse, no docs) — use `--shape` for hierarchy |
@@ -28,7 +28,6 @@ dnx dotnet-inspect -y -- <command>
 | `find X` | Search for types across packages, frameworks, and local assets |
 | `samples X` | Fetch and display code samples |
 | `platform` | List installed frameworks |
-| `cli` | CLI args explorer (tree view) |
 
 ### Bare Names
 
@@ -37,7 +36,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 ### Common Flags
 
 | Flag | Description |
-|------|-------------|
+| ------ | ------------- |
 | `-v:q/m/n/d` | Verbosity: quiet, minimal (default), normal, detailed |
 | `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |
@@ -224,12 +223,13 @@ dotnet-inspect cache                                # Show cache size breakdown
 dotnet-inspect cache --clean                        # Clear the cache
 ```
 
-### cli
+### Help Tree View
 
 ```bash
-dotnet-inspect cli                                  # Tree view (single level)
-dotnet-inspect cli -v:d                             # Deep view (all levels)
-dotnet-inspect cli api                              # Specific command with options
+dotnet-inspect -v:m                                 # Tree view (command names + descriptions)
+dotnet-inspect -v:n                                 # Tree view (commands, args, options)
+dotnet-inspect -v:d                                 # Deep view (all levels with descriptions)
+dotnet-inspect -v:q                                 # Command names only (oneliner)
 ```
 
 ## Output Control

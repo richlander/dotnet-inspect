@@ -83,6 +83,26 @@ public record FindOptions : IAssemblySourceOptions
     public bool NoHeader { get; init; }
 
     /// <summary>
+    /// Column projection (include only named columns).
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Field projection (include only named fields).
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
+    /// Discovery mode (-D/--discover). Null = not requested, empty = bare, populated = section name.
+    /// </summary>
+    public string[]? Discover { get; init; }
+
+    /// <summary>
+    /// Show discovery as a tree.
+    /// </summary>
+    public bool Tree { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

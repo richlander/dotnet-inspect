@@ -1,10 +1,10 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -57,12 +57,13 @@ public static class RouterCommandDefinition
             switch (result)
             {
                 case RouterOptionsParser.ShowHelp:
-                    new HelpAction().Invoke(parseResult);
+                    HelpWriter.WriteHelp(routerCommand);
                     return 0;
 
-                case RouterOptionsParser.ListSelect:
-                    ListSelectableNames();
-                    return 0;
+                case RouterOptionsParser.Discovery d:
+                    // Router-level discovery: show package sections (no input required)
+                    var routerSchemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+                    return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree);
 
                 case RouterOptionsParser.ParseError error:
                     Console.Error.WriteLine(error.Message);
@@ -76,6 +77,9 @@ public static class RouterCommandDefinition
 
                 case RouterOptionsParser.HandleVersionQuery query:
                     return await ExecuteVersionQueryAsync(query, opts, parseResult, routerVersionsOption);
+
+                case RouterOptionsParser.RouteToType route:
+                    return await ExecuteTypeCommandAsync(route, opts, parseResult, commandArgs);
 
                 case RouterOptionsParser.RouteToPackage route:
                     return await ExecutePackageCommandAsync(route);
@@ -106,7 +110,7 @@ public static class RouterCommandDefinition
 
             if (assemblyExitCode == 0 && !route.Options.JsonOutput)
             {
-                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null
                     ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
                 TipWriter.WritePlatformTips(route.BareName, platformTipLevel, route.Verbosity);
             }
@@ -116,18 +120,29 @@ public static class RouterCommandDefinition
 
         // Platform resolution failed - check if this is a qualified type name
         // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
-        if (PlatformResolver.TryParseQualifiedTypeName(route.BareName, out var qtAssembly, out var qtType))
+        // Probes dotnet hive, dotnet-inspect cache, and NuGet global cache (local only).
+        var probe = SourceResolver.TryProbeLocalQualifiedName(route.BareName);
+        if (probe != null)
         {
-            var typeOptions = new ApiOptions
+            var typeOptions = new TypeOptions
             {
-                TypeName = qtType,
-                PlatformAssembly = qtAssembly,
+                TypeName = probe.Remainder,
+                PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
+                PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
                 JsonOutput = route.Options.JsonOutput,
+                PlainText = route.Options.Format == OutputFormat.PlainText,
+                OneLine = route.OneLine,
+                OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
+                NoHeader = route.NoHeader,
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
-                IncludeSections = route.IncludeSections,
-                ExcludeSections = route.Options.ExcludeSections,
+                IncludeSections = null,
+                Discover = route.Options.Discover,
+                Tree = route.Options.Tree,
                 Select = route.Options.Select,
+                Columns = route.Options.Columns,
+                Fields = route.Options.Fields,
+                SourceOptions = route.Options.SourceOptions,
                 TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
@@ -142,15 +157,21 @@ public static class RouterCommandDefinition
         {
             PackageArgs = [route.OriginalArg],
             JsonOutput = route.Options.JsonOutput,
+            OneLine = route.OneLine,
+            OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
+            NoHeader = route.NoHeader,
             Verbose = route.Options.Verbose,
             Verbosity = route.Verbosity,
-            IncludeSections = route.IncludeSections,
-            ExcludeSections = route.Options.ExcludeSections,
+            Discover = route.Options.Discover,
+            Tree = route.Options.Tree,
             Select = route.Options.Select,
+            Columns = route.Options.Columns,
+            Fields = route.Options.Fields,
+            Effective = route.Options.Effective,
             SourceOptions = route.Options.SourceOptions
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
@@ -224,6 +245,48 @@ public static class RouterCommandDefinition
         return await PackageCommand.ExecuteAsync(options);
     }
 
+    private static async Task<int> ExecuteTypeCommandAsync(
+        RouterOptionsParser.RouteToType route,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
+    {
+        var source = await SourceResolver.ResolveAsync(
+            route.Args, null, null, null,
+            parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+
+        if (source.VersionError)
+        {
+            Console.Error.WriteLine(source.VersionErrorMessage);
+            return 1;
+        }
+
+        var verbosity = opts.ParseVerbosity(parseResult);
+
+        var typeOptions = new TypeOptions
+        {
+            TypeName = source.TypeName,
+            PackagePath = source.PackagePath,
+            PlatformAssembly = source.PlatformAssembly,
+            PlatformFramework = source.FrameworkOverride,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            OneLine = opts.ResolveOneLine(parseResult, commandArgs.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(commandArgs.OneLineOption) is { Implicit: false },
+            NoHeader = parseResult.GetValue(commandArgs.NoHeaderOption),
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+        };
+
+        return await ApiCommand.ExecuteAsync(typeOptions);
+    }
+
     private static async Task<int> ExecutePackageCommandAsync(RouterOptionsParser.RouteToPackage route)
     {
         var exitCode = await PackageCommand.ExecuteAsync(route.Options);
@@ -232,15 +295,5 @@ public static class RouterCommandDefinition
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;
-    }
-
-    private static void ListSelectableNames()
-    {
-        var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-        if (schema == null) return;
-        foreach (var name in schema.GetFieldNames())
-            Console.WriteLine($"{name,-24} field");
-        foreach (var name in schema.GetColumnNames())
-            Console.WriteLine($"{name,-24} column");
     }
 }

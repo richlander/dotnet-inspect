@@ -61,7 +61,10 @@ public static class ApiOutputFormatter
             if (api.IsTypeForwardingAssembly)
                 view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
 
-            PopulateTypeSections(view, api.Types, options.ShowDocs);
+            var showDocs = options.ShowDocs
+                || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)
+                    || c.Equals("Kind", StringComparison.OrdinalIgnoreCase)) == true;
+            PopulateTypeSections(view, api.Types, showDocs);
         }
 
         return (view, truncatedCount);
@@ -87,7 +90,7 @@ public static class ApiOutputFormatter
                     desc = desc.ReplaceLineEndings(" ");
                     if (desc.Length > 80) desc = desc[..77] + "...";
                 }
-                return new TypeSummaryRow(fullName, members, desc);
+                return new TypeSummaryRow(group.Key, fullName, members, desc);
             }).ToList();
 
             switch (group.Key)
@@ -115,98 +118,59 @@ public static class ApiOutputFormatter
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
-            api, options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            api, options.Verbosity, options.IncludeSections);
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet,
-            Projection = OutputFormatter.BuildProjection(options.Select)
+            Projection = OutputFormatter.BuildProjection(options.Columns)
         };
-    }
-
-    // ===== Single Type Rendering =====
-
-    public static string RenderTypeMarkdown(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
-    {
-        var writer = new MarkdownWriter(BuildTypeWriterOptions(type, options));
-        RenderTypeMarkdown(writer, type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-        return writer.ToString().TrimEnd();
-    }
-
-    public static void RenderTypeMarkdown(MarkoutWriter writer, ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
-    {
-        // Build the view model
-        var view = BuildApiTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-
-        // Populate enum values declaratively for Normal+ enums
-        if (type.Kind == "enum" && options.Verbosity >= Verbosity.Normal)
-            PopulateEnumValues(view, type, options);
-
-        int truncatedCount = 0;
-        string truncatedNoun = "";
-
-        // Populate member sections declaratively (unless quiet or enum)
-        bool fullSerializer = options.IsMemberCommand || options.Verbosity != Verbosity.Quiet;
-
-        if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
-        {
-            if (options.CtorOnly && options.Verbosity >= Verbosity.Normal
-                && type.Members.Any(m => m.Kind == "constructor"))
-            {
-                PopulateConstructorOverloads(view, type, options);
-            }
-            else if (options.IsMemberCommand && options.Verbosity == Verbosity.Quiet)
-            {
-                (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
-            }
-            else if (options.Verbosity == Verbosity.Minimal && !options.IsMemberCommand)
-            {
-                (truncatedCount, truncatedNoun) = PopulateMemberSummarySections(view, type, options);
-            }
-            else
-            {
-                (truncatedCount, truncatedNoun) = PopulateMemberSections(view, type, options);
-            }
-        }
-
-        // Serialize the complete view
-        new MarkoutContext().Serialize(view, writer);
-
-        // Truncation message
-        if (truncatedCount > 0)
-            writer.WriteParagraph($"... *and {truncatedCount} more {truncatedNoun}*");
     }
 
     internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
     {
-        // Member command at quiet still needs sections rendered (summary tables)
-        var effectiveVerbosity = options.IsMemberCommand && options.Verbosity == Verbosity.Quiet
-            ? Verbosity.Minimal : options.Verbosity;
+        var effectiveVerbosity = options.Verbosity;
 
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections, options.ExcludeSections);
+            type, effectiveVerbosity, options.IncludeSections);
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet,
-            Projection = OutputFormatter.BuildProjection(options.Select)
+            Projection = OutputFormatter.BuildProjection(options.Columns)
         };
     }
 
     // ===== Shape Output (--shape) =====
 
-    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)
+    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
     {
-        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter);
-        MarkoutSerializer.Serialize(view, Console.Out, TypeViewContext.Default);
+        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter);
+        if (view.Members is { Count: > 0 })
+        {
+            Console.WriteLine(view.FullName);
+            var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
+            writer.WriteTree([.. view.Members]);
+        }
+        else if (kindFilter?.Count > 0 || memberFilter.Count > 0)
+        {
+            var filterDesc = kindFilter?.Count > 0
+                ? string.Join(", ", kindFilter)
+                : string.Join(", ", memberFilter);
+            Console.Error.WriteLine($"No matching members for filter: {filterDesc}");
+        }
+        else
+        {
+            Console.WriteLine(view.FullName);
+        }
     }
 
     // ===== View Model Factories =====
 
-    internal static ApiTypeView BuildApiTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    internal static TypeView BuildTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
         // Build title with package context
         var packageInfo = packageName != null && packageVersion != null
@@ -224,10 +188,9 @@ public static class ApiOutputFormatter
         if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
             baseType = type.BaseType;
 
-        // Type parameters inline (for quiet/minimal only)
+        // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
         string? typeParamsInline = null;
-        if (type.TypeParameters.Count > 0 &&
-            (options.Verbosity == Verbosity.Quiet || options.Verbosity == Verbosity.Minimal))
+        if (type.TypeParameters.Count > 0 && options.Verbosity == Verbosity.Quiet)
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
@@ -246,27 +209,27 @@ public static class ApiOutputFormatter
         if ((options.ShowDocs || options.ShowSamples) && type.Documentation.Samples.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
 
-        // Type parameters table (Normal+)
+        // Type parameters table (pipeline controls visibility via IncludeSections)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (type.TypeParameters.Count > 0 && options.Verbosity >= Verbosity.Normal)
+        if (type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = tp.ConstraintsSummary ?? "" })
                 .ToList();
         }
 
-        // Interfaces (Detailed+)
+        // Interfaces (pipeline controls visibility via IncludeSections)
         List<InterfaceRow>? interfaceRows = null;
-        if (type.Interfaces.Count > 0 && options.Verbosity >= Verbosity.Detailed)
+        if (type.Interfaces.Count > 0)
         {
             interfaceRows = type.Interfaces.Order()
                 .Select(i => new InterfaceRow { Interface = i })
                 .ToList();
         }
 
-        // Baseclass (Detailed+, filtered for trivial bases)
+        // Baseclass (pipeline controls visibility via IncludeSections; filtered for trivial bases)
         List<BaseclassRow>? baseclassRows = null;
-        if (baseType != null && options.Verbosity >= Verbosity.Detailed)
+        if (baseType != null)
         {
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
@@ -291,26 +254,28 @@ public static class ApiOutputFormatter
             }
         }
 
-        return new ApiTypeView
+        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+
+        return new TypeView
         {
             Title = $"{FormatGenericFullName(type)}{packageInfo}",
             Description = description,
-            Kind = type.Kind,
-            Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-            BaseType = baseType,
+            Kind = topFieldsOnly ? type.Kind : null,
+            Modifiers = topFieldsOnly ? (modifiers.Count > 0 ? string.Join(", ", modifiers) : null) : null,
+            BaseType = topFieldsOnly ? baseType : null,
             TypeParametersInline = typeParamsInline,
-            Assembly = foundIn,
-            Package = packageName,
-            Version = packageVersion,
-            Source = apiSource,
-            Tfm = selectedTfm,
-            SamplesInfo = samplesInfo,
-            // Member stats for quiet verbosity (non-member commands only; member command shows tables)
-            Constructors = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
-            Fields = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
-            Properties = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
-            Methods = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
-            Events = options.Verbosity == Verbosity.Quiet && !options.IsMemberCommand ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
+            Assembly = topFieldsOnly ? foundIn : null,
+            Package = topFieldsOnly ? packageName : null,
+            Version = topFieldsOnly ? packageVersion : null,
+            Source = topFieldsOnly ? apiSource : null,
+            Tfm = topFieldsOnly ? selectedTfm : null,
+            SamplesInfo = topFieldsOnly ? samplesInfo : null,
+            // Member stats for quiet verbosity
+            Constructors = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Fields = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
+            Properties = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
+            Methods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Events = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
@@ -320,34 +285,13 @@ public static class ApiOutputFormatter
         static int? NullIfZero(int count) => count > 0 ? count : null;
     }
 
-    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter)
+    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
     {
+        bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
         List<TreeNode> nodes = [];
 
-        // Inheritance (always show)
-        if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
-        {
-            nodes.Add(new TreeNode("Inherits", new[] { type.BaseType }));
-        }
-
-        // Interfaces (always show)
-        if (type.Interfaces.Count > 0)
-        {
-            nodes.Add(new TreeNode("Implements", type.Interfaces));
-        }
-
-        // Type parameters with constraints (always show)
-        if (type.TypeParameters.Count > 0)
-        {
-            var typeParamDescriptions = type.TypeParameters
-                .Select(tp => tp.Constraints.Count > 0
-                    ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
-                    : tp.DisplayName)
-                .ToList();
-            nodes.Add(new TreeNode("Type Parameters", typeParamDescriptions));
-        }
-
         // Group members by kind
+        bool hasMemberNodes = false;
         if (type.Members.Count > 0)
         {
             var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
@@ -357,9 +301,17 @@ public static class ApiOutputFormatter
                 members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
             }
 
+            if (kindFilter?.Count > 0)
+            {
+                members = members.Where(m => kindFilter.Contains(m.Kind));
+            }
+
             var membersByKind = members
                 .GroupBy(m => m.Kind)
-                .OrderBy(g => GetTreeKindOrder(g.Key));
+                .OrderBy(g => GetTreeKindOrder(g.Key))
+                .ToList();
+
+            hasMemberNodes = membersByKind.Count > 0;
 
             foreach (var group in membersByKind)
             {
@@ -369,7 +321,37 @@ public static class ApiOutputFormatter
                     .Select(m => m.Signature ?? OperatorNames.FormatDisplayName(m.Name))
                     .ToList();
 
-                nodes.Add(new TreeNode(kindLabel, memberSignatures));
+                nodes.Add(new TreeNode(kindLabel) { Children = memberSignatures.Select(s => new TreeNode(s)).ToList() });
+            }
+        }
+
+        // Structural nodes (suppress when a filter is active but matched nothing)
+        if (!hasFilter || hasMemberNodes)
+        {
+            // Inheritance
+            if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
+            {
+                nodes.Insert(0, new TreeNode("Inherits") { Children = [new TreeNode(type.BaseType)] });
+            }
+
+            // Interfaces
+            if (type.Interfaces.Count > 0)
+            {
+                var insertAt = nodes.Count > 0 && nodes[0].Text == "Inherits" ? 1 : 0;
+                nodes.Insert(insertAt, new TreeNode("Implements") { Children = type.Interfaces.Select(i => new TreeNode(i)).ToList() });
+            }
+
+            // Type parameters with constraints
+            if (type.TypeParameters.Count > 0)
+            {
+                var typeParamDescriptions = type.TypeParameters
+                    .Select(tp => tp.Constraints.Count > 0
+                        ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                        : tp.DisplayName)
+                    .ToList();
+                var insertAt = nodes.FindIndex(n => n.Text != "Inherits" && n.Text != "Implements");
+                if (insertAt < 0) insertAt = nodes.Count;
+                nodes.Insert(insertAt, new TreeNode("Type Parameters") { Children = typeParamDescriptions.Select(t => new TreeNode(t)).ToList() });
             }
         }
 
@@ -396,7 +378,7 @@ public static class ApiOutputFormatter
 
     // ===== Internal Rendering Methods =====
 
-    internal static void PopulateEnumValues(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static void PopulateEnumValues(TypeView view, ApiType type, ApiOptions options)
     {
         var enumMembers = type.Members
             .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
@@ -424,9 +406,9 @@ public static class ApiOutputFormatter
             view.EnumValues = rows;
     }
 
-    internal static (int truncated, string noun) PopulateMemberSections(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSections(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (0, "");
 
         // Flatten sorted for --limit application
@@ -449,9 +431,11 @@ public static class ApiOutputFormatter
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToList();
 
-        bool hasDocs = options.ShowDocs && allMembers.Any(m => m.Documentation.Summary != null);
+        bool docsRequested = options.ShowDocs
+            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = options.Verbosity == Verbosity.Minimal;
-        bool showSelect = options.ShowSelect;
+        bool showSelect = options is MemberOptions mo && mo.ShowSelect;
 
         foreach (var group in kindGroups)
         {
@@ -526,9 +510,9 @@ public static class ApiOutputFormatter
     /// Groups members by name within each kind, with kind-specific columns
     /// matching the old QuietMemberFormatter design.
     /// </summary>
-    internal static (int truncated, string noun) PopulateMemberSummarySections(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSummarySections(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (0, "");
 
         // Flatten all unique-name entries across kinds for --limit
@@ -619,9 +603,9 @@ public static class ApiOutputFormatter
         return (truncated, "members");
     }
 
-    internal static void PopulateConstructorOverloads(ApiTypeView view, ApiType type, ApiOptions options)
+    internal static void PopulateConstructorOverloads(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         var constructors = grouped
             .SelectMany(g => g.Value)
             .Where(m => m.Kind == "constructor")
@@ -655,10 +639,12 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(ApiTypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
     {
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
+
+        var memberCode = new MemberCodeView();
 
         foreach (var method in methods)
         {
@@ -681,7 +667,7 @@ public static class ApiOutputFormatter
                 {
                     var lowered = Decompiler.CSharpEmitter.Emit(context);
                     if (!string.IsNullOrWhiteSpace(lowered))
-                        view.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
+                        memberCode.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
                 }
             }
             catch { }
@@ -692,7 +678,7 @@ public static class ApiOutputFormatter
             if (instructions is { Count: > 0 })
             {
                 var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
-                view.ILCode = new CodeSection("il", ilText);
+                memberCode.ILCode = new CodeSection("il", ilText);
             }
 
             // Annotated IL
@@ -705,16 +691,18 @@ public static class ApiOutputFormatter
                     var annotated = Decompiler.AnnotatedILEmitter.Emit(
                         context, Decompiler.ILAnnotationDepth.Structured);
                     if (!string.IsNullOrWhiteSpace(annotated))
-                        view.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                        memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
                 }
             }
             catch { }
         }
+
+        view.MemberCode = memberCode;
     }
 
     // ===== Helper Methods =====
 
-    internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false)
+    internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false, HashSet<string>? kindFilter = null)
     {
         var members = type.Members
             .Where(m => !IsCompilerGenerated(m.Name))
@@ -725,6 +713,9 @@ public static class ApiOutputFormatter
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
+
+        if (kindFilter?.Count > 0)
+            members = members.Where(m => kindFilter.Contains(m.Kind)).ToList();
 
         return members
             .GroupBy(m => m.Kind)
@@ -785,7 +776,7 @@ public static class ApiOutputFormatter
     /// </summary>
     internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly);
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (new ApiTypeOneLineView(), 0);
 
         var allEntries = grouped
@@ -808,10 +799,20 @@ public static class ApiOutputFormatter
         var rows = allEntries.Select(e =>
         {
             var m = e.members[0];
-            var sig = e.kind == "event"
-                ? m.ReturnType ?? m.Signature ?? ""
-                : m.Signature ?? m.ReturnType ?? "";
-            return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), $"`{sig}`");
+            var returnType = e.kind switch
+            {
+                "constructor" => "",
+                "event" => m.ReturnType ?? m.Signature ?? "",
+                _ => SignatureParser.ExtractReturnType(m.Signature)
+            };
+            var detail = e.kind switch
+            {
+                "property" => SignatureParser.ExtractAccessors(m.Signature),
+                "constructor" or "method" when e.members.Count > 1 => e.members.Count.ToString(),
+                "constructor" or "method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
+                _ => ""
+            };
+            return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
         }).ToList();
 
         return (new ApiTypeOneLineView { Rows = rows }, truncated);
@@ -831,16 +832,39 @@ public static class ApiOutputFormatter
             types = types.Take(options.Limit.Value).ToList();
         }
 
+        bool showDescription = options.ShowDocs
+            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+
         var rows = types
             .OrderBy(t => GetTypeKindSortOrder(t.Kind))
             .ThenBy(t => t.FullName)
-            .Select(t => new ApiSurfaceOneLineRow(
-                t.Kind,
-                FormatGenericFullName(t),
-                t.Members.Count.ToString()))
+            .Select(t =>
+            {
+                string? desc = null;
+                if (showDescription)
+                {
+                    desc = t.Documentation.Summary;
+                    if (desc != null)
+                    {
+                        desc = desc.ReplaceLineEndings(" ");
+                        if (desc.Length > 80) desc = desc[..77] + "...";
+                    }
+                }
+                return new ApiSurfaceOneLineRow(
+                    t.Kind,
+                    FormatGenericFullName(t),
+                    t.Members.Count.ToString(),
+                    desc);
+            })
             .ToList();
 
-        return (new ApiSurfaceOneLineView { Rows = rows }, truncated);
+        var view = new ApiSurfaceOneLineView();
+        if (showDescription)
+            view.RowsWithDescription = rows;
+        else
+            view.Rows = rows;
+
+        return (view, truncated);
     }
 
     private static int GetTypeKindSortOrder(string kind) => kind switch

@@ -56,21 +56,6 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
-// Find command JSON contexts
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeSearchResult>))]
-internal partial class FindJsonContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeSearchResult>))]
-internal partial class FindCompactJsonContext : JsonSerializerContext { }
-
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,
@@ -116,35 +101,21 @@ internal partial class DependsJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<TypeDependencyNode>))]
 internal partial class DependsCompactJsonContext : JsonSerializerContext { }
 
-// Package search command JSON contexts
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<NuGetSearchResult>))]
-internal partial class PackageSearchJsonContext : JsonSerializerContext { }
-
+// Package search JSONL context (one compact object per line)
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<NuGetSearchResult>))]
-internal partial class PackageSearchCompactJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(NuGetSearchResult))]
+internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 
-// TypeFindResult JSON contexts (raw find data)
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeFindResult>))]
-internal partial class TypeFindResultJsonContext : JsonSerializerContext { }
-
+// TypeFindResult JSONL context (one compact object per line)
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<TypeFindResult>))]
-internal partial class TypeFindResultCompactJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(TypeFindResult))]
+internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

@@ -29,7 +29,7 @@ public class InspectionResultView
 
     // ===== Field Collections for Serializer =====
 
-    [MarkoutIgnoreInTable]
+    [MarkoutSection(Name = PackageSections.Summary, Headless = true)]
     public List<MarkoutField> Summary => GetCompactFields();
 
     [MarkoutSection(Name = PackageSections.Package)]
@@ -137,7 +137,7 @@ public class InspectionResultView
     [MarkoutPropertyName("Tool Format")]
     public string? ToolFormat => _data.ToolFormat;
 
-    [MarkoutPropertyName("RID-Specific Pointer Package")]
+    [MarkoutPropertyName("RID Pointer Package")]
     [MarkoutSkipDefault]
     public bool IsRidSpecificPointerPackage => _data.IsRidSpecificPointerPackage;
 
@@ -211,7 +211,7 @@ public class InspectionResultView
         if (_data.Deprecation != null)
             fields.Add(new("Deprecated", "Yes"));
         if (_data.Vulnerabilities is { Count: > 0 })
-            fields.Add(MarkoutField.Create("Vulnerabilities", _data.Vulnerabilities.Count));
+            fields.Add(new("Vulnerabilities", _data.Vulnerabilities.Count.ToString()));
 
         return fields;
     }
@@ -246,28 +246,28 @@ public class InspectionResultView
             fields.Add(new("Repository", _data.Repository));
 
         if (_data.IsVerified == true)
-            fields.Add(MarkoutField.Create("Verified", true));
+            fields.Add(new("Verified", "Yes"));
 
         if (_data.ContentDirectories is { Count: > 0 })
             fields.Add(new("Content", string.Join(", ", _data.ContentDirectories)));
         if (TargetFrameworkCount > 0)
-            fields.Add(MarkoutField.Create("Target Frameworks", TargetFrameworkCount));
+            fields.Add(new("Target Frameworks", TargetFrameworkCount.ToString()));
         if (SupportedRidCount > 0)
-            fields.Add(MarkoutField.Create("Runtime Identifiers", SupportedRidCount));
+            fields.Add(new("Runtime Identifiers", SupportedRidCount.ToString()));
         if (_data.AssemblyCount > 1)
-            fields.Add(MarkoutField.Create("Libraries", _data.AssemblyCount));
+            fields.Add(new("Libraries", _data.AssemblyCount.ToString()));
         if (_data.HasReadme)
-            fields.Add(MarkoutField.Create("Readme", true));
+            fields.Add(new("Readme", "Yes"));
         if (_data.Vulnerabilities is { Count: > 0 })
-            fields.Add(MarkoutField.Create("Vulnerabilities", _data.Vulnerabilities.Count));
+            fields.Add(new("Vulnerabilities", _data.Vulnerabilities.Count.ToString()));
 
         if (_data.ToolCommands is { Count: > 0 })
             fields.Add(new("Tool Commands", string.Join(", ", _data.ToolCommands)));
 
         if (_data.IsFrameworkDependent)
-            fields.Add(MarkoutField.Create("Framework Dependent", true));
+            fields.Add(new("Framework Dependent", "Yes"));
         if (_data.IsRidSpecificPointerPackage)
-            fields.Add(MarkoutField.Create("RID-Specific Pointer", true));
+            fields.Add(new("RID-Specific Pointer", "Yes"));
         if (!string.IsNullOrWhiteSpace(_data.RuntimeTargetRid))
             fields.Add(new("Runtime Target RID", _data.RuntimeTargetRid));
 

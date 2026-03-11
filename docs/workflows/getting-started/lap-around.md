@@ -165,9 +165,9 @@ dotnet-inspect member Markout MarkoutWriter -v:q
 ```
 
 ```expect
-WriteTable
-WriteTree
-WriteHeading
+# Markout.MarkoutWriter
+Kind: class
+Methods: 35
 ```
 
 For code, use `--select` to see addressing hints, then drill into a specific overload:

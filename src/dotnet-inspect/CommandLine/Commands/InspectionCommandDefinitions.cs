@@ -46,6 +46,7 @@ public static class InspectionCommandDefinitions
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
+        var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -59,13 +60,14 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
+        diffCommand.Options.Add(legendOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Select);
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, oneLineOption, noHeaderOption, nameOnlyOption, breakingOption, additiveOption);
+            typeFilterOption, oneLineOption, noHeaderOption, nameOnlyOption, breakingOption, additiveOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -82,6 +84,9 @@ public static class InspectionCommandDefinitions
 
                     if (exitCode == 0)
                     {
+                        if (success.Options.Legend)
+                            Hints.WriteDiffLegend();
+
                         var tips = DiffOptionsParser.BuildTips(success.Options, success.Options.TypeFilter);
                         Hints.WriteTips(success.TipLevel, [.. tips]);
                     }
@@ -109,7 +114,7 @@ public static class InspectionCommandDefinitions
 
         var sourcelinkAuditOption = new Option<bool>("--source-link-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
         var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree (tip: use 'depends --library' instead)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
@@ -174,10 +179,15 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = parseResult.GetValue(asmFrameworkOption),
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
+                Markdown = parseResult.GetValue(opts.Markdown),
+                OneLine = opts.ResolveFormat(parseResult) == OutputFormat.OneLine,
+                Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
-                IncludeSections = opts.ParseIncludeSections(parseResult),
-                ExcludeSections = opts.ParseExcludeSections(parseResult),
+                Discover = opts.ParseDiscover(parseResult),
+                Tree = parseResult.GetValue(opts.Tree),
+                Select = opts.ParseSelect(parseResult),
+                Columns = opts.ParseColumns(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

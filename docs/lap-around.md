@@ -142,10 +142,10 @@ The tool offers help via multiple commands.
 
 ```bash
 dotnet-inspect                                     # No args launch; basic tool help
-dotnet-inspect cli                                 # CLI args explorer -- tree view; single level)
-dotnet-inspect cli -v:d                            # CLI args explorer -- tree view; deep view, all levels)
-dotnet-inspect cli -v:q                            # CLI args explorer -- oneliner
-dotnet-inspect cli type                            # Explore args for a particular command (this is full depth; doesn't go deeper)
+dotnet-inspect -v:m                                # CLI args explorer -- tree view; command names + descriptions
+dotnet-inspect -v:n                                # CLI args explorer -- tree view; commands, args, options
+dotnet-inspect -v:d                                # CLI args explorer -- deep view, all levels with descriptions
+dotnet-inspect -v:q                                # CLI args explorer -- command names only (oneliner)
 dotnet-inspect llmstxt                             # Prints llmstxt, intended for LLMs
 dotnet-inspect skill                               # Prints SKILL.md for anyone that wants it
 dotnet-inspect cache                               # How to clean the cache

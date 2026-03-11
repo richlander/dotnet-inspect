@@ -9,7 +9,7 @@ This document describes the conceptual model of dotnet-inspect commands. It serv
 dotnet-inspect works with .NET libraries. There are three ways to specify where a library comes from:
 
 | Command | Source | Example |
-|---------|--------|---------|
+| --------- | -------- | --------- |
 | `package X` | NuGet package | `package System.Text.Json` |
 | `platform X` | Local SDK/runtime | `platform System.Text.Json` |
 | `library ./path` | Local file | `library ./bin/MyLib.dll` |
@@ -21,7 +21,7 @@ These commands accept the same inspection flags (`--audit`, `--sourcelink`, `--a
 Once you've specified a source, flags control what information to show:
 
 | Flag | Shows |
-|------|-------|
+| ------ | ------- |
 | `--library` | Library metadata (version, TFM, architecture) |
 | `--sourcelink` | SourceLink presence and URL (fast, no verification) |
 | `--audit` | Full provenance verification (SourceLink reachability, determinism) |
@@ -42,7 +42,7 @@ dotnet inspect audit ./artifacts/*.nupkg     # nupkg files
 ```
 
 | Verbosity | Output |
-|-----------|--------|
+| ----------- | -------- |
 | `-v:q` | One-line pass/fail for each check |
 | `-v:n` | Audit table with source coverage summary |
 | `-v:d` | Full details including missing source files |
@@ -130,7 +130,7 @@ When commands or flags are deprecated:
 
 Current deprecations:
 
-| Deprecated | Use Instead | Removal Target |
-|------------|-------------|----------------|
-| `package X --metadata` | `library X` | 0.3.0 |
-| `--strict` | `--audit` (now always strict) | 0.3.0 |
+| Deprecated             | Use Instead                   | Removal Target |
+| ---------------------- | ----------------------------- | -------------- |
+| `package X --metadata` | `library X`                   | 0.3.0          |
+| `--strict`             | `--audit` (now always strict) | 0.3.0          |

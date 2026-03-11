@@ -5,12 +5,12 @@ namespace DotnetInspector.Views;
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),
-    FieldLayout = FieldLayout.LineBreaksDoubleSpace)]
+    FieldLayout = FieldLayout.Table)]
 public class ImplementsResultView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
-    public int Matches { get; set; }
+    [MarkoutIgnore] public int Matches { get; set; }
 
     [MarkoutSection(Name = "Implementers")]
     public List<ImplementerRow>? Rows { get; set; }

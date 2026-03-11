@@ -13,25 +13,27 @@ public class SharedOptions
 {
     // Output format options
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
-    public Option<bool> Markout { get; } = new("--markout") { Description = "Output as Markout (default)" };
+    public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
+    public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
-    public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
+    public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => null };
 
     // Output control options
     public Option<int?> Limit { get; } = new("-n") { Description = "Limit output lines (like head -n)" };
+    public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
-    // Section filtering options
-    public Option<string?> IncludeSections { get; }
-    public Option<string?> ExcludeSections { get; } = new("-x")
-    {
-        Description = "Exclude sections by name (comma-separated, e.g., -x:Methods)"
-    };
+    // Discovery option
+    public Option<string?> Discover { get; }
 
     // Projection options
     public Option<string?> Select { get; }
+    public Option<string?> Columns { get; }
+    public Option<string?> Fields { get; }
+    public Option<bool> Effective { get; } = new("--effective") { Description = "Show sections with data (runs full pipeline)" };
+    public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
 
     // NuGet source options
     public Option<string[]> Source { get; } = new("--source")
@@ -58,19 +60,33 @@ public class SharedOptions
         };
         Tips.Aliases.Add("-T");
 
-        IncludeSections = new Option<string?>("-s")
+        Discover = new Option<string?>("-D")
         {
-            Description = "Include sections by name (comma-separated, supports wildcards). Use -s alone to list.",
+            Description = "Discover schema: sections, or items within a section",
             Arity = ArgumentArity.ZeroOrOne
         };
-        IncludeSections.Aliases.Add("--section");
+        Discover.Aliases.Add("--discover");
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select fields/columns by name (comma-separated). Use -S alone to list.",
+            Description = "Select sections by name (comma-separated, supports wildcards)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");
+        Select.Aliases.Add("-s");
+        Select.Aliases.Add("--section");
+
+        Columns = new Option<string?>("--columns")
+        {
+            Description = "Filter columns by name (comma-separated)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+
+        Fields = new Option<string?>("--fields")
+        {
+            Description = "Filter fields by name (comma-separated)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
     }
 
     /// <summary>
@@ -81,6 +97,7 @@ public class SharedOptions
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
         command.Options.Add(Tips);
+        command.Options.Add(Info);
         command.Options.Add(Limit);
     }
 
@@ -97,9 +114,12 @@ public class SharedOptions
     /// </summary>
     public void AddSectionOptionsTo(Command command)
     {
-        command.Options.Add(IncludeSections);
-        command.Options.Add(ExcludeSections);
+        command.Options.Add(Discover);
         command.Options.Add(Select);
+        command.Options.Add(Columns);
+        command.Options.Add(Fields);
+        command.Options.Add(Effective);
+        command.Options.Add(Tree);
     }
 
     /// <summary>
@@ -113,12 +133,13 @@ public class SharedOptions
     }
 
     /// <summary>
-    /// Adds all common options for a full inspection command (JSON, Markout, verbose, sections, NuGet).
+    /// Adds all common options for a full inspection command (JSON, markdown, verbose, sections, NuGet).
     /// </summary>
     public void AddAllOptionsTo(Command command)
     {
         command.Options.Add(Json);
-        command.Options.Add(Markout);
+        command.Options.Add(Markdown);
+        command.Options.Add(PlainText);
         AddOutputOptionsTo(command);
         AddSectionOptionsTo(command);
         AddNuGetOptionsTo(command);
@@ -159,23 +180,89 @@ public class SharedOptions
         => OptionParsers.ParseTipLevel(parseResult.GetValue(Tips), parseResult.GetResult(Tips) != null);
 
     /// <summary>
-    /// Parses include sections from parse result.
+    /// Resolves the output format from parse result.
+    /// Precedence: explicit CLI flags (--json, --markdown, -v:*) → DOTNET_INSPECT_FORMAT env → default (OneLine).
     /// </summary>
-    public HashSet<string>? ParseIncludeSections(ParseResult parseResult)
-        => OptionParsers.ParseIncludeSections(parseResult, IncludeSections);
+    public OutputFormat ResolveFormat(ParseResult parseResult)
+    {
+        bool jsonFlag = parseResult.GetValue(Json);
+        bool markdownFlag = parseResult.GetValue(Markdown);
+        bool plainTextFlag = parseResult.GetValue(PlainText);
+        bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
+        Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag);
+    }
 
     /// <summary>
-    /// Parses exclude sections from parse result.
+    /// Resolves whether oneline output should be used, considering the --oneline flag and format resolution.
+    /// Explicit --oneline always wins; otherwise derived from ResolveFormat.
+    /// Throws if --oneline is combined with -v (contradictory: -v implies markdown).
     /// </summary>
-    public HashSet<string>? ParseExcludeSections(ParseResult parseResult)
-        => OptionParsers.ParseSectionList(parseResult.GetValue(ExcludeSections));
+    public bool ResolveOneLine(ParseResult parseResult, Option<bool> oneLineOption)
+    {
+        bool explicitOneLine = parseResult.GetResult(oneLineOption) is { Implicit: false };
+        bool explicitVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
+
+        if (explicitOneLine && explicitVerbosity)
+        {
+            Console.Error.WriteLine("--oneline and -v cannot be combined. Use another formatter instead, or omit -v for oneline.");
+            throw new OperationCanceledException();
+        }
+
+        // Explicit --oneline flag always wins
+        if (explicitOneLine)
+            return parseResult.GetValue(oneLineOption);
+
+        return ResolveFormat(parseResult) == OutputFormat.OneLine;
+    }
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, empty array for bare -S (discovery), or populated array.
+    /// Returns null if not specified, or populated array with section names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
-        => ParseProjectionList(parseResult, Select);
+        => ParseCommaSeparatedList(parseResult.GetValue(Select));
+
+    /// <summary>
+    /// Parses discover flag from parse result.
+    /// Returns null if not specified, empty array for bare -D or bare -S, or populated array with section name.
+    /// </summary>
+    public string[]? ParseDiscover(ParseResult parseResult)
+    {
+        var discover = ParseProjectionList(parseResult, Discover);
+        // Bare -S (no value) also triggers section discovery
+        if (discover == null && IsBareFlag(parseResult, Select))
+            return [];
+        return discover;
+    }
+
+    /// <summary>
+    /// Parses columns list from parse result.
+    /// Returns null if not specified, or populated array with column names.
+    /// </summary>
+    public string[]? ParseColumns(ParseResult parseResult)
+        => ParseCommaSeparatedList(parseResult.GetValue(Columns));
+
+    /// <summary>
+    /// Parses fields list from parse result.
+    /// Returns null if not specified, or populated array with field names.
+    /// </summary>
+    public string[]? ParseFields(ParseResult parseResult)
+        => ParseCommaSeparatedList(parseResult.GetValue(Fields));
+
+    /// <summary>
+    /// Returns true if -D/--discover flag is present, or bare -S (no value) is used.
+    /// </summary>
+    public bool IsDiscoveryMode(ParseResult parseResult)
+    {
+        if (parseResult.GetResult(Discover) is { Implicit: false })
+            return true;
+
+        // Bare -S (no value) also triggers discovery (lists sections)
+        return IsBareFlag(parseResult, Select);
+    }
+
+    public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {
@@ -184,6 +271,12 @@ public class SharedOptions
         if (values == null && parseResult.GetResult(option) != null)
             return [];
         return values;
+    }
+
+    private static bool IsBareFlag(ParseResult parseResult, Option<string?> option)
+    {
+        return parseResult.GetResult(option) is { Implicit: false } &&
+               string.IsNullOrWhiteSpace(parseResult.GetValue(option));
     }
 
     private static string[]? ParseCommaSeparatedList(string? value)

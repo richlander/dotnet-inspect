@@ -1,5 +1,4 @@
 using DotnetInspector.Metadata;
-using DotnetInspector.Options;
 
 namespace DotnetInspector.Sections;
 
@@ -23,7 +22,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Classes : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Classes";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "class");
@@ -32,7 +31,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Structs : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Structs";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "struct");
@@ -41,7 +40,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Interfaces : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Interfaces";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "interface");
@@ -50,7 +49,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Enums : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Enums";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "enum");
@@ -59,7 +58,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Delegates : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Delegates";
-        public static Verbosity MinVerbosity => Verbosity.Minimal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "delegate");
@@ -68,7 +67,7 @@ public static class ApiTypeSectionDescriptors
 
 /// <summary>
 /// Section descriptors for the api command type-detail view (single type with members).
-/// Sections correspond to <see cref="Views.ApiTypeView"/> sections and member-kind groupings.
+/// Sections correspond to <see cref="Views.TypeView"/> sections and member-kind groupings.
 /// </summary>
 public static class ApiMemberSectionDescriptors
 {
@@ -98,7 +97,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Values : ISectionDescriptor<ApiType>
     {
         public static string Name => "Values";
-        public static Verbosity MinVerbosity => Verbosity.Normal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Kind == "enum"
@@ -108,7 +107,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class TypeParameters : ISectionDescriptor<ApiType>
     {
         public static string Name => "Type Parameters";
-        public static Verbosity MinVerbosity => Verbosity.Normal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.TypeParameters.Count > 0;
@@ -117,7 +116,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class TypeInterfaces : ISectionDescriptor<ApiType>
     {
         public static string Name => "Interfaces";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Interfaces.Count > 0;
@@ -126,7 +125,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Baseclass : ISectionDescriptor<ApiType>
     {
         public static string Name => "Baseclass";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => !string.IsNullOrEmpty(model.BaseType)
@@ -138,7 +137,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Sources : ISectionDescriptor<ApiType>
     {
         public static string Name => "Remote Source";
-        public static Verbosity MinVerbosity => Verbosity.Normal;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.SourceFilePath != null;
@@ -149,7 +148,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Constructors : ISectionDescriptor<ApiType>
     {
         public static string Name => "Constructors";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
@@ -158,7 +157,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Fields : ISectionDescriptor<ApiType>
     {
         public static string Name => "Fields";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "field" && !m.EnumValue.HasValue);
@@ -167,7 +166,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Properties : ISectionDescriptor<ApiType>
     {
         public static string Name => "Properties";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "property");
@@ -176,7 +175,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
         public static string Name => "Methods";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "method");
@@ -185,7 +184,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Events : ISectionDescriptor<ApiType>
     {
         public static string Name => "Events";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
@@ -194,16 +193,18 @@ public static class ApiMemberSectionDescriptors
     public sealed class MethodAttributes : ISectionDescriptor<ApiType>
     {
         public static string Name => "Custom Attributes";
-        public static Verbosity MinVerbosity => Verbosity.Quiet;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
     }
 
+    // ===== Expensive sections (decompiler output) =====
+
     public sealed class MethodSource : ISectionDescriptor<ApiType>
     {
         public static string Name => "Source";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
@@ -212,7 +213,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
         public static string Name => "IL";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
@@ -221,7 +222,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class AnnotatedIL : ISectionDescriptor<ApiType>
     {
         public static string Name => "IL (Annotated)";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");
@@ -230,7 +231,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class LoweredCSharp : ISectionDescriptor<ApiType>
     {
         public static string Name => "Lowered C#";
-        public static Verbosity MinVerbosity => Verbosity.Detailed;
+        public static bool IsExpensive => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind is "method" or "constructor");

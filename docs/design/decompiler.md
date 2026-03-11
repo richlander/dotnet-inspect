@@ -323,14 +323,14 @@ reasonably interpretable.
 The pipeline is designed for graceful degradation. Each phase catches exceptions
 at the method level and falls back to shallower output:
 
-| Failure point          | Fallback                                            |
-| ---------------------- | --------------------------------------------------- |
-| CFG construction       | Emit flat IL (no block structure)                   |
-| Stack simulation       | Emit IL with CFG blocks but no type annotations     |
-| ILAst construction     | Emit annotated IL only (skip lowered C# section)    |
-| Control flow structuring | Emit flat ILAst as sequential statements + goto   |
-| C# emission            | Emit `/* unsupported: opcode */` comment inline     |
-| Individual expression  | Emit `/* opcode arg1 arg2 */` and continue          |
+| Failure point            | Fallback                                            |
+| ------------------------ | --------------------------------------------------- |
+| CFG construction         | Emit flat IL (no block structure)                   |
+| Stack simulation         | Emit IL with CFG blocks but no type annotations     |
+| ILAst construction       | Emit annotated IL only (skip lowered C# section)    |
+| Control flow structuring | Emit flat ILAst as sequential statements + goto     |
+| C# emission              | Emit `/* unsupported: opcode */` comment inline     |
+| Individual expression    | Emit `/* opcode arg1 arg2 */` and continue          |
 
 In practice, the stress test against CoreLib's ~39K methods exercises the full
 pipeline with zero failures. NuGet packages in the wild are messier (obfuscated
@@ -385,14 +385,14 @@ in the output rather than propagating exceptions.
 
 ### Test sources
 
-| Source                     | License | Usage                                        |
-| -------------------------- | ------- | -------------------------------------------- |
-| ILSpy test suite           | MIT     | Test cases, expected output                  |
-| dotnet/runtime IL tests    | MIT     | IL verification test corpus                  |
+| Source                     | License | Usage                                                        |
+| -------------------------- | ------- | ------------------------------------------------------------ |
+| ILSpy test suite           | MIT     | Test cases, expected output                                  |
+| dotnet/runtime IL tests    | MIT     | IL verification test corpus                                  |
 | dotnet/runtime interpreter | MIT     | IL pattern coverage (generics, delegates, constrained calls) |
-| dnSpyEx                    | GPL     | Test inspiration only (never shipped)        |
-| Hand-written samples       | N/A     | `CfgSampleClass` in test project             |
-| Platform assemblies        | N/A     | Stress tests against System.Private.CoreLib  |
+| dnSpyEx                    | GPL     | Test inspiration only (never shipped)                        |
+| Hand-written samples       | N/A     | `CfgSampleClass` in test project                             |
+| Platform assemblies        | N/A     | Stress tests against System.Private.CoreLib                  |
 
 ## Usage workflow
 

@@ -15,7 +15,7 @@ public class VersionDisplayTests
 {
     private static string SerializeCompact(LibraryInspection inspection)
     {
-        var view = new LibraryInspectionView(inspection);
+        var view = new LibraryInspectionView(inspection, topFieldsOnly: true);
         var context = new MarkoutContext();
         return context.Serialize(view).TrimEnd();
     }

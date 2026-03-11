@@ -126,7 +126,7 @@ public class SamplesCommand
         {
             var view = SamplesOutputFormatter.BuildListView(
                 samples, null, null, Path.GetFileName(filePath), options.BrowsableUrls);
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            WriteListView(view, options);
             return 0;
         }
 
@@ -178,7 +178,7 @@ public class SamplesCommand
 
     private static int PrintAllLocalSamples(List<TypedSample> samples, string fileDir, string filePath)
     {
-        var writer = new MarkdownWriter(Console.Out);
+        var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
         writer.WriteHeading(1, $"Samples: {Path.GetFileName(filePath)}");
 
         for (int i = 0; i < samples.Count; i++)
@@ -223,9 +223,6 @@ public class SamplesCommand
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        // Convert C# generic syntax (List<T>) to metadata format (List`1)
-        typeName = GenericTypeNameConverter.Convert(typeName);
-
         var apiOptions = new ApiOptions
         {
             PackagePath = options.PackagePath,
@@ -277,7 +274,6 @@ public class SamplesCommand
             Tfm = options.Tfm,
             ShowDocs = true,
             ShowSamples = true,
-            SourceLinkOnly = true, // Only types with sourcelink
             BrowsableUrls = options.BrowsableUrls,
             Verbose = options.Verbose,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -338,7 +334,7 @@ public class SamplesCommand
         {
             var view = SamplesOutputFormatter.BuildListView(
                 samples, packageName, packageVersion, assemblyName, options.BrowsableUrls);
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            WriteListView(view, options);
             return 0;
         }
 
@@ -380,7 +376,7 @@ public class SamplesCommand
         HttpClient httpClient)
     {
         var fetcher = new SourceFetcher(httpClient);
-        var writer = new MarkdownWriter(Console.Out);
+        var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
 
         // H1 title - output immediately
         SamplesOutputFormatter.WriteSamplesTitle(writer, assemblyName, packageName, packageVersion);
@@ -446,6 +442,22 @@ public class SamplesCommand
         return content;
     }
 
+    private static void WriteListView(SamplesListView view, SamplesOptions options)
+    {
+        if (options.OneLine)
+        {
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            };
+            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+        }
+        else
+        {
+            Console.WriteLine(new MarkoutContext().Serialize(view));
+        }
+    }
+
 }
 
 /// <summary>
@@ -482,5 +494,9 @@ public record SamplesOptions
     public bool Verbose { get; init; }
     public bool ListOnly { get; init; }
     public int? PrintSample { get; init; }
+    public bool OneLine { get; init; }
+    public bool NoHeader { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 }

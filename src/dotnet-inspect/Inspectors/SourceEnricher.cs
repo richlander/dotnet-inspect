@@ -37,6 +37,51 @@ internal static class SourceEnricher
             context.WindowsPdbDetected = true;
     }
 
+    // ===== Verbosity-Aware Enrichment Gateways =====
+
+    /// <summary>
+    /// Enriches a single type with documentation based on verbosity:
+    /// Detailed+ or ShowSamples → full remote (PDB/SourceLink); Normal + ShowDocs → local XML only.
+    /// </summary>
+    internal static async Task EnrichDocsAsync(
+        ApiType apiType, string typeName, string dllPath,
+        ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    {
+        if (options.ShowSamples || options.Verbosity >= Verbosity.Detailed)
+            await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger, httpClient);
+        else if (options.ShowDocs && options.Verbosity >= Verbosity.Normal)
+            EnrichFromLocalXmlDocs(apiType, dllPath, options, logger);
+    }
+
+    /// <summary>
+    /// Enriches a list of types with documentation based on verbosity:
+    /// Detailed+ or ShowSamples → full remote (PDB/SourceLink); Normal + ShowDocs → local XML only.
+    /// Platform assemblies always use local XML (ref assemblies lack PDBs).
+    /// </summary>
+    internal static async Task EnrichDocsAsync(
+        List<ApiType> types, string dllPath,
+        ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    {
+        bool fullRemote = options.ShowSamples || options.Verbosity >= Verbosity.Detailed;
+        bool localDocs = options.ShowDocs && options.Verbosity >= Verbosity.Normal;
+
+        if (!fullRemote && !localDocs) return;
+
+        if (!string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            // Platform: always local XML (ref assemblies don't have PDBs)
+            EnrichTypesFromXmlDoc(types, options, logger);
+        }
+        else if (fullRemote)
+        {
+            await EnrichTypesWithSourceInfoBatchedAsync(types, dllPath, options, logger, httpClient);
+        }
+        else
+        {
+            EnrichFromLocalXmlDocs(types, dllPath, options, logger);
+        }
+    }
+
     // ===== Single-Type Enrichment =====
 
     internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
@@ -500,6 +545,67 @@ internal static class SourceEnricher
         }
 
         apiType.SourceResolution = "XmlDoc";
+    }
+
+    /// <summary>
+    /// Enriches multiple types from local XML doc files (no network).
+    /// For packages/libraries, looks for XML alongside the DLL.
+    /// </summary>
+    internal static void EnrichFromLocalXmlDocs(IEnumerable<ApiType> types, string dllPath, ApiOptions options, VerboseLogger logger)
+    {
+        var xmlDocPath = Path.ChangeExtension(dllPath, ".xml");
+        if (!File.Exists(xmlDocPath))
+        {
+            logger.Log($"XML doc file not found alongside DLL: {xmlDocPath}");
+            return;
+        }
+
+        logger.Log($"Loading XML documentation from: {xmlDocPath}");
+
+        var xmlParser = new XmlDocFileParser();
+        if (!xmlParser.Load(xmlDocPath))
+        {
+            logger.Log("Failed to load XML documentation file");
+            return;
+        }
+
+        foreach (var apiType in types)
+        {
+            EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
+        }
+    }
+
+    /// <summary>
+    /// Enriches a type from local XML doc files only (no network).
+    /// Works for both platform assemblies (ref packs) and NuGet packages (alongside DLL).
+    /// </summary>
+    internal static void EnrichFromLocalXmlDocs(ApiType apiType, string dllPath, ApiOptions options, VerboseLogger logger)
+    {
+        // Platform path: use ref packs directory
+        if (!string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            EnrichFromXmlDocFile(apiType, apiType.FullName, options, logger);
+            return;
+        }
+
+        // Package/library path: look for XML alongside the DLL
+        var xmlDocPath = Path.ChangeExtension(dllPath, ".xml");
+        if (!File.Exists(xmlDocPath))
+        {
+            logger.Log($"XML doc file not found alongside DLL: {xmlDocPath}");
+            return;
+        }
+
+        logger.Log($"Loading XML documentation from: {xmlDocPath}");
+
+        var xmlParser = new XmlDocFileParser();
+        if (!xmlParser.Load(xmlDocPath))
+        {
+            logger.Log("Failed to load XML documentation file");
+            return;
+        }
+
+        EnrichTypeFromXmlDoc(apiType, xmlParser, options, logger);
     }
 
     private static void EnrichFromXmlDocFile(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)

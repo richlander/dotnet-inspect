@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
@@ -25,42 +26,41 @@ public class PackageCommand
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
 
-        // Validate section filters
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            sectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
-
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } && packageArgs.Length < 1)
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null && !options.Effective)
         {
-            SectionRegistry.ListSections(sectionNames);
-            return 0;
+            var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+            return DiscoverOutput.Execute(options.Discover, schemaMap,
+                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                verbosity: (int)options.Verbosity);
         }
 
-        // Bare -S: list selectable names from schema and exit
-        if (options.Select is { Length: 0 })
-        {
-            var schema = new MarkoutContext().GetSchemaInfo<InspectionResultView>();
-            if (schema != null)
-            {
-                foreach (var name in schema.GetFieldNames())
-                    Console.WriteLine($"{name,-24} field");
-                foreach (var name in schema.GetColumnNames())
-                    Console.WriteLine($"{name,-24} column");
-            }
-            return 0;
-        }
+        // --effective with -D: run pipeline at Detailed to show sections with data
+        bool effectiveDiscovery = options.Effective && options.Discover != null;
+        var userVerbosity = options.Verbosity; // preserve for display formatting
+        if (effectiveDiscovery)
+            options = options with { Verbosity = Verbosity.Detailed };
 
-        // Bare -s with input: discover which sections have data (set flag for later)
-        bool discoverSections = options.IncludeSections is { Count: 0 };
+        // -S/--select with values: resolve as section filter for backpressure
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
+        if (SelectOutput.WriteUnresolved(selectResult)) return 1;
+        if (selectResult.Sections != null)
+            options = options with { IncludeSections = selectResult.Sections };
 
-        // Auto-promote verbosity when -s targets specific sections
+        // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
             var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
             if (requiredVerbosity > options.Verbosity)
                 options = options with { Verbosity = requiredVerbosity };
+        }
+
+        // Pre-render validation: check --fields/--columns names against the section schema
+        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+        {
+            var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+            foreach (var section in options.IncludeSections)
+                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
         }
 
         if (packageArgs.Length < 1)
@@ -84,8 +84,8 @@ public class PackageCommand
                 return 1;
             }
 
-            var versionWriter = new Markout.OneLineWriter(Console.Out, showHeader: false);
-            versionWriter.WriteList(versions);
+            var versionWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
+            versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
 
             return 0;
         }
@@ -218,6 +218,7 @@ public class PackageCommand
             // Handle --dependencies mode: resolve transitive deps and show tree
             if (options.ShowDependencies)
             {
+                Console.Error.WriteLine("Tip: use 'depends --package' for dependency trees.");
                 var depResult = new InspectionResult { PackageName = packageName, Version = version };
                 if (nuspec != null) ApplyNuspec(nuspec, depResult);
                 return await ShowDependencyTreeAsync(client, depResult, options, logger);
@@ -244,27 +245,78 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            // Bare -s with input: list sections that have content and exit
-            if (discoverSections)
-            {
-                pipeline.ListEffectiveSections(result);
-                return 0;
-            }
-
             // Output results
+            if (effectiveDiscovery)
+            {
+                var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections);
+                var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+
+                // Field-level filtering: detect which fields produced output
+                // For bare -D, target all effective sections; for -D SectionName, target specific ones
+                var discoverTargets = options.Discover is { Length: > 0 } ? options.Discover : effective.ToArray();
+                {
+                    var view = new InspectionResultView(result);
+                    var targetSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var d in discoverTargets)
+                    {
+                        var resolved = schemaMap.ResolveSection(d);
+                        if (resolved != null && effective.Contains(resolved))
+                            targetSections.Add(resolved);
+                    }
+                    if (targetSections.Count > 0)
+                    {
+                        var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
+                        var rendered = new MarkoutContext(writerOpts).Serialize(view);
+                        schemaMap = FilterSchemaToEffectiveFields(effective, schemaMap, rendered);
+                    }
+                }
+
+                return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
+                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}");
+            }
+            WarnEmptySections(result, options, pipeline);
+            bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
             if (options.OneLine)
             {
-                var oneLineView = OutputFormatter.BuildPackageOneLineView(result, options, pipeline);
-                var writerOpts = new MarkoutWriterOptions
+                // Multi-section check: narrow to main section or error if user explicitly selected multiple sections
+                var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
+                if (diagnostic != null)
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Select)
-                };
-                var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-                new MarkoutContext().Serialize(oneLineView, writer);
+                    if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
+                    {
+                        Console.Error.WriteLine($"Error: Selection matches {diagnostic.Sections.Length} sections: {string.Join(", ", diagnostic.Sections)}.");
+                        Console.Error.WriteLine();
+                        Console.Error.WriteLine("Oneline format displays one section at a time.");
+                        Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
+                        return 1;
+                    }
+
+                    // Narrow to the Package section for oneline
+                    options = options with { IncludeSections = new HashSet<string> { PackageSections.Package } };
+                }
+
+                if (hasProjection)
+                {
+                    // Capture output for projection diagnostics
+                    var sw = new StringWriter();
+                    var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
+                    var view = new InspectionResultView(result);
+                    new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+                    var rendered = sw.ToString();
+                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+                    Console.Out.Write(rendered);
+                }
+                else
+                {
+                    OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
+                }
             }
             else
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
+                if (hasProjection)
+                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
                     File.WriteAllText(options.OutputPath, output);
@@ -319,6 +371,17 @@ public class PackageCommand
         result.DependencyGroups = nuspec.DependencyGroups;
     }
 
+    private static void WarnEmptySections(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        var (empty, requested) = pipeline.GetEmptySections(result, options.Verbosity, options.IncludeSections);
+        if (empty.Count > 0 && empty.Count == requested)
+        {
+            var label = empty.Count == 1 ? "section has" : "sections have";
+            Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
+        }
+    }
+
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)
     {
         // Filter dependency groups and set TFM when --tfm is requested
@@ -333,6 +396,28 @@ public class PackageCommand
                     .ToList();
             }
         }
+    }
+
+    private static DocumentSchema FilterSchemaToEffectiveFields(
+        List<string> effectiveSections, DocumentSchema schema, string rendered)
+    {
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
+        {
+            var section = schema.GetSection(name);
+            if (section == null) { filtered.AddSection(name); continue; }
+
+            var effectiveItems = section.Items
+                .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Name)
+                .ToArray();
+
+            if (effectiveItems.Length > 0)
+                filtered.Add(name, section.ItemKind, effectiveItems);
+            else
+                filtered.AddSection(name);
+        }
+        return filtered;
     }
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
@@ -440,8 +525,8 @@ public class PackageCommand
             ? fileNames.Take(options.Limit.Value)
             : fileNames;
 
-        var fileWriter = new Markout.OneLineWriter(Console.Out, showHeader: false);
-        fileWriter.WriteList(results);
+        var fileWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
+        fileWriter.WriteList(results.ToArray());
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
@@ -472,12 +557,13 @@ public class PackageCommand
             .Select(d => TfmResolver.ExtractTfmFromPath(
                 Path.GetRelativePath(extractPath, d).Replace('\\', '/')))
             .Where(t => t != null)
+            .Select(t => t!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(t => TfmResolver.GetTfmPriority(t!))
+            .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
             .ToList();
 
-        var tfmWriter = new Markout.OneLineWriter(Console.Out, showHeader: false);
-        tfmWriter.WriteList(tfms!);
+        var tfmWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
+        tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
@@ -529,10 +615,7 @@ public class PackageCommand
 
         var view = new PackageDependenciesView
         {
-            Title = $"{result.PackageName} ({result.Version})",
-            Package = result.PackageName,
-            Version = result.Version,
-            Tfm = tfm,
+            Title = $"{result.PackageName} {result.Version}",
             Dependencies = ToTreeNodes(depNodes)
         };
 
@@ -548,7 +631,7 @@ public class PackageCommand
                 ? $"{n.PackageId} {n.Version} [{n.Author}]"
                 : $"{n.PackageId} {n.Version}";
             return n.Children.Count > 0
-                ? new TreeNode(label, ToTreeNodes(n.Children))
+                ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(label);
         }).ToList();
     }

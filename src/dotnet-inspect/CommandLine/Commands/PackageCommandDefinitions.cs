@@ -23,8 +23,9 @@ public static class PackageCommandDefinitions
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree (tip: use 'depends --package' instead)" };
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
+        layoutOption.Aliases.Add("--tree");
         var filesOption = new Option<bool>("--files") { Description = "List files in the package (flat list, filterable with --tfm)" };
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
         var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --files or --layout)" };
@@ -56,7 +57,8 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(oneLineOption);
         packageCommand.Options.Add(noHeaderOption);
         packageCommand.Options.Add(opts.Json);
-        packageCommand.Options.Add(opts.Markout);
+        packageCommand.Options.Add(opts.Markdown);
+        packageCommand.Options.Add(opts.PlainText);
         opts.AddOutputOptionsTo(packageCommand);
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);

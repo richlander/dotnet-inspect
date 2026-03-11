@@ -1,6 +1,7 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
+using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -56,11 +57,11 @@ public static class ApiCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
-        var sourcelinkOnlyOption = new Option<bool>("--sourcelink-only") { Description = "Filter types to those with SourceLink resolution" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
+        shapeOption.Aliases.Add("--tree");
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var memberOption = new Option<string[]>("-m")
         {
@@ -68,6 +69,12 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = true
         };
         memberOption.Aliases.Add("--member");
+        var kindOption = new Option<string[]>("-k")
+        {
+            Description = "Filter by kind (class, struct, interface, enum, delegate, method, property, field, event, constructor)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        kindOption.Aliases.Add("--kind");
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
@@ -78,7 +85,6 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Limit);
-        typeCommand.Options.Add(sourcelinkOnlyOption);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(oneLineOption);
@@ -86,15 +92,17 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(memberOption);
+        typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
-        typeCommand.Options.Add(opts.Markout);
+        typeCommand.Options.Add(opts.Markdown);
+        typeCommand.Options.Add(opts.PlainText);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, sourcelinkOnlyOption, compactOption, oneLineOption,
-            noHeaderOption, shapeOption, unsafeOption, memberOption);
+            allOption, typeFilterOption, compactOption, oneLineOption,
+            noHeaderOption, shapeOption, unsafeOption, memberOption, kindOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -102,20 +110,20 @@ public static class ApiCommandDefinitions
 
             switch (result)
             {
-                case TypeOptionsParser.ListSections:
-                    SectionRegistry.ListSections(SectionRegistry.ApiTypeSections);
-                    return 0;
-
-                case TypeOptionsParser.ListSelect:
-                    ListSelectableNames<CliApiSurface>();
-                    return 0;
+                case TypeOptionsParser.Discovery d:
+                    var typeSchemaMap = MarkoutContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+                    return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree);
 
                 case TypeOptionsParser.ShowHelp:
-                    new HelpAction().Invoke(parseResult);
+                    HelpWriter.WriteHelp(typeCommand);
                     return 0;
 
                 case TypeOptionsParser.VersionError error:
                     Console.Error.WriteLine(error.Message);
+                    return 1;
+
+                case TypeOptionsParser.UnrecognizedOption error:
+                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case TypeOptionsParser.Success success:
@@ -168,6 +176,12 @@ public static class ApiCommandDefinitions
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
         var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
         var selectOption = new Option<bool>("--select") { Description = "Show member overload index (Name:N) column" };
+        var kindOption = new Option<string[]>("-k")
+        {
+            Description = "Filter by member kind (method, property, field, event, constructor)",
+            AllowMultipleArgumentsPerToken = true
+        };
+        kindOption.Aliases.Add("--kind");
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -193,8 +207,10 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(paramsOption);
         memberCommand.Options.Add(ofOption);
         memberCommand.Options.Add(selectOption);
+        memberCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(memberCommand);
-        memberCommand.Options.Add(opts.Markout);
+        memberCommand.Options.Add(opts.Markdown);
+        memberCommand.Options.Add(opts.PlainText);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
@@ -202,7 +218,7 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, docsOption, noDocsOption, useLocalDocsOption,
             samplesOption, browsableUrlsOption, compactOption, oneLineOption, noHeaderOption,
-            unsafeOption, indexOption, paramsOption, ofOption, selectOption);
+            unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
@@ -210,16 +226,12 @@ public static class ApiCommandDefinitions
 
             switch (result)
             {
-                case MemberOptionsParser.ListSections:
-                    SectionRegistry.ListSections(SectionRegistry.ApiMemberSections);
-                    return 0;
-
-                case MemberOptionsParser.ListSelect:
-                    ListSelectableNames<ApiTypeView>();
-                    return 0;
+                case MemberOptionsParser.Discovery d:
+                    var memberSchemaMap = MarkoutContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+                    return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree);
 
                 case MemberOptionsParser.ShowHelp:
-                    new HelpAction().Invoke(parseResult);
+                    HelpWriter.WriteHelp(memberCommand);
                     return 0;
 
                 case MemberOptionsParser.VersionError error:
@@ -239,15 +251,5 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
-    }
-
-    private static void ListSelectableNames<T>()
-    {
-        var schema = new MarkoutContext().GetSchemaInfo<T>();
-        if (schema == null) return;
-        foreach (var name in schema.GetFieldNames())
-            Console.WriteLine($"{name,-24} field");
-        foreach (var name in schema.GetColumnNames())
-            Console.WriteLine($"{name,-24} column");
     }
 }

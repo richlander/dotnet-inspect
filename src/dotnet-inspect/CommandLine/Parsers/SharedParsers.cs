@@ -124,6 +124,35 @@ public static class SharedParsers
     }
 
     /// <summary>
+    /// Normalizes a kind value, accepting abbreviations.
+    /// </summary>
+    public static string NormalizeKind(string value) => value.ToLowerInvariant() switch
+    {
+        "prop" or "props" or "property" or "properties" => "property",
+        "ctor" or "ctors" or "constructor" or "constructors" => "constructor",
+        "method" or "methods" => "method",
+        "field" or "fields" => "field",
+        "event" or "events" => "event",
+        "class" or "classes" => "class",
+        "struct" or "structs" => "struct",
+        "interface" or "interfaces" => "interface",
+        "enum" or "enums" => "enum",
+        "delegate" or "delegates" => "delegate",
+        _ => value.ToLowerInvariant()
+    };
+
+    /// <summary>
+    /// Parses kind filter values into a normalized set.
+    /// </summary>
+    public static HashSet<string> ParseKindFilter(string[] values)
+    {
+        if (values.Length == 0)
+            return [];
+
+        return new HashSet<string>(values.Select(NormalizeKind), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Parses comma-separated parameter types.
     /// </summary>
     /// <param name="value">The --params option value.</param>

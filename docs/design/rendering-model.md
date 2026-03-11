@@ -2,6 +2,9 @@
 
 This document describes the conceptual model for how dotnet-inspect commands control what appears in output. The model separates two orthogonal concerns: **verbosity** controls how much detail is shown about the subject's identity, while **mode-switch flags** select which lens to view the subject through.
 
+See also [Output Composition Model](output-composition.md) for how section
+selection, filtering, and writer capabilities compose end-to-end.
+
 ## Two Axes of Control
 
 Every command that produces structured Markout output has two independent control surfaces:
@@ -16,7 +19,7 @@ These are orthogonal. Verbosity dials up and down within a given view; mode-swit
 Verbosity levels control the *depth of identity information* shown about the subject. Each level adds more context about what the thing is, not what it contains or looks like from a different angle.
 
 | Level | Flag | Intent |
-|-------|------|--------|
+| ----- | ---- | ------ |
 | Quiet | `-v:q` | Title and key-value fields only, no sections |
 | Minimal | `-v:m` | Default. Core identity sections |
 | Normal | `-v:n` | All standard identity sections |
@@ -39,7 +42,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 **Verbosity levels (identity):**
 
 | Level | Sections |
-|-------|----------|
+| ----- | -------- |
 | `-v:q` | Title and fields only |
 | `-v:m` | Metadata |
 | `-v:n` | Metadata, Statistics, Package Dependencies, Vulnerabilities |
@@ -48,7 +51,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 **Mode-switch flags (lenses):**
 
 | Flag | View | Description |
-|------|------|-------------|
+| ---- | ---- | ----------- |
 | `--files` | File structure | Tree of DLLs (or all files with `--all`) |
 | `--readme` | README content | Raw readme text from the package |
 | `--versions` | Version history | Available versions from nuget.org |
@@ -66,7 +69,7 @@ The `api` command extracts the public API surface from a library. Its default vi
 **Verbosity levels (identity):**
 
 | Level | Sections |
-|-------|----------|
+| ----- | -------- |
 | `-v:q` | Title and fields only (kind, modifiers, library, source) |
 | `-v:m` | Members table |
 | `-v:n` | Members table with full details |
@@ -75,7 +78,7 @@ The `api` command extracts the public API surface from a library. Its default vi
 **Mode-switch flags (lenses):**
 
 | Flag | View | Description |
-|------|------|-------------|
+| ---- | ---- | ----------- |
 | `--docs` | Documentation | XML doc comments fetched from source |
 | `--samples` | Code samples | Sample references from XML docs |
 | `--oneline` | Columnar output | One result per line, docker-style columns |
@@ -103,7 +106,7 @@ When a lens has multiple possible rendering modes, the default should be the mos
 ## Summary Table
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
-|---------|---------------------|---------------------------|
+| ------- | -------------------- | -------------------------- |
 | `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--library`, `--audit` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--oneline` |
 | `library` | Library info, PE headers | `--audit`, `--sourcelink`, `--references` |

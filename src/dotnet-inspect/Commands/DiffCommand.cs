@@ -3,6 +3,7 @@ using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -20,18 +21,13 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
 
-        // Bare -S: list selectable names from schema and exit
-        if (options.Select is { Length: 0 })
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null)
         {
-            var schema = new MarkoutContext().GetSchemaInfo<DiffFullView>();
-            if (schema != null)
-            {
-                foreach (var name in schema.GetFieldNames())
-                    Console.WriteLine($"{name,-24} field");
-                foreach (var name in schema.GetColumnNames())
-                    Console.WriteLine($"{name,-24} column");
-            }
-            return 0;
+            var schemaMap = new DocumentSchema()
+                .Add("Changes", "column", "Change", "Type", "Detail");
+            return DiscoverOutput.Execute(options.Discover, schemaMap,
+                tree: options.Tree, json: false, markdown: !options.OneLine);
         }
 
         if (!hasPlatform && !hasPackage)
@@ -97,10 +93,9 @@ public class DiffCommand
                 var view = DiffOutputFormatter.BuildOneLineView(name, typeDiffs, fromVersion, toVersion);
                 var writerOpts = new MarkoutWriterOptions
                 {
-                    Projection = OutputFormatter.BuildProjection(options.Select)
+                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
                 };
-                var writer = new Markout.OneLineWriter(Console.Out, writerOpts, showHeader: !options.NoHeader);
-                new MarkoutContext().Serialize(view, writer);
+                new MarkoutContext().Serialize(view, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
             }
             else
             {
@@ -252,7 +247,7 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            var nameWriter = new Markout.OneLineWriter(new StringWriter());
+            var nameWriter = new Markout.MarkoutWriter(new Markout.OneLineFormatter());
             DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
             return nameWriter.ToString();
         }
@@ -297,7 +292,12 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
+    public bool Legend { get; init; }
+    public string[]? Discover { get; init; }
+    public bool Tree { get; init; }
     public string[]? Select { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

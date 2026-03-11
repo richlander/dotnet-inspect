@@ -22,21 +22,22 @@ public class DemoCommand
     /// </summary>
     public static readonly DemoEntry[] Demos =
     [
-        // api (5)
+        // type (3)
         new("What does the generic math interface hierarchy look like?", "insight",
-            ["api", "System.Runtime", "INumber<TSelf>", "--shape"]),
+            ["type", "System.Numerics.INumber<TSelf>"]),
 
         new("How many interfaces does a 128-bit integer implement?", "insight",
-            ["api", "System.Runtime", "Int128", "--shape"]),
+            ["type", "Int128", "--platform", "System.Runtime"]),
 
         new("How does the runtime build tuples of any length?", "insight",
-            ["api", "System.Runtime", "ValueTuple", "--shape"]),
+            ["type", "ValueTuple", "--platform", "System.Runtime"]),
 
+        // member (2)
         new("What can JsonSerializer do?", "discovery",
-            ["api", "System.Text.Json", "JsonSerializer"]),
+            ["member", "JsonSerializer", "--package", "System.Text.Json"]),
 
         new("What does the options pattern look like under the hood?", "insight",
-            ["api", "--package", "Microsoft.Extensions.Options", "OptionsFactory", "Create"]),
+            ["member", "OptionsFactory", "--package", "Microsoft.Extensions.Options", "-m", "Create"]),
 
         // depends (1)
         new("What does IFloatingPointIeee754 depend on?", "insight",
@@ -55,7 +56,7 @@ public class DemoCommand
 
         // find (3)
         new("Where are the AI chat types in .NET?", "discovery",
-            ["find", "Chat*"]),
+            ["find", "Chat*", "--extensions"]),
 
         new("What are the entry points for OpenAI, Azure, AWS, and Anthropic SDKs?", "discovery",
             ["find", "Chat*,Converse*,Message*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime", "--package", "Anthropic"]),
@@ -83,7 +84,7 @@ public class DemoCommand
             ["package", "System.Text.Json", "-S"]),
 
         new("What types are in System.Text.Json — just the names?", "discovery",
-            ["type", "--package", "System.Text.Json", "-S", "Type"]),
+            ["type", "--package", "System.Text.Json", "--columns", "Type"]),
 
         new("What changed in System.Text.Json — types and changes only?", "migration",
             ["diff", "System.Text.Json@8.0.0..10.0.3", "--oneline", "-S", "Type,Change"]),
@@ -91,7 +92,7 @@ public class DemoCommand
 
     public static async Task<int> ExecuteListAsync()
     {
-        var writer = new MarkdownWriter(Console.Out);
+        var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
         writer.WriteHeading(1, "Demo Queries");
 
         for (int i = 0; i < Demos.Length; i++)

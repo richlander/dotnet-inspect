@@ -1,4 +1,6 @@
+using System.Reflection.Metadata;
 using DotnetInspector.CommandLine;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Services;
@@ -22,6 +24,16 @@ public static class SourceResolver
         string? VersionErrorMessage = null);
 
     /// <summary>
+    /// Kind of local source found by peel-and-probe.
+    /// </summary>
+    internal enum LocalSourceKind { Platform, CachedPackage }
+
+    /// <summary>
+    /// Result of a local peel-and-probe: the resolved source name, the remaining suffix, and what kind of source matched.
+    /// </summary>
+    internal record LocalProbeResult(string SourceName, string Remainder, LocalSourceKind Kind);
+
+    /// <summary>
     /// Determines if a library option is a selector (bare .dll name) vs a full path.
     /// </summary>
     public static bool IsLibrarySelector(string? assembly, string? package)
@@ -34,6 +46,69 @@ public static class SourceResolver
     /// </summary>
     public static bool HasExplicitSource(string? package, string? assembly, string? platform, bool isLibrarySelector)
         => package != null || (assembly != null && !isLibrarySelector) || platform != null;
+
+    /// <summary>
+    /// Peels segments from the right of a dotted name, probing each candidate
+    /// against local sources: dotnet hive, dotnet-inspect cache, NuGet global cache.
+    /// Returns the first hit with its remainder, or null if nothing matches locally.
+    /// </summary>
+    internal static LocalProbeResult? TryProbeLocalQualifiedName(string name)
+    {
+        // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
+        // Single-dot names like "System.CommandLine" are ambiguous: could be
+        // a package name or assembly + type. Treat as a package to avoid
+        // false positives from greedy matches like System + CommandLine.
+        int dotCount = 0;
+        for (int j = 0; j < name.Length; j++)
+            if (name[j] == '.') dotCount++;
+        if (dotCount < 2) return null;
+
+        string? platformCandidate = null;
+
+        for (int i = name.Length - 1; i >= 0; i--)
+        {
+            if (name[i] != '.') continue;
+            var candidate = name[..i];
+            var remainder = name[(i + 1)..];
+
+            if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(remainder))
+                continue;
+
+            // Space 1: dotnet hive (ref packs + shared runtime)
+            var (path, _, _, _) = PlatformResolver.ResolveAssembly(candidate);
+            if (path != null)
+            {
+                if (AssemblyHasType(path, remainder))
+                    return new LocalProbeResult(candidate, remainder, LocalSourceKind.Platform);
+                // Library exists but doesn't contain the type — remember the remainder
+                // and keep probing shorter prefixes
+                platformCandidate ??= remainder;
+                continue;
+            }
+
+            // Space 2 & 3: dotnet-inspect cache + NuGet global cache
+            if (NuGetCache.TryGetLatestCachedVersion(candidate) != null)
+                return new LocalProbeResult(candidate, remainder, LocalSourceKind.CachedPackage);
+        }
+
+        // Fallback: a platform library matched but the type wasn't in it.
+        // Scan all runtime ref assemblies for the type (e.g., INumber<T> is in
+        // System.Runtime, not System.Numerics).
+        if (platformCandidate != null)
+        {
+            var runtimeLib = PlatformResolver.FindLibraryContainingType(platformCandidate);
+            if (runtimeLib != null)
+                return new LocalProbeResult(runtimeLib, platformCandidate, LocalSourceKind.Platform);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lightweight type existence check using raw metadata.
+    /// </summary>
+    internal static bool AssemblyHasType(string assemblyPath, string typeName)
+        => PlatformResolver.HasType(assemblyPath, typeName);
 
     /// <summary>
     /// Resolves source from positional arguments and explicit options.
@@ -96,42 +171,56 @@ public static class SourceResolver
                     packagePath = nupkgPath;
                 }
             }
-            // Try platform resolution
-            else if (packagePath != null && PlatformResolver.IsPlatformCandidate(
-                packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath))
+            else if (packagePath != null)
             {
                 var bareName = packagePath.Contains('@') ? packagePath[..packagePath.IndexOf('@')] : packagePath;
                 var explicitVersion = packagePath.Contains('@') ? packagePath[(packagePath.IndexOf('@') + 1)..] : null;
 
-                var client = HttpClientFactory.Shared;
-                Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-
-                // Build framework spec if explicit version given
-                string? frameworkSpec = null;
-                if (explicitVersion != null)
+                // Try platform resolution for whole name (can go remote for platform candidates)
+                if (PlatformResolver.IsPlatformCandidate(bareName))
                 {
-                    var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
-                    if (discoveredFramework != null)
-                        frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
+                    var client = HttpClientFactory.Shared;
+                    Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
+
+                    // Build framework spec if explicit version given
+                    string? frameworkSpec = null;
+                    if (explicitVersion != null)
+                    {
+                        var (_, discoveredFramework, _, _) = PlatformResolver.ResolveAssembly(bareName);
+                        if (discoveredFramework != null)
+                            frameworkSpec = $"{discoveredFramework}@{explicitVersion}";
+                    }
+
+                    // Resolve assembly (local-first, then network if needed)
+                    var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+                        bareName, client, log, frameworkSpec);
+
+                    if (resolvedPath != null && resolvedError == null)
+                    {
+                        platformAssembly = bareName;
+                        packagePath = null;
+                        frameworkOverride = frameworkSpec;
+                    }
                 }
 
-                // Resolve assembly (local-first, then network if needed)
-                var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                    bareName, client, log, frameworkSpec);
-
-                if (resolvedPath != null && resolvedError == null)
+                // If still unresolved, try local peel-and-probe across all spaces
+                if (tryQualifiedTypeName && typeName == null
+                    && packagePath != null && platformAssembly == null && assemblyPath == null)
                 {
-                    platformAssembly = bareName;
-                    packagePath = null;
-                    frameworkOverride = frameworkSpec;
-                }
-                // Assembly not found — try qualified type name (e.g., System.Text.Json.JsonSerializer)
-                else if (tryQualifiedTypeName && typeName == null &&
-                    PlatformResolver.TryParseQualifiedTypeName(bareName, out var qtAsm, out var qtTyp))
-                {
-                    platformAssembly = qtAsm;
-                    typeName = qtTyp;
-                    packagePath = null;
+                    var probe = TryProbeLocalQualifiedName(bareName);
+                    if (probe != null)
+                    {
+                        typeName = probe.Remainder;
+                        if (probe.Kind == LocalSourceKind.Platform)
+                        {
+                            platformAssembly = probe.SourceName;
+                            packagePath = null;
+                        }
+                        else
+                        {
+                            packagePath = probe.SourceName;
+                        }
+                    }
                 }
             }
         }

@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -7,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -21,49 +23,73 @@ public class AssemblyCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        // Validate section filters
-        var (resolvedInclude, resolvedExclude) = SectionRegistry.ResolveFilters(
-            pipeline.AllSectionNames, options.IncludeSections, options.ExcludeSections, out var sectionError);
-        if (sectionError) return 1;
-        options = options with { IncludeSections = resolvedInclude, ExcludeSections = resolvedExclude };
+        var schemaMap = MarkoutContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
 
-        // Bare -s without input: list all potential sections and exit
-        if (options.IncludeSections is { Count: 0 } &&
-            string.IsNullOrEmpty(assemblyPath) &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
+        // Discovery mode: -D/--discover lists schema
+        if (options.Discover != null)
         {
-            SectionRegistry.ListSections(pipeline.AllSectionNames);
-            return 0;
+            if (options.Effective)
+            {
+                // Need to run pipeline to determine effective sections — handled after data collection below
+                // For now, fall through to --effective with bare -D
+            }
+            else
+            {
+                return DiscoverOutput.Execute(options.Discover, schemaMap,
+                    tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
+                    verbosity: (int)options.Verbosity);
+            }
         }
 
-        // Bare -s with input: discover which sections have data.
-        // Presence flags are populated cheaply during initial metadata load,
-        // so we don't need to promote verbosity or run scanners.
-        bool discoverSections = options.IncludeSections is { Count: 0 };
+        // --effective with -D: run pipeline at Detailed to show sections with data
+        bool effectiveDiscovery = options.Effective && options.Discover != null;
+        var userVerbosity = options.Verbosity; // preserve for display formatting
+        if (effectiveDiscovery)
+            options = options with { Verbosity = Verbosity.Detailed };
+
+        // -S/--select with values: resolve as section filter for backpressure
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
+        if (SelectOutput.WriteUnresolved(selectResult)) return 1;
+        if (selectResult.Sections != null)
+            options = options with { IncludeSections = selectResult.Sections };
 
         // --source-link-audit at non-detailed verbosity: implicitly select audit section
-        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed && !discoverSections)
+        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed)
         {
             HashSet<string> sections = options.IncludeSections != null ? [.. options.IncludeSections] : [];
             sections.Add("Source Link Audit");
             options = options with { IncludeSections = sections };
         }
 
-        // -s targeting specific sections: promote verbosity to ensure data collection
+        // -S targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
-#if DEBUG
-        // Detailed verbosity legitimately needs network for PDB/SourceLink
-        if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)
-            DotnetInspector.Core.HttpClientFactory.AllowNetwork();
-#endif
+        // Pre-render validation: check --fields/--columns names against the section schema
+        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+        {
+            foreach (var section in options.IncludeSections)
+                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
+        }
+
+        // Explicit --oneline with multiple sections: error
+        if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
+        {
+            Console.Error.WriteLine($"Error: Selection matches {options.IncludeSections.Count} sections: {string.Join(", ", options.IncludeSections)}.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Oneline format displays one section at a time.");
+            Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
+            return 1;
+        }
+
+        // Warn if --oneline combined with detailed verbosity without section selector
+        if (!effectiveDiscovery)
+            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.ExcludeSections);
+            options.Verbosity, options.IncludeSections);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -105,6 +131,17 @@ public class AssemblyCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
+                // Check effective sections cache before running full inspection
+                if (effectiveDiscovery && options.Discover is { Length: 0 })
+                {
+                    var cached = TryGetCachedEffective(resolvedPath!);
+                    if (cached != null)
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                    }
+                }
+
                 var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
@@ -116,12 +153,9 @@ public class AssemblyCommand
                 inspection.PlatformVersion = version;
                 inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspection);
-                    return 0;
-                }
-
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity);
+                WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return 0;
@@ -137,6 +171,17 @@ public class AssemblyCommand
 
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
                 tempDir = extractTempDir;
+
+                // Check effective sections cache before running full inspection
+                if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
+                {
+                    var cached = TryGetCachedEffective(assemblyPaths[0]);
+                    if (cached != null)
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                    }
+                }
 
                 // Verify package signature if nupkg is available
                 SignatureVerificationResult? signatureResult = null;
@@ -160,12 +205,9 @@ public class AssemblyCommand
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspections[0]);
-                    return 0;
-                }
-
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity);
+                WarnEmptySections(inspections[0], options, pipeline);
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
@@ -185,6 +227,17 @@ public class AssemblyCommand
                     return 1;
                 }
 
+                // Check effective sections cache before running full inspection
+                if (effectiveDiscovery && options.Discover is { Length: 0 })
+                {
+                    var cached = TryGetCachedEffective(assemblyPath!);
+                    if (cached != null)
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                    }
+                }
+
                 var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
@@ -194,12 +247,9 @@ public class AssemblyCommand
 
                 inspection.Source = SourceKind.File;
 
-                if (discoverSections)
-                {
-                    pipeline.ListEffectiveSections(inspection);
-                    return 0;
-                }
-
+                if (effectiveDiscovery)
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity);
+                WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
                 return 0;
@@ -224,6 +274,146 @@ public class AssemblyCommand
                     // Ignore cleanup errors
                 }
             }
+        }
+    }
+
+    private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
+        AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
+    {
+        // Compute unfiltered effective sections at Detailed verbosity for caching
+        var allEffective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
+        var schemaMap = MarkoutContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+
+        // Field-level filtering on ALL effective sections (unfiltered) for caching
+        var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
+        CacheEffective(assemblyPath, allEffective, filteredSchema);
+
+        // Apply user filters
+        var effective = FilterEffective(allEffective, options);
+
+        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
+            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
+            verbosity: (int)userVerbosity, rootLabel: rootLabel);
+    }
+
+    // ── Effective sections cache ──
+
+    private const string EffectiveCategory = "effective";
+
+    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath)
+    {
+        string key = GetEffectiveCacheKey(assemblyPath);
+        var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
+        if (cached == null) return null;
+
+        var sections = new List<string>();
+        var schema = new DocumentSchema();
+        foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('\t');
+            var name = parts[0];
+            sections.Add(name);
+            if (parts.Length >= 3)
+                schema.Add(name, parts[1], parts[2].Split(','));
+            else
+                schema.AddSection(name);
+        }
+        return (sections, schema);
+    }
+
+    private static void CacheEffective(string assemblyPath, List<string> sections, DocumentSchema filteredSchema)
+    {
+        string key = GetEffectiveCacheKey(assemblyPath);
+        var sb = new System.Text.StringBuilder();
+        foreach (var name in sections)
+        {
+            var section = filteredSchema.GetSection(name);
+            if (section != null && section.Items.Length > 0)
+                sb.AppendLine($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}");
+            else
+                sb.AppendLine(name);
+        }
+        CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
+    }
+
+    private static string GetEffectiveCacheKey(string assemblyPath)
+    {
+        // Include file size for invalidation when local files change
+        var size = new FileInfo(assemblyPath).Length;
+        return $"{assemblyPath}#{size}";
+    }
+
+    private static List<string> FilterEffective(List<string> sections, AssemblyOptions options)
+    {
+        if (options.IncludeSections is { Count: > 0 })
+            sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
+        return sections;
+    }
+
+    private static int RenderEffective(List<string> effective, DocumentSchema schema, AssemblyOptions options,
+        Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
+    {
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
+            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
+            verbosity: (int)userVerbosity, rootLabel: rootLabel);
+    }
+
+    /// <summary>
+    /// Renders the targeted sections and filters the schema to only fields that produced output.
+    /// </summary>
+    private static DocumentSchema FilterSchemaToEffectiveFields(LibraryInspection inspection,
+        List<string> effectiveSections, DocumentSchema schema, SectionPipeline<LibraryInspection> pipeline,
+        string[] discover)
+    {
+        // Resolve which sections are being discovered
+        var targetSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in discover)
+        {
+            var resolved = schema.ResolveSection(d);
+            if (resolved != null && effectiveSections.Contains(resolved))
+                targetSections.Add(resolved);
+        }
+        if (targetSections.Count == 0) return schema;
+
+        var view = new LibraryInspectionView(inspection);
+        var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
+        var rendered = new MarkoutContext(writerOpts).Serialize(view);
+
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
+        {
+            var section = schema.GetSection(name);
+            if (section == null) { filtered.AddSection(name); continue; }
+
+            // Only filter fields for discovered sections; keep others intact
+            if (!targetSections.Contains(name))
+            {
+                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
+                continue;
+            }
+
+            var effectiveItems = section.Items
+                .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Name)
+                .ToArray();
+
+            if (effectiveItems.Length > 0)
+                filtered.Add(name, section.ItemKind, effectiveItems);
+            else
+                filtered.AddSection(name);
+        }
+        return filtered;
+    }
+
+    private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
+        if (empty.Count > 0 && empty.Count == requested)
+        {
+            var label = empty.Count == 1 ? "section has" : "sections have";
+            Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
         }
     }
 

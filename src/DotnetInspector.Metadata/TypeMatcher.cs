@@ -58,21 +58,43 @@ public static class TypeMatcher
     }
 
     /// <summary>
-    /// Normalizes a type name by removing generic type arguments.
-    /// "IEnumerable&lt;T&gt;" → "IEnumerable"
-    /// "Dictionary&lt;string, int&gt;" → "Dictionary"
+    /// Normalizes a type name by converting C#-style generic arguments to CLR backtick notation.
+    /// "IEnumerable&lt;T&gt;" → "IEnumerable`1"
+    /// "Dictionary&lt;string, int&gt;" → "Dictionary`2"
+    /// Already-normalized names like "List`1" pass through unchanged.
     /// </summary>
     public static string Normalize(string typeName)
     {
         if (string.IsNullOrEmpty(typeName))
             return typeName;
 
-        // Remove generic type arguments: IEnumerable<T> → IEnumerable
         var angleIdx = typeName.IndexOf('<');
-        if (angleIdx > 0)
-            typeName = typeName[..angleIdx];
+        if (angleIdx <= 0)
+            return typeName;
 
-        return typeName;
+        var closeIdx = typeName.LastIndexOf('>');
+        if (closeIdx <= angleIdx)
+            return typeName;
+
+        var baseName = typeName[..angleIdx];
+        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..(closeIdx)));
+        return arity > 0 ? $"{baseName}`{arity}" : baseName;
+    }
+
+    private static int CountTypeParameters(ReadOnlySpan<char> typeParams)
+    {
+        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
+            return 0;
+
+        int count = 1;
+        int depth = 0;
+        foreach (char c in typeParams)
+        {
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0) count++;
+        }
+        return count;
     }
 
     /// <summary>

@@ -9,6 +9,14 @@ namespace DotnetInspector.Metadata;
 public record TypeDependencyNode(string TypeName, List<TypeDependencyNode> Children);
 
 /// <summary>
+/// Result of building a type dependency tree.
+/// </summary>
+public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode> Tree)
+{
+    public bool Found => MatchedType != null;
+}
+
+/// <summary>
 /// Walks the inheritance and interface implementation graph upward from a type.
 /// This is the inverse of <see cref="TypeHierarchyScanner.FindImplementers"/> —
 /// it shows what a type depends on, not what depends on it.
@@ -20,7 +28,7 @@ public static class TypeDependencyScanner
     /// Returns the direct base types and interfaces as root-level nodes,
     /// each with their own recursive dependencies.
     /// </summary>
-    public static List<TypeDependencyNode> BuildDependencyTree(
+    public static TypeDependencyResult BuildDependencyTree(
         string targetType,
         IReadOnlyList<string> assemblyPaths)
     {
@@ -76,11 +84,12 @@ public static class TypeDependencyScanner
             var normalizedTarget = TypeMatcher.Normalize(targetType);
             var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedTarget));
             if (matchKey == null)
-                return [];
+                return new TypeDependencyResult(null, []);
 
             var match = typeIndex[matchKey];
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            return BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
+            var tree = BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
+            return new TypeDependencyResult(matchKey, tree);
         }
         finally
         {

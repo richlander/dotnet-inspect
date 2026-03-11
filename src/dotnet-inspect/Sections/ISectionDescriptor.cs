@@ -1,11 +1,10 @@
-using DotnetInspector.Options;
-
 namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Metadata descriptor for a named section. Declares the section's name,
-/// minimum verbosity tier, scanner dependency, and a static check for
-/// whether the model has data that the section can render.
+/// whether it requires expensive operations (network or heavy computation),
+/// scanner dependency, and a static check for whether the model has data
+/// that the section can render.
 /// </summary>
 /// <typeparam name="TModel">The model type this section inspects.</typeparam>
 public interface ISectionDescriptor<TModel>
@@ -13,8 +12,12 @@ public interface ISectionDescriptor<TModel>
     /// <summary>Section display name (must match the MarkoutSection Name).</summary>
     static abstract string Name { get; }
 
-    /// <summary>Minimum verbosity at which this section is shown by default.</summary>
-    static abstract Verbosity MinVerbosity { get; }
+    /// <summary>
+    /// Whether this section requires expensive operations (network access or
+    /// heavyweight computation like decompilation). Expensive sections are
+    /// only shown at <see cref="Verbosity.Detailed"/>.
+    /// </summary>
+    static abstract bool IsExpensive { get; }
 
     /// <summary>
     /// Scanner key identifying the data collection step this section requires.

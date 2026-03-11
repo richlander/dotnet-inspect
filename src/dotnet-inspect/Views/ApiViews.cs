@@ -7,16 +7,15 @@ namespace DotnetInspector.Views;
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description))]
-public class ApiTypeView
+[MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
+public class TypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
 
-    public string Kind { get; set; } = "";
-
-    [MarkoutSkipNull]
-    public string? Modifiers { get; set; }
+    // Top fields (rendered inline for -v:q compact summary only)
+    [MarkoutSkipNull] public string? Kind { get; set; }
+    [MarkoutSkipNull] public string? Modifiers { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("Base")]
@@ -32,14 +31,9 @@ public class ApiTypeView
     [MarkoutPropertyName("Library")]
     public string? Assembly { get; set; }
 
-    [MarkoutSkipNull]
-    public string? Package { get; set; }
-
-    [MarkoutSkipNull]
-    public string? Version { get; set; }
-
-    [MarkoutSkipNull]
-    public string? Source { get; set; }
+    [MarkoutSkipNull] public string? Package { get; set; }
+    [MarkoutSkipNull] public string? Version { get; set; }
+    [MarkoutSkipNull] public string? Source { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
@@ -210,25 +204,10 @@ public class ApiTypeView
     [JsonIgnore]
     public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
 
-    [MarkoutSection(Name = "Source")]
-    [MarkoutIgnoreInTable]
+    // Member code sections (populated by member command only, serialized separately)
+    [MarkoutIgnore]
     [JsonIgnore]
-    public CodeSection SourceCode { get; set; }
-
-    [MarkoutSection(Name = "Lowered C#")]
-    [MarkoutIgnoreInTable]
-    [JsonIgnore]
-    public CodeSection LoweredCSharp { get; set; }
-
-    [MarkoutSection(Name = "IL")]
-    [MarkoutIgnoreInTable]
-    [JsonIgnore]
-    public CodeSection ILCode { get; set; }
-
-    [MarkoutSection(Name = "IL (Annotated)")]
-    [MarkoutIgnoreInTable]
-    [JsonIgnore]
-    public CodeSection AnnotatedIL { get; set; }
+    public MemberCodeView? MemberCode { get; set; }
 
 }
 
@@ -271,7 +250,7 @@ public class SourceRow
 /// <summary>
 /// View model for full API surface rendering (all types in an assembly).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
 public class CliApiSurface
 {
     [MarkoutIgnore] public string? Name { get; set; }
@@ -293,34 +272,34 @@ public class CliApiSurface
     public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
 
     // Per-kind type sections (5 kinds × with/without docs)
-    [MarkoutSection(Name = "Classes", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Classes", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Classes { get; set; }
     [MarkoutSection(Name = "Classes")]
     public List<TypeSummaryRow>? ClassesWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Structs", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Structs", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Structs { get; set; }
     [MarkoutSection(Name = "Structs")]
     public List<TypeSummaryRow>? StructsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Interfaces", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Interfaces", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Interfaces { get; set; }
     [MarkoutSection(Name = "Interfaces")]
     public List<TypeSummaryRow>? InterfacesWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Enums", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Enums", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Enums { get; set; }
     [MarkoutSection(Name = "Enums")]
     public List<TypeSummaryRow>? EnumsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Delegates", IgnoreProperty = nameof(TypeSummaryRow.Description))]
+    [MarkoutSection(Name = "Delegates", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Delegates { get; set; }
     [MarkoutSection(Name = "Delegates")]
     public List<TypeSummaryRow>? DelegatesWithDocs { get; set; }
 }
 
 [MarkoutSerializable]
-public record TypeSummaryRow(string Type, string Members, string? Description);
+public record TypeSummaryRow(string Kind, string Type, string Members, string? Description);
 
 [MarkoutSerializable]
 public record ForwarderSummaryRow(
@@ -433,15 +412,40 @@ public class ApiTypeOneLineView
 [MarkoutSerializable]
 public class ApiSurfaceOneLineView
 {
-    [MarkoutSection(Name = "Types")]
+    [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiSurfaceOneLineRow.Description))]
     public List<ApiSurfaceOneLineRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Types")]
+    public List<ApiSurfaceOneLineRow>? RowsWithDescription { get; set; }
 }
 
 [MarkoutSerializable]
-public record ApiOneLineRow(string Kind, string Name, string Signature);
+public record ApiOneLineRow(string Kind, string Name,
+    [property: MarkoutPropertyName("Return Type")] string ReturnType,
+    string Detail);
 
 [MarkoutSerializable]
-public record ApiSurfaceOneLineRow(string Kind, string Type, string Members);
+public record ApiSurfaceOneLineRow(string Kind, string Type, string Members, string? Description);
+
+/// <summary>
+/// Code sections for member command output (Source, Lowered C#, IL, Annotated IL).
+/// Serialized separately after the main TypeView.
+/// </summary>
+[MarkoutSerializable(AutoFields = false)]
+public class MemberCodeView
+{
+    [MarkoutSection(Name = "Source")]
+    public CodeSection SourceCode { get; set; }
+
+    [MarkoutSection(Name = "Lowered C#")]
+    public CodeSection LoweredCSharp { get; set; }
+
+    [MarkoutSection(Name = "IL")]
+    public CodeSection ILCode { get; set; }
+
+    [MarkoutSection(Name = "IL (Annotated)")]
+    public CodeSection AnnotatedIL { get; set; }
+}
 
 [MarkoutContext(typeof(TypeShapeView))]
 public partial class TypeViewContext : MarkoutSerializerContext

@@ -14,7 +14,6 @@ public static class SearchCommandDefinitions
     public static Command CreateFindCommand(SharedOptions opts)
     {
         var findCommand = new Command(FindCommand.Name, "Search for types across packages and libraries");
-        findCommand.Aliases.Add("search");
 
         var patternArg = new Argument<string?>("pattern")
         {
@@ -72,6 +71,8 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(oneLineOption);
         findCommand.Options.Add(noHeaderOption);
         findCommand.Options.Add(packagePrefixOption);
+        findCommand.Options.Add(opts.Columns);
+        findCommand.Options.Add(opts.Fields);
         opts.AddOutputOptionsTo(findCommand);
         opts.AddNuGetOptionsTo(findCommand);
 
@@ -87,7 +88,7 @@ public static class SearchCommandDefinitions
             switch (result)
             {
                 case FindOptionsParser.ShowHelpWithTips:
-                    return TipWriter.ShowHelpWithTips(parseResult,
+                    return TipWriter.ShowHelpWithTips(findCommand,
                         "find Chat*                                # search default scope",
                         "find Chat* --platform                     # platform libraries only",
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
@@ -162,6 +163,8 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(oneLineOption);
         implCommand.Options.Add(noHeaderOption);
         implCommand.Options.Add(packagePrefixOption);
+        implCommand.Options.Add(opts.Columns);
+        implCommand.Options.Add(opts.Fields);
         opts.AddOutputOptionsTo(implCommand);
         opts.AddNuGetOptionsTo(implCommand);
 
@@ -171,7 +174,7 @@ public static class SearchCommandDefinitions
 
             if (string.IsNullOrEmpty(targetType))
             {
-                return TipWriter.ShowHelpWithTips(parseResult,
+                return TipWriter.ShowHelpWithTips(implCommand,
                     "implements Stream                         # search default scope",
                     "implements Stream --platform              # platform libraries only",
                     "implements Stream --extensions             # Microsoft.Extensions packages",
@@ -204,9 +207,13 @@ public static class SearchCommandDefinitions
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption),
+                OneLine = opts.ResolveOneLine(parseResult, oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
+                Discover = opts.ParseDiscover(parseResult),
+                Tree = opts.ParseTree(parseResult),
                 PackagePrefix = packagePrefix,
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
@@ -281,7 +288,7 @@ public static class SearchCommandDefinitions
 
             if (string.IsNullOrEmpty(targetType))
             {
-                return TipWriter.ShowHelpWithTips(parseResult,
+                return TipWriter.ShowHelpWithTips(extCommand,
                     "extensions HttpClient                     # search default scope",
                     "extensions HttpClient --platform          # platform libraries only",
                     "extensions HttpClient --extensions         # Microsoft.Extensions packages",
@@ -392,7 +399,7 @@ public static class SearchCommandDefinitions
                 if (packages.Length == 1 && assemblies.Length == 0)
                     return await DependsCommand.ExecutePackageDependsAsync(commonOptions with { PackageName = packages[0] });
 
-                return TipWriter.ShowHelpWithTips(parseResult,
+                return TipWriter.ShowHelpWithTips(dependsCommand,
                     "depends IFloatingPointIeee754 --platform   # type hierarchy",
                     "depends --library Microsoft.Extensions.AI   # assembly references",
                     "depends --package System.Text.Json          # NuGet dependencies");
@@ -419,7 +426,30 @@ public static class SearchCommandDefinitions
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
-            return await DependsCommand.ExecuteTypeDependsAsync(options);
+            var exitCode = await DependsCommand.ExecuteTypeDependsAsync(options);
+
+            // Type not found — fall back to library mode if the name could be a library
+            if (exitCode == DependsCommand.TypeNotFoundExitCode && !targetType!.Contains('<'))
+            {
+                var libOptions = new DependsOptions
+                {
+                    LibraryName = targetType,
+                    Tfm = parseResult.GetValue(tfmOption),
+                    JsonOutput = parseResult.GetValue(opts.Json),
+                    CompactJson = parseResult.GetValue(compactOption),
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                };
+                return await DependsCommand.ExecuteLibraryDependsAsync(libOptions);
+            }
+
+            if (exitCode == DependsCommand.TypeNotFoundExitCode)
+            {
+                Console.Error.WriteLine($"Type '{targetType}' not found in the specified scope.");
+                return 1;
+            }
+
+            return exitCode;
         });
 
         return dependsCommand;

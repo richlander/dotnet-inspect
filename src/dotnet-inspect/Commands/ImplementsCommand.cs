@@ -4,6 +4,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -22,6 +23,14 @@ public class ImplementsCommand
 
         try
         {
+            // Discovery mode: -D/--discover lists schema
+            if (options.Discover != null)
+            {
+                var schema = new DocumentSchema()
+                    .Add("Implementers", "column", "Type", "Kind", "Relationship", "Library", "Source");
+                return DiscoverOutput.Execute(options.Discover, schema, tree: options.Tree);
+            }
+
             // Safety fallback — default to all platform frameworks
             if (!options.HasAnyScope)
             {
@@ -70,7 +79,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader);
+                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns, options.Fields);
             }
 
             return 0;
@@ -123,14 +132,17 @@ public class ImplementsCommand
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns, string[]? fields)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
         if (oneLine)
         {
-            var writer = new OneLineWriter(Console.Out, showHeader: !noHeader);
-            new MarkoutContext().Serialize(view, writer);
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(columns, fields)
+            };
+            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), writerOpts);
         }
         else
         {

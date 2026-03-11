@@ -103,11 +103,6 @@ public record InspectionOptions
     public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
-    /// Sections to exclude by heading name.
-    /// </summary>
-    public HashSet<string>? ExcludeSections { get; init; }
-
-    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
@@ -129,14 +124,42 @@ public record InspectionOptions
     public bool OneLine { get; init; }
 
     /// <summary>
+    /// True when --oneline was explicitly passed (not just the default format).
+    /// Used to distinguish "user wants oneline" from "oneline is the default".
+    /// </summary>
+    public bool OneLineExplicitlySet { get; init; }
+
+    /// <summary>
     /// Suppress column headers (use with --oneline).
     /// </summary>
     public bool NoHeader { get; init; }
 
     /// <summary>
-    /// Names to select (fields and columns). Null means all.
+    /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
+    /// </summary>
+    public string[]? Discover { get; init; }
+
+    public bool Tree { get; init; }
+
+    /// <summary>
+    /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Column names to include. Null means all.
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Field names to include. Null means all.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
+    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// </summary>
+    public bool Effective { get; init; }
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

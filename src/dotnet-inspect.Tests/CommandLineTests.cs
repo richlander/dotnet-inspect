@@ -749,24 +749,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void SearchCommand_IsAliasForFind()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["search", "Json*", "--package", "System.Text.Json"]);
-
-        Assert.Empty(result.Errors);
-        Assert.Equal("find", result.CommandResult.Command.Name);
-    }
-
-    [Fact]
-    public void PreprocessArgs_WithSearchCommand_ReturnsUnchanged()
-    {
-        var args = new[] { "search", "Json*", "--package", "Foo" };
-        var result = CommandLineBuilder.PreprocessArgs(args);
-
-        Assert.Equal(args, result);
-    }
-
-    [Fact]
     public void ApiCommand_WithHierarchy_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--hierarchy"]);

@@ -34,9 +34,9 @@ public static class RouterOptionsParser
     public record ShowHelp : RouterParseResult;
 
     /// <summary>
-    /// Indicates selectable names should be listed.
+    /// Indicates projection discovery (--select or --columns bare).
     /// </summary>
-    public record ListSelect : RouterParseResult;
+    public record Discovery(string[]? Discover, bool Tree) : RouterParseResult;
 
     /// <summary>
     /// Indicates an error occurred during parsing.
@@ -54,7 +54,7 @@ public static class RouterOptionsParser
     /// <param name="OriginalArg">Original package argument (e.g., "System.CommandLine@2.0.2") preserved for fallback
     /// to package command. Platform candidates like "System.CommandLine" are tried as platform libraries first,
     /// but if resolution fails they fall through to NuGet package inspection and need the version preserved.</param>
-    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, HashSet<string>? IncludeSections) : RouterParseResult;
+    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, bool OneLine, bool NoHeader) : RouterParseResult;
 
     /// <summary>
     /// Handle --version query with cache check first.
@@ -64,6 +64,11 @@ public static class RouterOptionsParser
         string? ExplicitVersion,
         bool ForceLatest,
         NuGetSourceOptions SourceOptions) : RouterParseResult;
+
+    /// <summary>
+    /// Route to type command when second positional arg is a type name.
+    /// </summary>
+    public record RouteToType(string[] Args) : RouterParseResult;
 
     /// <summary>
     /// Route to package command.
@@ -82,16 +87,21 @@ public static class RouterOptionsParser
 
         if (packageArgs.Length < 1)
         {
-            if (parseResult.GetResult(opts.Select) != null && parseResult.GetValue(opts.Select) == null)
-                return new ListSelect();
+            if (opts.IsDiscoveryMode(parseResult))
+                return new Discovery(opts.ParseDiscover(parseResult), parseResult.GetValue(opts.Tree));
             return new ShowHelp();
         }
 
         var name = packageArgs[0];
 
-        // Detect version number passed as a separate positional argument
-        if (packageArgs.Length >= 2 && CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
-            return new ParseError($"Error: '{packageArgs[1]}' looks like a version number. Use '{name}@{packageArgs[1]}' to specify a version.");
+        // Second positional argument: version number → auto-combine, otherwise → type name
+        if (packageArgs.Length >= 2)
+        {
+            if (CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
+                name = $"{packageArgs[0]}@{packageArgs[1]}";
+            else
+                return new RouteToType(packageArgs);
+        }
 
         // Route file paths to the appropriate command
         if (CommandLineHelpers.TryClassifyAsFilePath(name, out var dllPath, out var nupkgPath))
@@ -103,11 +113,18 @@ public static class RouterOptionsParser
                     AssemblyName = dllPath,
                     IncludeMetadata = true,
                     JsonOutput = parseResult.GetValue(opts.Json),
+                    Markdown = parseResult.GetValue(opts.Markdown),
+                    OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+                    OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
+                    Format = opts.ResolveFormat(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
-                    IncludeSections = opts.ParseIncludeSections(parseResult),
-                    ExcludeSections = opts.ParseExcludeSections(parseResult),
+                    Discover = opts.ParseDiscover(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
                     Select = opts.ParseSelect(parseResult),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
+                    Effective = parseResult.GetValue(opts.Effective),
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
             }
@@ -128,7 +145,6 @@ public static class RouterOptionsParser
         bool isVersionQuery = showVersion || showLatestVersion || showVersions;
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var includeSections = opts.ParseIncludeSections(parseResult);
 
         // Platform candidate check (skip for version queries)
         // Note: Qualified type names (e.g., System.Text.Json.JsonSerializer) are also platform candidates
@@ -136,8 +152,19 @@ public static class RouterOptionsParser
         // type names if platform resolution fails.
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
-            var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, bareName, hasExplicitVersion, explicitVersion);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, includeSections);
+            var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
+            var noHeader = parseResult.GetValue(args.NoHeaderOption);
+            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
+        }
+
+        // For single-arg names that aren't platform candidates, try local peel-and-probe.
+        // If a local source (dotnet-inspect cache or NuGet cache) matches a prefix,
+        // route as a qualified type name (e.g., "Humanizer.Core.DateHumanize").
+        if (!isVersionQuery && packageArgs.Length == 1)
+        {
+            var probe = SourceResolver.TryProbeLocalQualifiedName(bareName);
+            if (probe != null)
+                return new RouteToType(packageArgs);
         }
 
         // --version query
@@ -152,18 +179,22 @@ public static class RouterOptionsParser
             ListVersions = showLatestVersion || showVersions,
             Limit = showLatestVersion ? 1 : routerVersionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = parseResult.GetValue(args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
-            IncludeSections = includeSections,
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Effective = parseResult.GetValue(opts.Effective),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.IncludeSections != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
@@ -173,6 +204,7 @@ public static class RouterOptionsParser
     private static AssemblyOptions BuildPlatformAssemblyOptions(
         ParseResult parseResult,
         SharedOptions opts,
+        RouterCommandArgs args,
         string bareName,
         bool hasExplicitVersion,
         string? explicitVersion)
@@ -191,11 +223,18 @@ public static class RouterOptionsParser
             PlatformAssembly = bareName,
             PlatformFramework = platformFrameworkSpec,
             JsonOutput = parseResult.GetValue(opts.Json),
+            Markdown = parseResult.GetValue(opts.Markdown),
+            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
+            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
+            Format = opts.ResolveFormat(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            IncludeSections = opts.ParseIncludeSections(parseResult),
-            ExcludeSections = opts.ParseExcludeSections(parseResult),
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Effective = parseResult.GetValue(opts.Effective),
         };
     }
 }

@@ -203,8 +203,9 @@ dotnet-inspect member System.Text.Json JsonSerializer -v:q
 
 ```expect
 # System.Text.Json.JsonSerializer
-## Properties
-## Methods
+Kind: class
+Properties: 1
+Methods: 103
 ```
 
 ## Address a specific member by name
@@ -221,7 +222,8 @@ dotnet-inspect member System.Text.Json JsonSerializer Deserialize -v:q
 
 ```expect
 # System.Text.Json.JsonSerializer
-## Methods
+Kind: class
+Methods: 103
 ```
 
 ## Member select mode
@@ -238,6 +240,7 @@ dotnet-inspect member System.CommandLine@2.0.3 Command --select -v:q
 
 ```expect
 # System.CommandLine.Command
+Kind: class
 ```
 
 ## Members from a NuGet package
@@ -254,5 +257,6 @@ dotnet-inspect member System.CommandLine@2.0.3 Command -v:q
 
 ```expect
 # System.CommandLine.Command
+Kind: class
 Source: NuGet
 ```

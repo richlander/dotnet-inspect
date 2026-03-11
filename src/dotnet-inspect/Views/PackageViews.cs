@@ -19,19 +19,11 @@ public partial class FileTreeContext : MarkoutSerializerContext
 /// <summary>
 /// View model for package dependency tree output (--dependencies).
 /// </summary>
-[MarkoutSerializable(TitleProperty = nameof(Title))]
+[MarkoutSerializable(TitleProperty = nameof(Title), Layout = DocumentLayout.Tree)]
 public class PackageDependenciesView
 {
     [MarkoutIgnore]
     public string Title { get; set; } = "";
-
-    public string Package { get; set; } = "";
-
-    public string Version { get; set; } = "";
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; set; }
 
     [MarkoutIgnoreInTable]
     public List<TreeNode> Dependencies { get; set; } = [];
@@ -41,19 +33,6 @@ public class PackageDependenciesView
 public partial class PackageDependenciesContext : MarkoutSerializerContext
 {
 }
-
-/// <summary>
-/// View model for package --oneline output: metadata as PROPERTY | VALUE table.
-/// </summary>
-[MarkoutSerializable]
-public class PackageOneLineView
-{
-    [MarkoutSection(Name = "Package")]
-    public List<PackageOneLineRow>? Rows { get; set; }
-}
-
-[MarkoutSerializable]
-public record PackageOneLineRow(string Property, string Value);
 
 /// <summary>
 /// View model for empty dependency tree output (--dependencies with zero deps for a TFM).

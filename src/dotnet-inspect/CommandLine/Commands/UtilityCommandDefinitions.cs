@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -8,7 +7,7 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the cache, demo, samples, cli, llmstxt, skill, perf, and perf-test commands.
+/// Defines the cache, demo, samples, llmstxt, skill, perf, and perf-test commands.
 /// </summary>
 public static class UtilityCommandDefinitions
 {
@@ -90,7 +89,7 @@ public static class UtilityCommandDefinitions
             }
 
             // No index and no flag: show help + random demo tips
-            new HelpAction().Invoke(parseResult);
+            HelpWriter.WriteHelp(demoCommand);
             var tips = DemoCommand.Demos.Select((d, i) =>
                 new Tip("demo", $"{i + 1}", d.Title)).ToArray();
             Hints.WriteTips(TipLevel.Minimal, tips, randomize: true);
@@ -132,6 +131,12 @@ public static class UtilityCommandDefinitions
         samplesCommand.Options.Add(printOption);
         samplesCommand.Options.Add(fileOption);
         samplesCommand.Options.Add(regionOption);
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        samplesCommand.Options.Add(oneLineOption);
+        samplesCommand.Options.Add(noHeaderOption);
+        samplesCommand.Options.Add(opts.Columns);
+        samplesCommand.Options.Add(opts.Fields);
         opts.AddOutputOptionsTo(samplesCommand);
         opts.AddNuGetOptionsTo(samplesCommand);
 
@@ -183,6 +188,10 @@ public static class UtilityCommandDefinitions
                 PrintSample = parseResult.GetValue(printOption),
                 FilePath = parseResult.GetValue(fileOption),
                 Region = parseResult.GetValue(regionOption),
+                OneLine = opts.ResolveOneLine(parseResult, oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
@@ -190,22 +199,6 @@ public static class UtilityCommandDefinitions
         });
 
         return samplesCommand;
-    }
-
-    public static Command CreateCliCommand(RootCommand rootCommand, SharedOptions opts)
-    {
-        var schemaCommand = new Command("cli", "Show CLI command structure as API listing");
-        var schemaCommandArg = new Argument<string?>("command") { Description = "Command name to show (omit for all)", Arity = ArgumentArity.ZeroOrOne };
-        schemaCommand.Arguments.Add(schemaCommandArg);
-        schemaCommand.Options.Add(opts.Verbosity);
-        schemaCommand.Options.Add(opts.Limit);
-        schemaCommand.SetAction((parseResult) =>
-        {
-            var commandFilter = parseResult.GetValue(schemaCommandArg);
-            var verbosity = OptionParsers.ParseVerbosity(parseResult.GetValue(opts.Verbosity));
-            return CliSchemaCommand.Execute(rootCommand, commandFilter, verbosity);
-        });
-        return schemaCommand;
     }
 
     public static Command CreateLlmsTxtCommand(SharedOptions opts)
