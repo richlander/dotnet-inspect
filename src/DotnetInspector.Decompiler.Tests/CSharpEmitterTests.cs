@@ -258,6 +258,19 @@ public class CSharpEmitterTests
         Assert.Contains("\"other\"", output);
     }
 
+    // --- Ternary ---
+
+    [Fact]
+    public void Ternary_HasBothValues()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.Ternary));
+
+        // In Release, the ternary compiles to if/return branches
+        Assert.Contains("\"positive\"", output);
+        Assert.Contains("\"non-positive\"", output);
+        Assert.Contains("return", output);
+    }
+
     // --- Platform stress test ---
 
     [Fact]

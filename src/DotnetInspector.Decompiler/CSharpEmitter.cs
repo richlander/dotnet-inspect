@@ -336,6 +336,37 @@ public static class CSharpEmitter
                 return;
             }
 
+            // Detect ternary pattern: both then and else produce a single S_0 value
+            if (block.ThenBlock is not null && block.ElseBlock is not null)
+            {
+                var thenValue = TryExtractTernaryValue(block.ThenBlock);
+                var elseValue = TryExtractTernaryValue(block.ElseBlock);
+                if (thenValue is not null && elseValue is not null)
+                {
+                    // Apply negation if the conditional detector swapped then/else
+                    if (block.NegateCondition)
+                        condition = NegateConditionString(condition);
+
+                    // Emit as: S_in_0 = cond ? thenValue : elseValue
+                    // The follow block's S_in_0 references will resolve naturally
+                    WriteIndent(indent);
+                    _sb.Append("S_in_0 = ");
+                    _sb.Append(condition);
+                    _sb.Append(" ? ");
+                    _sb.Append(ExpressionToString(thenValue));
+                    _sb.Append(" : ");
+                    _sb.Append(ExpressionToString(elseValue));
+                    _sb.AppendLine(";");
+
+                    // Mark then/else blocks as consumed
+                    if (block.ThenBlock.BlockIndex >= 0)
+                        _consumedBlocks.Add(block.ThenBlock.BlockIndex);
+                    if (block.ElseBlock.BlockIndex >= 0)
+                        _consumedBlocks.Add(block.ElseBlock.BlockIndex);
+                    return;
+                }
+            }
+
             // Apply negation if the conditional detector swapped then/else
             if (block.NegateCondition)
                 condition = NegateConditionString(condition);
@@ -430,6 +461,37 @@ public static class CSharpEmitter
                 EmitStructuredBlock(block.ThenBlock, indent);
 
             _nullConditionalReceiver = null;
+        }
+
+        /// <summary>
+        /// If a block has exactly one S_* assignment (stack slot) and optional br/nop statements,
+        /// returns the assigned value expression. Used for ternary pattern detection.
+        /// </summary>
+        ILAstExpression? TryExtractTernaryValue(StructuredBlock block)
+        {
+            if (block.BlockIndex < 0 || !_blockMap.TryGetValue(block.BlockIndex, out var astBlock))
+                return null;
+
+            ILAstExpression? value = null;
+            foreach (var node in astBlock.Nodes)
+            {
+                if (node is ILAstAssignment assign && assign.Variable.Kind == ILVariableKind.StackSlot)
+                {
+                    if (value is not null) return null; // multiple values — not a ternary
+                    value = assign.Value;
+                }
+                else if (node is ILAstStatement stmt)
+                {
+                    // Allow br/nop/leave statements (they're control flow to the join point)
+                    var op = stmt.Expression.OpCode;
+                    if (op is not (ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Nop
+                        or ILOpCode.Leave or ILOpCode.Leave_s))
+                        return null;
+                }
+                else return null;
+            }
+
+            return value;
         }
 
         void EmitLoop(StructuredBlock block, int indent)

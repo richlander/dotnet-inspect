@@ -346,4 +346,8 @@ public class CfgSampleClass
                 sum += i * j;
         return sum;
     }
+
+    public static string Ternary(int x) => x > 0 ? "positive" : "non-positive";
+
+    public static int TernaryInt(int a, int b) => a > b ? a : b;
 }
