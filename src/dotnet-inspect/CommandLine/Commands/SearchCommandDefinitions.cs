@@ -426,7 +426,30 @@ public static class SearchCommandDefinitions
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
-            return await DependsCommand.ExecuteTypeDependsAsync(options);
+            var exitCode = await DependsCommand.ExecuteTypeDependsAsync(options);
+
+            // Type not found — fall back to library mode if the name could be a library
+            if (exitCode == DependsCommand.TypeNotFoundExitCode && !targetType!.Contains('<'))
+            {
+                var libOptions = new DependsOptions
+                {
+                    LibraryName = targetType,
+                    Tfm = parseResult.GetValue(tfmOption),
+                    JsonOutput = parseResult.GetValue(opts.Json),
+                    CompactJson = parseResult.GetValue(compactOption),
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                    SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                };
+                return await DependsCommand.ExecuteLibraryDependsAsync(libOptions);
+            }
+
+            if (exitCode == DependsCommand.TypeNotFoundExitCode)
+            {
+                Console.Error.WriteLine($"Type '{targetType}' not found in the specified scope.");
+                return 1;
+            }
+
+            return exitCode;
         });
 
         return dependsCommand;

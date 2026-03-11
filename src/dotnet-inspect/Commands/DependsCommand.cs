@@ -13,6 +13,11 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class DependsCommand
 {
+    /// <summary>
+    /// Returned when the target type was not found. The caller can fall back to library mode.
+    /// </summary>
+    internal const int TypeNotFoundExitCode = 2;
+
     public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
@@ -42,8 +47,7 @@ public class DependsCommand
 
             if (!result.Found)
             {
-                Console.Error.WriteLine($"Type '{options.TargetType}' not found in the specified scope.");
-                return 1;
+                return TypeNotFoundExitCode;
             }
 
             if (result.Tree.Count == 0)
@@ -160,15 +164,17 @@ public class DependsCommand
 
             var treeNodes = BuildNestedDependencyTree(refNodes);
 
-            var view = new AssemblyDependenciesView
-            {
-                Title = assemblyName,
-                AssemblyName = assemblyName,
-                Version = assemblyVersion,
-                Tfm = tfm,
-                Dependencies = treeNodes
-            };
-            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            // Render: title, identity line, then tree
+            Console.Out.WriteLine(assemblyName);
+            var identityParts = new List<string>();
+            if (!string.IsNullOrEmpty(assemblyVersion))
+                identityParts.Add($"Version: {assemblyVersion}");
+            if (!string.IsNullOrEmpty(tfm))
+                identityParts.Add($"TFM: {tfm}");
+            if (identityParts.Count > 0)
+                Console.Out.WriteLine(string.Join(" | ", identityParts));
+            var treeWriter = new TreeWriter(Console.Out);
+            treeWriter.WriteTree(treeNodes.ToArray());
             return 0;
         }
         catch (Exception ex)
