@@ -131,6 +131,12 @@ public static class UtilityCommandDefinitions
         samplesCommand.Options.Add(printOption);
         samplesCommand.Options.Add(fileOption);
         samplesCommand.Options.Add(regionOption);
+        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
+        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        samplesCommand.Options.Add(oneLineOption);
+        samplesCommand.Options.Add(noHeaderOption);
+        samplesCommand.Options.Add(opts.Columns);
+        samplesCommand.Options.Add(opts.Fields);
         opts.AddOutputOptionsTo(samplesCommand);
         opts.AddNuGetOptionsTo(samplesCommand);
 
@@ -182,6 +188,10 @@ public static class UtilityCommandDefinitions
                 PrintSample = parseResult.GetValue(printOption),
                 FilePath = parseResult.GetValue(fileOption),
                 Region = parseResult.GetValue(regionOption),
+                OneLine = opts.ResolveOneLine(parseResult, oneLineOption),
+                NoHeader = parseResult.GetValue(noHeaderOption),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 

@@ -126,7 +126,7 @@ public class SamplesCommand
         {
             var view = SamplesOutputFormatter.BuildListView(
                 samples, null, null, Path.GetFileName(filePath), options.BrowsableUrls);
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            WriteListView(view, options);
             return 0;
         }
 
@@ -334,7 +334,7 @@ public class SamplesCommand
         {
             var view = SamplesOutputFormatter.BuildListView(
                 samples, packageName, packageVersion, assemblyName, options.BrowsableUrls);
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            WriteListView(view, options);
             return 0;
         }
 
@@ -442,6 +442,22 @@ public class SamplesCommand
         return content;
     }
 
+    private static void WriteListView(SamplesListView view, SamplesOptions options)
+    {
+        if (options.OneLine)
+        {
+            var writerOpts = new MarkoutWriterOptions
+            {
+                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            };
+            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+        }
+        else
+        {
+            Console.WriteLine(new MarkoutContext().Serialize(view));
+        }
+    }
+
 }
 
 /// <summary>
@@ -478,5 +494,9 @@ public record SamplesOptions
     public bool Verbose { get; init; }
     public bool ListOnly { get; init; }
     public int? PrintSample { get; init; }
+    public bool OneLine { get; init; }
+    public bool NoHeader { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 }
