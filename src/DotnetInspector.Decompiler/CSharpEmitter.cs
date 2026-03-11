@@ -61,6 +61,12 @@ public static class CSharpEmitter
         // Catch handler statements to suppress (blockIndex, nodeIndex) — already emitted in catch clause
         readonly HashSet<(int blockIndex, int nodeIndex)> _catchVariableStatements;
 
+        // Interpolated string handler parts: handler variable name → ordered list of parts
+        readonly Dictionary<string, List<InterpolationPart>> _interpolationParts = [];
+
+        // Nodes to skip because they are part of an interpolated string handler pattern
+        readonly HashSet<ILAstNode> _interpolationSkipNodes = [];
+
         // Return blocks whose gotos have been inlined — suppress the block itself
         readonly HashSet<string> _inlinedReturnLabels;
 
@@ -126,6 +132,144 @@ public static class CSharpEmitter
                 if (cond.FollowIndex >= 0 && _blockStartOffset.TryGetValue(cond.FollowIndex, out int followOff))
                     _loopConsumedLabels.Add($"IL_{followOff:X4}");
             }
+
+            // Scan all blocks for string interpolation handler patterns
+            ScanForInterpolation(ast);
+        }
+
+        void ScanForInterpolation(ILAstMethod ast)
+        {
+            const string handlerType = "DefaultInterpolatedStringHandler";
+
+            foreach (var block in ast.Blocks)
+            {
+                // Find .ctor calls on DefaultInterpolatedStringHandler
+                string? handlerVar = null;
+                int ctorIdx = -1;
+
+                for (int i = 0; i < block.Nodes.Count; i++)
+                {
+                    if (block.Nodes[i] is not ILAstStatement { Expression: var expr })
+                        continue;
+                    if (expr.Operand is not string operand)
+                        continue;
+                    if (!operand.Contains(handlerType, StringComparison.Ordinal))
+                        continue;
+                    if (!operand.Contains("::.ctor", StringComparison.Ordinal))
+                        continue;
+
+                    // Extract receiver variable name from first argument (ldloca V_x)
+                    if (expr.Arguments.Count > 0)
+                    {
+                        var receiver = expr.Arguments[0];
+                        if (receiver.OpCode is ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                            or ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3)
+                        {
+                            handlerVar = RenderReceiverName(receiver);
+                            ctorIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (handlerVar is null || ctorIdx < 0) continue;
+
+                // Collect Append* calls on the same handler variable
+                var parts = new List<InterpolationPart>();
+                var skipNodes = new List<ILAstNode> { block.Nodes[ctorIdx] };
+
+                for (int i = ctorIdx + 1; i < block.Nodes.Count; i++)
+                {
+                    if (block.Nodes[i] is not ILAstStatement { Expression: var callExpr })
+                        break;
+                    if (callExpr.Operand is not string callOp
+                        || !callOp.Contains(handlerType, StringComparison.Ordinal))
+                        break;
+
+                    // Verify same receiver
+                    if (callExpr.Arguments.Count == 0) break;
+                    string receiverName = RenderReceiverName(callExpr.Arguments[0]);
+                    if (receiverName != handlerVar) break;
+
+                    if (callOp.Contains("::AppendLiteral", StringComparison.Ordinal))
+                    {
+                        // Literal text is the second argument (first is receiver)
+                        string? literal = callExpr.Arguments.Count > 1
+                            ? ExtractStringLiteral(callExpr.Arguments[1])
+                            : null;
+                        parts.Add(new InterpolationPart(true, literal ?? "", null));
+                        skipNodes.Add(block.Nodes[i]);
+                    }
+                    else if (callOp.Contains("::AppendFormatted", StringComparison.Ordinal))
+                    {
+                        // Formatted expression is the second argument
+                        var formatExpr = callExpr.Arguments.Count > 1 ? callExpr.Arguments[1] : null;
+                        parts.Add(new InterpolationPart(false, null, formatExpr));
+                        skipNodes.Add(block.Nodes[i]);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                if (parts.Count > 0)
+                {
+                    _interpolationParts[handlerVar] = parts;
+                    foreach (var n in skipNodes)
+                        _interpolationSkipNodes.Add(n);
+                }
+            }
+        }
+
+        string RenderReceiverName(ILAstExpression receiver)
+        {
+            // For ldloc/ldloca, the operand is the variable name string (e.g., "V_0")
+            if (receiver.Operand is string name) return name;
+            // Fallback for short-form ldloc_N opcodes without explicit operand
+            return receiver.OpCode switch
+            {
+                ILOpCode.Ldloc_0 => "V_0",
+                ILOpCode.Ldloc_1 => "V_1",
+                ILOpCode.Ldloc_2 => "V_2",
+                ILOpCode.Ldloc_3 => "V_3",
+                _ => "?"
+            };
+        }
+
+        static string? ExtractStringLiteral(ILAstExpression expr)
+        {
+            if (expr.OpCode == ILOpCode.Ldstr && expr.Operand is string s)
+            {
+                // Operand is stored with surrounding quotes, e.g., "\"Hello, \""
+                if (s.Length >= 2 && s[0] == '"' && s[^1] == '"')
+                    return s[1..^1];
+                return s;
+            }
+            return null;
+        }
+
+        void EmitInterpolatedString(List<InterpolationPart> parts)
+        {
+            _sb.Append("$\"");
+            foreach (var part in parts)
+            {
+                if (part.IsLiteral)
+                {
+                    // Escape braces in literal text
+                    _sb.Append((part.LiteralText ?? "")
+                        .Replace("{", "{{")
+                        .Replace("}", "}}"));
+                }
+                else if (part.FormatExpression is not null)
+                {
+                    _sb.Append('{');
+                    EmitExpression(part.FormatExpression);
+                    _sb.Append('}');
+                }
+            }
+            _sb.Append('"');
         }
 
         static HashSet<string> CollectGotoTargets(ILAstMethod ast)
@@ -165,6 +309,9 @@ public static class CSharpEmitter
             {
                 foreach (var local in _ast.Locals)
                 {
+                    // Skip handler variables consumed by interpolated string detection
+                    if (_interpolationParts.ContainsKey(local.Name))
+                        continue;
                     string typeName = SimplifyTypeName(local.TypeName ?? "var");
                     _sb.AppendLine($"{typeName} {local.Name};");
                 }
@@ -272,6 +419,8 @@ public static class CSharpEmitter
             for (int nodeIdx = 0; nodeIdx < astBlock.Nodes.Count; nodeIdx++)
             {
                 if (_catchVariableStatements.Contains((blockIndex, nodeIdx)))
+                    continue;
+                if (_interpolationSkipNodes.Contains(astBlock.Nodes[nodeIdx]))
                     continue;
 
                 var node = astBlock.Nodes[nodeIdx];
@@ -1570,6 +1719,19 @@ public static class CSharpEmitter
                 memberPart = methodName[(colonIdx + 2)..].TrimEnd('(', ')');
             }
 
+            // String interpolation: ToStringAndClear() on a detected handler → $"..."
+            if (memberPart is "ToStringAndClear" or "ToString"
+                && typePart.Contains("DefaultInterpolatedStringHandler", StringComparison.Ordinal)
+                && !expr.IsStaticCall && expr.Arguments.Count > 0)
+            {
+                string receiverName = RenderReceiverName(expr.Arguments[0]);
+                if (_interpolationParts.TryGetValue(receiverName, out var parts))
+                {
+                    EmitInterpolatedString(parts);
+                    return;
+                }
+            }
+
             // Base/chaining constructor call: this..ctor() → /* base..ctor() */
             if (memberPart == ".ctor" && !expr.IsStaticCall && expr.Arguments.Count > 0
                 && expr.Arguments[0].OpCode is ILOpCode.Ldarg_0)
@@ -2285,4 +2447,6 @@ public static class CSharpEmitter
             _ => typeName
         };
     }
+
+    record InterpolationPart(bool IsLiteral, string? LiteralText, ILAstExpression? FormatExpression);
 }

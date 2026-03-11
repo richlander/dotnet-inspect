@@ -366,4 +366,7 @@ public class CfgSampleClass
     public static string Ternary(int x) => x > 0 ? "positive" : "non-positive";
 
     public static int TernaryInt(int a, int b) => a > b ? a : b;
+
+    public static string StringInterpolation(string name, int age)
+        => $"Hello, {name}! You are {age} years old.";
 }

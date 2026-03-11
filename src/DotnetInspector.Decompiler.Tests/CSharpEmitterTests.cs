@@ -287,6 +287,19 @@ public class CSharpEmitterTests
     // --- Platform stress test ---
 
     [Fact]
+    public void StringInterpolation_EmitsInterpolatedString()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.StringInterpolation));
+
+        Assert.Contains("$\"", output);
+        Assert.Contains("{P_0}", output);
+        Assert.Contains("{P_1}", output);
+        Assert.DoesNotContain("AppendLiteral", output);
+        Assert.DoesNotContain("AppendFormatted", output);
+        Assert.DoesNotContain("DefaultInterpolatedStringHandler", output);
+    }
+
+    [Fact]
     public void PlatformAssembly_EmitAll_NoCrashes()
     {
         var assembly = typeof(object).Assembly;
