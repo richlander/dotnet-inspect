@@ -20,6 +20,7 @@ public static class RouterOptionsParser
         Option<bool> VersionOption,
         Option<bool> LatestVersionOption,
         Option<int?> VersionsOption,
+        Option<bool> PrereleaseOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
 
@@ -187,6 +188,7 @@ public static class RouterOptionsParser
         {
             PackageArgs = useBareName ? [bareName] : packageArgs,
             ListVersions = showLatestVersion || showVersions,
+            IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             Limit = showLatestVersion ? 1 : routerVersionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
