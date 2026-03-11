@@ -312,14 +312,16 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void ForeachLoop_EmitsUsingForEnumerator()
+    public void ForeachLoop_EmitsForeach()
     {
         string output = EmitMethod(nameof(CfgSampleClass.ForeachLoop));
 
-        // The enumerator should be wrapped in a using declaration
-        Assert.Contains("using var", output);
-        Assert.Contains("GetEnumerator", output);
+        Assert.Contains("foreach", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("MoveNext", output);
+        Assert.DoesNotContain("Current", output);
         Assert.DoesNotContain("Dispose", output);
+        Assert.DoesNotContain("try", output);
     }
 
     [Fact]

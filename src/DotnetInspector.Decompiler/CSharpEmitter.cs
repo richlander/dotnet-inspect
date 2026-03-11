@@ -271,7 +271,9 @@ public static class CSharpEmitter
                         if (disposeVar is not null)
                         {
                             _suppressedLocals.Add(disposeVar);
-                            // Mark the init stloc in a preceding sibling for skipping
+
+                            // Pre-detect foreach element variable
+                            ILAstExpression? initExpr = null;
                             for (int j = i - 1; j >= 0; j--)
                             {
                                 var sibling = block.Children[j];
@@ -284,12 +286,21 @@ public static class CSharpEmitter
                                         if (node is ILAstStatement { Expression: var stExpr }
                                             && stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_0 or ILOpCode.Stloc_1
                                                 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 or ILOpCode.Stloc_s
-                                            && stExpr.Operand == disposeVar)
+                                            && stExpr.Operand == disposeVar
+                                            && stExpr.Arguments.Count > 0)
                                         {
+                                            initExpr = stExpr.Arguments[0];
                                             _skipNodes.Add(node);
                                         }
                                     }
                                 }
+                            }
+
+                            // If init is GetEnumerator, find and suppress the Current element variable
+                            if (initExpr?.Operand is string initOp
+                                && initOp.Contains("GetEnumerator", StringComparison.Ordinal))
+                            {
+                                ScanForCurrentVariable(child, disposeVar);
                             }
                         }
                     }
@@ -304,12 +315,34 @@ public static class CSharpEmitter
                     _suppressedLocals.Add(disposeVar);
             }
 
-            foreach (var child in block.Children)
-                ScanForUsingPatterns(child);
-            foreach (var child in block.TryChildren)
-                ScanForUsingPatterns(child);
-            foreach (var child in block.HandlerChildren)
-                ScanForUsingPatterns(child);
+            foreach (var c in block.Children)
+                ScanForUsingPatterns(c);
+            foreach (var c in block.TryChildren)
+                ScanForUsingPatterns(c);
+            foreach (var c in block.HandlerChildren)
+                ScanForUsingPatterns(c);
+        }
+
+        void ScanForCurrentVariable(StructuredBlock tryBlock, string enumeratorVar)
+        {
+            // Look through try body blocks for a stloc that calls get_Current on the enumerator
+            foreach (var child in tryBlock.TryChildren)
+            {
+                if (child.BlockIndex >= 0 && _blockMap.TryGetValue(child.BlockIndex, out var astBlock))
+                {
+                    foreach (var node in astBlock.Nodes)
+                    {
+                        if (node is ILAstStatement { Expression: var stExpr }
+                            && stExpr.Arguments.Count > 0
+                            && HasCallInTree(stExpr.Arguments[0], "get_Current")
+                            && stExpr.Operand is string varName)
+                        {
+                            _suppressedLocals.Add(varName);
+                            return;
+                        }
+                    }
+                }
+            }
         }
 
         void EmitInterpolatedString(List<InterpolationPart> parts)
@@ -1256,9 +1289,10 @@ public static class CSharpEmitter
             }
 
             // Emit: using (type var = expr) or using var var = expr;
+            ILAstExpression? initExpression = null;
             if (initBlockIndex >= 0 && _blockMap.TryGetValue(initBlockIndex, out var initBlock))
             {
-                // Find and emit the initialization
+                // Find the initialization expression
                 foreach (var node in initBlock.Nodes)
                 {
                     if (node is ILAstStatement { Expression: var stExpr }
@@ -1267,19 +1301,34 @@ public static class CSharpEmitter
                         && stExpr.Operand == disposeVar
                         && stExpr.Arguments.Count > 0)
                     {
-                        // Suppress this node from future emission
                         _skipNodes.Add(node);
-                        WriteIndent(indent);
-                        _sb.Append($"using var {disposeVar} = ");
-                        EmitExpression(stExpr.Arguments[0]);
-                        _sb.AppendLine(";");
+                        initExpression = stExpr.Arguments[0];
                         break;
                     }
                 }
             }
+
+            // Check for foreach pattern: GetEnumerator + MoveNext loop + Current
+            if (initExpression is not null
+                && initExpression.Operand is string initOp
+                && initOp.Contains("GetEnumerator", StringComparison.Ordinal)
+                && TryEmitForeach(block, disposeVar, initExpression, indent))
+            {
+                // Handler blocks consumed
+                MarkHandlerConsumed(block);
+                return;
+            }
+
+            // Regular using emission
+            if (initExpression is not null)
+            {
+                WriteIndent(indent);
+                _sb.Append($"using var {disposeVar} = ");
+                EmitExpression(initExpression);
+                _sb.AppendLine(";");
+            }
             else
             {
-                // Couldn't find init — emit using without initializer
                 WriteIndent(indent);
                 _sb.AppendLine($"using ({disposeVar})");
             }
@@ -1295,6 +1344,11 @@ public static class CSharpEmitter
                 EmitBasicBlock(block.BlockIndex, indent);
             }
 
+            MarkHandlerConsumed(block);
+        }
+
+        void MarkHandlerConsumed(StructuredBlock block)
+        {
             // Mark handler blocks as consumed (don't emit the finally)
             foreach (var child in block.HandlerChildren)
             {
@@ -1303,6 +1357,147 @@ public static class CSharpEmitter
                 if (child.ElseBlock?.BlockIndex >= 0) _consumedBlocks.Add(child.ElseBlock.BlockIndex);
                 if (child.ConditionBlockIndex >= 0) _consumedBlocks.Add(child.ConditionBlockIndex);
             }
+        }
+
+        bool TryEmitForeach(StructuredBlock block, string enumeratorVar, ILAstExpression getEnumeratorExpr, int indent)
+        {
+            // Find the MoveNext loop and Current access in try body blocks
+            // Pattern: loop with MoveNext condition, body has Current assignment
+            var tryBlockIndices = block.TryChildren
+                .Where(c => c.BlockIndex >= 0)
+                .Select(c => c.BlockIndex)
+                .ToHashSet();
+
+            // Find the loop within the try body
+            NaturalLoop? foreachLoop = null;
+            foreach (var loop in _structure.Loops)
+            {
+                if (tryBlockIndices.Contains(loop.HeaderIndex))
+                {
+                    foreachLoop = loop;
+                    break;
+                }
+            }
+            if (foreachLoop is null) return false;
+
+            // Verify the loop header has a MoveNext call
+            if (!_blockMap.TryGetValue(foreachLoop.HeaderIndex, out var headerBlock))
+                return false;
+
+            bool hasMoveNext = false;
+            foreach (var node in headerBlock.Nodes)
+            {
+                if (node is ILAstStatement { Expression: var expr }
+                    && HasCallInTree(expr, "MoveNext"))
+                {
+                    hasMoveNext = true;
+                    break;
+                }
+            }
+            if (!hasMoveNext) return false;
+
+            // Find Current access in the loop body — look for .Current property get
+            string? elementVar = null;
+            int currentBlockIdx = -1;
+            int currentNodeIdx = -1;
+
+            foreach (int bodyIdx in foreachLoop.BodyIndices.OrderBy(x => x))
+            {
+                if (bodyIdx == foreachLoop.HeaderIndex) continue;
+                if (!_blockMap.TryGetValue(bodyIdx, out var bodyBlock)) continue;
+
+                for (int ni = 0; ni < bodyBlock.Nodes.Count; ni++)
+                {
+                    var node = bodyBlock.Nodes[ni];
+                    if (node is ILAstStatement { Expression: var stExpr }
+                        && stExpr.Arguments.Count > 0
+                        && HasCallInTree(stExpr.Arguments[0], "get_Current"))
+                    {
+                        elementVar = stExpr.Operand;
+                        currentBlockIdx = bodyIdx;
+                        currentNodeIdx = ni;
+                        break;
+                    }
+                }
+                if (elementVar is not null) break;
+            }
+            if (elementVar is null) return false;
+
+            // Extract collection from GetEnumerator receiver
+            ILAstExpression? collection = null;
+            if (!getEnumeratorExpr.IsStaticCall && getEnumeratorExpr.Arguments.Count > 0)
+                collection = getEnumeratorExpr.Arguments[0];
+
+            // Get element type from the local's type
+            string elementType = "var";
+            foreach (var local in _ast.Locals)
+            {
+                if (local.Name == elementVar && local.TypeName is not null)
+                {
+                    elementType = SimplifyTypeName(local.TypeName);
+                    break;
+                }
+            }
+
+            // Suppress element variable and enumerator variable declarations
+            _suppressedLocals.Add(elementVar);
+
+            // Emit: foreach (type element in collection)
+            WriteIndent(indent);
+            _sb.Append($"foreach ({elementType} {elementVar} in ");
+            if (collection is not null)
+                EmitExpression(collection);
+            else
+                _sb.Append(enumeratorVar); // fallback
+            _sb.AppendLine(")");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+
+            // Emit loop body blocks (excluding header/MoveNext and Current assignment)
+            _skipNodes.Add(headerBlock.Nodes[^1]); // Skip MoveNext branch
+            if (currentBlockIdx >= 0 && currentNodeIdx >= 0
+                && _blockMap.TryGetValue(currentBlockIdx, out var curBlock))
+                _skipNodes.Add(curBlock.Nodes[currentNodeIdx]); // Skip Current assignment
+
+            foreach (int bodyIdx in foreachLoop.BodyIndices.OrderBy(x => x))
+            {
+                if (bodyIdx == foreachLoop.HeaderIndex) continue;
+                _consumedBlocks.Remove(bodyIdx); // Ensure body blocks can be emitted
+                EmitBasicBlock(bodyIdx, indent + 1);
+            }
+
+            WriteIndent(indent);
+            _sb.AppendLine("}");
+
+            // Mark all try blocks as consumed, suppress leave targets
+            foreach (var child in block.TryChildren)
+            {
+                if (child.BlockIndex >= 0)
+                {
+                    _consumedBlocks.Add(child.BlockIndex);
+                    // Suppress leave target labels
+                    if (_blockMap.TryGetValue(child.BlockIndex, out var tryAst2))
+                    {
+                        foreach (var node in tryAst2.Nodes)
+                        {
+                            if (node is ILAstStatement { Expression: { OpCode: ILOpCode.Leave or ILOpCode.Leave_s, Operand: string leaveTarget } })
+                                _loopConsumedLabels.Add(leaveTarget);
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        static bool HasCallInTree(ILAstExpression expr, string methodName)
+        {
+            if (expr.Operand is string op && op.Contains(methodName, StringComparison.Ordinal))
+                return true;
+            foreach (var arg in expr.Arguments)
+                if (HasCallInTree(arg, methodName))
+                    return true;
+            return false;
         }
 
         StructuredBlock? FindParentSequence(StructuredBlock target)
