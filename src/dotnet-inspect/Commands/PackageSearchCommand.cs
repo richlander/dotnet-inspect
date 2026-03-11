@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -41,7 +43,18 @@ public class PackageSearchCommand
                 return 0;
             }
 
-            Console.WriteLine(PackageSearchOutputFormatter.FormatResults(results, options.Query));
+            var view = new PackageSearchResultView
+            {
+                Title = $"NuGet Search: {options.Query}",
+                Results = results.Select(r => new PackageSearchRow(
+                    r.PackageId,
+                    r.Version,
+                    PackageSearchOutputFormatter.FormatDownloads(r.TotalDownloads),
+                    PackageSearchOutputFormatter.TruncateDescription(r.Description, 60)
+                )).ToList(),
+                Description = $"{results.Count} package(s) found"
+            };
+            MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), PackageSearchResultContext.Default);
             return 0;
         }
         catch (Exception ex)

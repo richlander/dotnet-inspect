@@ -389,10 +389,7 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            var writer = new Markout.MarkoutWriter(options.CreateFormatter(), writerOptions);
-            new MarkoutContext().Serialize(view, writer);
-
-            Console.WriteLine(writer.ToString().TrimEnd());
+            new MarkoutContext().Serialize(view, Console.Out, options.CreateFormatter(), writerOptions);
         }
     }
 
@@ -571,13 +568,13 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var writer = new Markout.MarkoutWriter(options.CreateFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(Console.Out, options.CreateFormatter(), writerOptions);
             new MarkoutContext().Serialize(view, writer);
 
             if (view.MemberCode != null)
                 new MarkoutContext().Serialize(view.MemberCode, writer);
 
-            Console.WriteLine(writer.ToString().TrimEnd());
+            writer.Flush();
         }
     }
 
