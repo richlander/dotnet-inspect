@@ -254,12 +254,7 @@ public class DependsCommand
 
             if (group.Dependencies.Count == 0)
             {
-                var emptyView = new EmptyDepsView
-                {
-                    Title = $"{packageName} ({version})",
-                    Description = $"No additional dependencies for {tfm}."
-                };
-                Console.WriteLine(new MarkoutContext().Serialize(emptyView));
+                Console.Error.WriteLine($"No additional dependencies for {tfm}.");
                 return 0;
             }
 
