@@ -62,12 +62,9 @@ public class DependsCommand
             else
             {
                 var rootName = options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!;
-                var view = new TypeDependenciesView
-                {
-                    Title = rootName,
-                    Dependencies = ToTreeNodes(result.Tree)
-                };
-                MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), TypeDependenciesContext.Default);
+                Console.Out.WriteLine(rootName);
+                var treeWriter = new TreeWriter(Console.Out);
+                treeWriter.WriteTree(ToTreeNodes(result.Tree).ToArray());
             }
 
             return 0;
