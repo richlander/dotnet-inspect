@@ -21,10 +21,10 @@ jobs:
     environment: nuget-publish
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Download all packages from CI run
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: packages
           pattern: package-*
@@ -36,7 +36,7 @@ jobs:
         run: ls -la packages/
       
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
