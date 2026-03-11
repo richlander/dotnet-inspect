@@ -218,9 +218,7 @@ internal static class ApiServices
             if (api == null)
                 continue;
 
-            var match = api.Types.FirstOrDefault(t =>
-                t.FullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
-                t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase));
+            var match = api.Types.FirstOrDefault(t => TypeMatcher.Matches(t.FullName, typeName));
 
             if (match != null)
             {

@@ -13,12 +13,21 @@ public class TypeDependencyScannerTests
     private static string[] GetRefAssemblyPaths()
     {
         // Find the ref pack directory for the current runtime
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT")
-            ?? Path.GetDirectoryName(Path.GetDirectoryName(typeof(object).Assembly.Location))
-            ?? "/usr/lib/dotnet/shared/Microsoft.NETCore.App";
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string root;
 
-        // Walk up to the dotnet root and find ref packs
-        var root = Path.GetFullPath(Path.Combine(dotnetRoot, "..", ".."));
+        if (dotnetRoot != null)
+        {
+            root = dotnetRoot;
+        }
+        else
+        {
+            // Assembly.Location is under shared/Microsoft.NETCore.App/<version>/ — walk up to dotnet root
+            var sharedDir = Path.GetDirectoryName(Path.GetDirectoryName(typeof(object).Assembly.Location))
+                ?? "/usr/lib/dotnet/shared/Microsoft.NETCore.App";
+            root = Path.GetFullPath(Path.Combine(sharedDir, "..", ".."));
+        }
+
         var refDir = Directory.GetDirectories(Path.Combine(root, "packs", "Microsoft.NETCore.App.Ref"))
             .OrderByDescending(d => d)
             .FirstOrDefault();
@@ -136,10 +145,10 @@ public class TypeDependencyScannerTests
         var directNames = tree.Select(n => TypeMatcher.Normalize(n.TypeName)).ToList();
 
         // INumberBase should be a direct dep of INumber
-        Assert.Contains(directNames, n => n.EndsWith("INumberBase"));
+        Assert.Contains(directNames, n => TypeMatcher.GetBaseName(n).EndsWith("INumberBase"));
 
         // IAdditionOperators is a transitive dep (through INumberBase), not direct
-        Assert.DoesNotContain(directNames, n => n.EndsWith("IAdditionOperators"));
+        Assert.DoesNotContain(directNames, n => TypeMatcher.GetBaseName(n).EndsWith("IAdditionOperators"));
     }
 
     [Fact]

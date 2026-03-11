@@ -51,8 +51,6 @@ public static class MemberCommand
 
         try
         {
-            typeName = GenericTypeNameConverter.Convert(typeName!);
-
             var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
             if (api == null)
             {
@@ -64,7 +62,7 @@ public static class MemberCommand
                 ApiServices.ResolveForwardedTypes(api, apiDllPath, logger, options.IncludeAll);
 
             var allTypeNames = api.Types.Select(t => t.FullName).ToList();
-            var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName);
+            var lookupResult = TypeMatcher.Lookup(allTypeNames, typeName!);
 
             if (lookupResult.Match == null)
             {
@@ -246,7 +244,7 @@ public static class MemberCommand
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
                 if (dllPath != null)
-                    await SourceEnricher.EnrichDocsAsync(apiType, typeName, dllPath, effectiveOptions, logger, context.HttpClient);
+                    await SourceEnricher.EnrichDocsAsync(apiType, typeName!, dllPath, effectiveOptions, logger, context.HttpClient);
             }
 
             // Resolve method source code for --index view (after PDB acquisition)

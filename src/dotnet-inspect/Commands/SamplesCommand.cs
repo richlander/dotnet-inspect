@@ -223,9 +223,6 @@ public class SamplesCommand
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        // Convert C# generic syntax (List<T>) to metadata format (List`1)
-        typeName = GenericTypeNameConverter.Convert(typeName);
-
         var apiOptions = new ApiOptions
         {
             PackagePath = options.PackagePath,

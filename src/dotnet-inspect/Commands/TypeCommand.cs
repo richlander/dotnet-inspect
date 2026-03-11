@@ -119,8 +119,6 @@ public static class TypeCommand
             }
             else
             {
-                typeName = GenericTypeNameConverter.Convert(typeName);
-
                 var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
                 if (api == null)
                 {
