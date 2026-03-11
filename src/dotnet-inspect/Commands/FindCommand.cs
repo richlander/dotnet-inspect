@@ -76,6 +76,12 @@ public class FindCommand
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
 
+        if (view.Results == null && view.Description != null)
+        {
+            Console.Error.WriteLine(view.Description);
+            return;
+        }
+
         if (options.OneLine)
         {
             var writerOpts = new MarkoutWriterOptions

@@ -61,7 +61,6 @@ public static class ApiCommandDefinitions
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
-        shapeOption.Aliases.Add("--tree");
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var memberOption = new Option<string[]>("-m")
         {
@@ -84,7 +83,6 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(tfmOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
-        typeCommand.Options.Add(opts.Limit);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(oneLineOption);
@@ -175,7 +173,7 @@ public static class ApiCommandDefinitions
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
         var ofOption = new Option<string>("-of") { Description = "Select member overload by first parameter type" };
-        var selectOption = new Option<bool>("--select") { Description = "Show member overload index (Name:N) column" };
+        var selectOption = new Option<bool>("--show-index") { Description = "Show member overload index (Name:N) column" };
         var kindOption = new Option<string[]>("-k")
         {
             Description = "Filter by member kind (method, property, field, event, constructor)",

@@ -136,6 +136,12 @@ public class ImplementsCommand
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
+        if (view.Rows == null && view.Description != null)
+        {
+            Console.Error.WriteLine(view.Description);
+            return;
+        }
+
         if (oneLine)
         {
             var writerOpts = new MarkoutWriterOptions
