@@ -37,4 +37,24 @@ public static class Hints
         Console.Error.WriteLine();
         MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
     }
+
+    public static void WriteLegend(params LegendEntry[] entries)
+    {
+        if (entries.Length == 0) return;
+
+        var view = new LegendView { Entries = [.. entries] };
+
+        Console.Out.Flush();
+        Console.Error.WriteLine();
+        MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
+    }
+
+    public static void WriteDiffLegend()
+    {
+        WriteLegend(
+            new("+", "added type"),
+            new("~", "modified (non-breaking)"),
+            new("x", "modified (breaking)"),
+            new("-", "removed type"));
+    }
 }

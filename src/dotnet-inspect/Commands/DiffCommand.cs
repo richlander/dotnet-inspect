@@ -292,6 +292,7 @@ public record DiffOptions
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
     public bool Additive { get; init; }
+    public bool Legend { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }

@@ -46,6 +46,7 @@ public static class InspectionCommandDefinitions
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
+        var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -59,13 +60,14 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
+        diffCommand.Options.Add(legendOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Select);
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, oneLineOption, noHeaderOption, nameOnlyOption, breakingOption, additiveOption);
+            typeFilterOption, oneLineOption, noHeaderOption, nameOnlyOption, breakingOption, additiveOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -82,6 +84,9 @@ public static class InspectionCommandDefinitions
 
                     if (exitCode == 0)
                     {
+                        if (success.Options.Legend)
+                            Hints.WriteDiffLegend();
+
                         var tips = DiffOptionsParser.BuildTips(success.Options, success.Options.TypeFilter);
                         Hints.WriteTips(success.TipLevel, [.. tips]);
                     }

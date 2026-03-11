@@ -28,7 +28,8 @@ public static class DiffOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> NameOnlyOption,
         Option<bool> BreakingOption,
-        Option<bool> AdditiveOption);
+        Option<bool> AdditiveOption,
+        Option<bool> LegendOption);
 
     /// <summary>
     /// Result of parsing diff command options.
@@ -106,6 +107,7 @@ public static class DiffOptionsParser
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
             Additive = parseResult.GetValue(args.AdditiveOption),
+            Legend = parseResult.GetValue(args.LegendOption),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
