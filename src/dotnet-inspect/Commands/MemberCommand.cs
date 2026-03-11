@@ -19,10 +19,10 @@ public static class MemberCommand
     public static async Task<int> ExecuteAsync(MemberOptions options)
     {
         // Validate that member command has a type argument
-        if (options.MemberFilter.Count > 0 && string.IsNullOrEmpty(options.TypeName))
+        if (string.IsNullOrEmpty(options.TypeName))
         {
-            Console.Error.WriteLine("Error: --member requires a type argument.");
-            Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg> -m <name>");
+            Console.Error.WriteLine("Error: member requires a type name.");
+            Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
             Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
             return 1;
         }
