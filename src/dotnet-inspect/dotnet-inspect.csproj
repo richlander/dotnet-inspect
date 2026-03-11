@@ -7,8 +7,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RollForward>LatestMajor</RollForward>
-    <!-- Size optimizations for Native AOT (11M → 9.8M) -->
-    <StackTraceSupport>false</StackTraceSupport>
+    <!-- Size optimizations for Native AOT -->
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Size</OptimizationPreference>
@@ -22,7 +21,7 @@
     <Authors>Richard Lander</Authors>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.6.1</VersionPrefix>
+    <VersionPrefix>0.6.2</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
