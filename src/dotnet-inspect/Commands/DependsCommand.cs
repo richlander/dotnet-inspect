@@ -38,29 +38,36 @@ public class DependsCommand
             logger.Log($"Scanning {assemblyInfos.Count} libraries for type {options.TargetType}");
 
             var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
-            var tree = TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+            var result = TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
 
-            if (tree.Count == 0)
+            if (!result.Found)
             {
                 Console.Error.WriteLine($"Type '{options.TargetType}' not found in the specified scope.");
                 return 1;
             }
 
+            if (result.Tree.Count == 0)
+            {
+                Console.Error.WriteLine($"Type '{result.MatchedType}' has no type dependencies beyond System.Object.");
+                return 0;
+            }
+
             if (options.JsonOutput)
             {
-                JsonOutputHelper.Write(tree,
+                JsonOutputHelper.Write(result.Tree,
                     DependsJsonContext.Default.ListTypeDependencyNode,
                     DependsCompactJsonContext.Default.ListTypeDependencyNode,
                     options.CompactJson);
             }
             else
             {
+                var rootName = options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!;
                 var view = new TypeDependenciesView
                 {
-                    Title = options.TargetType,
-                    Dependencies = ToTreeNodes(tree)
+                    Title = rootName,
+                    Dependencies = ToTreeNodes(result.Tree)
                 };
-                MarkoutSerializer.Serialize(view, Console.Out, TypeDependenciesContext.Default);
+                MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), TypeDependenciesContext.Default);
             }
 
             return 0;

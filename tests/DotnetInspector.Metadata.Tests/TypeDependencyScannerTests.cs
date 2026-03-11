@@ -48,11 +48,11 @@ public class TypeDependencyScannerTests
     [Fact]
     public void Stream_HasExpectedDependencies()
     {
-        var tree = TypeDependencyScanner.BuildDependencyTree("Stream", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("Stream", RefAssemblies);
 
-        Assert.NotEmpty(tree);
+        Assert.NotEmpty(result.Tree);
 
-        var names = tree.Select(n => n.TypeName).ToList();
+        var names = result.Tree.Select(n => n.TypeName).ToList();
         Assert.Contains(names, n => n == "System.IDisposable");
         Assert.Contains(names, n => n == "System.IAsyncDisposable");
         // Stream extends MarshalByRefObject
@@ -63,34 +63,34 @@ public class TypeDependencyScannerTests
     public void IDisposable_HasNoDependencies()
     {
         // IDisposable is a leaf — no base interfaces
-        var tree = TypeDependencyScanner.BuildDependencyTree("IDisposable", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("IDisposable", RefAssemblies);
 
-        Assert.Empty(tree);
+        Assert.Empty(result.Tree);
     }
 
     [Fact]
     public void UnknownType_ReturnsEmpty()
     {
-        var tree = TypeDependencyScanner.BuildDependencyTree("NonExistentType12345", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("NonExistentType12345", RefAssemblies);
 
-        Assert.Empty(tree);
+        Assert.Empty(result.Tree);
     }
 
     [Fact]
     public void EmptyAssemblyList_ReturnsEmpty()
     {
-        var tree = TypeDependencyScanner.BuildDependencyTree("Stream", []);
+        var result = TypeDependencyScanner.BuildDependencyTree("Stream", []);
 
-        Assert.Empty(tree);
+        Assert.Empty(result.Tree);
     }
 
     [Fact]
     public void IComparable_Generic_HasNoDependencies()
     {
         // IComparable<T> is a leaf interface
-        var tree = TypeDependencyScanner.BuildDependencyTree("IComparable", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("IComparable", RefAssemblies);
 
-        Assert.Empty(tree);
+        Assert.Empty(result.Tree);
     }
 
     [Fact]
@@ -98,13 +98,13 @@ public class TypeDependencyScannerTests
     {
         // INumber<TSelf> has many transitive deps;
         // each type should be expanded (shown with children) at most once
-        var tree = TypeDependencyScanner.BuildDependencyTree("INumber", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("INumber", RefAssemblies);
 
-        Assert.NotEmpty(tree);
+        Assert.NotEmpty(result.Tree);
 
         // Collect all expanded nodes (those with children)
         var expandedNames = new List<string>();
-        CollectExpandedNames(tree, expandedNames);
+        CollectExpandedNames(result.Tree, expandedNames);
 
         // Each expanded name should appear exactly once
         var duplicates = expandedNames
@@ -120,12 +120,12 @@ public class TypeDependencyScannerTests
     public void ConcreteType_ResolvesTypeArguments()
     {
         // Int128 implements interfaces with concrete type arguments
-        var tree = TypeDependencyScanner.BuildDependencyTree("Int128", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("Int128", RefAssemblies);
 
-        Assert.NotEmpty(tree);
+        Assert.NotEmpty(result.Tree);
 
         var allNames = new List<string>();
-        CollectNames(tree, allNames);
+        CollectNames(result.Tree, allNames);
 
         // Should have concrete type args like System.Int128, not just TSelf
         Assert.Contains(allNames, n => n.Contains("System.Int128"));
@@ -138,11 +138,11 @@ public class TypeDependencyScannerTests
         // INumberBase<TSelf> inherits from IAdditionOperators, etc.
         // The root nodes of INumber should NOT include IAdditionOperators
         // (it should only appear as a child of INumberBase)
-        var tree = TypeDependencyScanner.BuildDependencyTree("INumber", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("INumber", RefAssemblies);
 
-        Assert.NotEmpty(tree);
+        Assert.NotEmpty(result.Tree);
 
-        var directNames = tree.Select(n => TypeMatcher.Normalize(n.TypeName)).ToList();
+        var directNames = result.Tree.Select(n => TypeMatcher.Normalize(n.TypeName)).ToList();
 
         // INumberBase should be a direct dep of INumber
         Assert.Contains(directNames, n => TypeMatcher.GetBaseName(n).EndsWith("INumberBase"));
@@ -155,10 +155,10 @@ public class TypeDependencyScannerTests
     public void SystemRoot_IsExcluded()
     {
         // Object, ValueType, Enum should never appear in the tree
-        var tree = TypeDependencyScanner.BuildDependencyTree("Int128", RefAssemblies);
+        var result = TypeDependencyScanner.BuildDependencyTree("Int128", RefAssemblies);
 
         var allNames = new List<string>();
-        CollectNames(tree, allNames);
+        CollectNames(result.Tree, allNames);
 
         Assert.DoesNotContain(allNames, n => n == "System.Object");
         Assert.DoesNotContain(allNames, n => n == "System.ValueType");
