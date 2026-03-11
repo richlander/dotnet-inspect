@@ -244,21 +244,9 @@ public static class MemberCommand
 
             // Enrich with source/doc info
             {
-                bool wantsDocs = effectiveOptions.ShowDocs && effectiveOptions.Verbosity >= Verbosity.Normal;
-                bool fullEnrich = effectiveOptions.Verbosity >= Verbosity.Detailed;
-
-                if (fullEnrich)
-                {
-                    var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                    if (pdbLookupPath != null)
-                        await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
-                }
-                else if (wantsDocs)
-                {
-                    var dllPath = runtimeAssemblyPath ?? apiDllPath;
-                    if (dllPath != null)
-                        SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
-                }
+                var dllPath = runtimeAssemblyPath ?? apiDllPath;
+                if (dllPath != null)
+                    await SourceEnricher.EnrichDocsAsync(apiType, typeName, dllPath, effectiveOptions, logger, context.HttpClient);
             }
 
             // Resolve method source code for --index view (after PDB acquisition)

@@ -91,10 +91,10 @@ internal static class ApiServices
 
             var (apiType, foundIn, dllPath, surface) = FindType(typeName, searchPath, logger, options.IncludeAll);
 
-            if (apiType != null && dllPath != null && options.ShowDocs)
+            if (apiType != null && dllPath != null)
             {
                 var pdbLookupPath = runtimeAssemblyPath ?? dllPath;
-                await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, options, logger, httpClient);
+                await SourceEnricher.EnrichDocsAsync(apiType, typeName, pdbLookupPath, options, logger, httpClient);
             }
 
             return (apiType, foundIn, dllPath);
@@ -180,7 +180,7 @@ internal static class ApiServices
 
             if (options.ShowDocs || options.ShowSamples)
             {
-                await SourceEnricher.EnrichTypesWithSourceInfoBatchedAsync(api.Types.ToList(), dllPath, options, logger, httpClient);
+                await SourceEnricher.EnrichDocsAsync(api.Types.ToList(), dllPath, options, logger, httpClient);
             }
 
             return (api, selectedTfm);

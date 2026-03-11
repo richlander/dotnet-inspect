@@ -37,6 +37,51 @@ internal static class SourceEnricher
             context.WindowsPdbDetected = true;
     }
 
+    // ===== Verbosity-Aware Enrichment Gateways =====
+
+    /// <summary>
+    /// Enriches a single type with documentation based on verbosity:
+    /// Detailed+ or ShowSamples → full remote (PDB/SourceLink); Normal + ShowDocs → local XML only.
+    /// </summary>
+    internal static async Task EnrichDocsAsync(
+        ApiType apiType, string typeName, string dllPath,
+        ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    {
+        if (options.ShowSamples || options.Verbosity >= Verbosity.Detailed)
+            await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger, httpClient);
+        else if (options.ShowDocs && options.Verbosity >= Verbosity.Normal)
+            EnrichFromLocalXmlDocs(apiType, dllPath, options, logger);
+    }
+
+    /// <summary>
+    /// Enriches a list of types with documentation based on verbosity:
+    /// Detailed+ or ShowSamples → full remote (PDB/SourceLink); Normal + ShowDocs → local XML only.
+    /// Platform assemblies always use local XML (ref assemblies lack PDBs).
+    /// </summary>
+    internal static async Task EnrichDocsAsync(
+        List<ApiType> types, string dllPath,
+        ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    {
+        bool fullRemote = options.ShowSamples || options.Verbosity >= Verbosity.Detailed;
+        bool localDocs = options.ShowDocs && options.Verbosity >= Verbosity.Normal;
+
+        if (!fullRemote && !localDocs) return;
+
+        if (!string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            // Platform: always local XML (ref assemblies don't have PDBs)
+            EnrichTypesFromXmlDoc(types, options, logger);
+        }
+        else if (fullRemote)
+        {
+            await EnrichTypesWithSourceInfoBatchedAsync(types, dllPath, options, logger, httpClient);
+        }
+        else
+        {
+            EnrichFromLocalXmlDocs(types, dllPath, options, logger);
+        }
+    }
+
     // ===== Single-Type Enrichment =====
 
     internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)

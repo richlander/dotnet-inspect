@@ -78,20 +78,13 @@ public static class TypeCommand
                 api.Version = apiVersion;
                 api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
 
-                bool wantsDocs = options.ShowDocs || options.ShowSamples
-                    || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
-                if (wantsDocs && pdbLookupPath != null)
-                {
-                    logger.Log("Enriching types with source info...");
-                    if (!string.IsNullOrEmpty(options.PlatformAssembly))
-                    {
-                        SourceEnricher.EnrichTypesFromXmlDoc(api.Types, options, logger);
-                    }
-                    else
-                    {
-                        SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, options, logger);
-                    }
-                }
+                // --columns Description implicitly enables doc enrichment
+                var listOptions = options;
+                if (options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true)
+                    listOptions = options with { ShowDocs = true };
+
+                if (pdbLookupPath != null)
+                    await SourceEnricher.EnrichDocsAsync(api.Types, pdbLookupPath, listOptions, logger, context.HttpClient);
 
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
@@ -190,21 +183,9 @@ public static class TypeCommand
 
                     // Enrich with source/doc info
                     {
-                        bool wantsDocs = effectiveOptions.ShowDocs && effectiveOptions.Verbosity >= Verbosity.Normal;
-                        bool fullEnrich = effectiveOptions.Verbosity >= Verbosity.Detailed;
-
-                        if (fullEnrich)
-                        {
-                            var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                            if (pdbLookupPath != null)
-                                await SourceEnricher.EnrichTypeWithSourceInfoAsync(apiType, typeName, pdbLookupPath, effectiveOptions, logger, context.HttpClient);
-                        }
-                        else if (wantsDocs)
-                        {
-                            var dllPath = runtimeAssemblyPath ?? apiDllPath;
-                            if (dllPath != null)
-                                SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
-                        }
+                        var dllPath = runtimeAssemblyPath ?? apiDllPath;
+                        if (dllPath != null)
+                            await SourceEnricher.EnrichDocsAsync(apiType, typeName, dllPath, effectiveOptions, logger, context.HttpClient);
                     }
 
 
