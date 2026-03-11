@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 
 namespace DotnetInspector.Services;
@@ -809,6 +810,67 @@ public static class PlatformResolver
         }
 
         return new Version(0, 0, 0);
+    }
+
+    /// <summary>
+    /// Scans all platform ref assemblies in the runtime framework to find which
+    /// library contains a given type. Returns the library name (without .dll), or null.
+    /// </summary>
+    public static string? FindLibraryContainingType(string typeName)
+    {
+        var frameworks = GetInstalledFrameworks();
+        var runtime = frameworks.FirstOrDefault(f => f.ShortName == "runtime");
+        if (runtime == null) return null;
+
+        var refPath = GetRefAssemblyPath(runtime.Path, runtime.LatestVersion);
+        if (refPath == null) return null;
+
+        var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        foreach (var dll in Directory.GetFiles(refPath, "*.dll"))
+        {
+            if (HasType(dll, normalized))
+                return System.IO.Path.GetFileNameWithoutExtension(dll);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lightweight type existence check using raw metadata.
+    /// </summary>
+    public static bool HasType(string assemblyPath, string typeName)
+    {
+        var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata) return false;
+
+            var mdReader = peReader.GetMetadataReader();
+            foreach (var handle in mdReader.TypeDefinitions)
+            {
+                var typeDef = mdReader.GetTypeDefinition(handle);
+                var name = mdReader.GetString(typeDef.Name);
+                var ns = mdReader.GetString(typeDef.Namespace);
+                var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+                if (Metadata.TypeMatcher.Matches(fullName, normalized))
+                    return true;
+            }
+
+            foreach (var handle in mdReader.ExportedTypes)
+            {
+                var exported = mdReader.GetExportedType(handle);
+                if (!exported.IsForwarder) continue;
+                var name = mdReader.GetString(exported.Name);
+                var ns = mdReader.GetString(exported.Namespace);
+                var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+                if (Metadata.TypeMatcher.Matches(fullName, normalized))
+                    return true;
+            }
+        }
+        catch { }
+        return false;
     }
 }
 

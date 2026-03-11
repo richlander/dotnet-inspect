@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -62,6 +63,8 @@ public static class SourceResolver
             if (name[j] == '.') dotCount++;
         if (dotCount < 2) return null;
 
+        string? platformCandidate = null;
+
         for (int i = name.Length - 1; i >= 0; i--)
         {
             if (name[i] != '.') continue;
@@ -74,15 +77,38 @@ public static class SourceResolver
             // Space 1: dotnet hive (ref packs + shared runtime)
             var (path, _, _, _) = PlatformResolver.ResolveAssembly(candidate);
             if (path != null)
-                return new LocalProbeResult(candidate, remainder, LocalSourceKind.Platform);
+            {
+                if (AssemblyHasType(path, remainder))
+                    return new LocalProbeResult(candidate, remainder, LocalSourceKind.Platform);
+                // Library exists but doesn't contain the type — remember the remainder
+                // and keep probing shorter prefixes
+                platformCandidate ??= remainder;
+                continue;
+            }
 
             // Space 2 & 3: dotnet-inspect cache + NuGet global cache
             if (NuGetCache.TryGetLatestCachedVersion(candidate) != null)
                 return new LocalProbeResult(candidate, remainder, LocalSourceKind.CachedPackage);
         }
 
+        // Fallback: a platform library matched but the type wasn't in it.
+        // Scan all runtime ref assemblies for the type (e.g., INumber<T> is in
+        // System.Runtime, not System.Numerics).
+        if (platformCandidate != null)
+        {
+            var runtimeLib = PlatformResolver.FindLibraryContainingType(platformCandidate);
+            if (runtimeLib != null)
+                return new LocalProbeResult(runtimeLib, platformCandidate, LocalSourceKind.Platform);
+        }
+
         return null;
     }
+
+    /// <summary>
+    /// Lightweight type existence check using raw metadata.
+    /// </summary>
+    internal static bool AssemblyHasType(string assemblyPath, string typeName)
+        => PlatformResolver.HasType(assemblyPath, typeName);
 
     /// <summary>
     /// Resolves source from positional arguments and explicit options.
