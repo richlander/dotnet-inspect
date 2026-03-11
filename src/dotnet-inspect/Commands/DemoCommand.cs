@@ -22,21 +22,22 @@ public class DemoCommand
     /// </summary>
     public static readonly DemoEntry[] Demos =
     [
-        // api (5)
+        // type (3)
         new("What does the generic math interface hierarchy look like?", "insight",
-            ["api", "System.Runtime", "INumber<TSelf>", "--shape"]),
+            ["type", "System.Numerics.INumber<TSelf>"]),
 
         new("How many interfaces does a 128-bit integer implement?", "insight",
-            ["api", "System.Runtime", "Int128", "--shape"]),
+            ["type", "Int128", "--platform", "System.Runtime"]),
 
         new("How does the runtime build tuples of any length?", "insight",
-            ["api", "System.Runtime", "ValueTuple", "--shape"]),
+            ["type", "ValueTuple", "--platform", "System.Runtime"]),
 
+        // member (2)
         new("What can JsonSerializer do?", "discovery",
-            ["api", "System.Text.Json", "JsonSerializer"]),
+            ["member", "JsonSerializer", "--package", "System.Text.Json"]),
 
         new("What does the options pattern look like under the hood?", "insight",
-            ["api", "--package", "Microsoft.Extensions.Options", "OptionsFactory", "Create"]),
+            ["member", "OptionsFactory", "--package", "Microsoft.Extensions.Options", "-m", "Create"]),
 
         // depends (1)
         new("What does IFloatingPointIeee754 depend on?", "insight",
