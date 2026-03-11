@@ -14,9 +14,12 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **Need API surface?** → `member Type --package Foo` (compact table by default)
 - **Need type shape?** → `type Type --package Foo` (tree view by default for single type)
 - **Need signatures?** → `member Type --package Foo -m Method` (default shows full signatures + docs)
-- **Need source/IL?** → `member Type --package Foo -m Method -v:d` (adds Source, Lowered C#, IL)
+- **Need source/IL?** → `member Type --package Foo -m Method:1 -v:d` (Source, Lowered C#, IL)
 - **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
 - **Need all overloads?** → `member Type --package Foo --select` (shows `Name:N` indices)
+- **Need package dependencies?** → `depends --package Foo`
+- **Need type hierarchy?** → `depends 'INumber<TSelf>'`
+- **Need specific fields?** → `-S Section --fields "PDB*"` (structured query, no DSL)
 
 ## When to Use This Skill
 
@@ -24,10 +27,11 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
 - **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
-- **"What extends this type?"** — `extensions` finds extension methods/properties
+- **"What extends this type?"** — `extensions` finds extension methods/properties (`--reachable` for transitive)
 - **"What implements this interface?"** — `implements` finds concrete types
-- **"What does this type depend on?"** — `depends` walks the type hierarchy upward
+- **"What does this type depend on?"** — `depends` walks type hierarchy, package deps, or library refs
 - **"What version/metadata does this have?"** — `package` and `library` inspect metadata
+- **"What TFMs are available?"** — `package Foo --tfms`, then `type --package Foo --tfm net8.0`
 - **"Show me something cool"** — `demo` runs curated showcase queries
 
 ## Key Patterns
@@ -40,25 +44,32 @@ dnx dotnet-inspect -y -- type --package System.Text.Json                     # s
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Use `--markdown` or `-v:*` for rich document output when you need full details:
+Four formatters: **plaintext** (default), **markdown** (`-v` or `--markdown`), **oneline** (`--oneline`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:m  # markdown with docs
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:d  # detailed (source/IL)
-```
-
-Single-type resolution shows `--shape` by default — a tree view of the type hierarchy and members:
-
-```bash
-dnx dotnet-inspect -y -- type 'HashSet<T>' --platform System.Collections    # shape view (default)
+dnx dotnet-inspect -y -- System.Text.Json -v:n --plaintext                      # all local sections, plaintext
 ```
 
 Use `diff` first when fixing broken code — triage changes, then drill into specifics:
 
 ```bash
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
-dnx dotnet-inspect -y -- diff -t Command --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # detail on Command
 dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3               # new API surface
+```
+
+## Structured Queries (like Go templates, without a DSL)
+
+Discover the schema, then select and project — no template language needed:
+
+```bash
+dnx dotnet-inspect -y -- System.Text.Json -D                          # list sections
+dnx dotnet-inspect -y -- System.Text.Json -D --effective              # sections with data (dry run)
+dnx dotnet-inspect -y -- library System.Text.Json -D --tree           # full schema tree
+dnx dotnet-inspect -y -- System.Text.Json -S Symbols                  # render one section
+dnx dotnet-inspect -y -- System.Text.Json -S Symbols --fields "PDB*"  # project specific fields
+dnx dotnet-inspect -y -- type System.Text.Json --columns Kind,Type    # project specific columns
 ```
 
 ## Search Scope
@@ -79,40 +90,39 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 | ------- | ------- |
 | `type` | **Discover types** — terse output, no docs, use `--shape` for hierarchy |
 | `member` | **Inspect members** — docs on by default, supports dotted syntax (`-m Type.Member`) |
-| `find` | Search for types by glob pattern across any scope |
+| `find` | Search for types by glob or fuzzy match across any scope |
 | `diff` | Compare API surfaces between versions — breaking/additive classification |
-| `extensions` | Find extension methods/properties for a type |
+| `extensions` | Find extension methods/properties for a type (`--reachable` for transitive) |
 | `implements` | Find types implementing an interface or extending a base class |
-| `depends` | Walk the type dependency hierarchy upward (interfaces, base classes) |
+| `depends` | Walk dependency graphs upward — type hierarchy, package deps, or library refs |
 | `package` | Package metadata, files, versions, dependencies, `search` for NuGet discovery |
-| `library` | Library metadata, symbols, references, dependencies |
+| `library` | Library metadata, symbols, references, SourceLink audit |
 | `demo` | Run curated showcase queries — list, invoke, or feeling-lucky |
 
-## Output Limiting
-
-**Do not pipe output through `head`, `tail`, or `Select-Object`.** The tool has built-in line limiting that preserves headers and formatting:
+## Filtering and Limiting
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -10    # first 10 lines
-dnx dotnet-inspect -y -- find "*Logger*" -n 5                                    # first 5 lines
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:q -s Methods  # select specific section
+dnx dotnet-inspect -y -- type System.Text.Json -k enum               # filter by kind (type or member level)
+dnx dotnet-inspect -y -- type System.Text.Json -t "*Converter*"      # glob filter on type names
+dnx dotnet-inspect -y -- member System.Text.Json JsonDocument -m Parse  # filter by member name
+dnx dotnet-inspect -y -- type System.Text.Json -5                    # first 5 lines (like head -5)
 ```
 
-- **`-n N` or `-N`** — line limit, like `head`. Keeps headers, truncates cleanly.
-- **`-S Field,Column`** — select specific fields/columns. Use `-S` alone to list available options.
-- **`-s Section`** — show only a specific section (glob-capable). Use `-s` alone to list available sections.
-- **`-v:q`** — quiet verbosity for compact summary output.
-- **`--markdown`** — switch from default compact output to rich markdown (or use `-v:*`).
+**Do not pipe output through `head`, `tail`, or `Select-Object`.** Use built-in limiting:
+
+- **`-n N` or `-N`** — line limit (like `head`). Keeps headers, truncates cleanly.
+- **`-m N`** (numeric) — item limit (members per kind section).
+- **`-k Kind`** — filter by kind: `class/struct/interface/enum/delegate` or `method/property/field/event/constructor`.
+- **`-S Section`** — show only a specific section (glob-capable).
 
 ## Key Syntax
 
 - **Generic types** need quotes: `'Option<T>'`, `'IEnumerable<T>'`
 - **Use `<T>` not `<>`** for generic types — `"Option<>"` resolves to the abstract base, `'Option<T>'` resolves to the concrete generic with constructors
 - **`type` uses `-t`** for type filtering, **`member` uses `-m`** for member filtering (not `--filter`)
-- **Dotted syntax** for `member`: `-m JsonSerializer.Deserialize`
+- **Dotted syntax** for `member`: `-m JsonSerializer.Deserialize` or `-m System.Text.Json.JsonSerializer.Deserialize`
 - **Diff ranges** use `..`: `--package System.Text.Json@9.0.0..10.0.0`
-- **Signatures** include `params` and default values from metadata
-- **Derived types** only show their own members — query the base type too (e.g., `RootCommand` inherits `Add()` and `SetAction()` from `Command`)
+- **Derived types** only show their own members — query the base type too
 
 ## Installation
 
