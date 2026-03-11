@@ -38,7 +38,7 @@ public static class PackageSearchOutputFormatter
         return sb.ToString();
     }
 
-    private static string FormatDownloads(long downloads)
+    public static string FormatDownloads(long downloads)
     {
         return downloads switch
         {
@@ -49,7 +49,7 @@ public static class PackageSearchOutputFormatter
         };
     }
 
-    private static string TruncateDescription(string? description, int maxLength)
+    public static string TruncateDescription(string? description, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(description))
             return "";

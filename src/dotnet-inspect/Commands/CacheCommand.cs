@@ -1,6 +1,8 @@
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -25,11 +27,25 @@ public class CacheCommand
     {
         var info = PackageCacheService.GetCacheInfo();
 
-        var categories = info.Categories
-            .Select(c => (c.Name, c.Size, c.Count))
-            .ToList();
+        if (info.Categories.Count == 0)
+        {
+            Console.WriteLine("Cache is empty.");
+            return 0;
+        }
 
-        Console.WriteLine(CacheOutputFormatter.FormatCacheInfo(info.Location, categories, info.TotalSize));
+        var view = new CacheInfoView
+        {
+            Location = info.Location,
+            Categories = info.Categories.Select(c =>
+            {
+                var label = c.Name == "Packages" ? "packages" : "files";
+                return new CacheCategoryRow(c.Name, CacheOutputFormatter.FormatSize(c.Size), $"{c.Count} {label}");
+            }).ToList(),
+            Total = CacheOutputFormatter.FormatSize(info.TotalSize)
+        };
+
+        MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
+        Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
         return 0;
     }
 
