@@ -64,7 +64,7 @@ Tips:
 grep -c '| ---- |'
 ```
 
-### 1b. Quiet mode (summary tables)
+### 1b. Quiet mode (heading only)
 
 ```bash
 dotnet-inspect member --package System.CommandLine Command -v:q
@@ -73,13 +73,14 @@ dotnet-inspect member --package System.CommandLine Command -v:q
 ```expect
 # System.CommandLine.Command
 Kind: class
-## Constructors
-## Properties
-## Methods
+Constructors: 1
+Properties: 8
+Methods: 10
 ```
 
 ```expect-not
-| Signature |
+## Constructors
+## Properties
 Tips:
 ```
 
@@ -134,13 +135,12 @@ dotnet-inspect member System.Text.Json JsonSerializer -m 'Deseri*' -v:q
 
 ```expect
 # System.Text.Json.JsonSerializer
-## Methods
-| Name |
+Kind: class
+Methods: 103
 ```
 
 ```expect-not
-| Signature |
-Serialize
+## Methods
 Tips:
 ```
 
@@ -251,12 +251,12 @@ dotnet-inspect member --package System.CommandLine Command --ctor -v:q
 
 ```expect
 # System.CommandLine.Command
-## Constructors
-| Name |
+Kind: class
+Constructors: 1
 ```
 
 ```expect-not
-## Methods
+## Constructors
 Tips:
 ```
 
@@ -274,7 +274,7 @@ dotnet-inspect member System.Text.Json JsonSerializer -v:q
 # System.Text.Json.JsonSerializer
 Kind: class
 Source: Platform
-## Methods
+Methods: 103
 ```
 
 ### 6b. Filter to specific method
@@ -348,6 +348,9 @@ dotnet-inspect member --package Microsoft.Extensions.Options 'OptionsFactory`1' 
 ```expect
 # Microsoft.Extensions.Options.OptionsFactory<TOptions>
 Kind: class
+Type Parameters: TOptions
+Constructors: 2
+Methods: 1
 ```
 
 ### 9b. Using quoted generic syntax
