@@ -10,7 +10,7 @@ public class ImplementsResultView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
-    public int Matches { get; set; }
+    [MarkoutIgnore] public int Matches { get; set; }
 
     [MarkoutSection(Name = "Implementers")]
     public List<ImplementerRow>? Rows { get; set; }

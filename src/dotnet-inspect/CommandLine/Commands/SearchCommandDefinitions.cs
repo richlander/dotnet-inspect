@@ -207,7 +207,7 @@ public static class SearchCommandDefinitions
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = parseResult.GetValue(oneLineOption),
+                OneLine = opts.ResolveOneLine(parseResult, oneLineOption),
                 NoHeader = parseResult.GetValue(noHeaderOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Columns = opts.ParseColumns(parseResult),
