@@ -66,9 +66,12 @@ public class DependsCommand
             else
             {
                 var rootName = options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!;
-                Console.Out.WriteLine(rootName);
-                var treeWriter = new TreeWriter(Console.Out);
-                treeWriter.WriteTree(ToTreeNodes(result.Tree).ToArray());
+                var view = new PackageDependenciesView
+                {
+                    Title = rootName,
+                    Dependencies = ToTreeNodes(result.Tree)
+                };
+                MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
             }
 
             return 0;
@@ -95,8 +98,6 @@ public class DependsCommand
             var libraryName = options.LibraryName!;
             string? assemblyPath = null;
             string? assemblyName = null;
-            string? assemblyVersion = null;
-            string? tfm = null;
 
             // Resolve library: local file → platform → package
             if (File.Exists(libraryName))
@@ -143,14 +144,6 @@ public class DependsCommand
             var (refs, company) = AssemblyInspector.ExtractReferencesAndCompany(assemblyPath);
             assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
-            // Get assembly version/TFM via quick metadata read
-            using (var service = SourceLinkService.Open(assemblyPath, logger.Log))
-            {
-                var info = service.Context.ExtractAssemblyInfo(includeReferences: false);
-                assemblyVersion = info?.AssemblyVersion;
-                tfm = info?.TargetFramework;
-            }
-
             if (refs.Count == 0)
             {
                 Console.Error.WriteLine($"No assembly references found in '{assemblyName}'.");
@@ -164,17 +157,12 @@ public class DependsCommand
 
             var treeNodes = BuildNestedDependencyTree(refNodes);
 
-            // Render: title, identity line, then tree
-            Console.Out.WriteLine(assemblyName);
-            var identityParts = new List<string>();
-            if (!string.IsNullOrEmpty(assemblyVersion))
-                identityParts.Add($"Version: {assemblyVersion}");
-            if (!string.IsNullOrEmpty(tfm))
-                identityParts.Add($"TFM: {tfm}");
-            if (identityParts.Count > 0)
-                Console.Out.WriteLine(string.Join(" | ", identityParts));
-            var treeWriter = new TreeWriter(Console.Out);
-            treeWriter.WriteTree(treeNodes.ToArray());
+            var view = new PackageDependenciesView
+            {
+                Title = assemblyName,
+                Dependencies = treeNodes
+            };
+            MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
             return 0;
         }
         catch (Exception ex)
