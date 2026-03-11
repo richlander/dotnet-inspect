@@ -60,11 +60,11 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void LoopSum_HasLoop()
+    public void LoopSum_HasForLoop()
     {
         string output = EmitMethod(nameof(CfgSampleClass.LoopSum));
 
-        Assert.Contains("while", output);
+        Assert.Contains("for", output);
         Assert.DoesNotContain("goto", output);
     }
 
@@ -182,11 +182,12 @@ public class CSharpEmitterTests
     // --- While loops ---
 
     [Fact]
-    public void WhileLoop_EmitsWhile()
+    public void WhileLoop_EmitsForLoop()
     {
         string output = EmitMethod(nameof(CfgSampleClass.WhileLoop));
 
-        Assert.Contains("while", output);
+        // Detected as a for-loop (increment pattern: V_0 = V_0 + 1)
+        Assert.Contains("for", output);
         Assert.DoesNotContain("goto", output);
     }
 
@@ -202,12 +203,11 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void NestedLoops_EmitsWhile()
+    public void NestedLoops_EmitsFor()
     {
         string output = EmitMethod(nameof(CfgSampleClass.NestedLoops));
 
-        // Should have at least one while
-        Assert.Contains("while", output);
+        Assert.Contains("for", output);
     }
 
     // --- Goto-to-return inlining ---

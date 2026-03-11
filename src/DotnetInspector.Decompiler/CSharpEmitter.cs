@@ -594,11 +594,22 @@ public static class CSharpEmitter
                 }
                 else
                 {
-                    // Standard while loop
+                    // For-loop detection: check if last body statement is an increment
+                    // of a variable used in the condition
+                    string? increment = TryExtractForIncrement(bodyIndices, condition);
+
                     EmitHeaderStatements(headerIdx, indent);
 
-                    WriteIndent(indent);
-                    _sb.AppendLine($"while ({condition})");
+                    if (increment is not null)
+                    {
+                        WriteIndent(indent);
+                        _sb.AppendLine($"for (; {condition}; {increment})");
+                    }
+                    else
+                    {
+                        WriteIndent(indent);
+                        _sb.AppendLine($"while ({condition})");
+                    }
                     WriteIndent(indent);
                     _sb.AppendLine("{");
 
@@ -651,6 +662,89 @@ public static class CSharpEmitter
         }
 
         /// <summary>
+        /// Check if the last body block's last non-branch statement is an increment
+        /// of a variable used in the condition. Returns the increment expression string
+        /// (e.g., "V_1 = V_1 + 1") and marks it for suppression in the body emission.
+        /// </summary>
+        string? TryExtractForIncrement(List<int> bodyIndices, string condition)
+        {
+            if (bodyIndices.Count == 0) return null;
+
+            int lastBodyIdx = bodyIndices[^1];
+            if (!_blockMap.TryGetValue(lastBodyIdx, out var lastBody))
+                return null;
+
+            // Find the last non-branch node
+            for (int i = lastBody.Nodes.Count - 1; i >= 0; i--)
+            {
+                var node = lastBody.Nodes[i];
+
+                // Skip branch statements at the end of the block
+                if (node is ILAstStatement stmt && (IsBranchOpCode(stmt.Expression.OpCode)
+                    || stmt.Expression.OpCode is ILOpCode.Br or ILOpCode.Br_s))
+                    continue;
+
+                // Check for V = V + const pattern via ILAstAssignment
+                if (node is ILAstAssignment assign
+                    && assign.Value.OpCode is ILOpCode.Add or ILOpCode.Sub
+                    && assign.Value.Arguments.Count >= 2)
+                {
+                    return TryMatchIncrement(assign.Variable.Name, assign.Value, lastBodyIdx, i, condition);
+                }
+
+                // Check for stloc(add(ldloc, const)) pattern via ILAstStatement
+                if (node is ILAstStatement stloc
+                    && stloc.Expression.OpCode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1
+                        or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                        or ILOpCode.Stloc_s or ILOpCode.Stloc
+                    && stloc.Expression.Arguments.Count == 1
+                    && stloc.Expression.Arguments[0].OpCode is ILOpCode.Add or ILOpCode.Sub
+                    && stloc.Expression.Arguments[0].Arguments.Count >= 2)
+                {
+                    string varName = stloc.Expression.Operand ?? GetLocalName(stloc.Expression.OpCode);
+                    return TryMatchIncrement(varName, stloc.Expression.Arguments[0], lastBodyIdx, i, condition);
+                }
+
+                break;
+            }
+
+            return null;
+        }
+
+        string? TryMatchIncrement(string varName, ILAstExpression addExpr, int blockIdx, int nodeIdx, string condition)
+        {
+            var lhs = addExpr.Arguments[0];
+
+            // LHS of the add/sub must be the same variable
+            bool sameVar = lhs.Operand == varName
+                || (lhs.OpCode, varName) switch
+                {
+                    (ILOpCode.Ldloc_0, "V_0") => true,
+                    (ILOpCode.Ldloc_1, "V_1") => true,
+                    (ILOpCode.Ldloc_2, "V_2") => true,
+                    (ILOpCode.Ldloc_3, "V_3") => true,
+                    _ => false
+                };
+
+            if (!sameVar) return null;
+
+            // The variable must appear in the condition
+            if (!condition.Contains(varName)) return null;
+
+            // Build the increment string
+            string rhsStr = ExpressionToString(addExpr.Arguments[1]);
+            string op = addExpr.OpCode == ILOpCode.Sub ? "-" : "+";
+
+            // Mark this node for suppression during body emission
+            _forIncrementStatements.Add((blockIdx, nodeIdx));
+
+            return $"{varName} = {varName} {op} {rhsStr}";
+        }
+
+        // Set of (blockIndex, nodeIndex) for for-loop increment statements to suppress
+        readonly HashSet<(int blockIndex, int nodeIndex)> _forIncrementStatements = [];
+
+        /// <summary>
         /// Emit a basic block inside a loop, converting gotos to break/continue.
         /// </summary>
         void EmitBasicBlockForLoop(int blockIndex, int indent, NaturalLoop loop)
@@ -666,6 +760,8 @@ public static class CSharpEmitter
             for (int nodeIdx = 0; nodeIdx < astBlock.Nodes.Count; nodeIdx++)
             {
                 if (_catchVariableStatements.Contains((blockIndex, nodeIdx)))
+                    continue;
+                if (_forIncrementStatements.Contains((blockIndex, nodeIdx)))
                     continue;
 
                 var node = astBlock.Nodes[nodeIdx];
