@@ -56,7 +56,7 @@ public class DemoCommand
 
         // find (3)
         new("Where are the AI chat types in .NET?", "discovery",
-            ["find", "Chat*"]),
+            ["find", "Chat*", "--extensions"]),
 
         new("What are the entry points for OpenAI, Azure, AWS, and Anthropic SDKs?", "discovery",
             ["find", "Chat*,Converse*,Message*", "--package", "OpenAI", "--package", "Azure.AI.OpenAI", "--package", "AWSSDK.BedrockRuntime", "--package", "Anthropic"]),

@@ -7,7 +7,7 @@ dotnet-inspect System.Text.Json                    # bare name → routes to bes
 dotnet-inspect type --package System.Text.Json      # discover types
 dotnet-inspect member JsonSerializer --package System.Text.Json  # inspect members
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0     # API diff
-dotnet-inspect find "Chat*,Diction*"               # search types across scopes
+dotnet-inspect find "Stream*,Diction*"              # search types across scopes
 dotnet-inspect extensions HttpClient --reachable   # extension methods (+ reachable types)
 dotnet-inspect implements Stream --platform        # implementors across platform
 dotnet-inspect depends 'INumber<TSelf>'            # type hierarchy / package deps / library refs
@@ -85,7 +85,7 @@ On `type`/`member`/`library`/`diff`, `--platform` takes a library name (string),
 | `depends` | Dependency graphs — type hierarchy, package deps, or library refs (depends on input) |
 | `library` | Assembly metadata, symbols, references. `--source-link-audit` for provenance |
 | `package` | NuGet metadata, versions, files, layout, dependencies, readme |
-| `samples` | Code samples from SourceLink-indexed sources |
+| `samples` | Code samples via SourceLink (coverage varies by package) |
 | `demo` | Curated showcase queries |
 | `cache` | Cache management (`--clean` to clear) |
 
@@ -96,6 +96,7 @@ On `type`/`member`/`library`/`diff`, `--platform` takes a library name (string),
 - **`-v:d` is expensive**: it fetches source/IL. Use default (compact) for scanning, `-v:d` only when you need source code for a specific overload.
 - **Diff syntax**: single arg with `..` range — `@8.0.0..9.0.0`, not two separate args.
 - **Member requires a type**: `member -m SerializeObject --package Foo` fails. Use `member JsonConvert --package Foo -m SerializeObject` or dotted: `-m JsonConvert.SerializeObject`.
+- **Latest version**: `package Foo --version` prints the latest version. `package Foo@8.0.0` or `--version 8.0.0` pins to a specific version. `--versions` lists all available versions.
 
 ## Migration Workflow
 
