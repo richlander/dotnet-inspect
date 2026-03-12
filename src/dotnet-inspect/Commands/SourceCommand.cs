@@ -359,11 +359,13 @@ public static class SourceCommand
         else
         {
             // Markdown: heading + inline fields + sections
-            // -v:q = heading + core fields (Kind, Library, Source)
+            // -v:q = heading + core fields (Kind, Library, Source or Files count)
             // -v:m = + extended metadata (Package, Version, Repo, Commit, PDB, Resolution) + partials
             // -v:n = + Documentation
             // -v:d = + Samples
             bool showExtended = options.Verbosity >= Verbosity.Minimal;
+            int totalFiles = 1 + additionalRows.Count;
+            bool singleFile = totalFiles == 1;
             string title = apiType.FullName;
             var view = new SourceDetailView
             {
@@ -371,7 +373,8 @@ public static class SourceCommand
                 Description = showExtended ? apiType.Documentation.Summary : null,
                 Kind = apiType.Kind,
                 Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
-                Source = primaryUrl,
+                Source = singleFile ? primaryUrl : null,
+                Files = singleFile ? null : totalFiles,
                 Package = showExtended ? packageName : null,
                 Version = showExtended ? packageVersion : null,
                 Repository = showExtended ? service.RepositoryUrl : null,

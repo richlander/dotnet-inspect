@@ -84,6 +84,7 @@ public class SourceDetailView
     [MarkoutSkipNull] public string? Package { get; set; }
     [MarkoutSkipNull] public string? Version { get; set; }
     [MarkoutSkipNull] public string? Source { get; set; }
+    [MarkoutSkipNull] public int? Files { get; set; }
 
     [MarkoutSkipNull] public string? Repository { get; set; }
     [MarkoutSkipNull] public string? Commit { get; set; }
