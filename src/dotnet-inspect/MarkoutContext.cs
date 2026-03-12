@@ -52,6 +52,7 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(SampleRow))]
 [MarkoutContext(typeof(SourceListView))]
 [MarkoutContext(typeof(SourceOneLineView))]
+[MarkoutContext(typeof(SourceDetailOneLineView))]
 [MarkoutContext(typeof(SourceDetailView))]
 [MarkoutContext(typeof(SourceFileRow))]
 [MarkoutContext(typeof(VerifiedSourceFileRow))]

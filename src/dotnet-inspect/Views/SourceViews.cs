@@ -52,6 +52,20 @@ public class SourceOneLineView
 }
 
 /// <summary>
+/// View model for the source command: single-type oneline (default).
+/// URL-only rows (no Type column since the type is already known).
+/// </summary>
+[MarkoutSerializable]
+public class SourceDetailOneLineView
+{
+    [MarkoutSection(Name = "Source Files")]
+    public List<SourceUrlRow>? SourceFiles { get; set; }
+
+    [MarkoutSection(Name = "Source Files")]
+    public List<VerifiedSourceUrlRow>? VerifiedSourceFiles { get; set; }
+}
+
+/// <summary>
 /// View model for the source command: single-type mode (-v:q+).
 /// Shows detailed source info for one type including partial files.
 /// </summary>

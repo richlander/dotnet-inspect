@@ -338,46 +338,49 @@ public static class SourceCommand
             }
         }
 
-        // For default invocation (no explicit format), switch to markdown like type command
-        bool isDefault = options.IsDefaultInvocation;
-        bool showMetadata = !isDefault;
-
-        string title = apiType.FullName;
-
-        var view = new SourceDetailView
+        // Dispatch output based on format — match member command pattern:
+        // default (no -v) = oneline, -v = markdown
+        if (options.IsDefaultInvocation || (options.OneLine && !options.JsonOutput))
         {
-            Title = title,
-            Description = apiType.Documentation.Summary,
-            Kind = apiType.Kind,
-            Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
-            Source = primaryUrl,
-            Package = showMetadata ? packageName : null,
-            Version = showMetadata ? packageVersion : null,
-            Repository = showMetadata ? service.RepositoryUrl : null,
-            Commit = showMetadata ? service.CommitHash : null,
-            PdbStatus = showMetadata ? DescribePdbStatus(service.Context) : null,
-            Resolution = showMetadata ? sourceInfo?.ResolutionMethod.ToString() : null,
-            AdditionalSourceFiles = options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null),
-            VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null,
-            MemberDocs = memberDocs,
-            Samples = samples
-        };
+            // Oneline: URL-only table (no Type column, type is already known)
+            var urlRows = new List<SourceUrlRow>();
+            if (primaryUrl != null)
+                urlRows.Add(new SourceUrlRow(primaryUrl));
+            urlRows.AddRange(additionalRows);
 
-        if (isDefault)
-        {
-            // Default: markdown rendering (not oneline), like type command's shape default
-            WriteMarkdown(view, options);
-        }
-        else if (options.OneLine && !options.JsonOutput)
-        {
-            WriteOneLine(view, options);
+            var oneLineView = new SourceDetailOneLineView
+            {
+                SourceFiles = options.Verify ? null : (urlRows.Count > 0 ? urlRows : null),
+                VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null
+            };
+            WriteOneLine(oneLineView, options);
         }
         else
         {
+            // Markdown: heading + inline fields + sections
+            string title = apiType.FullName;
+            var view = new SourceDetailView
+            {
+                Title = title,
+                Description = apiType.Documentation.Summary,
+                Kind = apiType.Kind,
+                Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
+                Source = primaryUrl,
+                Package = packageName,
+                Version = packageVersion,
+                Repository = service.RepositoryUrl,
+                Commit = service.CommitHash,
+                PdbStatus = DescribePdbStatus(service.Context),
+                Resolution = sourceInfo?.ResolutionMethod.ToString(),
+                AdditionalSourceFiles = options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null),
+                VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null,
+                MemberDocs = memberDocs,
+                Samples = samples
+            };
             WriteOutput(view, options);
         }
 
-        if (!options.IsRawOutput || isDefault)
+        if (!options.IsRawOutput)
         {
             var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                 : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
