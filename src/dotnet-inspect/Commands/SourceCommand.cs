@@ -200,7 +200,7 @@ public static class SourceCommand
                 SourceFiles = showTable ? (options.Verify ? null : rows) : null,
                 VerifiedSourceFiles = showTable ? (options.Verify ? verifiedRows : null) : null
             };
-            WriteMarkdown(view, options);
+            WriteOutput(view, options);
         }
 
         if (!options.IsRawOutput || options.IsDefaultInvocation)
@@ -436,12 +436,58 @@ public static class SourceCommand
         new MarkoutContext().Serialize(view, Console.Out, formatter, writerOpts);
     }
 
+    private static void WriteJson<T>(T view, bool compact) where T : class
+    {
+        string json = view switch
+        {
+            SourceListView v => compact
+                ? System.Text.Json.JsonSerializer.Serialize(ToListResult(v), SourceCompactJsonContext.Default.SourceListResult)
+                : System.Text.Json.JsonSerializer.Serialize(ToListResult(v), SourceJsonContext.Default.SourceListResult),
+            SourceDetailView v => compact
+                ? System.Text.Json.JsonSerializer.Serialize(ToDetailResult(v), SourceCompactJsonContext.Default.SourceDetailResult)
+                : System.Text.Json.JsonSerializer.Serialize(ToDetailResult(v), SourceJsonContext.Default.SourceDetailResult),
+            _ => "{}"
+        };
+        Console.WriteLine(json);
+    }
+
+    private static SourceListResult ToListResult(SourceListView v) => new()
+    {
+        Repository = v.Repository,
+        Commit = v.Commit,
+        PdbStatus = v.PdbStatus,
+        Package = v.Package,
+        Version = v.Version,
+        Tfm = v.Tfm,
+        Types = v.Types,
+        SourceFiles = v.SourceFiles?.Select(r => new SourceFileEntry { Type = r.Type, Url = r.Url }).ToList()
+            ?? v.VerifiedSourceFiles?.Select(r => new SourceFileEntry { Type = r.Type, Url = r.Url, Status = r.Status }).ToList()
+    };
+
+    private static SourceDetailResult ToDetailResult(SourceDetailView v) => new()
+    {
+        Type = v.Title,
+        Kind = v.Kind,
+        Assembly = v.Assembly,
+        Package = v.Package,
+        Version = v.Version,
+        Source = v.Source,
+        Files = v.Files,
+        Repository = v.Repository,
+        Commit = v.Commit,
+        PdbStatus = v.PdbStatus,
+        Resolution = v.Resolution,
+        AdditionalSourceFiles = v.AdditionalSourceFiles?.Select(r => r.Url).ToList()
+            ?? v.VerifiedSourceFiles?.Select(r => r.Url).ToList(),
+        MemberDocs = v.MemberDocs?.Select(r => new MemberDocEntry { Member = r.Member, Summary = r.Summary }).ToList(),
+        Samples = v.Samples?.Select(r => new SampleEntry { Type = r.Type, Name = r.Description, Url = r.Url }).ToList()
+    };
+
     private static void WriteOutput<T>(T view, SourceOptions options) where T : class
     {
         if (options.JsonOutput)
         {
-            var json = new MarkoutContext().Serialize(view);
-            Console.Write(json);
+            WriteJson(view, options.CompactJson);
             return;
         }
 
@@ -514,4 +560,56 @@ public static class SourceCommand
         Console.Error.WriteLine("       Run 'library --source-link-audit' for more details.");
         Console.Error.WriteLine();
     }
+}
+
+// JSON domain models (following established pattern: domain models for JSON, views for Markout)
+
+public class SourceListResult
+{
+    public string? Repository { get; init; }
+    public string? Commit { get; init; }
+    public string? PdbStatus { get; init; }
+    public string? Package { get; init; }
+    public string? Version { get; init; }
+    public string? Tfm { get; init; }
+    public int? Types { get; init; }
+    public List<SourceFileEntry>? SourceFiles { get; init; }
+}
+
+public class SourceDetailResult
+{
+    public string? Type { get; init; }
+    public string? Kind { get; init; }
+    public string? Assembly { get; init; }
+    public string? Package { get; init; }
+    public string? Version { get; init; }
+    public string? Source { get; init; }
+    public int? Files { get; init; }
+    public string? Repository { get; init; }
+    public string? Commit { get; init; }
+    public string? PdbStatus { get; init; }
+    public string? Resolution { get; init; }
+    public List<string>? AdditionalSourceFiles { get; init; }
+    public List<MemberDocEntry>? MemberDocs { get; init; }
+    public List<SampleEntry>? Samples { get; init; }
+}
+
+public class SourceFileEntry
+{
+    public string? Type { get; init; }
+    public string? Url { get; init; }
+    public string? Status { get; init; }
+}
+
+public class MemberDocEntry
+{
+    public string? Member { get; init; }
+    public string? Summary { get; init; }
+}
+
+public class SampleEntry
+{
+    public string? Type { get; init; }
+    public string? Name { get; init; }
+    public string? Url { get; init; }
 }
