@@ -149,6 +149,11 @@ public static class SourceResolver
             if (args.Length >= 1) packagePath = args[0];
             if (args.Length >= 2) typeName = args[1];
 
+            // Normalize C#-style generic notation to CLR backtick notation.
+            // e.g., "Dictionary<TKey,TValue>" → "Dictionary`2", "List<T>" → "List`1"
+            if (packagePath != null) packagePath = GenericTypeNameConverter.Convert(packagePath);
+            if (typeName != null) typeName = GenericTypeNameConverter.Convert(typeName);
+
             // Check for version number passed as separate argument
             if (CommandLineHelpers.LooksLikeVersionNumber(typeName))
             {
@@ -156,6 +161,29 @@ public static class SourceResolver
                     packagePath, assemblyPath, platformAssembly, null, null,
                     VersionError: true,
                     VersionErrorMessage: $"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+            }
+
+            // Detect bare type names (e.g., "Dictionary`2", "List`1") passed without a source.
+            // Backticks never appear in package names — they're .NET generic arity notation.
+            // Try to auto-resolve the containing library from platform ref assemblies.
+            if (packagePath != null && typeName == null && packagePath.Contains('`'))
+            {
+                var library = PlatformResolver.FindLibraryContainingType(packagePath);
+                if (library != null)
+                {
+                    typeName = packagePath;
+                    packagePath = null;
+                    platformAssembly = library;
+                }
+                else
+                {
+                    // Convert backtick notation back to C#-style for display
+                    var displayName = DotnetInspector.Output.ApiOutputFormatter.FormatGenericTypeName(packagePath, null);
+                    return new ResolvedSource(
+                        packagePath, assemblyPath, platformAssembly, null, null,
+                        VersionError: true,
+                        VersionErrorMessage: $"Error: '{displayName}' looks like a type name but was not found in platform libraries. Specify the source: 'source <package> \"{displayName}\"'.");
+                }
             }
 
             // Classify file paths

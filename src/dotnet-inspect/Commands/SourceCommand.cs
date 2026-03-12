@@ -390,12 +390,20 @@ public static class SourceCommand
                 urlRows.Add(new SourceUrlRow(primaryUrl));
             urlRows.AddRange(additionalRows);
 
-            var oneLineView = new SourceDetailOneLineView
+            if (urlRows.Count > 0)
             {
-                SourceFiles = options.Verify ? null : (urlRows.Count > 0 ? urlRows : null),
-                VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null
-            };
-            WriteOneLine(oneLineView, options);
+                var oneLineView = new SourceDetailOneLineView
+                {
+                    SourceFiles = options.Verify ? null : urlRows,
+                    VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null
+                };
+                WriteOneLine(oneLineView, options);
+            }
+            else
+            {
+                var library = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath);
+                Console.Error.WriteLine($"{apiType.FullName} ({apiType.Kind}, {library}) — no source links available.");
+            }
         }
         else
         {
@@ -427,7 +435,11 @@ public static class SourceCommand
                 MemberDocs = memberDocs,
                 Samples = samples
             };
-            WriteOutput(view, options);
+
+            if (options.JsonOutput)
+                WriteJson(view, options.CompactJson);
+            else
+                WriteMarkdown(view, options);
         }
 
         if (!options.IsRawOutput)
@@ -436,19 +448,19 @@ public static class SourceCommand
                 : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
                 : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
                 : "";
-            var simpleName = apiType.FullName.Contains('.')
-                ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+            var displayName = FormatFriendlyTypeName(apiType);
+            var quotedName = displayName.Contains('<') ? $"'{displayName}'" : displayName;
 
             List<Tip> tips = [];
 
             if (options.Verbosity < Verbosity.Detailed)
-                tips.Add(new(Name, $"{simpleName} {sourceFlag} -v:d", "include docs and samples"));
+                tips.Add(new(Name, $"{quotedName} {sourceFlag} -v:d", "include docs and samples"));
 
             if (!options.Verify)
-                tips.Add(new(Name, $"{simpleName} {sourceFlag} --verify", "verify URLs accessible"));
+                tips.Add(new(Name, $"{quotedName} {sourceFlag} --verify", "verify URLs accessible"));
 
-            tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag}", "view type API"));
-            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "view member details"));
+            tips.Add(new(TypeCommand.Name, $"{quotedName} {sourceFlag}", "view type API"));
+            tips.Add(new(MemberCommand.Name, $"{quotedName} {sourceFlag}", "view member details"));
 
             Hints.WriteTips(options.TipLevel, [.. tips]);
         }
@@ -669,6 +681,15 @@ public static class SourceCommand
     private static bool IsBuildArtifact(string filePath) =>
         filePath.Contains("/artifacts/obj/") || filePath.Contains("\\artifacts\\obj\\");
 
+    /// <summary>
+    /// Formats a type name using C#-style generic syntax for display in hints and tips.
+    /// e.g., "Dictionary`2" → "Dictionary&lt;TKey, TValue&gt;" (using actual type parameter names when available).
+    /// </summary>
+    private static string FormatFriendlyTypeName(ApiType type)
+    {
+        var name = type.Name;
+        return ApiOutputFormatter.FormatGenericTypeName(name, type.TypeParameters);
+    }
     private static void WritePdbWarning(PdbContext pdbContext)
     {
         Console.Error.WriteLine();
