@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.inputs.confirm == 'publish'
     environment: nuget-publish
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     
     steps:
       - uses: actions/checkout@v6
