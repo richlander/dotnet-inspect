@@ -2181,6 +2181,14 @@ public static class CSharpEmitter
             EmitExpression(arg);
         }
 
+        void EmitReceiver(ILAstExpression receiver, bool isBaseCall)
+        {
+            if (isBaseCall)
+                _sb.Append("base");
+            else
+                EmitExpression(receiver);
+        }
+
         void EmitCallExpression(ILAstExpression expr)
         {
             string? methodName = expr.Operand;
@@ -2213,11 +2221,17 @@ public static class CSharpEmitter
                 }
             }
 
-            // Base/chaining constructor call: this..ctor() → /* base..ctor() */
+            // Base/chaining constructor call: call .ctor on this → base(args)
             if (memberPart == ".ctor" && !expr.IsStaticCall && expr.Arguments.Count > 0
                 && expr.Arguments[0].OpCode is ILOpCode.Ldarg_0)
             {
-                _sb.Append($"/* base({SimplifyTypeName(typePart)}) */");
+                _sb.Append("base(");
+                for (int i = 1; i < expr.Arguments.Count; i++)
+                {
+                    if (i > 1) _sb.Append(", ");
+                    EmitCallArgument(expr.Arguments[i]);
+                }
+                _sb.Append(')');
                 return;
             }
 
@@ -2292,12 +2306,18 @@ public static class CSharpEmitter
                 bool isNullConditionalCall = _nullConditionalReceiver is not null
                     && expr.Arguments[0] is { OpCode: ILOpCode.Nop, Operand: { } op }
                     && op.StartsWith("S_in_", StringComparison.Ordinal);
+
+                // Base call: non-virtual call on 'this' → base.Method()
+                bool isBaseCall = expr.OpCode is ILOpCode.Call
+                    && _hasThis
+                    && expr.Arguments[0].OpCode is ILOpCode.Ldarg_0
+                    && memberPart != ".ctor";
                 string dot = isNullConditionalCall ? "?." : ".";
 
                 // Indexer getter: get_Item(key)/get_Chars(index) → [key]
                 if (memberPart is "get_Item" or "get_Chars" && expr.Arguments.Count == 2)
                 {
-                    EmitExpression(expr.Arguments[0]);
+                    EmitReceiver(expr.Arguments[0], isBaseCall);
                     _sb.Append('[');
                     EmitCallArgument(expr.Arguments[1]);
                     _sb.Append(']');
@@ -2305,7 +2325,7 @@ public static class CSharpEmitter
                 // Indexer setter: set_Item(key, value) → [key] = value
                 else if (memberPart == "set_Item" && expr.Arguments.Count == 3)
                 {
-                    EmitExpression(expr.Arguments[0]);
+                    EmitReceiver(expr.Arguments[0], isBaseCall);
                     _sb.Append('[');
                     EmitCallArgument(expr.Arguments[1]);
                     _sb.Append("] = ");
@@ -2314,19 +2334,19 @@ public static class CSharpEmitter
                 // Property getter sugar: get_XXX() → .XXX
                 else if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
                 {
-                    EmitExpression(expr.Arguments[0]);
+                    EmitReceiver(expr.Arguments[0], isBaseCall);
                     _sb.Append($"{dot}{memberPart[4..]}");
                 }
                 // Property setter sugar: set_XXX(value) → .XXX = value
                 else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
                 {
-                    EmitExpression(expr.Arguments[0]);
+                    EmitReceiver(expr.Arguments[0], isBaseCall);
                     _sb.Append($"{dot}{memberPart[4..]} = ");
                     EmitCallArgument(expr.Arguments[1]);
                 }
                 else
                 {
-                    EmitExpression(expr.Arguments[0]);
+                    EmitReceiver(expr.Arguments[0], isBaseCall);
                     _sb.Append($"{dot}{memberPart}(");
                     for (int i = 1; i < expr.Arguments.Count; i++)
                     {
