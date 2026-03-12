@@ -7,6 +7,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using MarkdownTable.Formatting;
 using Markout;
 using Markout.Formatting;
 
@@ -593,23 +594,17 @@ public static class SourceCommand
 
             try
             {
-                var response = await httpClient.GetAsync(fetchUrl);
+                using var response = await httpClient.GetAsync(fetchUrl, HttpCompletionOption.ResponseHeadersRead);
                 if (response.IsSuccessStatusCode)
                 {
-                    var content = await response.Content.ReadAsStringAsync();
+                    await using var stream = await response.Content.ReadAsStreamAsync();
                     if (startLine > 0)
                     {
-                        var lines = content.Split('\n');
-                        int start = Math.Min(startLine - 1, lines.Length);
-                        int end = endLine > 0 ? Math.Min(endLine, lines.Length) : start + 1;
-                        // Expand to nearest blank line or file boundary (up to 3 lines)
-                        start = ExpandStart(lines, start);
-                        end = ExpandEnd(lines, end);
-                        Console.WriteLine(string.Join('\n', lines[start..end]));
+                        await WriteExtractedLinesAsync(stream, startLine, endLine > 0 ? endLine : startLine);
                     }
                     else
                     {
-                        Console.Write(content);
+                        await WriteAllLinesAsync(stream);
                     }
                 }
                 else
@@ -624,6 +619,95 @@ public static class SourceCommand
         }
         return 0;
     }
+
+    private static async Task WriteAllLinesAsync(Stream stream)
+    {
+        var reader = LineReader.Create(stream);
+        while (!reader.IsComplete)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+            Console.WriteLine(LineReader.ToString(line));
+        }
+    }
+
+    // Streams lines from startLine..endLine with blank-line expansion (up to 3 lines each direction).
+    private static async Task WriteExtractedLinesAsync(Stream stream, int startLine, int endLine)
+    {
+        const int maxExpand = 3;
+        var reader = LineReader.Create(stream);
+        int currentLine = 1;
+        int expandedStart = Math.Max(1, startLine - maxExpand);
+
+        // Skip lines before the expansion zone
+        while (currentLine < expandedStart)
+        {
+            if (!reader.ReadLine(out _))
+            {
+                if (!await reader.AdvanceAsync()) return;
+                continue;
+            }
+            currentLine++;
+        }
+
+        // Read pre-expansion zone, tracking blank-line boundaries
+        var preLines = new List<string>(maxExpand);
+        while (currentLine < startLine)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+
+            if (IsBlank(line))
+            {
+                preLines.Clear();
+            }
+            else
+            {
+                preLines.Add(LineReader.ToString(line));
+            }
+            currentLine++;
+        }
+
+        foreach (var pre in preLines)
+        {
+            Console.WriteLine(pre);
+        }
+
+        // Output requested range
+        while (currentLine <= endLine)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+            Console.WriteLine(LineReader.ToString(line));
+            currentLine++;
+        }
+
+        // Post-expansion: up to 3 lines, stopping at blank line or EOF
+        int expansionCount = 0;
+        while (expansionCount < maxExpand && !reader.IsComplete)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+            if (IsBlank(line)) break;
+            Console.WriteLine(LineReader.ToString(line));
+            expansionCount++;
+        }
+    }
+
+    private static bool IsBlank(ReadOnlySpan<byte> line) =>
+        line.IsEmpty || line.IndexOfAnyExcept((byte)' ', (byte)'\t') < 0;
 
     // Parses #L10 or #L10-L20 fragments into 1-based line numbers
     private static (int Start, int End) ParseLineFragment(string fragment)
@@ -654,38 +738,6 @@ public static class SourceCommand
         }
 
         return (0, 0);
-    }
-
-    // Expand start index backward up to 3 lines, stopping at a blank line or SOF
-    private static int ExpandStart(string[] lines, int start)
-    {
-        const int maxExpand = 3;
-        for (int i = 1; i <= maxExpand && start - i >= 0; i++)
-        {
-            if (string.IsNullOrWhiteSpace(lines[start - i]))
-            {
-                return start - i + 1;
-            }
-        }
-
-        // Hit SOF within range
-        return start - Math.Min(maxExpand, start) >= 0 && start <= maxExpand ? 0 : start;
-    }
-
-    // Expand end index forward up to 3 lines, stopping at a blank line or EOF
-    private static int ExpandEnd(string[] lines, int end)
-    {
-        const int maxExpand = 3;
-        for (int i = 0; i < maxExpand && end + i < lines.Length; i++)
-        {
-            if (string.IsNullOrWhiteSpace(lines[end + i]))
-            {
-                return end + i;
-            }
-        }
-
-        // Hit EOF within range
-        return end + maxExpand >= lines.Length ? lines.Length : end;
     }
 
     private static SourceListResult ToListResult(SourceListView v) => new()
