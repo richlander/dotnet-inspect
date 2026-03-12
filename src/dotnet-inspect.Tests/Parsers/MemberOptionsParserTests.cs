@@ -32,11 +32,6 @@ public class MemberOptionsParserTests
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor");
-        var docsOption = new Option<bool>("--docs");
-        var noDocsOption = new Option<bool>("--no-docs");
-        var useLocalDocsOption = new Option<bool>("--use-local-docs");
-        var samplesOption = new Option<bool>("--samples");
-        var browsableUrlsOption = new Option<bool>("--browsable-urls");
         var compactOption = new Option<bool>("--compact");
         var oneLineOption = new Option<bool>("--oneline");
         var noHeaderOption = new Option<bool>("--no-header");
@@ -58,11 +53,6 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
         memberCommand.Options.Add(opts.Limit);
-        memberCommand.Options.Add(docsOption);
-        memberCommand.Options.Add(noDocsOption);
-        memberCommand.Options.Add(useLocalDocsOption);
-        memberCommand.Options.Add(samplesOption);
-        memberCommand.Options.Add(browsableUrlsOption);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
         memberCommand.Options.Add(oneLineOption);
@@ -84,8 +74,7 @@ public class MemberOptionsParserTests
         var root = new RootCommand { memberCommand };
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, memberOption, ctorOption, docsOption, noDocsOption, useLocalDocsOption,
-            samplesOption, browsableUrlsOption, compactOption, oneLineOption, noHeaderOption,
+            allOption, memberOption, ctorOption, compactOption, oneLineOption, noHeaderOption,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
 
         return (root, opts, args);

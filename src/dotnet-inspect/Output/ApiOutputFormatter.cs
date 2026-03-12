@@ -234,26 +234,6 @@ public static class ApiOutputFormatter
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
 
-        // Source files (when SourceLink data is available)
-        List<SourceRow>? sourceRows = null;
-        if (type.SourceFilePath != null)
-        {
-            sourceRows = [new SourceRow
-            {
-                File = Path.GetFileName(type.SourceFilePath),
-                Url = type.GitHubBrowseUrl
-            }];
-
-            foreach (var f in type.AdditionalSourceFiles)
-            {
-                sourceRows.Add(new SourceRow
-                {
-                    File = Path.GetFileName(f.FilePath ?? ""),
-                    Url = f.GitHubBrowseUrl
-                });
-            }
-        }
-
         bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
 
         return new TypeView
@@ -279,7 +259,6 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
-            SourceRows = sourceRows
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;

@@ -79,7 +79,6 @@ public static class ApiMemberSectionDescriptors
             .Add<TypeParameters>()
             .Add<TypeInterfaces>()
             .Add<Baseclass>()
-            .Add<Sources>()
             .Add<Constructors>()
             .Add<Fields>()
             .Add<Properties>()
@@ -132,15 +131,6 @@ public static class ApiMemberSectionDescriptors
                && model.BaseType != "System.Object"
                && model.BaseType != "System.ValueType"
                && model.BaseType != "System.Enum";
-    }
-
-    public sealed class Sources : ISectionDescriptor<ApiType>
-    {
-        public static string Name => "Remote Source";
-        public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model)
-            => model.SourceFilePath != null;
     }
 
     // ===== Member sections (rendered via PopulateMemberSections) =====

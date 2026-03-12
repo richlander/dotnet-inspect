@@ -100,6 +100,9 @@ public static class CommandLineBuilder
         // Samples command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSamplesCommand(opts));
 
+        // Source command (SourceLink file discovery)
+        rootCommand.Subcommands.Add(SourceCommandDefinitions.CreateSourceCommand(opts));
+
         // LLMs.txt command (meta command, listed last)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateLlmsTxtCommand(opts));
 

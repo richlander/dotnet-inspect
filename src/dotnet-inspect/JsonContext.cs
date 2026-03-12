@@ -117,6 +117,23 @@ internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 [JsonSerializable(typeof(TypeFindResult))]
 internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
 
+// Source command JSON contexts
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(SourceListResult))]
+[JsonSerializable(typeof(SourceDetailResult))]
+internal partial class SourceJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(SourceListResult))]
+[JsonSerializable(typeof(SourceDetailResult))]
+internal partial class SourceCompactJsonContext : JsonSerializerContext { }
+
 static class JsonOutputHelper
 {
     public static void Write<T>(T data, JsonTypeInfo<T> indented, JsonTypeInfo<T> compact, bool useCompact)

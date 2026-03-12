@@ -25,11 +25,6 @@ public static class MemberOptionsParser
         Option<bool> AllOption,
         Option<string[]> MemberOption,
         Option<bool> CtorOption,
-        Option<bool> DocsOption,
-        Option<bool> NoDocsOption,
-        Option<bool> UseLocalDocsOption,
-        Option<bool> SamplesOption,
-        Option<bool> BrowsableUrlsOption,
         Option<bool> CompactOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption,
@@ -171,9 +166,6 @@ public static class MemberOptionsParser
         if (clearShorthand)
             shorthandIndex = null;
 
-        // Determine docs behavior
-        var (showDocs, docsExplicitlySet) = ParseDocsBehavior(parseResult, args);
-
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
 
@@ -189,11 +181,8 @@ public static class MemberOptionsParser
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             Limit = memberLimit,
-            ShowDocs = showDocs || parseResult.GetValue(args.UseLocalDocsOption),
-            DocsExplicitlySet = docsExplicitlySet,
-            UseLocalDocs = parseResult.GetValue(args.UseLocalDocsOption),
-            ShowSamples = parseResult.GetValue(args.SamplesOption),
-            BrowsableUrls = parseResult.GetValue(args.BrowsableUrlsOption),
+            ShowDocs = true,  // Docs always on (local XML); use source command for SourceLink
+            DocsExplicitlySet = false,
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
@@ -244,19 +233,4 @@ public static class MemberOptionsParser
         return ([], null);
     }
 
-    private static (bool ShowDocs, bool DocsExplicitlySet) ParseDocsBehavior(
-        ParseResult parseResult,
-        MemberCommandArgs args)
-    {
-        bool showDocs = !parseResult.GetValue(args.NoDocsOption);
-        bool docsExplicitlySet = parseResult.GetResult(args.DocsOption) is { Implicit: false }
-            || parseResult.GetResult(args.NoDocsOption) is { Implicit: false }
-            || parseResult.GetResult(args.UseLocalDocsOption) is { Implicit: false };
-
-        // If --docs is explicitly set, honor it (overrides --no-docs precedence)
-        if (parseResult.GetResult(args.DocsOption) is { Implicit: false })
-            showDocs = true;
-
-        return (showDocs, docsExplicitlySet);
-    }
 }

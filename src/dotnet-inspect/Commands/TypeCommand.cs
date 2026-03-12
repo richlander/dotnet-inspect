@@ -78,13 +78,13 @@ public static class TypeCommand
                 api.Version = apiVersion;
                 api.Library = apiDllPath != null ? Path.GetFileName(apiDllPath) : null;
 
-                // --columns Description implicitly enables doc enrichment
+                // --columns Description implicitly enables doc enrichment (local XML only)
                 var listOptions = options;
                 if (options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true)
                     listOptions = options with { ShowDocs = true };
 
-                if (pdbLookupPath != null)
-                    await SourceEnricher.EnrichDocsAsync(api.Types, pdbLookupPath, listOptions, logger, context.HttpClient);
+                if (pdbLookupPath != null && listOptions.ShowDocs)
+                    SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, listOptions, logger);
 
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
@@ -179,11 +179,11 @@ public static class TypeCommand
                     if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.IsDefaultInvocation)
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
 
-                    // Enrich with source/doc info
+                    // Enrich with local XML docs only (source info is in the source command)
                     {
                         var dllPath = runtimeAssemblyPath ?? apiDllPath;
-                        if (dllPath != null)
-                            await SourceEnricher.EnrichDocsAsync(apiType, typeName, dllPath, effectiveOptions, logger, context.HttpClient);
+                        if (dllPath != null && effectiveOptions.ShowDocs)
+                            SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
                     }
 
 

@@ -85,13 +85,6 @@ public class TypeView
     [JsonIgnore]
     public List<BaseclassRow>? BaseclassRows { get; set; }
 
-    /// <summary>
-    /// Source files (populated via SourceLink). Null → section skipped.
-    /// </summary>
-    [MarkoutSection(Name = "Remote Source")]
-    [JsonIgnore]
-    public List<SourceRow>? SourceRows { get; set; }
-
     // Member sections (populated by ApiOutputFormatter.PopulateMemberSections)
     // Without --show-index: hide Select column
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description,Select")]
@@ -236,15 +229,6 @@ public class InterfaceRow
 public class BaseclassRow
 {
     public string Type { get; set; } = "";
-}
-
-[MarkoutSerializable]
-public class SourceRow
-{
-    public string File { get; set; } = "";
-
-    [MarkoutSkipNull]
-    public string? Url { get; set; }
 }
 
 /// <summary>
