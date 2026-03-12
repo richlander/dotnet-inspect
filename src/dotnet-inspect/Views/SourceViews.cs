@@ -3,8 +3,8 @@ using Markout;
 namespace DotnetInspector.Views;
 
 /// <summary>
-/// View model for the source command: all-types listing mode.
-/// Shows a table of types mapped to their source file URLs.
+/// View model for the source command: all-types listing mode (markdown, -v:q+).
+/// Shows header fields and a table of types → URLs.
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
 public class SourceListView
@@ -12,7 +12,6 @@ public class SourceListView
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
 
-    // Header fields (shown at -v:m+)
     [MarkoutSkipNull] public string? Repository { get; set; }
     [MarkoutSkipNull] public string? Commit { get; set; }
 
@@ -27,7 +26,9 @@ public class SourceListView
     [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
 
-    // Source file table
+    [MarkoutSkipNull] public int? Types { get; set; }
+
+    // Source file table (without verify)
     [MarkoutSection(Name = "Source Files")]
     public List<SourceFileRow>? SourceFiles { get; set; }
 
@@ -37,7 +38,21 @@ public class SourceListView
 }
 
 /// <summary>
-/// View model for the source command: single-type mode.
+/// View model for the source command: all-types oneline (default).
+/// Just the table, no header fields.
+/// </summary>
+[MarkoutSerializable]
+public class SourceOneLineView
+{
+    [MarkoutSection(Name = "Source Files")]
+    public List<SourceFileRow>? SourceFiles { get; set; }
+
+    [MarkoutSection(Name = "Source Files")]
+    public List<VerifiedSourceFileRow>? VerifiedSourceFiles { get; set; }
+}
+
+/// <summary>
+/// View model for the source command: single-type mode (-v:q+).
 /// Shows detailed source info for one type including partial files.
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
@@ -54,8 +69,8 @@ public class SourceDetailView
 
     [MarkoutSkipNull] public string? Package { get; set; }
     [MarkoutSkipNull] public string? Version { get; set; }
+    [MarkoutSkipNull] public string? Source { get; set; }
 
-    // Source metadata (shown at -v:m+)
     [MarkoutSkipNull] public string? Repository { get; set; }
     [MarkoutSkipNull] public string? Commit { get; set; }
 
@@ -65,13 +80,13 @@ public class SourceDetailView
 
     [MarkoutSkipNull] public string? Resolution { get; set; }
 
-    // Source files table
+    // Additional source files for partial types (primary is the Source field)
     [MarkoutSection(Name = "Source Files")]
-    public List<TypeSourceFileRow>? SourceFiles { get; set; }
+    public List<SourceUrlRow>? AdditionalSourceFiles { get; set; }
 
-    // With verify: adds Status column
+    // With verify: show all files with status
     [MarkoutSection(Name = "Source Files")]
-    public List<VerifiedTypeSourceFileRow>? VerifiedSourceFiles { get; set; }
+    public List<VerifiedSourceUrlRow>? VerifiedSourceFiles { get; set; }
 
     // Docs section (shown at -v:n+)
     [MarkoutSection(Name = "Documentation")]
@@ -83,28 +98,28 @@ public class SourceDetailView
 }
 
 /// <summary>
-/// Row in the all-types source file table.
+/// Row in the all-types source file table: Type + Url.
 /// </summary>
 [MarkoutSerializable]
-public record SourceFileRow(string Type, string File, [property: MarkoutSkipNull] string? Url);
+public record SourceFileRow(string Type, [property: MarkoutSkipNull] string? Url);
 
 /// <summary>
-/// Row in the all-types source file table with verification status.
+/// Row in the all-types source file table with verification.
 /// </summary>
 [MarkoutSerializable]
-public record VerifiedSourceFileRow(string Type, string File, [property: MarkoutSkipNull] string? Url, string Status);
+public record VerifiedSourceFileRow(string Type, [property: MarkoutSkipNull] string? Url, string Status);
 
 /// <summary>
-/// Row in the single-type source file table.
+/// Row for additional source files (partial types).
 /// </summary>
 [MarkoutSerializable]
-public record TypeSourceFileRow(string File, [property: MarkoutSkipNull] string? Url, [property: MarkoutSkipNull] int? Line);
+public record SourceUrlRow(string Url);
 
 /// <summary>
-/// Row in the single-type source file table with verification status.
+/// Row for verified source files with status.
 /// </summary>
 [MarkoutSerializable]
-public record VerifiedTypeSourceFileRow(string File, [property: MarkoutSkipNull] string? Url, [property: MarkoutSkipNull] int? Line, string Status);
+public record VerifiedSourceUrlRow(string Url, string Status);
 
 /// <summary>
 /// Row for member documentation in the source detail view.

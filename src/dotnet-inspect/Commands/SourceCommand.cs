@@ -142,10 +142,9 @@ public static class SourceCommand
             var sourceInfo = service.ResolveTypeSource(type.FullName);
             if (sourceInfo == null)
             {
-                var row = new SourceFileRow(type.FullName, "—", null);
-                rows.Add(row);
+                rows.Add(new SourceFileRow(type.FullName, null));
                 if (options.Verify)
-                    verifiedRows.Add(new VerifiedSourceFileRow(row.Type, row.File, row.Url, "—"));
+                    verifiedRows.Add(new VerifiedSourceFileRow(type.FullName, null, "—"));
                 continue;
             }
 
@@ -153,26 +152,18 @@ public static class SourceCommand
                 ? sourceInfo.GitHubBrowseUrl
                 : sourceInfo.SourceUrl;
 
-            var primaryRow = new SourceFileRow(
-                type.FullName,
-                Path.GetFileName(sourceInfo.SourceFilePath ?? ""),
-                url);
-            rows.Add(primaryRow);
+            rows.Add(new SourceFileRow(type.FullName, url));
             if (options.Verify)
-                verifiedRows.Add(new VerifiedSourceFileRow(primaryRow.Type, primaryRow.File, primaryRow.Url, "pending"));
+                verifiedRows.Add(new VerifiedSourceFileRow(type.FullName, url, "pending"));
 
             foreach (var partial in sourceInfo.AdditionalSourceFiles)
             {
                 var partialUrl = options.BrowsableUrls
                     ? partial.GitHubBrowseUrl
                     : partial.SourceUrl;
-                var partialRow = new SourceFileRow(
-                    type.FullName,
-                    Path.GetFileName(partial.FilePath ?? ""),
-                    partialUrl);
-                rows.Add(partialRow);
+                rows.Add(new SourceFileRow(type.FullName, partialUrl));
                 if (options.Verify)
-                    verifiedRows.Add(new VerifiedSourceFileRow(partialRow.Type, partialRow.File, partialRow.Url, "pending"));
+                    verifiedRows.Add(new VerifiedSourceFileRow(type.FullName, partialUrl, "pending"));
             }
         }
 
@@ -180,26 +171,38 @@ public static class SourceCommand
         if (options.Verify)
             await VerifyUrlsAsync(verifiedRows, httpClient, logger);
 
-        // Build view
-        bool showMetadata = options.Verbosity >= Verbosity.Minimal;
-        string title = packageName ?? (api.Name ?? "Source Files");
-
-        var view = new SourceListView
+        // Dispatch output based on format
+        if (options.IsDefaultInvocation || (options.OneLine && !options.JsonOutput))
         {
-            Title = title,
-            Repository = showMetadata ? service.RepositoryUrl : null,
-            Commit = showMetadata ? service.CommitHash : null,
-            PdbStatus = showMetadata ? DescribePdbStatus(service.Context) : null,
-            Package = showMetadata ? packageName : null,
-            Version = showMetadata ? packageVersion : null,
-            Tfm = showMetadata ? selectedTfm : null,
-            SourceFiles = options.Verify ? null : rows,
-            VerifiedSourceFiles = options.Verify ? verifiedRows : null
-        };
+            // Oneline: just the table, no header fields
+            var view = new SourceOneLineView
+            {
+                SourceFiles = options.Verify ? null : rows,
+                VerifiedSourceFiles = options.Verify ? verifiedRows : null
+            };
+            WriteOneLine(view, options);
+        }
+        else
+        {
+            // Markdown: header fields + table
+            string title = packageName ?? (api.Name ?? "Source Files");
+            var view = new SourceListView
+            {
+                Title = title,
+                Repository = service.RepositoryUrl,
+                Commit = service.CommitHash,
+                PdbStatus = DescribePdbStatus(service.Context),
+                Package = packageName,
+                Version = packageVersion,
+                Tfm = selectedTfm,
+                Types = typeList.Count,
+                SourceFiles = options.Verify ? null : rows,
+                VerifiedSourceFiles = options.Verify ? verifiedRows : null
+            };
+            WriteMarkdown(view, options);
+        }
 
-        WriteOutput(view, options);
-
-        if (!options.IsRawOutput)
+        if (!options.IsRawOutput || options.IsDefaultInvocation)
         {
             var exampleType = typeList.FirstOrDefault(t => rows.Any(r => r.Type == t.FullName && r.Url != null));
             if (exampleType != null)
@@ -249,27 +252,32 @@ public static class SourceCommand
         var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
         var sourceInfo = service.ResolveTypeSource(lookupResult.Match);
 
-        // Build source file rows
-        var rows = new List<TypeSourceFileRow>();
-        var verifiedRows = new List<VerifiedTypeSourceFileRow>();
+        // Primary source URL for the Source field
+        string? primaryUrl = null;
+        if (sourceInfo != null)
+        {
+            primaryUrl = options.BrowsableUrls
+                ? sourceInfo.GitHubBrowseUrl
+                : sourceInfo.SourceUrl;
+        }
+
+        // Additional source files (partials) and verify rows
+        var additionalRows = new List<SourceUrlRow>();
+        var verifiedRows = new List<VerifiedSourceUrlRow>();
 
         if (sourceInfo != null)
         {
-            var url = options.BrowsableUrls
-                ? sourceInfo.GitHubBrowseUrl
-                : sourceInfo.SourceUrl;
-            rows.Add(new TypeSourceFileRow(Path.GetFileName(sourceInfo.SourceFilePath ?? ""), url, sourceInfo.LineNumber));
-            if (options.Verify)
-                verifiedRows.Add(new VerifiedTypeSourceFileRow(rows[0].File, rows[0].Url, rows[0].Line, "pending"));
+            if (options.Verify && primaryUrl != null)
+                verifiedRows.Add(new VerifiedSourceUrlRow(primaryUrl, "pending"));
 
             foreach (var partial in sourceInfo.AdditionalSourceFiles)
             {
                 var partialUrl = options.BrowsableUrls
                     ? partial.GitHubBrowseUrl
                     : partial.SourceUrl;
-                rows.Add(new TypeSourceFileRow(Path.GetFileName(partial.FilePath ?? ""), partialUrl, null));
-                if (options.Verify)
-                    verifiedRows.Add(new VerifiedTypeSourceFileRow(rows[^1].File, rows[^1].Url, null, "pending"));
+                additionalRows.Add(new SourceUrlRow(partialUrl ?? ""));
+                if (options.Verify && partialUrl != null)
+                    verifiedRows.Add(new VerifiedSourceUrlRow(partialUrl, "pending"));
             }
         }
 
@@ -281,7 +289,6 @@ public static class SourceCommand
         List<MemberDocRow>? memberDocs = null;
         if (options.Verbosity >= Verbosity.Normal && sourceInfo?.SourceUrl != null)
         {
-            // Enrich via SourceEnricher for XML docs
             var enrichOptions = new ApiOptions
             {
                 ShowDocs = true,
@@ -331,7 +338,10 @@ public static class SourceCommand
             }
         }
 
-        bool showMetadata = options.Verbosity >= Verbosity.Minimal;
+        // For default invocation (no explicit format), switch to markdown like type command
+        bool isDefault = options.IsDefaultInvocation;
+        bool showMetadata = !isDefault;
+
         string title = apiType.FullName;
 
         var view = new SourceDetailView
@@ -340,21 +350,34 @@ public static class SourceCommand
             Description = apiType.Documentation.Summary,
             Kind = apiType.Kind,
             Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
-            Package = packageName,
-            Version = packageVersion,
+            Source = primaryUrl,
+            Package = showMetadata ? packageName : null,
+            Version = showMetadata ? packageVersion : null,
             Repository = showMetadata ? service.RepositoryUrl : null,
             Commit = showMetadata ? service.CommitHash : null,
             PdbStatus = showMetadata ? DescribePdbStatus(service.Context) : null,
             Resolution = showMetadata ? sourceInfo?.ResolutionMethod.ToString() : null,
-            SourceFiles = options.Verify ? null : (rows.Count > 0 ? rows : null),
+            AdditionalSourceFiles = options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null),
             VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null,
             MemberDocs = memberDocs,
             Samples = samples
         };
 
-        WriteOutput(view, options);
+        if (isDefault)
+        {
+            // Default: markdown rendering (not oneline), like type command's shape default
+            WriteMarkdown(view, options);
+        }
+        else if (options.OneLine && !options.JsonOutput)
+        {
+            WriteOneLine(view, options);
+        }
+        else
+        {
+            WriteOutput(view, options);
+        }
 
-        if (!options.IsRawOutput)
+        if (!options.IsRawOutput || isDefault)
         {
             var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                 : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -382,6 +405,25 @@ public static class SourceCommand
 
     // ===== Helpers =====
 
+    private static void WriteOneLine<T>(T view, SourceOptions options) where T : class
+    {
+        var writerOpts = new MarkoutWriterOptions
+        {
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+        };
+        new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+    }
+
+    private static void WriteMarkdown<T>(T view, SourceOptions options) where T : class
+    {
+        var writerOpts = new MarkoutWriterOptions
+        {
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+        };
+        var formatter = options.PlainText ? (IMarkoutFormatter)new PlainTextFormatter() : new MarkdownFormatter();
+        new MarkoutContext().Serialize(view, Console.Out, formatter, writerOpts);
+    }
+
     private static void WriteOutput<T>(T view, SourceOptions options) where T : class
     {
         if (options.JsonOutput)
@@ -392,33 +434,19 @@ public static class SourceCommand
         }
 
         if (options.OneLine)
-        {
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-            };
-            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
-        }
+            WriteOneLine(view, options);
         else
-        {
-            var writerOpts = new MarkoutWriterOptions
-            {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-            };
-            var formatter = options.PlainText ? (IMarkoutFormatter)new PlainTextFormatter() : new MarkdownFormatter();
-            new MarkoutContext().Serialize(view, Console.Out, formatter, writerOpts);
-        }
+            WriteMarkdown(view, options);
     }
 
     private static async Task VerifyUrlsAsync<T>(List<T> rows, HttpClient httpClient, VerboseLogger logger)
     {
-        // Extract URLs and verify in parallel
         var urlItems = rows.Select((row, index) =>
         {
             var url = row switch
             {
                 VerifiedSourceFileRow r => r.Url,
-                VerifiedTypeSourceFileRow r => r.Url,
+                VerifiedSourceUrlRow r => r.Url,
                 _ => null
             };
             return (Index: index, Url: url);
@@ -443,12 +471,11 @@ public static class SourceCommand
             }
         });
 
-        // Update rows with results
         for (int i = 0; i < rows.Count; i++)
         {
             if (rows[i] is VerifiedSourceFileRow r)
                 rows[i] = (T)(object)(r with { Status = results[i] });
-            else if (rows[i] is VerifiedTypeSourceFileRow r2)
+            else if (rows[i] is VerifiedSourceUrlRow r2)
                 rows[i] = (T)(object)(r2 with { Status = results[i] });
         }
     }

@@ -65,6 +65,11 @@ public record SourceOptions
     public NuGetSourceOptions? NuGetOptions { get; init; }
 
     /// <summary>
+    /// True when no explicit output format was selected (default invocation).
+    /// </summary>
+    public bool IsDefaultInvocation => OneLine && !JsonOutput && !OneLineExplicitlySet;
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine;
