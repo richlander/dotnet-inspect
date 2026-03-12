@@ -198,8 +198,9 @@ public class CSharpEmitterTests
 
         Assert.Contains("do", output);
         Assert.Contains("while", output);
-        // The do-while body should contain the increment
-        Assert.Contains("+ 1", output);
+        // The do-while body should contain the increment (as ++ or + 1)
+        Assert.True(output.Contains("++") || output.Contains("+ 1"),
+            $"Expected increment in:\n{output}");
     }
 
     [Fact]
