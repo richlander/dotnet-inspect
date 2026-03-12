@@ -13,6 +13,11 @@ public static class ArgumentPreprocessor
     public static int? HeadLines { get; private set; }
 
     /// <summary>
+    /// When --tail N is used, stores the tail line count.
+    /// </summary>
+    public static int? TailLines { get; private set; }
+
+    /// <summary>
     /// Known commands for implicit package command detection.
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -26,6 +31,7 @@ public static class ArgumentPreprocessor
     internal static void Reset()
     {
         HeadLines = null;
+        TailLines = null;
     }
 
     /// <summary>
@@ -35,6 +41,7 @@ public static class ArgumentPreprocessor
     {
         // Reset HeadLines for each preprocessing call
         HeadLines = null;
+        TailLines = null;
 
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
@@ -48,16 +55,26 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
+        // Set HeadLines for explicit -n N or --head N (so -n 6 behaves like -6)
         if (HeadLines == null)
         {
             for (int i = 0; i < args.Length - 1; i++)
             {
-                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
+                if ((args[i] == "-n" || args[i] == "--head") && int.TryParse(args[i + 1], out var n))
                 {
                     HeadLines = n;
                     break;
                 }
+            }
+        }
+
+        // Set TailLines for --tail N
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--tail" && int.TryParse(args[i + 1], out var tailN))
+            {
+                TailLines = tailN;
+                break;
             }
         }
 
@@ -67,8 +84,8 @@ public static class ArgumentPreprocessor
         {
             if (!args[i].StartsWith('-'))
             {
-                // Skip the value token that follows -n (it's a number, not a command)
-                if (i > 0 && args[i - 1] == "-n") continue;
+                // Skip the value token that follows -n, --head, or --tail (it's a number, not a command)
+                if (i > 0 && (args[i - 1] == "-n" || args[i - 1] == "--head" || args[i - 1] == "--tail")) continue;
                 firstPositional = i;
                 break;
             }

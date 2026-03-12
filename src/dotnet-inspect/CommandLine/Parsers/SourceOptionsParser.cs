@@ -27,6 +27,7 @@ public static class SourceOptionsParser
         Option<bool> VerifyOption,
         Option<bool> AuditOption,
         Option<bool> BrowsableUrlsOption,
+        Option<bool> CatOption,
         Option<bool> CompactOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
@@ -158,6 +159,7 @@ public static class SourceOptionsParser
             Verify = parseResult.GetValue(args.VerifyOption),
             Audit = parseResult.GetValue(args.AuditOption),
             BrowsableUrls = parseResult.GetValue(args.BrowsableUrlsOption),
+            Cat = parseResult.GetValue(args.CatOption),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
@@ -176,7 +178,7 @@ public static class SourceOptionsParser
 
         options = options with
         {
-            TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || typeLimit != null
+            TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || typeLimit != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 

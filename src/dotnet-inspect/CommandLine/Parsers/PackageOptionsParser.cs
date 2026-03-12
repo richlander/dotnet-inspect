@@ -105,7 +105,7 @@ public static class PackageOptionsParser
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
-        var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || options.Limit != null
+        var tipLevel = options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 

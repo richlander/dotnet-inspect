@@ -21,6 +21,12 @@ public static class CommandLineBuilder
     public static int? HeadLines => ArgumentPreprocessor.HeadLines;
 
     /// <summary>
+    /// When --tail N is used, stores the tail line count.
+    /// Delegates to <see cref="ArgumentPreprocessor.TailLines"/> for backward compatibility.
+    /// </summary>
+    public static int? TailLines => ArgumentPreprocessor.TailLines;
+
+    /// <summary>
     /// Known commands for implicit package command detection.
     /// Delegates to <see cref="ArgumentPreprocessor.KnownCommands"/> for backward compatibility.
     /// </summary>
@@ -129,7 +135,7 @@ public static class CommandLineBuilder
 
             HelpWriter.WriteHelp(rootCommand);
 
-            var tipLevel = HeadLines != null
+            var tipLevel = HeadLines != null || TailLines != null
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),

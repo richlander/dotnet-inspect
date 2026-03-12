@@ -193,6 +193,12 @@ public static class SourceCommand
             }
         }
 
+        // Cat mode: fetch and print source file contents
+        if (options.Cat)
+        {
+            return await CatUrlsAsync(rows.Where(r => r.Url != null).Select(r => r.Url!), httpClient);
+        }
+
         // Verify URLs if requested
         if (options.Verify)
             await VerifyUrlsAsync(verifiedRows, httpClient, logger);
@@ -373,6 +379,15 @@ public static class SourceCommand
                 if (options.Verify && partialUrl != null)
                     verifiedRows.Add(new VerifiedSourceUrlRow(partialUrl, "pending"));
             }
+        }
+
+        // Cat mode: fetch and print source file contents
+        if (options.Cat)
+        {
+            var urls = new List<string>();
+            if (primaryUrl != null) urls.Add(primaryUrl);
+            urls.AddRange(additionalRows.Select(r => r.Url).Where(u => !string.IsNullOrEmpty(u))!);
+            return await CatUrlsAsync(urls, httpClient);
         }
 
         // Verify URLs if requested
@@ -566,6 +581,34 @@ public static class SourceCommand
             _ => "{}"
         };
         Console.WriteLine(json);
+    }
+
+    private static async Task<int> CatUrlsAsync(IEnumerable<string> urls, HttpClient httpClient)
+    {
+        foreach (var url in urls)
+        {
+            // Strip line fragments (#L10-L20) for HTTP fetch
+            var fetchUrl = url.Contains('#') ? url[..url.IndexOf('#')] : url;
+
+            try
+            {
+                var response = await httpClient.GetAsync(fetchUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    Console.Write(content);
+                }
+                else
+                {
+                    Console.WriteLine($"{url} {(int)response.StatusCode} {response.ReasonPhrase}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"{url} {ex.Message}");
+            }
+        }
+        return 0;
     }
 
     private static SourceListResult ToListResult(SourceListView v) => new()

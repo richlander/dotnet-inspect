@@ -117,7 +117,7 @@ public static class RouterCommandDefinition
 
             if (assemblyExitCode == 0 && !route.Options.JsonOutput)
             {
-                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null
+                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                     ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
                 TipWriter.WritePlatformTips(route.BareName, platformTipLevel, route.Verbosity);
             }
@@ -150,7 +150,7 @@ public static class RouterCommandDefinition
                 Columns = route.Options.Columns,
                 Fields = route.Options.Fields,
                 SourceOptions = route.Options.SourceOptions,
-                TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+                TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
             return await ApiCommand.ExecuteAsync(typeOptions);
@@ -178,7 +178,7 @@ public static class RouterCommandDefinition
             SourceOptions = route.Options.SourceOptions
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
@@ -288,7 +288,7 @@ public static class RouterCommandDefinition
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            TipLevel = ArgumentPreprocessor.HeadLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+            TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
         return await ApiCommand.ExecuteAsync(typeOptions);

@@ -101,6 +101,14 @@ args = CommandLineBuilder.PreprocessArgs(args);
 if (CommandLineBuilder.HeadLines is int headLines)
     Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
 
+// Install tail writer when --tail N was used
+TailLineLimitingTextWriter? tailWriter = null;
+if (CommandLineBuilder.TailLines is int tailLines)
+{
+    tailWriter = new TailLineLimitingTextWriter(Console.Out, tailLines);
+    Console.SetOut(tailWriter);
+}
+
 // Create and invoke command
 var rootCommand = CommandLineBuilder.CreateRootCommand();
 var result = rootCommand.Parse(args);
@@ -113,6 +121,10 @@ catch (OperationCanceledException)
 {
     return 1;
 }
+
+// Flush tail writer to emit only the last N lines
+if (tailWriter != null)
+    tailWriter.FlushTail();
 
 // Write info metrics to stderr if --info was requested
 if (showInfo)
