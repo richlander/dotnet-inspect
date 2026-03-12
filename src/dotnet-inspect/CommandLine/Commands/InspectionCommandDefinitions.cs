@@ -112,7 +112,6 @@ public static class InspectionCommandDefinitions
         };
         assemblyPathArg.DefaultValueFactory = _ => null;
 
-        var sourcelinkAuditOption = new Option<bool>("--source-link-audit") { Description = "Full provenance verification (parallel HTTP HEAD on all source files)" };
         var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree (tip: use 'depends --library' instead)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
@@ -122,7 +121,6 @@ public static class InspectionCommandDefinitions
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
-        assemblyCommand.Options.Add(sourcelinkAuditOption);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
         assemblyCommand.Options.Add(asmPlatformOption);
@@ -162,8 +160,6 @@ public static class InspectionCommandDefinitions
                     packagePath = source;
             }
 
-            bool runSourcelinkAudit = parseResult.GetValue(sourcelinkAuditOption);
-
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
 
@@ -171,7 +167,6 @@ public static class InspectionCommandDefinitions
             {
                 AssemblyName = assemblyPath,
                 IncludeMetadata = true,
-                IncludeSourcelinkAudit = runSourcelinkAudit,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
                 PackagePath = packagePath,

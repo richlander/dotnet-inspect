@@ -1,6 +1,5 @@
 using DotnetInspector.Core;
 using DotnetInspector.Models;
-using System.Collections.Concurrent;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -123,8 +122,8 @@ internal static class LibraryMetadataService
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
             // Skip PDB download for quiet/minimal verbosity (no SourceLink info displayed)
-            bool skipPdbDownload = options.Verbosity < Options.Verbosity.Detailed && !options.IncludeSourcelinkAudit;
-            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, options.IncludeSourcelinkAudit, skipPdbDownload);
+            bool skipPdbDownload = options.Verbosity < Options.Verbosity.Detailed;
+            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, skipPdbDownload: skipPdbDownload);
 
             return inspection;
         }
@@ -148,7 +147,6 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        bool includeSourcelinkAudit = false,
         bool skipPdbDownload = false)
     {
         var pdbContext = service.Context;
@@ -206,90 +204,7 @@ internal static class LibraryMetadataService
         }
 
         inspection.Builder = InferBuilder(inspection);
-
-        // SourceLink inspection: verify that all source files are accessible
-        if (includeSourcelinkAudit && pdbContext.HasPdb && service.HasSourceLink && service.SourceLinkJson != null)
-        {
-            logger.Log("Running strict source verification...");
-            await VerifySourceAccessibilityAsync(service, inspection, httpClient, logger);
-        }
     }
-
-    /// <summary>
-    /// Verifies that all source files in the PDB are accessible via SourceLink or embedded.
-    /// </summary>
-    public static async Task VerifySourceAccessibilityAsync(
-        SourceLinkService service,
-        LibraryInspection inspection,
-        HttpClient httpClient,
-        VerboseLogger logger)
-    {
-        var documents = service.GetTrackedFiles();
-        int embeddedFiles = 0;
-        int accessibleCount = 0;
-        var missingFiles = new ConcurrentBag<string>();
-        List<SourceDocument> urlDocs = [];
-
-        foreach (var doc in documents)
-        {
-            if (doc.IsEmbedded) { embeddedFiles++; continue; }
-            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath))
-            {
-                missingFiles.Add(doc.FilePath);
-                continue;
-            }
-            urlDocs.Add(doc);
-        }
-
-        // Partition into cached (already verified) and uncached (need HEAD request)
-        List<SourceDocument> uncachedDocs = [];
-        foreach (var doc in urlDocs)
-        {
-            if (CoreCache.TryGet("source-audit", doc.ResolvedUrl!, extension: "ok") != null)
-                Interlocked.Increment(ref accessibleCount);
-            else
-                uncachedDocs.Add(doc);
-        }
-
-        if (uncachedDocs.Count > 0)
-        {
-            logger.Log($"Verifying {uncachedDocs.Count} source URLs ({urlDocs.Count - uncachedDocs.Count} cached)...");
-
-            await Parallel.ForEachAsync(uncachedDocs,
-                new ParallelOptions { MaxDegreeOfParallelism = 16 },
-                async (doc, ct) =>
-                {
-                    using var response = await HttpRetryHelper.HeadWithRetryAsync(
-                        httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
-                    if (response != null)
-                    {
-                        Interlocked.Increment(ref accessibleCount);
-                        // Source URLs are commit-pinned and immutable — cache permanently
-                        CoreCache.Set("source-audit", doc.ResolvedUrl!, "1", extension: "ok");
-                    }
-                    else
-                    {
-                        logger.Log($"Source not accessible: {doc.ResolvedUrl}");
-                        missingFiles.Add(doc.FilePath);
-                    }
-                });
-        }
-
-        inspection.TotalSourceFiles = documents.Count;
-        inspection.AccessibleSourceFiles = accessibleCount;
-        inspection.EmbeddedSourceFiles = embeddedFiles;
-        inspection.AllSourcesAccessible = missingFiles.IsEmpty;
-        inspection.MissingSourceFiles = missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)];
-
-        logger.Log($"Source coverage: {accessibleCount + embeddedFiles}/{documents.Count} files accessible");
-    }
-
-    /// <summary>
-    /// Build artifacts (e.g. AssemblyInfo.cs, Forwards.cs) are generated during CI and
-    /// never exist in source control. Skip the HEAD request — they will always 404.
-    /// </summary>
-    private static bool IsBuildArtifact(string filePath) =>
-        filePath.Contains("/artifacts/obj/") || filePath.Contains("\\artifacts\\obj\\");
 
     /// <summary>
     /// Infers who built the assembly based on symbol availability and SourceLink.

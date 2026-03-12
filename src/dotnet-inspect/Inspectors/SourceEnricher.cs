@@ -128,7 +128,7 @@ internal static class SourceEnricher
                 {
                     Console.Error.WriteLine("Warning: No readable PDB found.");
                 }
-                Console.Error.WriteLine("         Run 'library --source-link-audit' for more details.");
+                Console.Error.WriteLine("         Run 'source --audit' for more details.");
                 Console.Error.WriteLine();
                 return;
             }

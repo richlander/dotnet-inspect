@@ -97,9 +97,6 @@ public static class CommandLineBuilder
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(opts));
 
-        // Samples command
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSamplesCommand(opts));
-
         // Source command (SourceLink file discovery)
         rootCommand.Subcommands.Add(SourceCommandDefinitions.CreateSourceCommand(opts));
 

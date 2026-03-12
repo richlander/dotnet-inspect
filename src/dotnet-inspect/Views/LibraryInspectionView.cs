@@ -113,9 +113,6 @@ public class LibraryInspectionView
         Recommendation = _data.WindowsPdbDetected ? "Consider asking the package maintainer to publish Portable PDBs" : null,
     };
 
-    [MarkoutSection(Name = "Source Link Audit")]
-    public SourceLinkAuditSection? SourceLinkAuditSection => GetSourceLinkAuditSection();
-
     [MarkoutIgnore]
     public bool HasMissingSourceFiles => _data.MissingSourceFiles is { Count: > 0 };
 
@@ -225,24 +222,6 @@ public class LibraryInspectionView
         }
 
         return "";
-    }
-
-    private SourceLinkAuditSection? GetSourceLinkAuditSection()
-    {
-        if (_data.TotalSourceFiles <= 0) return null;
-
-        int accessible = _data.AccessibleSourceFiles + _data.EmbeddedSourceFiles;
-        string coverage = accessible == 0 ? "None"
-            : accessible >= _data.TotalSourceFiles ? "Complete"
-            : "Partial";
-
-        return new SourceLinkAuditSection
-        {
-            Coverage = coverage,
-            Files = _data.TotalSourceFiles,
-            Accessible = accessible,
-            Embedded = _data.EmbeddedSourceFiles > 0 ? _data.EmbeddedSourceFiles : null,
-        };
     }
 
     private static string FormatSize(int bytes) => bytes switch
@@ -397,12 +376,3 @@ public class SymbolsSection
     public string? Recommendation { get; init; }
 }
 
-[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
-[MarkoutSkipNull]
-public class SourceLinkAuditSection
-{
-    public string? Coverage { get; init; }
-    public int Files { get; init; }
-    public int Accessible { get; init; }
-    public int? Embedded { get; init; }
-}

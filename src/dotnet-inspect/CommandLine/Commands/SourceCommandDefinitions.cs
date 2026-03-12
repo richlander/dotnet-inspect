@@ -32,6 +32,7 @@ public static class SourceCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var verifyOption = new Option<bool>("--verify") { Description = "Verify SourceLink URLs are accessible (HTTP HEAD)" };
+        var auditOption = new Option<bool>("--audit") { Description = "Full source audit: verify all PDB source files are accessible" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
@@ -46,6 +47,7 @@ public static class SourceCommandDefinitions
         sourceCommand.Options.Add(allOption);
         sourceCommand.Options.Add(typeFilterOption);
         sourceCommand.Options.Add(verifyOption);
+        sourceCommand.Options.Add(auditOption);
         sourceCommand.Options.Add(browsableUrlsOption);
         sourceCommand.Options.Add(opts.Json);
         sourceCommand.Options.Add(compactOption);
@@ -59,7 +61,7 @@ public static class SourceCommandDefinitions
 
         var commandArgs = new SourceOptionsParser.SourceCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, verifyOption, browsableUrlsOption,
+            allOption, typeFilterOption, verifyOption, auditOption, browsableUrlsOption,
             compactOption, oneLineOption, noHeaderOption);
 
         sourceCommand.SetAction(async (parseResult, ct) =>

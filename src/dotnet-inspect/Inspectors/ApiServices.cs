@@ -16,7 +16,7 @@ internal static class ApiServices
 
     /// <summary>
     /// Extracts a specific type from a package or assembly, with full path info.
-    /// Used by api command and SamplesCommand.
+    /// Used by api command and source command.
     /// </summary>
     internal static async Task<(ApiType? type, string? foundIn, string? dllPath)> ExtractTypeWithPathAsync(string typeName, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
@@ -119,7 +119,7 @@ internal static class ApiServices
 
     /// <summary>
     /// Extracts the full API surface from a package or assembly, enriching types with source info.
-    /// Used by SamplesCommand for assembly-wide sample collection and DiffCommand.
+    /// Used by source command for assembly-wide sample collection and DiffCommand.
     /// </summary>
     internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractApiSurfaceAsync(ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
