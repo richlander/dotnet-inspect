@@ -116,7 +116,7 @@ public static class MemberOptionsParser
         // If source resolution left us with an unresolved package that is actually
         // a qualified type name (e.g., "System.Text.Json.JsonDocument"), split it
         // so the user can write: member System.Text.Json.JsonDocument Parse
-        if (source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
+        if (explicitPackage == null && source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
         {
             var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
             if (probe != null)
