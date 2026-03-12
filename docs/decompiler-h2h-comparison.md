@@ -4,13 +4,11 @@ Comparison of `dotnet-inspect` decompiler output against the actual C# source fr
 
 ---
 
-## ✅ Near-Perfect Matches
+## Near-Perfect Matches
 
 ### `String.IsNullOrEmpty`
 
-<table>
-<tr><th>Source (dotnet/runtime)</th><th>Decompiled</th></tr>
-<tr><td>
+**Source (dotnet/runtime):**
 
 ```csharp
 public static bool IsNullOrEmpty(string? value)
@@ -19,7 +17,7 @@ public static bool IsNullOrEmpty(string? value)
 }
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (value != null)
@@ -29,24 +27,19 @@ if (value != null)
 return true;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Semantically identical. Source uses `||` short-circuit; decompiler uses if/return. The IL compiles both to the same branch pattern — no way to distinguish. Structure is clear and readable. **Grade: A-**
 
 ---
 
 ### `Math.Max`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 return (val1 >= val2) ? val1 : val2;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (val1 >= val2)
@@ -56,24 +49,19 @@ if (val1 >= val2)
 return val2;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Semantically identical. Ternary `? :` and if/else compile to identical IL. **Grade: A**
 
 ---
 
 ### `Math.Min`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 return (val1 <= val2) ? val1 : val2;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (val1 <= val2)
@@ -83,18 +71,13 @@ if (val1 <= val2)
 return val2;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Same as Max. Ternary vs if/return — indistinguishable in IL. **Grade: A**
 
 ---
 
 ### `Math.Clamp`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 if (min > max)
@@ -106,7 +89,7 @@ else if (value > max)
 return value;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (min > max)
@@ -124,18 +107,13 @@ if (value <= max)
 return max;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Semantically identical. The `else if (value > max)` becomes `if (value <= max) return value` — just the condition inverted. Fully qualified `System.Math.` is cosmetic (no `using` context). **Grade: A**
 
 ---
 
 ### `Math.Abs(short)`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 if (value < 0)
@@ -147,7 +125,7 @@ if (value < 0)
 return value;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (value < 0)
@@ -159,24 +137,19 @@ System.Math.ThrowNegateTwosCompOverflow();
 return value;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Close but has a structural issue. The `goto IL_0012` skips the throw — semantically correct, but the source nests the throw inside the `if`. The decompiler doesn't reconstruct the nested-if-with-early-exit pattern. **Grade: B**
 
 ---
 
 ### `List<T>.Contains`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 return _size != 0 && IndexOf(item) >= 0;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (this._size != 0)
@@ -186,18 +159,13 @@ if (this._size != 0)
 return false;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Semantically identical. `&&` short-circuit = if/return in IL. `base.IndexOf` instead of `IndexOf` is because the call goes through the vtable slot (`callvirt`). **Grade: A-**
 
 ---
 
 ### `Dictionary<K,V>.Clear`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 int count = _count;
@@ -211,7 +179,7 @@ if (count > 0)
 }
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 int V_0;
@@ -227,9 +195,6 @@ if (V_0 > 0)
 return;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Excellent match. Only differences: `V_0` vs `count` (no PDB), explicit `this.`, FQN `System.Array`, trailing `return;`. All cosmetic. **Grade: A**
 
 ---
@@ -239,19 +204,17 @@ return;
 Both are one-liners and match perfectly:
 
 | Method | Source | Decompiled | Grade |
-|--------|--------|------------|-------|
+| --- | --- | --- | --- |
 | `HashSet.Contains` | `return FindItemIndex(item) >= 0;` | `return base.FindItemIndex(item) >= 0;` | **A** |
 | `StringBuilder.Clear` | `Length = 0; return this;` | `base.Length = 0; return this;` | **A** |
 
 ---
 
-## ⚠️ Structural Differences
+## Structural Differences
 
 ### `String.IsNullOrWhiteSpace`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 if (value == null) return true;
@@ -263,7 +226,7 @@ for (int i = 0; i < value.Length; i++)
 return true;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 int V_0;
@@ -280,9 +243,6 @@ return false;
 return true;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Logic is inverted: source returns `false` when `!IsWhiteSpace`, decompiler returns `false` at end and has `goto IL_0019` to skip to `return true`. The `goto` is a missed `continue` pattern. The for-loop init folding and `V_0++` work correctly (thanks to the fidelity improvements). **Grade: B-**
 
 **Gap: `goto` in loop body instead of `continue` or negated condition.**
@@ -291,9 +251,7 @@ return true;
 
 ### `List<T>.Clear`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 _version++;
@@ -310,7 +268,7 @@ else
 }
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 int V_0;
@@ -330,9 +288,6 @@ return;
 return;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Structure mostly preserved. Issues: `_version + 1` instead of `_version++` (compound assignment should catch this — the `this.field = this.field + 1` pattern needs field-level compound detection, not just locals). `goto IL_003C` instead of early return. Double `return;`. **Grade: B-**
 
 **Gap: Compound assignment for fields (not just locals). `goto` instead of early-return from nested if.**
@@ -341,9 +296,7 @@ return;
 
 ### `Stack<T>.Push`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 int size = _size;
@@ -360,7 +313,7 @@ else
 }
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 int V_0;
@@ -378,9 +331,6 @@ this._size = V_0 + 1;
 return;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Semantically correct. The `(uint)` casts are optimized away by the JIT so the IL uses a simpler comparison, which is fine. The if/else structure is inverted (decompiler tests `>=` and puts the else-body first). `_version + 1` should be `_version++`. **Grade: B**
 
 **Gap: Field compound assignment. Inverted branch ordering (minor).**
@@ -389,9 +339,7 @@ return;
 
 ### `Queue<T>.Enqueue`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 if (_size == _array.Length)
@@ -402,7 +350,7 @@ _size++;
 _version++;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (this._size == this._array.Length)
@@ -416,27 +364,22 @@ this._version = this._version + 1;
 return;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Very close. `_size + 1` / `_version + 1` should be `_size++` / `_version++`. `MoveNext(this._tail)` is missing the `ref` (decompiler doesn't reconstruct `ref` argument passing). **Grade: B**
 
 **Gap: Field compound assignment. Missing `ref` on arguments.**
 
 ---
 
-## ❌ Major Structural Gaps
+## Major Structural Gaps
 
 ### `String.Contains(string)`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 if (value == null)
     ThrowHelper.ThrowArgumentNullException(...);
-if (RuntimeHelpers.IsKnownConstant(value) 
+if (RuntimeHelpers.IsKnownConstant(value)
     && value.Length == 1)
 {
     return Contains(value[0]);
@@ -446,7 +389,7 @@ return SpanHelpers.IndexOf(
     ref value._firstChar, value.Length) >= 0;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 if (value == null)
@@ -461,10 +404,7 @@ return base.Contains(value[0]);
 return SpanHelpers.IndexOf(...) >= 0;
 ```
 
-</td></tr>
-</table>
-
-**Verdict:** The `&&` in `if (IsKnownConstant(value) && value.Length == 1)` is split into two nested ifs with a `goto`. The second `return` is dead-code-looking because the `goto` target skips past it. This is the classic "compound boolean condition → nested branches" IL pattern. **Grade: C+**
+**Verdict:** The `&&` in `if (IsKnownConstant(value) && value.Length == 1)` is split into two nested ifs with a `goto`. The second `return` is dead-code-looking because the `goto` target skips past it. This is the classic "compound boolean condition to nested branches" IL pattern. **Grade: C+**
 
 **Gap: `&&`/`||` boolean condition reconstruction. Dead-code-looking sequential returns.**
 
@@ -472,9 +412,7 @@ return SpanHelpers.IndexOf(...) >= 0;
 
 ### `Stack<T>.Pop` / `Queue<T>.Dequeue`
 
-<table>
-<tr><th>Source (Pop)</th><th>Decompiled (Pop)</th></tr>
-<tr><td>
+**Source (Pop):**
 
 ```csharp
 int size = _size - 1;
@@ -489,7 +427,7 @@ if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
 return item;
 ```
 
-</td><td>
+**Decompiled (Pop):**
 
 ```csharp
 V_0 = this._size - 1;
@@ -510,9 +448,6 @@ if (RuntimeHelpers.IsReferenceOrContainsReferences())
 return S_in_0;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** The `ldelem` (generic array element load) falls back to a comment. `S_0`/`S_in_0` are stack-simulation artifacts that leak into the output. The `return item` becomes `return S_in_0` which is opaque. **Grade: D+**
 
 **Gap: Generic `ldelem` (constrained element access) not handled. Stack variable leakage.**
@@ -521,9 +456,7 @@ return S_in_0;
 
 ### `Dictionary<K,V>.ContainsValue`
 
-<table>
-<tr><th>Source</th><th>Decompiled</th></tr>
-<tr><td>
+**Source:**
 
 ```csharp
 Entry[]? entries = _entries;
@@ -533,13 +466,13 @@ else { /* loop with cached comparer */ }
 return false;
 ```
 
-</td><td>
+**Decompiled:**
 
 ```csharp
 V_0 = this._entries;
 if (value /* box TValue */ != null)
 {
-    if (!Type.GetTypeFromHandle(typeof(TValue)).IsValueType) 
+    if (!Type.GetTypeFromHandle(typeof(TValue)).IsValueType)
         goto IL_0097;
 }
 else { V_1 = 0; }
@@ -554,9 +487,6 @@ for (V_4 = 0; ...) { ... }
 return true;
 ```
 
-</td></tr>
-</table>
-
 **Verdict:** Complex generic method with 3 code paths. The decompiler produces sequential `return true; return 0;` pairs and `goto` jumps between paths. `return 0` instead of `return false` (missing bool context on integer return). Multiple for-loops are correctly structured. But the overall control flow is hard to follow. **Grade: C-**
 
 **Gap: Multi-branch control flow flattening. `return 0` vs `return false`. Generic type parameter references (`T1` instead of `TValue`).**
@@ -566,12 +496,12 @@ return true;
 ## Summary Scorecard
 
 | Method | Grade | Key Differences |
-|--------|-------|-----------------|
-| `String.IsNullOrEmpty` | **A-** | `\|\|` → if/return (unavoidable) |
-| `Math.Max` | **A** | Ternary → if/return (unavoidable) |
-| `Math.Min` | **A** | Ternary → if/return (unavoidable) |
+| --- | --- | --- |
+| `String.IsNullOrEmpty` | **A-** | `\|\|` to if/return (unavoidable) |
+| `Math.Max` | **A** | Ternary to if/return (unavoidable) |
+| `Math.Min` | **A** | Ternary to if/return (unavoidable) |
 | `Math.Clamp` | **A** | Minor condition inversion |
-| `List.Contains` | **A-** | `&&` → if/return (unavoidable) |
+| `List.Contains` | **A-** | `&&` to if/return (unavoidable) |
 | `Dictionary.Clear` | **A** | Variable names, FQN (cosmetic) |
 | `HashSet.Contains` | **A** | `base.` prefix (cosmetic) |
 | `StringBuilder.Clear` | **A** | `base.` prefix (cosmetic) |
@@ -588,15 +518,17 @@ return true;
 ### Overall: **B** average across 17 methods
 
 **Strengths (what works well):**
+
 - Simple methods with linear control flow: near-perfect
 - Field access, method calls, comparisons: all correct
 - For-loop structuring with init/increment: working well (post-PR)
 - Nested if/else: generally correct
 
 **Top remaining gaps for future work:**
+
 1. **Field compound assignment** (`_version++` instead of `_version = _version + 1`) — easy
-2. **Generic `ldelem`** (constrained array element access) — medium  
+2. **Generic `ldelem`** (constrained array element access) — medium
 3. **`&&`/`||` boolean condition reconstruction** — medium
-4. **`goto` → `continue`/`break` in loops** — medium
+4. **`goto` to `continue`/`break` in loops** — medium
 5. **`ref` argument annotation** — easy
-6. **Bool context on return values** (`return 0` → `return false`) — easy
+6. **Bool context on return values** (`return 0` to `return false`) — easy
