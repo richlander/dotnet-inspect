@@ -101,7 +101,7 @@ public static class UtilityCommandDefinitions
 
     public static Command CreateSamplesCommand(SharedOptions opts)
     {
-        var samplesCommand = new Command("samples", "Show sample code references for a type or library");
+        var samplesCommand = new Command("samples", "Deprecated: Use 'source -v:d' instead") { Hidden = true };
 
         var argsArg = new Argument<string[]>("args")
         {

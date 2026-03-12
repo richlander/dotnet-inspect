@@ -161,11 +161,6 @@ public static class ApiCommandDefinitions
         };
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
-        var docsOption = new Option<bool>("--docs") { Description = "Include XML doc comments (on by default, use --no-docs to suppress)" };
-        var noDocsOption = new Option<bool>("--no-docs") { Description = "Suppress XML doc comments" };
-        var useLocalDocsOption = new Option<bool>("--use-local-docs") { Description = "Include XML docs from local packs directory (offline)" };
-        var samplesOption = new Option<bool>("--samples") { Description = "Include code samples from source" };
-        var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
@@ -191,11 +186,6 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
         memberCommand.Options.Add(opts.Limit);
-        memberCommand.Options.Add(docsOption);
-        memberCommand.Options.Add(noDocsOption);
-        memberCommand.Options.Add(useLocalDocsOption);
-        memberCommand.Options.Add(samplesOption);
-        memberCommand.Options.Add(browsableUrlsOption);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
         memberCommand.Options.Add(oneLineOption);
@@ -214,8 +204,8 @@ public static class ApiCommandDefinitions
 
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, memberOption, ctorOption, docsOption, noDocsOption, useLocalDocsOption,
-            samplesOption, browsableUrlsOption, compactOption, oneLineOption, noHeaderOption,
+            allOption, memberOption, ctorOption,
+            compactOption, oneLineOption, noHeaderOption,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>

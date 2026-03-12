@@ -169,11 +169,7 @@ public static class MemberCommand
 
                 var selected = overloads[idx - 1];
                 apiType.Members = [selected];
-                // Exclude "Remote Source" for single-overload view by computing include set
-                var memberSections = ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames;
-                var include = effectiveOptions.IncludeSections ?? new HashSet<string>(memberSections, StringComparer.OrdinalIgnoreCase);
-                include.Remove(SectionNames.RemoteSource);
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath, IncludeSections = include };
+                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
             }
 
             // --params / -of: select overload by parameter type matching
@@ -228,23 +224,18 @@ public static class MemberCommand
 
                 var (selectedMember, overloadIdx) = matches[0];
                 apiType.Members = [selectedMember];
-                // Exclude "Remote Source" for single-overload view by computing include set
-                var memberSections = ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames;
-                var includeSections = effectiveOptions.IncludeSections ?? new HashSet<string>(memberSections, StringComparer.OrdinalIgnoreCase);
-                includeSections.Remove(SectionNames.RemoteSource);
                 effectiveOptions = effectiveOptions with
                 {
                     DllPath = apiDllPath,
-                    IncludeSections = includeSections,
                     OverloadIndex = overloadIdx + 1
                 };
             }
 
-            // Enrich with source/doc info
+            // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
-                if (dllPath != null)
-                    await SourceEnricher.EnrichDocsAsync(apiType, typeName!, dllPath, effectiveOptions, logger, context.HttpClient);
+                if (dllPath != null && effectiveOptions.ShowDocs)
+                    SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
             // Resolve method source code for --index view (after PDB acquisition)

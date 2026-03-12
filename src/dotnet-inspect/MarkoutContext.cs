@@ -50,6 +50,13 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ApiSurfaceOneLineRow))]
 [MarkoutContext(typeof(SamplesListView))]
 [MarkoutContext(typeof(SampleRow))]
+[MarkoutContext(typeof(SourceListView))]
+[MarkoutContext(typeof(SourceDetailView))]
+[MarkoutContext(typeof(SourceFileRow))]
+[MarkoutContext(typeof(VerifiedSourceFileRow))]
+[MarkoutContext(typeof(TypeSourceFileRow))]
+[MarkoutContext(typeof(VerifiedTypeSourceFileRow))]
+[MarkoutContext(typeof(MemberDocRow))]
 [MarkoutContext(typeof(EmptyDepsView))]
 public partial class MarkoutContext : MarkoutSerializerContext
 {
