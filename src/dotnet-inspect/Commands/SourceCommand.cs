@@ -587,8 +587,9 @@ public static class SourceCommand
     {
         foreach (var url in urls)
         {
-            // Strip line fragments (#L10-L20) for HTTP fetch
-            var fetchUrl = url.Contains('#') ? url[..url.IndexOf('#')] : url;
+            var hashIndex = url.IndexOf('#');
+            var fetchUrl = hashIndex >= 0 ? url[..hashIndex] : url;
+            var (startLine, endLine) = hashIndex >= 0 ? ParseLineFragment(url[(hashIndex + 1)..]) : (0, 0);
 
             try
             {
@@ -596,7 +597,17 @@ public static class SourceCommand
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();
-                    Console.Write(content);
+                    if (startLine > 0)
+                    {
+                        var lines = content.Split('\n');
+                        int start = Math.Min(startLine - 1, lines.Length);
+                        int end = endLine > 0 ? Math.Min(endLine, lines.Length) : start + 1;
+                        Console.WriteLine(string.Join('\n', lines[start..end]));
+                    }
+                    else
+                    {
+                        Console.Write(content);
+                    }
                 }
                 else
                 {
@@ -609,6 +620,37 @@ public static class SourceCommand
             }
         }
         return 0;
+    }
+
+    // Parses #L10 or #L10-L20 fragments into 1-based line numbers
+    private static (int Start, int End) ParseLineFragment(string fragment)
+    {
+        // Formats: L10, L10-L20
+        if (!fragment.StartsWith('L'))
+        {
+            return (0, 0);
+        }
+
+        var dashIndex = fragment.IndexOf('-');
+        if (dashIndex < 0)
+        {
+            return int.TryParse(fragment[1..], out var single) ? (single, single) : (0, 0);
+        }
+
+        var startPart = fragment[1..dashIndex];
+        var endPart = fragment[(dashIndex + 1)..];
+        // End part may be "L20" or just "20"
+        if (endPart.StartsWith('L'))
+        {
+            endPart = endPart[1..];
+        }
+
+        if (int.TryParse(startPart, out var start) && int.TryParse(endPart, out var end))
+        {
+            return (start, end);
+        }
+
+        return (0, 0);
     }
 
     private static SourceListResult ToListResult(SourceListView v) => new()
