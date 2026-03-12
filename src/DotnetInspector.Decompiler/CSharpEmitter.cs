@@ -17,17 +17,19 @@ public static class CSharpEmitter
         var cfg = ControlFlowGraph.Create(context);
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
+        var inliner = new ExpressionInliner();
+        var inlinedLocals = inliner.Inline(ast);
         var structure = StructuredControlFlow.Analyze(context, cfg);
-        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames);
+        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, inlinedLocals);
     }
 
     /// <summary>
     /// Emit C# source from pre-computed ILAst and control flow structure.
     /// </summary>
-    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null)
+    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null)
     {
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType, parameterNames);
+        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType, parameterNames, inlinedLocals);
         emitter.EmitMethod();
         return sb.ToString();
     }
@@ -93,7 +95,13 @@ public static class CSharpEmitter
         // IL offset labels consumed by while-loop conditions (body entry points from header branch)
         readonly HashSet<string> _loopConsumedLabels;
 
-        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null)
+        // Synthetic variable substitutions (e.g., S_in_0 → "x > 0 && y > 0")
+        readonly Dictionary<string, string> _syntheticSubstitutions = [];
+
+        // Variables inlined by ExpressionInliner (suppress declarations)
+        readonly HashSet<string> _inlinedLocals;
+
+        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null)
         {
             _ast = ast;
             _structure = structure;
@@ -102,6 +110,7 @@ public static class CSharpEmitter
             _hasThis = hasThis;
             _returnsBool = returnType is "bool" or "System.Boolean";
             _paramNames = parameterNames;
+            _inlinedLocals = inlinedLocals ?? [];
 
             _blockMap = [];
             for (int i = 0; i < ast.Blocks.Count; i++)
@@ -428,6 +437,8 @@ public static class CSharpEmitter
                         continue;
                     if (_suppressedLocals.Contains(local.Name))
                         continue;
+                    if (_inlinedLocals.Contains(local.Name))
+                        continue;
                     string typeName = SimplifyTypeName(local.TypeName ?? "var");
                     // Skip compiler-generated closure variable declarations
                     if (typeName.Contains("/* closure */", StringComparison.Ordinal))
@@ -519,6 +530,10 @@ public static class CSharpEmitter
             if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
                 return;
 
+            // Skip blocks already consumed by structured constructs
+            if (_consumedBlocks.Contains(blockIndex))
+                return;
+
             // Suppress return-only blocks whose gotos were all inlined
             if (astBlock.Nodes.Count == 1
                 && astBlock.Nodes[0] is ILAstStatement { Expression.OpCode: ILOpCode.Ret }
@@ -543,6 +558,14 @@ public static class CSharpEmitter
                     continue;
 
                 var node = astBlock.Nodes[nodeIdx];
+
+                // Peephole: stloc V_x = expr; ret(ldloc V_x) → return expr;
+                if (TryEmitStoreReturn(astBlock, nodeIdx, indent))
+                {
+                    nodeIdx++; // skip the ret node
+                    continue;
+                }
+
                 switch (node)
                 {
                     case ILAstAssignment assign:
@@ -616,26 +639,55 @@ public static class CSharpEmitter
                 var elseValue = TryExtractTernaryValue(block.ElseBlock);
                 if (thenValue is not null && elseValue is not null)
                 {
-                    // Apply negation if the conditional detector swapped then/else
                     if (block.NegateCondition)
                         condition = NegateConditionString(condition);
 
-                    // Emit as: S_in_0 = cond ? thenValue : elseValue
-                    // The follow block's S_in_0 references will resolve naturally
-                    WriteIndent(indent);
-                    _sb.Append("S_in_0 = ");
-                    _sb.Append(condition);
-                    _sb.Append(" ? ");
-                    _sb.Append(ExpressionToString(thenValue));
-                    _sb.Append(" : ");
-                    _sb.Append(ExpressionToString(elseValue));
-                    _sb.AppendLine(";");
+                    string? shortCircuit = TryBuildShortCircuit(condition, thenValue, elseValue);
+                    string resultExpr = shortCircuit
+                        ?? $"{condition} ? {ExpressionToString(thenValue)} : {ExpressionToString(elseValue)}";
 
-                    // Mark then/else blocks as consumed
+                    _syntheticSubstitutions["S_in_0"] = resultExpr;
+
                     if (block.ThenBlock.BlockIndex >= 0)
+                    {
                         _consumedBlocks.Add(block.ThenBlock.BlockIndex);
+                        RemoveGotoTargetsForConsumedBlock(block.ThenBlock.BlockIndex);
+                    }
                     if (block.ElseBlock.BlockIndex >= 0)
+                    {
                         _consumedBlocks.Add(block.ElseBlock.BlockIndex);
+                        RemoveGotoTargetsForConsumedBlock(block.ElseBlock.BlockIndex);
+                    }
+                    return;
+                }
+            }
+
+            // Detect ternary/short-circuit with no else but follow block assigns S_0
+            if (block.ThenBlock is not null && block.ElseBlock is null)
+            {
+                var thenValue = TryExtractTernaryValue(block.ThenBlock);
+                var followValue = TryExtractFollowTernaryValue(block);
+                if (thenValue is not null && followValue.expr is not null)
+                {
+                    if (block.NegateCondition)
+                        condition = NegateConditionString(condition);
+
+                    string? shortCircuit = TryBuildShortCircuit(condition, thenValue, followValue.expr);
+                    string resultExpr = shortCircuit
+                        ?? $"{condition} ? {ExpressionToString(thenValue)} : {ExpressionToString(followValue.expr)}";
+
+                    _syntheticSubstitutions["S_in_0"] = resultExpr;
+
+                    if (block.ThenBlock.BlockIndex >= 0)
+                    {
+                        _consumedBlocks.Add(block.ThenBlock.BlockIndex);
+                        RemoveGotoTargetsForConsumedBlock(block.ThenBlock.BlockIndex);
+                    }
+                    if (followValue.blockIdx >= 0)
+                    {
+                        _consumedBlocks.Add(followValue.blockIdx);
+                        RemoveGotoTargetsForConsumedBlock(followValue.blockIdx);
+                    }
                     return;
                 }
             }
@@ -765,6 +817,112 @@ public static class CSharpEmitter
             }
 
             return value;
+        }
+
+        /// <summary>
+        /// For a no-else conditional, look at the next sibling block in the parent
+        /// sequence for an S_0 assignment that serves as the "else" value.
+        /// </summary>
+        (ILAstExpression? expr, int blockIdx) TryExtractFollowTernaryValue(StructuredBlock ifBlock)
+        {
+            var parent = FindParentSequence(ifBlock);
+            if (parent is null) return (null, -1);
+
+            int myIndex = -1;
+            for (int i = 0; i < parent.Children.Count; i++)
+            {
+                if (ReferenceEquals(parent.Children[i], ifBlock))
+                { myIndex = i; break; }
+            }
+
+            if (myIndex < 0 || myIndex + 1 >= parent.Children.Count)
+                return (null, -1);
+
+            var followBlock = parent.Children[myIndex + 1];
+            if (followBlock.BlockIndex < 0 || !_blockMap.TryGetValue(followBlock.BlockIndex, out var astBlock))
+                return (null, -1);
+
+            ILAstExpression? value = null;
+            foreach (var node in astBlock.Nodes)
+            {
+                if (node is ILAstAssignment assign && assign.Variable.Kind == ILVariableKind.StackSlot)
+                {
+                    if (value is not null) return (null, -1);
+                    value = assign.Value;
+                }
+                else if (node is ILAstStatement stmt)
+                {
+                    var op = stmt.Expression.OpCode;
+                    if (op is not (ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Nop
+                        or ILOpCode.Leave or ILOpCode.Leave_s))
+                        return (null, -1);
+                }
+                else return (null, -1);
+            }
+            return (value, followBlock.BlockIndex);
+        }
+
+        /// <summary>
+        /// Detect short-circuit &amp;&amp; and || patterns from ternary values.
+        /// </summary>
+        string? TryBuildShortCircuit(string condition, ILAstExpression thenExpr, ILAstExpression elseExpr)
+        {
+            bool thenIsTrue = IsTrueLiteral(thenExpr);
+            bool thenIsFalse = IsFalseLiteral(thenExpr);
+            bool elseIsTrue = IsTrueLiteral(elseExpr);
+            bool elseIsFalse = IsFalseLiteral(elseExpr);
+
+            string thenStr = ExpressionToString(thenExpr);
+            string elseStr = ExpressionToString(elseExpr);
+
+            if (elseIsFalse && !thenIsFalse && !thenIsTrue)
+                return $"{condition} && {thenStr}";
+            if (thenIsTrue && !elseIsTrue && !elseIsFalse)
+                return $"{condition} || {elseStr}";
+            if (elseIsTrue && !thenIsTrue && !thenIsFalse)
+                return $"{NegateConditionString(condition)} || {thenStr}";
+            if (thenIsFalse && !elseIsFalse && !elseIsTrue)
+                return $"{NegateConditionString(condition)} && {elseStr}";
+
+            return null;
+        }
+
+        static bool IsTrueLiteral(ILAstExpression expr) =>
+            expr.OpCode == ILOpCode.Ldc_i4_1 || (expr.OpCode == ILOpCode.Ldc_i4_s && expr.Operand == "1");
+
+        static bool IsFalseLiteral(ILAstExpression expr) =>
+            expr.OpCode == ILOpCode.Ldc_i4_0;
+
+        /// <summary>
+        /// Remove goto targets that only originated from the specified consumed block.
+        /// </summary>
+        void RemoveGotoTargetsForConsumedBlock(int blockIndex)
+        {
+            if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var block))
+                return;
+
+            foreach (var node in block.Nodes)
+            {
+                if (node is ILAstStatement { Expression: var expr }
+                    && expr.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                    && expr.Operand is string target)
+                {
+                    bool otherRef = false;
+                    foreach (var (otherIdx, otherBlock) in _blockMap)
+                    {
+                        if (otherIdx == blockIndex || _consumedBlocks.Contains(otherIdx))
+                            continue;
+                        foreach (var otherNode in otherBlock.Nodes)
+                        {
+                            if (otherNode is ILAstStatement { Expression: var otherExpr }
+                                && otherExpr.Operand is string otherTarget && otherTarget == target)
+                            { otherRef = true; break; }
+                        }
+                        if (otherRef) break;
+                    }
+                    if (!otherRef) _gotoTargets.Remove(target);
+                }
+            }
         }
 
         void EmitLoop(StructuredBlock block, int indent)
@@ -1327,7 +1485,11 @@ public static class CSharpEmitter
                 if (retExpr.Arguments.Count > 0)
                 {
                     _sb.Append("return ");
+                    bool wasBool = _emitBoolContext;
+                    if (_returnsBool)
+                        _emitBoolContext = true;
                     EmitExpression(retExpr.Arguments[0]);
+                    _emitBoolContext = wasBool;
                     _sb.AppendLine(";");
                 }
                 else
@@ -1337,6 +1499,51 @@ public static class CSharpEmitter
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Peephole: stloc V_x = expr; ret(ldloc V_x) → return expr;
+        /// </summary>
+        bool TryEmitStoreReturn(ILAstBlock block, int nodeIdx, int indent)
+        {
+            if (nodeIdx + 1 >= block.Nodes.Count) return false;
+
+            var nextNode = block.Nodes[nodeIdx + 1];
+            if (nextNode is not ILAstStatement { Expression: var retExpr }) return false;
+            if (retExpr.OpCode != ILOpCode.Ret || retExpr.Arguments.Count == 0) return false;
+
+            var retArg = retExpr.Arguments[0];
+            string? retVarName = retArg.OpCode switch
+            {
+                ILOpCode.Ldloc_0 => "V_0", ILOpCode.Ldloc_1 => "V_1",
+                ILOpCode.Ldloc_2 => "V_2", ILOpCode.Ldloc_3 => "V_3",
+                ILOpCode.Ldloc_s or ILOpCode.Ldloc => retArg.Operand,
+                _ => null
+            };
+            if (retVarName is null) return false;
+
+            ILAstExpression? valueExpr = null;
+            var curNode = block.Nodes[nodeIdx];
+            if (curNode is ILAstStatement { Expression: var stExpr }
+                && stExpr.OpCode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2
+                    or ILOpCode.Stloc_3 or ILOpCode.Stloc_s or ILOpCode.Stloc
+                && stExpr.Arguments.Count > 0)
+            {
+                string? storeVar = stExpr.Operand ?? GetLocalName(stExpr.OpCode);
+                if (storeVar == retVarName)
+                    valueExpr = stExpr.Arguments[0];
+            }
+
+            if (valueExpr is null) return false;
+
+            WriteIndent(indent);
+            _sb.Append("return ");
+            bool wasBool = _emitBoolContext;
+            if (_returnsBool) _emitBoolContext = true;
+            EmitExpression(valueExpr);
+            _emitBoolContext = wasBool;
+            _sb.AppendLine(";");
+            return true;
         }
 
         void EmitTryCatchFinally(StructuredBlock block, int indent)
@@ -2036,6 +2243,9 @@ public static class CSharpEmitter
                 case ILOpCode.Endfinally:
                     break;
 
+                case ILOpCode.Nop when expr.Operand is null:
+                    break;
+
                 default:
                     WriteIndent(indent);
                     _sb.Append("/* ");
@@ -2123,9 +2333,8 @@ public static class CSharpEmitter
 
                 // Comparison operators
                 case ILOpCode.Ceq:
-                    if (TryEmitNegatedComparisonExpression(expr))
-                        break;
-                    EmitBinary(expr, expr.Operand ?? "==");
+                    if (!TryEmitNegatedComparisonZero(expr))
+                        EmitBinary(expr, expr.Operand ?? "==");
                     break;
                 case ILOpCode.Cgt or ILOpCode.Cgt_un: EmitBinary(expr, ">"); break;
                 case ILOpCode.Clt or ILOpCode.Clt_un: EmitBinary(expr, "<"); break;
@@ -2350,6 +2559,8 @@ public static class CSharpEmitter
                     if (_nullConditionalReceiver is not null
                         && expr.Operand.StartsWith("S_in_", StringComparison.Ordinal))
                         _sb.Append(_nullConditionalReceiver);
+                    else if (_syntheticSubstitutions.TryGetValue(expr.Operand, out var subst))
+                        _sb.Append(subst);
                     else
                         _sb.Append(expr.Operand);
                     break;
@@ -2662,79 +2873,53 @@ public static class CSharpEmitter
         }
 
         /// <summary>
-        /// Returns true if the expression produces a numeric (non-boolean) Int32 value.
-        /// Conservative: only returns true for known numeric patterns (lengths, counts, arithmetic).
+        /// Handle ceq(comparison, 0) → negated comparison.
+        /// E.g., ceq(clt(value, 0), 0) → value >= 0 instead of (value &lt; 0) == 0.
         /// </summary>
+        bool TryEmitNegatedComparisonZero(ILAstExpression ceqExpr)
+        {
+            if (ceqExpr.Arguments.Count < 2) return false;
+
+            var lhs = ceqExpr.Arguments[0];
+            var rhs = ceqExpr.Arguments[1];
+
+            ILAstExpression? comparison = null;
+            if (IsZeroLiteral(rhs) && IsComparisonOp(lhs))
+                comparison = lhs;
+            else if (IsZeroLiteral(lhs) && IsComparisonOp(rhs))
+                comparison = rhs;
+
+            if (comparison is null || comparison.Arguments.Count < 2) return false;
+
+            string negatedOp = comparison.OpCode switch
+            {
+                ILOpCode.Clt or ILOpCode.Clt_un => ">=",
+                ILOpCode.Cgt or ILOpCode.Cgt_un => "<=",
+                ILOpCode.Ceq => "!=",
+                _ => ""
+            };
+            if (negatedOp == "") return false;
+
+            EmitExpression(comparison.Arguments[0]);
+            _sb.Append($" {negatedOp} ");
+            EmitExpression(comparison.Arguments[1]);
+            return true;
+        }
+
+        static bool IsZeroLiteral(ILAstExpression expr) =>
+            expr.OpCode is ILOpCode.Ldc_i4_0;
+
+        static bool IsComparisonOp(ILAstExpression expr) =>
+            expr.OpCode is ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Clt
+                or ILOpCode.Cgt_un or ILOpCode.Clt_un;
+
+        /// <summary>
         static bool IsBoolContext(ILAstExpression expr, bool parentBoolContext)
         {
             if (parentBoolContext)
                 return true;
             var tn = expr.ResultType.TypeName;
             if (tn is "bool" or "System.Boolean" or "Boolean")
-                return true;
-            return false;
-        }
-
-        /// <summary>
-        /// Detect <c>ceq(cmp(a, b), 0)</c> and emit as the negated comparison.
-        /// E.g., <c>(x &lt; y) == 0</c> → <c>x &gt;= y</c>.
-        /// Returns true if handled.
-        /// </summary>
-        bool TryEmitNegatedComparisonExpression(ILAstExpression ceqExpr)
-        {
-            if (ceqExpr.OpCode != ILOpCode.Ceq || ceqExpr.Arguments.Count != 2)
-                return false;
-
-            var lhs = ceqExpr.Arguments[0];
-            var rhs = ceqExpr.Arguments[1];
-
-            // Pattern: ceq(comparison, 0) → negated comparison
-            if (IsComparisonOpCode(lhs.OpCode) && IsConstantZero(rhs))
-            {
-                EmitNegatedComparison(lhs);
-                return true;
-            }
-            // Pattern: ceq(0, comparison) → negated comparison (less common)
-            if (IsComparisonOpCode(rhs.OpCode) && IsConstantZero(lhs))
-            {
-                EmitNegatedComparison(rhs);
-                return true;
-            }
-
-            return false;
-        }
-
-        void EmitNegatedComparison(ILAstExpression cmpExpr)
-        {
-            string? negatedOp = cmpExpr.OpCode switch
-            {
-                ILOpCode.Clt or ILOpCode.Clt_un => ">=",
-                ILOpCode.Cgt or ILOpCode.Cgt_un => "<=",
-                ILOpCode.Ceq => "!=",
-                _ => null
-            };
-
-            if (negatedOp is not null && cmpExpr.Arguments.Count >= 2)
-            {
-                EmitParenthesized(cmpExpr, 0);
-                _sb.Append($" {negatedOp} ");
-                EmitParenthesized(cmpExpr, 1);
-            }
-            else
-            {
-                _sb.Append("!(");
-                EmitExpression(cmpExpr);
-                _sb.Append(')');
-            }
-        }
-
-        static bool IsComparisonOpCode(ILOpCode op) => op is
-            ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un;
-
-        static bool IsConstantZero(ILAstExpression expr)
-        {
-            if (expr.OpCode == ILOpCode.Ldc_i4_0) return true;
-            if (expr.OpCode is ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 && expr.Operand is "0")
                 return true;
             return false;
         }

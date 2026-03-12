@@ -17,7 +17,7 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "type", "member", "diff", "find", "samples", "source", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "library", "api", "type", "member", "diff", "find", "source", "list", "ls", "llmstxt", "skill", "extensions", "implements", "depends", "cache", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>

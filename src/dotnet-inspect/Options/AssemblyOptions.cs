@@ -19,11 +19,6 @@ public record AssemblyOptions
     public bool IncludeMetadata { get; init; }
 
     /// <summary>
-    /// Verify SourceLink URLs are fetchable and all source files are accessible.
-    /// </summary>
-    public bool IncludeSourcelinkAudit { get; init; }
-
-    /// <summary>
     /// Include assembly references in output.
     /// </summary>
     public bool IncludeReferences { get; init; }
@@ -144,7 +139,6 @@ public record AssemblyOptions
     /// </summary>
     public static AssemblyOptions All => new()
     {
-        IncludeSourcelinkAudit = true
     };
 
     /// <summary>

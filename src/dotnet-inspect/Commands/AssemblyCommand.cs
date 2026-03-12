@@ -53,14 +53,6 @@ public class AssemblyCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
-        // --source-link-audit at non-detailed verbosity: implicitly select audit section
-        if (options.IncludeSourcelinkAudit && options.Verbosity < Verbosity.Detailed)
-        {
-            HashSet<string> sections = options.IncludeSections != null ? [.. options.IncludeSections] : [];
-            sections.Add("Source Link Audit");
-            options = options with { IncludeSections = sections };
-        }
-
         // -S targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
