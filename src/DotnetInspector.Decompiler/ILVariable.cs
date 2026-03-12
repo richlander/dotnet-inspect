@@ -36,8 +36,15 @@ public sealed class ILVariable
     /// </summary>
     public int Index { get; }
 
-    /// <summary>Generated name (e.g., "P_0", "V_0", "S_0", "E_0").</summary>
-    public string Name { get; }
+    /// <summary>
+    /// Optional debug name from PDB local variable info. When set, overrides the generated name.
+    /// </summary>
+    public string? DebugName { get; init; }
+
+    /// <summary>Generated name (e.g., "P_0", "V_0", "S_0", "E_0"), or debug name when available.</summary>
+    public string Name => DebugName ?? _generatedName;
+
+    readonly string _generatedName;
 
     public ILVariable(ILVariableKind kind, StackValueKind stackType, string? typeName, int index)
     {
@@ -45,7 +52,7 @@ public sealed class ILVariable
         StackType = stackType;
         TypeName = typeName;
         Index = index;
-        Name = kind switch
+        _generatedName = kind switch
         {
             ILVariableKind.Parameter => $"P_{index}",
             ILVariableKind.Local => $"V_{index}",

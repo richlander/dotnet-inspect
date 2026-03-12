@@ -1109,8 +1109,9 @@ internal static class StackSimulator
         {
             var typeName = context.LocalTypes[i];
             var sv = StackValue.FromTypeName(typeName);
+            string? debugName = i < context.LocalNames.Count ? context.LocalNames[i] : null;
             result.Locals.Add(new ILVariable(
-                ILVariableKind.Local, sv.Kind, typeName, i));
+                ILVariableKind.Local, sv.Kind, typeName, i) { DebugName = debugName });
         }
     }
 

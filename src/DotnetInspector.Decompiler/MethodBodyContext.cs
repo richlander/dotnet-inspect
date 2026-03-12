@@ -19,6 +19,12 @@ public sealed class MethodBodyContext
     public ImmutableArray<ExceptionRegion> ExceptionRegions { get; }
     public int MaxStack { get; }
     public IReadOnlyList<string> LocalTypes { get; }
+
+    /// <summary>
+    /// Local variable names from PDB debug info. Entries may be null for unnamed slots.
+    /// </summary>
+    public IReadOnlyList<string?> LocalNames { get; }
+
     public MetadataReader Reader { get; }
 
     /// <summary>
@@ -74,12 +80,14 @@ public sealed class MethodBodyContext
         IReadOnlyList<string> parameterNames,
         string returnType,
         string? declaringType = null,
-        GenericContext? genericContext = null)
+        GenericContext? genericContext = null,
+        IReadOnlyList<string?>? localNames = null)
     {
         ILBytes = ilBytes;
         ExceptionRegions = exceptionRegions;
         MaxStack = maxStack;
         LocalTypes = localTypes;
+        LocalNames = localNames ?? [];
         Reader = reader;
         ParameterCount = parameterCount;
         HasThis = hasThis;
