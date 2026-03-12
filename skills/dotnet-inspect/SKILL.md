@@ -11,26 +11,29 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 ## Quick Decision Tree
 
 - **Code broken?** → `diff --package Foo@old..new` first, then `member`
-- **Need API surface?** → `member Type --package Foo` (compact table by default)
-- **Need type shape?** → `type Type --package Foo` (tree view by default for single type)
-- **Need signatures?** → `member Type --package Foo -m Method` (default shows full signatures + docs)
-- **Need source/IL?** → `member Type --package Foo -m Method:1 -v:d` (Source, Lowered C#, IL)
-- **Need constructors?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
-- **Need all overloads?** → `member Type --package Foo --show-index` (shows `Name:N` indices)
-- **Need package dependencies?** → `depends --package Foo`
-- **Need type hierarchy?** → `depends 'INumber<TSelf>'`
-- **Need specific fields?** → `-S Section --fields "PDB*"` (structured query, no DSL)
-- **Need a version?** → `Foo --version` (cache-first), `Foo --latest-version` (always NuGet), `Foo --versions` (list all)
+- **What types exist?** → `type --package Foo` (discover types in a package or library)
+- **What members does a type have?** → `member Type --package Foo` (compact table by default)
+- **What does a type look like?** → `type Type --package Foo` (tree view for single type)
+- **What are the method signatures?** → `member Type --package Foo -m Method` (full signatures + docs)
+- **What is the source/IL?** → `member Type --package Foo -m Method:1 -v:d` (Source, Lowered C#, IL)
+- **Where is the source code?** → `source Type --package Foo` (SourceLink URLs), `source Type Member` (with line numbers)
+- **What constructors exist?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
+- **How many overloads?** → `member Type --package Foo --show-index` (shows `Name:N` indices)
+- **What does this package depend on?** → `depends --package Foo`
+- **What does this type inherit?** → `depends 'INumber<TSelf>'`
+- **What metadata fields exist?** → `-S Section --fields "PDB*"` (structured query, no DSL)
+- **What version is available?** → `Foo --version` (cache-first), `Foo --latest-version` (always NuGet), `Foo --versions` (list all)
 
 ## When to Use This Skill
 
 - **"What types are in this package?"** — `type` discovers types, `find` searches by pattern
-- **"What's the API surface?"** — `type` for discovery, `member` for detailed inspection (docs on)
+- **"What members does this type have?"** — `member` for methods/properties/events (docs on by default)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
 - **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
 - **"What extends this type?"** — `extensions` finds extension methods/properties (`--reachable` for transitive)
 - **"What implements this interface?"** — `implements` finds concrete types
 - **"What does this type depend on?"** — `depends` walks type hierarchy, package deps, or library refs
+- **"Where is the source code?"** — `source` returns SourceLink URLs; add member name for line numbers
 - **"What version/metadata does this have?"** — `package` and `library` inspect metadata
 - **"What version is available?"** — `Foo --version` (fast, cache-first — like `docker run`)
 - **"What's the latest on NuGet?"** — `Foo --latest-version` (always queries NuGet — like `docker pull`)
@@ -48,7 +51,7 @@ dnx dotnet-inspect -y -- type --package System.Text.Json                     # s
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Four formatters: **plaintext** (default), **markdown** (`-v` or `--markdown`), **oneline** (`--oneline`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
+Four formatters: **oneline** (default), **plaintext**, **markdown** (`-v` or `--markdown`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:m  # markdown with docs
@@ -141,6 +144,7 @@ Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
 | `depends` | Walk dependency graphs upward — type hierarchy, package deps, or library refs |
 | `package` | Package metadata, files, versions, dependencies, `search` for NuGet discovery |
 | `library` | Library metadata, symbols, references, SourceLink audit |
+| `source` | **SourceLink URLs** — type-level or member-level (with line numbers), `--verify` to check URLs |
 | `demo` | Run curated showcase queries — list, invoke, or feeling-lucky |
 
 ## Filtering and Limiting
@@ -158,7 +162,6 @@ dnx dotnet-inspect -y -- type System.Text.Json -5                    # first 5 l
 - **`-m N`** (numeric) — item limit (members per kind section).
 - **`-k Kind`** — filter by kind: `class/struct/interface/enum/delegate` (type) or `method/property/field/event/constructor` (type single-type view, member).
 - **`-S Section`** — show only a specific section (glob-capable).
-- **`--all`** — include non-public (private, protected, internal), hidden, and obsolete members. Kind/signature columns show access level.
 
 ## Key Syntax
 
