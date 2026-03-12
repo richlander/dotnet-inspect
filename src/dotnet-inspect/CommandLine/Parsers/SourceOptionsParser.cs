@@ -95,12 +95,54 @@ public static class SourceOptionsParser
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
 
+        // Capture member name from extra positional args (after package + type)
+        // Pattern: source <package> <type> <member>  or  source <type> --package <pkg> <member>
+        string? memberName = null;
+        int? overloadIndex = null;
+        {
+            var positionalMembers = new List<string>();
+            if (hasExplicitSource && argsValue.Length >= 2)
+                positionalMembers.AddRange(argsValue[1..]);
+            else if (!hasExplicitSource && argsValue.Length >= 3)
+                positionalMembers.AddRange(argsValue[2..]);
+
+            // Handle Type.Member dotted syntax
+            var typeName = source.TypeName;
+            if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
+            {
+                var lastDot = typeName.LastIndexOf('.');
+                var rightPart = typeName[(lastDot + 1)..];
+                if (!rightPart.Contains('<'))
+                {
+                    positionalMembers.Add(rightPart);
+                    source = source with { TypeName = typeName[..lastDot] };
+                }
+            }
+
+            if (positionalMembers.Count > 0)
+            {
+                memberName = positionalMembers[0];
+                // Parse overload index shorthand: GetValue:2
+                if (memberName.Contains(':'))
+                {
+                    var colonIdx = memberName.LastIndexOf(':');
+                    if (int.TryParse(memberName[(colonIdx + 1)..], out var idx))
+                    {
+                        overloadIndex = idx;
+                        memberName = memberName[..colonIdx];
+                    }
+                }
+            }
+        }
+
         // Parse type filter
         var (typeFilter, typeLimit) = SharedParsers.ParseTypeFilter(parseResult.GetValue(args.TypeFilterOption));
 
         var options = new SourceOptions
         {
             TypeName = source.TypeName,
+            MemberName = memberName,
+            OverloadIndex = overloadIndex,
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,

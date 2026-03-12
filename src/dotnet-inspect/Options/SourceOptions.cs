@@ -12,6 +12,17 @@ public record SourceOptions
     /// </summary>
     public string? TypeName { get; init; }
 
+    /// <summary>
+    /// Member name for method-level source resolution (positional argument).
+    /// When set, resolves line numbers via PDB sequence points.
+    /// </summary>
+    public string? MemberName { get; init; }
+
+    /// <summary>
+    /// Overload index (1-based) for disambiguating overloaded methods (e.g., Parse:2).
+    /// </summary>
+    public int? OverloadIndex { get; init; }
+
     // Source resolution
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }

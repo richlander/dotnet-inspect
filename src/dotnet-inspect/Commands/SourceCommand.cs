@@ -253,6 +253,26 @@ public static class SourceCommand
         var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
         var sourceInfo = service.ResolveTypeSource(lookupResult.Match);
 
+        // Member-level resolution: get line numbers from PDB sequence points
+        int? startLine = null;
+        int? endLine = null;
+        if (!string.IsNullOrEmpty(options.MemberName) && sourceInfo != null)
+        {
+            var methodInfo = service.ResolveMethodSource(
+                lookupResult.Match, options.MemberName,
+                options.OverloadIndex ?? 0, publicOnly: true);
+
+            if (methodInfo != null)
+            {
+                startLine = methodInfo.StartLine;
+                endLine = methodInfo.EndLine;
+            }
+            else
+            {
+                Console.Error.WriteLine($"Warning: Could not resolve source location for member '{options.MemberName}'.");
+            }
+        }
+
         // Primary source URL for the Source field
         string? primaryUrl = null;
         if (sourceInfo != null)
@@ -260,6 +280,15 @@ public static class SourceCommand
             primaryUrl = options.BrowsableUrls
                 ? sourceInfo.GitHubBrowseUrl
                 : sourceInfo.SourceUrl;
+
+            // Append line fragment for member-level resolution
+            if (primaryUrl != null && startLine.HasValue)
+            {
+                var lineFragment = endLine.HasValue && endLine.Value > startLine.Value
+                    ? $"#L{startLine.Value}-L{endLine.Value}"
+                    : $"#L{startLine.Value}";
+                primaryUrl += lineFragment;
+            }
         }
 
         // Additional source files (partials) and verify rows
