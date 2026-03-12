@@ -804,7 +804,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(15, pipeline.AllSectionNames.Length);
+        Assert.Equal(14, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -817,7 +817,6 @@ public class SectionPipelineTests
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);
         Assert.Contains("Baseclass", names);
-        Assert.Contains("Remote Source", names);
         Assert.Contains("Constructors", names);
         Assert.Contains("Fields", names);
         Assert.Contains("Properties", names);
@@ -930,18 +929,12 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberPipeline_Sources_AtMinimal()
+    public void ApiMemberPipeline_Sources_RemovedWithSourceCommand()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        var model = new ApiType
-        {
-            Name = "Foo", Kind = "class",
-            SourceFilePath = "src/Foo.cs"
-        };
+        var names = pipeline.AllSectionNames;
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
-
-        // Remote Source is within primary threshold (before first expensive)
-        Assert.Contains("Remote Source", effective);
+        // Remote Source section was removed — source info lives in the source command now
+        Assert.DoesNotContain("Remote Source", names);
     }
 }
