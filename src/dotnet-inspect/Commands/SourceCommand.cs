@@ -390,6 +390,21 @@ public static class SourceCommand
                 urlRows.Add(new SourceUrlRow(primaryUrl));
             urlRows.AddRange(additionalRows);
 
+            if (urlRows.Count == 0)
+            {
+                var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
+                    : !string.IsNullOrEmpty(options.PackagePath) ? $"{packageName ?? options.PackagePath}"
+                    : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
+                    : "";
+                var simpleName = apiType.FullName.Contains('.')
+                    ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+
+                Console.Error.WriteLine($"No source URLs found for '{lookupResult.Match}'.");
+                Console.Error.WriteLine("The PDB may not contain SourceLink document mappings.");
+                Console.Error.WriteLine($"Try: source {sourceFlag} {simpleName} -v:q");
+                return 0;
+            }
+
             var oneLineView = new SourceDetailOneLineView
             {
                 SourceFiles = options.Verify ? null : (urlRows.Count > 0 ? urlRows : null),

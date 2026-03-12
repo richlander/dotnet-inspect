@@ -835,13 +835,66 @@ public static class PlatformResolver
         if (refPath == null) return null;
 
         var normalized = Metadata.TypeMatcher.Normalize(typeName);
+        string? forwarderMatch = null;
+
+        // Prefer assemblies with actual type definitions over type forwarders.
+        // e.g., Dictionary`2 is defined in System.Collections, not mscorlib (which only forwards).
         foreach (var dll in Directory.GetFiles(refPath, "*.dll"))
         {
-            if (HasType(dll, normalized))
+            if (HasTypeDefinition(dll, normalized))
                 return System.IO.Path.GetFileNameWithoutExtension(dll);
+            if (forwarderMatch == null && HasTypeForwarder(dll, normalized))
+                forwarderMatch = System.IO.Path.GetFileNameWithoutExtension(dll);
         }
 
-        return null;
+        return forwarderMatch;
+    }
+
+    private static bool HasTypeDefinition(string assemblyPath, string typeName)
+    {
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata) return false;
+
+            var mdReader = peReader.GetMetadataReader();
+            foreach (var handle in mdReader.TypeDefinitions)
+            {
+                var typeDef = mdReader.GetTypeDefinition(handle);
+                var name = mdReader.GetString(typeDef.Name);
+                var ns = mdReader.GetString(typeDef.Namespace);
+                var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+                if (Metadata.TypeMatcher.Matches(fullName, typeName))
+                    return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private static bool HasTypeForwarder(string assemblyPath, string typeName)
+    {
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata) return false;
+
+            var mdReader = peReader.GetMetadataReader();
+            foreach (var handle in mdReader.ExportedTypes)
+            {
+                var exported = mdReader.GetExportedType(handle);
+                if (!exported.IsForwarder) continue;
+                var name = mdReader.GetString(exported.Name);
+                var ns = mdReader.GetString(exported.Namespace);
+                var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+                if (Metadata.TypeMatcher.Matches(fullName, typeName))
+                    return true;
+            }
+        }
+        catch { }
+        return false;
     }
 
     /// <summary>

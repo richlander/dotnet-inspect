@@ -569,6 +569,8 @@ public static class CSharpEmitter
                 switch (node)
                 {
                     case ILAstAssignment assign:
+                        if (TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
+                            break;
                         WriteIndent(indent);
                         string assignType = SimplifyTypeName(assign.Variable.TypeName ?? "var");
                         _sb.Append($"{assign.Variable.Name} = ");
@@ -604,10 +606,13 @@ public static class CSharpEmitter
                         EmitStatement(stmt.Expression, indent);
                     else if (condBlock.Nodes[i] is ILAstAssignment assign)
                     {
-                        WriteIndent(indent);
-                        _sb.Append($"{assign.Variable.Name} = ");
-                        EmitExpression(assign.Value);
-                        _sb.AppendLine(";");
+                        if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
+                        {
+                            WriteIndent(indent);
+                            _sb.Append($"{assign.Variable.Name} = ");
+                            EmitExpression(assign.Value);
+                            _sb.AppendLine(";");
+                        }
                     }
                 }
 
@@ -1000,10 +1005,13 @@ public static class CSharpEmitter
                         switch (node)
                         {
                             case ILAstAssignment assign:
-                                WriteIndent(indent + 1);
-                                _sb.Append($"{assign.Variable.Name} = ");
-                                EmitExpression(assign.Value);
-                                _sb.AppendLine(";");
+                                if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent + 1))
+                                {
+                                    WriteIndent(indent + 1);
+                                    _sb.Append($"{assign.Variable.Name} = ");
+                                    EmitExpression(assign.Value);
+                                    _sb.AppendLine(";");
+                                }
                                 break;
                             case ILAstStatement stmt:
                                 EmitStatement(stmt.Expression, indent + 1);
@@ -1028,8 +1036,14 @@ public static class CSharpEmitter
 
                     if (increment is not null)
                     {
+                        // Try to extract loop init from the preceding emitted line
+                        string? init = TryExtractForInit(condition);
+
                         WriteIndent(indent);
-                        _sb.AppendLine($"for (; {condition}; {increment})");
+                        if (init is not null)
+                            _sb.AppendLine($"for ({init}; {condition}; {increment})");
+                        else
+                            _sb.AppendLine($"for (; {condition}; {increment})");
                     }
                     else
                     {
@@ -1039,8 +1053,7 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     _sb.AppendLine("{");
 
-                    foreach (int bodyIdx in bodyIndices)
-                        EmitBasicBlockForLoop(bodyIdx, indent + 1, loop);
+                    EmitLoopBody(bodyIndices, indent + 1, loop);
 
                     WriteIndent(indent);
                     _sb.AppendLine("}");
@@ -1073,10 +1086,13 @@ public static class CSharpEmitter
                 switch (node)
                 {
                     case ILAstAssignment assign:
-                        WriteIndent(indent);
-                        _sb.Append($"{assign.Variable.Name} = ");
-                        EmitExpression(assign.Value);
-                        _sb.AppendLine(";");
+                        if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
+                        {
+                            WriteIndent(indent);
+                            _sb.Append($"{assign.Variable.Name} = ");
+                            EmitExpression(assign.Value);
+                            _sb.AppendLine(";");
+                        }
                         break;
                     case ILAstStatement stmt:
                         EmitStatement(stmt.Expression, indent);
@@ -1142,33 +1158,193 @@ public static class CSharpEmitter
             var lhs = addExpr.Arguments[0];
 
             // LHS of the add/sub must be the same variable
-            bool sameVar = lhs.Operand == varName
-                || (lhs.OpCode, varName) switch
-                {
-                    (ILOpCode.Ldloc_0, "V_0") => true,
-                    (ILOpCode.Ldloc_1, "V_1") => true,
-                    (ILOpCode.Ldloc_2, "V_2") => true,
-                    (ILOpCode.Ldloc_3, "V_3") => true,
-                    _ => false
-                };
+            bool sameVar = IsLoadOf(lhs, varName);
 
             if (!sameVar) return null;
 
             // The variable must appear in the condition
             if (!condition.Contains(varName)) return null;
 
-            // Build the increment string
-            string rhsStr = ExpressionToString(addExpr.Arguments[1]);
-            string op = addExpr.OpCode == ILOpCode.Sub ? "-" : "+";
-
             // Mark this node for suppression during body emission
             _forIncrementStatements.Add((blockIdx, nodeIdx));
 
-            return $"{varName} = {varName} {op} {rhsStr}";
+            // Use compact compound format
+            var compound = FormatCompoundAssignment(varName, addExpr);
+            return compound ?? $"{varName} = {varName} {(addExpr.OpCode == ILOpCode.Sub ? "-" : "+")} {ExpressionToString(addExpr.Arguments[1])}";
         }
 
         // Set of (blockIndex, nodeIndex) for for-loop increment statements to suppress
         readonly HashSet<(int blockIndex, int nodeIndex)> _forIncrementStatements = [];
+
+        /// <summary>
+        /// Try to extract a loop initializer from the already-emitted output.
+        /// Looks for the last line matching <c>V_X = expr;</c> where V_X appears in the condition.
+        /// If found, removes it from the StringBuilder and returns the init expression (e.g., "V_1 = 0").
+        /// </summary>
+        string? TryExtractForInit(string condition)
+        {
+            // Find the last newline to get the last emitted line
+            string current = _sb.ToString();
+            int lastNewline = current.TrimEnd().LastIndexOf('\n');
+            if (lastNewline < 0) return null;
+
+            string lastLine = current[(lastNewline + 1)..].Trim();
+
+            // Must be a simple assignment: V_X = expr;
+            if (!lastLine.EndsWith(';')) return null;
+            string withoutSemicolon = lastLine[..^1].Trim();
+            int eqIdx = withoutSemicolon.IndexOf(" = ", StringComparison.Ordinal);
+            if (eqIdx < 0) return null;
+
+            string varName = withoutSemicolon[..eqIdx].Trim();
+            // Variable must appear in the condition
+            if (!condition.Contains(varName, StringComparison.Ordinal)) return null;
+            // Variable must look like a local name (V_N or named)
+            if (varName.Length == 0) return null;
+
+            // Remove the line from the StringBuilder
+            _sb.Length = lastNewline + 1;
+            // Also trim any trailing blank line
+            string updated = _sb.ToString();
+            if (updated.EndsWith("\n\n"))
+                _sb.Length = _sb.Length - 1;
+
+            return withoutSemicolon;
+        }
+
+        /// <summary>
+        /// Emit loop body blocks, detecting and emitting inner loops as structured constructs.
+        /// </summary>
+        void EmitLoopBody(List<int> bodyIndices, int indent, NaturalLoop outerLoop)
+        {
+            // Build map of inner loop headers within this body
+            var innerLoopByHeader = new Dictionary<int, NaturalLoop>();
+            foreach (var innerLoop in _structure.Loops)
+            {
+                if (innerLoop.HeaderIndex == outerLoop.HeaderIndex) continue;
+                if (bodyIndices.Contains(innerLoop.HeaderIndex)
+                    && outerLoop.BodyIndices.IsSupersetOf(innerLoop.BodyIndices))
+                {
+                    innerLoopByHeader.TryAdd(innerLoop.HeaderIndex, innerLoop);
+                }
+            }
+
+            var consumedByInner = new HashSet<int>();
+
+            for (int bi = 0; bi < bodyIndices.Count; bi++)
+            {
+                int bodyIdx = bodyIndices[bi];
+                if (consumedByInner.Contains(bodyIdx)) continue;
+
+                // Check if this block starts an inner loop body (precedes inner loop header)
+                NaturalLoop? innerLoop = null;
+                foreach (var (hdr, loop) in innerLoopByHeader)
+                {
+                    if (loop.BodyIndices.Contains(bodyIdx) && !consumedByInner.Contains(hdr))
+                    {
+                        innerLoop = loop;
+                        break;
+                    }
+                }
+
+                if (innerLoop is not null)
+                {
+                    // Emit the inner loop as a structured construct
+                    EmitInnerLoop(innerLoop, indent, outerLoop);
+                    foreach (int idx in innerLoop.BodyIndices)
+                        consumedByInner.Add(idx);
+                    continue;
+                }
+
+                EmitBasicBlockForLoop(bodyIdx, indent, outerLoop);
+            }
+        }
+
+        /// <summary>
+        /// Emit an inner loop found within an outer loop's body.
+        /// </summary>
+        void EmitInnerLoop(NaturalLoop innerLoop, int indent, NaturalLoop outerLoop)
+        {
+            int headerIdx = innerLoop.HeaderIndex;
+            if (!_blockMap.TryGetValue(headerIdx, out var headerBlock))
+                return;
+
+            // Extract condition from header's last node
+            string? condition = null;
+            bool negateCondition = false;
+            var lastNode = headerBlock.Nodes.LastOrDefault();
+            if (lastNode is ILAstStatement branchStmt && IsBranchOpCode(branchStmt.Expression.OpCode))
+            {
+                var branchExpr = branchStmt.Expression;
+                string? branchTarget = branchExpr.Operand as string;
+
+                bool branchGoesIntoLoop = false;
+                if (branchTarget is not null)
+                {
+                    foreach (int bodyIdx in innerLoop.BodyIndices)
+                    {
+                        if (_blockStartOffset.TryGetValue(bodyIdx, out int offset)
+                            && branchTarget == $"IL_{offset:X4}")
+                        {
+                            branchGoesIntoLoop = true;
+                            break;
+                        }
+                    }
+                }
+
+                negateCondition = !branchGoesIntoLoop;
+                condition = BranchConditionToString(branchExpr);
+                if (negateCondition)
+                    condition = NegateConditionString(condition);
+            }
+
+            var bodyIndices = innerLoop.BodyIndices
+                .Where(idx => idx != headerIdx)
+                .OrderBy(x => x)
+                .ToList();
+
+            if (condition is not null)
+            {
+                string? increment = TryExtractForIncrement(bodyIndices, condition);
+
+                EmitHeaderStatements(headerIdx, indent);
+
+                if (increment is not null)
+                {
+                    string? init = TryExtractForInit(condition);
+                    WriteIndent(indent);
+                    if (init is not null)
+                        _sb.AppendLine($"for ({init}; {condition}; {increment})");
+                    else
+                        _sb.AppendLine($"for (; {condition}; {increment})");
+                }
+                else
+                {
+                    WriteIndent(indent);
+                    _sb.AppendLine($"while ({condition})");
+                }
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+
+                foreach (int bodyIdx in bodyIndices)
+                    EmitBasicBlockForLoop(bodyIdx, indent + 1, innerLoop);
+
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+            else
+            {
+                // Fallback: emit blocks sequentially
+                EmitBasicBlock(headerIdx, indent);
+                foreach (int bodyIdx in bodyIndices)
+                    EmitBasicBlockForLoop(bodyIdx, indent, outerLoop);
+            }
+
+            _consumedBlocks.Add(headerIdx);
+            // Suppress labels for inner loop header
+            if (_blockStartOffset.TryGetValue(headerIdx, out int hdrOff))
+                _loopHeaderLabels.Add($"IL_{hdrOff:X4}");
+        }
 
         /// <summary>
         /// Emit a basic block inside a loop, converting gotos to break/continue.
@@ -1196,10 +1372,13 @@ public static class CSharpEmitter
                 switch (node)
                 {
                     case ILAstAssignment assign:
-                        WriteIndent(indent);
-                        _sb.Append($"{assign.Variable.Name} = ");
-                        EmitExpression(assign.Value);
-                        _sb.AppendLine(";");
+                        if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
+                        {
+                            WriteIndent(indent);
+                            _sb.Append($"{assign.Variable.Name} = ");
+                            EmitExpression(assign.Value);
+                            _sb.AppendLine(";");
+                        }
                         break;
 
                     case ILAstStatement stmt:
@@ -1761,10 +1940,13 @@ public static class CSharpEmitter
                         EmitStatement(stmt.Expression, indent);
                     else if (switchBlock.Nodes[i] is ILAstAssignment assign)
                     {
-                        WriteIndent(indent);
-                        _sb.Append($"{assign.Variable.Name} = ");
-                        EmitExpression(assign.Value);
-                        _sb.AppendLine(";");
+                        if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
+                        {
+                            WriteIndent(indent);
+                            _sb.Append($"{assign.Variable.Name} = ");
+                            EmitExpression(assign.Value);
+                            _sb.AppendLine(";");
+                        }
                     }
                 }
 
@@ -1875,6 +2057,8 @@ public static class CSharpEmitter
                      ILOpCode.Stloc_s or ILOpCode.Stloc:
                 {
                     string varName = expr.Operand ?? GetLocalName(expr.OpCode);
+                    if (expr.Arguments.Count > 0 && TryEmitCompoundAssignment(varName, expr.Arguments[0], indent))
+                        break;
                     WriteIndent(indent);
                     _sb.Append($"{varName} = ");
                     if (expr.Arguments.Count > 0)
@@ -1993,14 +2177,10 @@ public static class CSharpEmitter
                         else
                             EmitExpression(addrArg);
                         _sb.Append(" = ");
-                        // Propagate bool context for stind.i1 when target is a bool local
+                        // Propagate bool context for stind.i1 — stores a byte, almost always bool in C#
                         bool wasBool = _emitBoolContext;
                         if (expr.OpCode is ILOpCode.Stind_i1)
-                        {
-                            if (addrArg.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca
-                                && addrArg.Operand is not null && _boolLocals.Contains(addrArg.Operand))
-                                _emitBoolContext = true;
-                        }
+                            _emitBoolContext = true;
                         EmitExpression(valArg);
                         _emitBoolContext = wasBool;
                     }
@@ -2179,7 +2359,12 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_u2 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
                     EmitCast(expr, "char"); break;
                 case ILOpCode.Conv_i4 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i4_un:
-                    EmitCast(expr, "int"); break;
+                    // Suppress (int) cast on ldlen — Array.Length is int in C#
+                    if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Ldlen)
+                        EmitExpression(expr.Arguments[0]);
+                    else
+                        EmitCast(expr, "int");
+                    break;
                 case ILOpCode.Conv_u4 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u4_un:
                     EmitCast(expr, "uint"); break;
                 case ILOpCode.Conv_i8 or ILOpCode.Conv_ovf_i8 or ILOpCode.Conv_ovf_i8_un:
@@ -3102,6 +3287,112 @@ public static class CSharpEmitter
             ILOpCode.Clt => true,
             _ => false
         };
+
+        /// <summary>
+        /// Detect the pattern <c>varName = varName op expr</c> and emit as compound assignment.
+        /// Returns true if compound assignment was emitted. Handles:
+        /// <c>x = x + 1</c> → <c>x++</c>, <c>x = x - 1</c> → <c>x--</c>,
+        /// <c>x = x + e</c> → <c>x += e</c>, etc.
+        /// </summary>
+        bool TryEmitCompoundAssignment(string varName, ILAstExpression valueExpr, int indent)
+        {
+            if (valueExpr.Arguments.Count < 2)
+                return false;
+
+            string? opSymbol = valueExpr.OpCode switch
+            {
+                ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
+                ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
+                ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
+                ILOpCode.Div or ILOpCode.Div_un => "/",
+                ILOpCode.Rem or ILOpCode.Rem_un => "%",
+                ILOpCode.And => "&",
+                ILOpCode.Or => "|",
+                ILOpCode.Xor => "^",
+                ILOpCode.Shl => "<<",
+                ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+                _ => null
+            };
+            if (opSymbol is null) return false;
+
+            var lhs = valueExpr.Arguments[0];
+            if (!IsLoadOf(lhs, varName)) return false;
+
+            var rhs = valueExpr.Arguments[1];
+
+            // x = x + 1 → x++ / x = x - 1 → x--
+            if (opSymbol is "+" or "-" && IsConstantOne(rhs))
+            {
+                WriteIndent(indent);
+                _sb.Append(varName);
+                _sb.AppendLine(opSymbol == "+" ? "++;" : "--;");
+                return true;
+            }
+
+            // x = x op expr → x op= expr
+            WriteIndent(indent);
+            _sb.Append($"{varName} {opSymbol}= ");
+            EmitExpression(rhs);
+            _sb.AppendLine(";");
+            return true;
+        }
+
+        /// <summary>
+        /// Format a compound assignment as a string (for for-loop increment clauses).
+        /// Returns null if not a compound assignment pattern.
+        /// </summary>
+        string? FormatCompoundAssignment(string varName, ILAstExpression valueExpr)
+        {
+            if (valueExpr.Arguments.Count < 2)
+                return null;
+
+            string? opSymbol = valueExpr.OpCode switch
+            {
+                ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
+                ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
+                ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
+                ILOpCode.Div or ILOpCode.Div_un => "/",
+                ILOpCode.Rem or ILOpCode.Rem_un => "%",
+                ILOpCode.And => "&",
+                ILOpCode.Or => "|",
+                ILOpCode.Xor => "^",
+                ILOpCode.Shl => "<<",
+                ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+                _ => null
+            };
+            if (opSymbol is null) return null;
+
+            var lhs = valueExpr.Arguments[0];
+            if (!IsLoadOf(lhs, varName)) return null;
+
+            var rhs = valueExpr.Arguments[1];
+
+            if (opSymbol is "+" or "-" && IsConstantOne(rhs))
+                return $"{varName}{(opSymbol == "+" ? "++" : "--")}";
+
+            return $"{varName} {opSymbol}= {ExpressionToString(rhs)}";
+        }
+
+        static bool IsLoadOf(ILAstExpression expr, string varName)
+        {
+            if (expr.Operand == varName) return true;
+            return (expr.OpCode, varName) switch
+            {
+                (ILOpCode.Ldloc_0, "V_0") => true,
+                (ILOpCode.Ldloc_1, "V_1") => true,
+                (ILOpCode.Ldloc_2, "V_2") => true,
+                (ILOpCode.Ldloc_3, "V_3") => true,
+                _ => false
+            };
+        }
+
+        static bool IsConstantOne(ILAstExpression expr)
+        {
+            if (expr.OpCode == ILOpCode.Ldc_i4_1) return true;
+            if (expr.OpCode is ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 && expr.Operand is "1")
+                return true;
+            return false;
+        }
 
         string RemapArg(string? operand, ILOpCode opcode)
         {
