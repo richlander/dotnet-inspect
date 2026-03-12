@@ -27,6 +27,7 @@ public static class PackageOptionsParser
         Option<bool> ReadmeOption,
         Option<string?> TfmOption,
         Option<string?> VersionOption,
+        Option<bool> LatestVersionOption,
         Option<string?> OutOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
@@ -62,12 +63,13 @@ public static class PackageOptionsParser
             return new UnrecognizedOption(badOption);
 
         var explicitVersion = parseResult.GetValue(args.VersionOption);
+        bool showLatestVersion = parseResult.GetValue(args.LatestVersionOption);
 
-        // Bare --version (no value): treat as --versions 1
+        // Bare --version (no value): treat as version query (cache-first)
         bool bareVersion = explicitVersion == null && parseResult.GetResult(args.VersionOption) is { Implicit: false };
 
         var versionsValue = parseResult.GetValue(args.VersionsOption);
-        bool showVersions = bareVersion || parseResult.GetResult(args.VersionsOption) is { Implicit: false };
+        bool showVersions = bareVersion || showLatestVersion || parseResult.GetResult(args.VersionsOption) is { Implicit: false };
 
         var verbosity = opts.ParseVerbosity(parseResult);
 
@@ -86,7 +88,8 @@ public static class PackageOptionsParser
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             ShowReadme = parseResult.GetValue(args.ReadmeOption),
             OutputPath = parseResult.GetValue(args.OutOption),
-            Limit = bareVersion ? 1 : versionsValue,
+            Limit = (bareVersion || showLatestVersion) ? 1 : versionsValue,
+            ForceLatest = showLatestVersion,
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
             OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },

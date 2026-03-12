@@ -20,6 +20,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **Need package dependencies?** → `depends --package Foo`
 - **Need type hierarchy?** → `depends 'INumber<TSelf>'`
 - **Need specific fields?** → `-S Section --fields "PDB*"` (structured query, no DSL)
+- **Need a version?** → `Foo --version` (cache-first), `Foo --latest-version` (always NuGet), `Foo --versions` (list all)
 
 ## When to Use This Skill
 
@@ -31,6 +32,9 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What implements this interface?"** — `implements` finds concrete types
 - **"What does this type depend on?"** — `depends` walks type hierarchy, package deps, or library refs
 - **"What version/metadata does this have?"** — `package` and `library` inspect metadata
+- **"What version is available?"** — `Foo --version` (fast, cache-first — like `docker run`)
+- **"What's the latest on NuGet?"** — `Foo --latest-version` (always queries NuGet — like `docker pull`)
+- **"What versions exist?"** — `Foo --versions` (list all published versions)
 - **"What TFMs are available?"** — `package Foo --tfms`, then `type --package Foo --tfm net8.0`
 - **"Show me something cool"** — `demo` runs curated showcase queries
 
@@ -58,6 +62,42 @@ Use `diff` first when fixing broken code — triage changes, then drill into spe
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
 dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3               # new API surface
 ```
+
+## Version Resolution (Docker-style)
+
+Version queries use Docker-like semantics: cached packages are served in under 15ms, network calls cost 1–4 seconds. Three flags, three behaviors:
+
+| Flag | Behavior | Network | Like Docker... |
+| ---- | -------- | ------- | -------------- |
+| `--version` (bare) | **Cache-first** — returns the best-known version from local caches | Only on cache miss | `docker run nginx` |
+| `--latest-version` | **Always check** — queries NuGet for the absolute latest | Always | `docker pull nginx` |
+| `--versions` | **List all** — returns every published version | Always | `docker image ls --all` |
+
+```bash
+dnx dotnet-inspect -y -- Foo --version           # what's available? (fast, cache-first)
+dnx dotnet-inspect -y -- Foo --latest-version     # what's latest on NuGet? (always network)
+dnx dotnet-inspect -y -- Foo --versions           # list all published versions
+dnx dotnet-inspect -y -- Foo --versions 5         # list latest 5 versions
+dnx dotnet-inspect -y -- Foo --versions --preview # include prerelease versions
+```
+
+The same flags work on the `package` subcommand:
+
+```bash
+dnx dotnet-inspect -y -- package Foo --version           # cache-first resolved version
+dnx dotnet-inspect -y -- package Foo --latest-version     # always queries NuGet
+dnx dotnet-inspect -y -- package Foo --versions           # list all versions
+```
+
+Version pinning with `@version` syntax:
+
+```bash
+dnx dotnet-inspect -y -- Foo@2.0.3                # pinned — no network if cached
+dnx dotnet-inspect -y -- Foo@latest               # always checks NuGet
+dnx dotnet-inspect -y -- Foo                      # prefer cache, refresh on TTL expiry
+```
+
+**Use `--version` (not `--latest-version`) as the default** — it's fast and sufficient for most tasks. Only use `--latest-version` when you need to verify the absolute latest, e.g., before a dependency upgrade.
 
 ## Structured Queries (like Go templates, without a DSL)
 

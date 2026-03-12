@@ -37,7 +37,8 @@ public static class PackageCommandDefinitions
         var readmeOption = new Option<bool>("--readme") { Description = "Show the README.md content from the package" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
-        var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show latest)", Arity = ArgumentArity.ZeroOrOne };
+        var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
+        var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest version from nuget.org" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
 
@@ -53,6 +54,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(readmeOption);
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(versionOption);
+        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(outOption);
         packageCommand.Options.Add(oneLineOption);
         packageCommand.Options.Add(noHeaderOption);
@@ -70,7 +72,7 @@ public static class PackageCommandDefinitions
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, filesOption, tfmsOption,
             libOption, toolsOption, versionsOption, prereleaseOption, readmeOption,
-            tfmOption, versionOption, outOption, oneLineOption, noHeaderOption);
+            tfmOption, versionOption, latestVersionOption, outOption, oneLineOption, noHeaderOption);
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {

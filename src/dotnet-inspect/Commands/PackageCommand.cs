@@ -77,6 +77,19 @@ public class PackageCommand
         if (options.ListVersions)
         {
             string normalizedName = packageArgs[0].ToLowerInvariant();
+
+            // Cache-first for bare --version (Limit==1 && !ForceLatest):
+            // check local caches before hitting NuGet, matching router behavior.
+            if (options.Limit == 1 && !options.ForceLatest)
+            {
+                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
+                if (cachedVersion != null)
+                {
+                    Console.WriteLine(cachedVersion);
+                    return 0;
+                }
+            }
+
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
