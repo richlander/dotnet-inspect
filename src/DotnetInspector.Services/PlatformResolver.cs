@@ -741,6 +741,39 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Resolves the runtime framework directory for a given framework short name.
+    /// Returns the directory path containing runtime assemblies (e.g., shared/Microsoft.NETCore.App/9.0.0/).
+    /// </summary>
+    public static (string? DirectoryPath, string? Version, string? Error) ResolveRuntimeFramework(
+        string frameworkName)
+    {
+        var sharedDir = GetSharedDirectory();
+        if (sharedDir == null)
+            return (null, null, "Could not locate .NET shared runtime directory");
+
+        if (!SharedFrameworkMappings.TryGetValue(frameworkName, out var sharedFrameworkName))
+            return (null, null, frameworkName.Equals("netstandard", StringComparison.OrdinalIgnoreCase)
+                ? "netstandard does not have runtime libraries (ref-only)"
+                : $"Unknown framework '{frameworkName}'");
+
+        var frameworkPath = Path.Combine(sharedDir, sharedFrameworkName);
+        if (!Directory.Exists(frameworkPath))
+            return (null, null, $"Framework '{frameworkName}' runtime is not installed");
+
+        var version = Directory.GetDirectories(frameworkPath)
+            .Select(Path.GetFileName)
+            .Where(v => v != null && char.IsDigit(v[0]))
+            .Select(v => v!)
+            .OrderByDescending(v => ParseVersion(v))
+            .FirstOrDefault();
+
+        if (version == null)
+            return (null, null, $"No versions found for '{frameworkName}' runtime");
+
+        return (Path.Combine(frameworkPath, version), version, null);
+    }
+
+    /// <summary>
     /// Finds a DLL in a directory using case-insensitive matching.
     /// Returns the actual path if found, null otherwise.
     /// Tries exact match first for performance, then falls back to directory scan on Linux.

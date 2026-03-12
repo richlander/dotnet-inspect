@@ -177,10 +177,12 @@ public static class SourceResolver
                 }
                 else
                 {
+                    // Convert backtick notation back to C#-style for display
+                    var displayName = DotnetInspector.Output.ApiOutputFormatter.FormatGenericTypeName(packagePath, null);
                     return new ResolvedSource(
                         packagePath, assemblyPath, platformAssembly, null, null,
                         VersionError: true,
-                        VersionErrorMessage: $"Error: '{packagePath}' looks like a type name but was not found in platform libraries. Specify the source: 'source <package> {packagePath}'.");
+                        VersionErrorMessage: $"Error: '{displayName}' looks like a type name but was not found in platform libraries. Specify the source: 'source <package> \"{displayName}\"'.");
                 }
             }
 

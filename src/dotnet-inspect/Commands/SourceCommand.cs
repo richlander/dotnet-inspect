@@ -135,13 +135,37 @@ public static class SourceCommand
         if (options.Limit.HasValue && typeList.Count > options.Limit.Value)
             typeList = typeList.Take(options.Limit.Value).ToList();
 
-        // Resolve source for each type
+        // Resolve source for each type, following type forwarders as needed
         var rows = new List<SourceFileRow>();
         var verifiedRows = new List<VerifiedSourceFileRow>();
+        var implServices = new Dictionary<string, SourceLinkService>();
+
+        try
+        {
 
         foreach (var type in typeList)
         {
             var sourceInfo = service.ResolveTypeSource(type.FullName);
+
+            // Follow type forwarder if source not found in the original assembly
+            if (sourceInfo == null)
+            {
+                var implPath = service.ResolveImplementationAssemblyPath(type.FullName);
+                if (implPath != null && !implServices.ContainsKey(implPath))
+                {
+                    var implSvc = SourceLinkService.Open(implPath, logger.Log);
+                    await SourceEnricher.AcquirePdbAsync(implSvc.Context, httpClient,
+                        null, null, isPlatformAssembly: true, logger.Log);
+                    implServices[implPath] = implSvc;
+                }
+
+                if (implPath != null && implServices.TryGetValue(implPath, out var cachedSvc)
+                    && cachedSvc.HasPdb && cachedSvc.HasSourceLink)
+                {
+                    sourceInfo = cachedSvc.ResolveTypeSource(type.FullName);
+                }
+            }
+
             if (sourceInfo == null)
             {
                 rows.Add(new SourceFileRow(type.FullName, null));
@@ -235,6 +259,12 @@ public static class SourceCommand
         }
 
         return 0;
+        }
+        finally
+        {
+            foreach (var svc in implServices.Values)
+                svc.Dispose();
+        }
     }
 
     private static async Task<int> ExecuteSingleTypeAsync(
@@ -265,12 +295,34 @@ public static class SourceCommand
         var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
         var sourceInfo = service.ResolveTypeSource(lookupResult.Match);
 
+        // Follow type forwarders to the implementation assembly for source resolution.
+        // E.g., List`1 in System.Collections is forwarded to System.Private.CoreLib at runtime.
+        SourceLinkService? implService = null;
+        if (sourceInfo == null)
+        {
+            implService = service.OpenImplementation(lookupResult.Match);
+            if (implService != null)
+            {
+                logger.Log($"Following type forwarder to {Path.GetFileNameWithoutExtension(implService.Context.AssemblyPath)}");
+                await SourceEnricher.AcquirePdbAsync(implService.Context, httpClient,
+                    null, null, isPlatformAssembly: true, logger.Log);
+
+                if (implService.HasPdb && implService.HasSourceLink)
+                    sourceInfo = implService.ResolveTypeSource(lookupResult.Match);
+            }
+        }
+
+        var effectiveService = implService != null && sourceInfo != null ? implService : service;
+
+        try
+        {
+
         // Member-level resolution: get line numbers from PDB sequence points
         int? startLine = null;
         int? endLine = null;
         if (!string.IsNullOrEmpty(options.MemberName) && sourceInfo != null)
         {
-            var methodInfo = service.ResolveMethodSource(
+            var methodInfo = effectiveService.ResolveMethodSource(
                 lookupResult.Match, options.MemberName,
                 options.OverloadIndex ?? 0, publicOnly: true);
 
@@ -407,7 +459,7 @@ public static class SourceCommand
 
             var oneLineView = new SourceDetailOneLineView
             {
-                SourceFiles = options.Verify ? null : (urlRows.Count > 0 ? urlRows : null),
+                SourceFiles = options.Verify ? null : urlRows,
                 VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null
             };
             WriteOneLine(oneLineView, options);
@@ -428,21 +480,25 @@ public static class SourceCommand
                 Title = title,
                 Description = showExtended ? apiType.Documentation.Summary : null,
                 Kind = apiType.Kind,
-                Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
+                Assembly = Path.GetFileNameWithoutExtension(effectiveService.Context.AssemblyPath),
                 Source = singleFile ? primaryUrl : null,
                 Files = singleFile ? null : totalFiles,
                 Package = showExtended ? packageName : null,
                 Version = showExtended ? packageVersion : null,
-                Repository = showExtended ? service.RepositoryUrl : null,
-                Commit = showExtended ? service.CommitHash : null,
-                PdbStatus = showExtended ? DescribePdbStatus(service.Context) : null,
+                Repository = showExtended ? effectiveService.RepositoryUrl : null,
+                Commit = showExtended ? effectiveService.CommitHash : null,
+                PdbStatus = showExtended ? DescribePdbStatus(effectiveService.Context) : null,
                 Resolution = showExtended ? sourceInfo?.ResolutionMethod.ToString() : null,
                 AdditionalSourceFiles = showExtended ? (options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null)) : null,
                 VerifiedSourceFiles = showExtended ? (options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null) : null,
                 MemberDocs = memberDocs,
                 Samples = samples
             };
-            WriteOutput(view, options);
+
+            if (options.JsonOutput)
+                WriteJson(view, options.CompactJson);
+            else
+                WriteMarkdown(view, options);
         }
 
         if (!options.IsRawOutput)
@@ -451,24 +507,29 @@ public static class SourceCommand
                 : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
                 : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
                 : "";
-            var simpleName = apiType.FullName.Contains('.')
-                ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+            var displayName = FormatFriendlyTypeName(apiType);
+            var quotedName = displayName.Contains('<') ? $"'{displayName}'" : displayName;
 
             List<Tip> tips = [];
 
             if (options.Verbosity < Verbosity.Detailed)
-                tips.Add(new(Name, $"{simpleName} {sourceFlag} -v:d", "include docs and samples"));
+                tips.Add(new(Name, $"{quotedName} {sourceFlag} -v:d", "include docs and samples"));
 
             if (!options.Verify)
-                tips.Add(new(Name, $"{simpleName} {sourceFlag} --verify", "verify URLs accessible"));
+                tips.Add(new(Name, $"{quotedName} {sourceFlag} --verify", "verify URLs accessible"));
 
-            tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag}", "view type API"));
-            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "view member details"));
+            tips.Add(new(TypeCommand.Name, $"{quotedName} {sourceFlag}", "view type API"));
+            tips.Add(new(MemberCommand.Name, $"{quotedName} {sourceFlag}", "view member details"));
 
             Hints.WriteTips(options.TipLevel, [.. tips]);
         }
 
         return 0;
+        }
+        finally
+        {
+            implService?.Dispose();
+        }
     }
 
     // ===== Helpers =====
@@ -684,6 +745,15 @@ public static class SourceCommand
     private static bool IsBuildArtifact(string filePath) =>
         filePath.Contains("/artifacts/obj/") || filePath.Contains("\\artifacts\\obj\\");
 
+    /// <summary>
+    /// Formats a type name using C#-style generic syntax for display in hints and tips.
+    /// e.g., "Dictionary`2" → "Dictionary&lt;TKey, TValue&gt;" (using actual type parameter names when available).
+    /// </summary>
+    private static string FormatFriendlyTypeName(ApiType type)
+    {
+        var name = type.Name;
+        return ApiOutputFormatter.FormatGenericTypeName(name, type.TypeParameters);
+    }
     private static void WritePdbWarning(PdbContext pdbContext)
     {
         Console.Error.WriteLine();

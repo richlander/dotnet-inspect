@@ -97,6 +97,27 @@ public class SourceLinkService : IDisposable
     // --- Type resolution ---
 
     /// <summary>
+    /// Resolves the assembly path that actually implements a type, following type forwarders.
+    /// Returns null if the type is defined in this assembly (not forwarded).
+    /// </summary>
+    public string? ResolveImplementationAssemblyPath(string typeName)
+        => _context.ResolveImplementationAssemblyPath(typeName);
+
+    /// <summary>
+    /// Opens a new SourceLinkService for the assembly that implements the given type,
+    /// following type forwarders. Returns null if the type is not forwarded.
+    /// The caller is responsible for disposing the returned service and acquiring its PDB.
+    /// </summary>
+    public SourceLinkService? OpenImplementation(string typeName)
+    {
+        var implPath = _context.ResolveImplementationAssemblyPath(typeName);
+        if (implPath == null)
+            return null;
+
+        return Open(implPath, _context.Log);
+    }
+
+    /// <summary>
     /// Resolves detailed source information for a type (line number, GitHub URL, partial files).
     /// </summary>
     public SourceLinkResolver.TypeSourceInfo? ResolveTypeSource(string typeName)

@@ -87,6 +87,59 @@ https://msdl.microsoft.com/download/symbols/{pdbname}/{guid}FFFFFFFF/{pdbname}
 
 The GUID comes from the CodeView entry in the debug directory. Without it, there's no way to query for matching symbols.
 
+## Type Forwarders
+
+Many runtime assemblies are **type-forwarding facades**. For example, runtime
+`System.Collections.dll` does not define `List<T>` — it forwards the type to
+`System.Private.CoreLib`, where the implementation (and PDB sequence points)
+actually live.
+
+| Assembly (runtime) | Type | Target |
+| ------------------- | ---- | ------ |
+| System.Collections | `List<T>`, `Dictionary<TKey,TValue>`, ... | System.Private.CoreLib |
+| System.Runtime | `String`, `Int32`, `Task`, ... | System.Private.CoreLib |
+| System.Net.Primitives | `IPAddress`, `IPEndPoint`, ... | System.Net.Primitives *(not forwarded)* |
+
+Reference assemblies define all types as real type definitions (the compiler
+needs them for compilation), so type forwarders are a **runtime-only** concern.
+
+### Impact on Source Resolution
+
+When the `source` command opens the runtime assembly's PDB, forwarded types
+have no sequence points there — the PDB covers only the assembly's own code.
+To find source links for a forwarded type, we must follow the forwarder to the
+implementation assembly and open *its* PDB.
+
+```text
+source "List<T>" --platform System.Collections
+
+1. Ref: System.Collections.dll  →  Finds List`1 in type definitions (API surface)
+2. Runtime: System.Collections.dll  →  PDB has no List`1 sequence points (forwarded)
+3. Follow forwarder  →  System.Private.CoreLib.dll
+4. Runtime: System.Private.CoreLib.dll  →  PDB has List`1 at List.cs:line 23
+```
+
+### Metadata Primitives
+
+The forwarder-following capability lives in the metadata layer so any command
+can use it:
+
+- **`PdbContext.FindTypeForwarder(typeName)`** — returns the target assembly
+  name if a type is forwarded, null otherwise.
+- **`PdbContext.ResolveImplementationAssemblyPath(typeName)`** — follows the
+  forwarder and returns the full path to the target DLL (looks in the same
+  directory).
+- **`SourceLinkService.OpenImplementation(typeName)`** — opens a new service
+  on the implementation assembly, ready for PDB acquisition.
+
+### Design Principle
+
+`find` uses ref packs and reports the canonical assembly name (e.g.,
+`System.Collections` for `List<T>`). This preserves the user-facing .NET API
+surface model. Commands that need PDBs or method bodies (`source`, `api` with
+`--docs`) follow forwarders transparently at the type-resolution level.
+Mixing ref and runtime data within a single concern is avoided.
+
 ## Framework Mappings
 
 | Short Name | Ref Pack | Runtime Shared |
@@ -103,7 +156,7 @@ Note: `netstandard` has no runtime assemblies. It's a reference-only framework t
 | ------- | -------------- | ---------- | ----- |
 | `api --platform` | Ref | Runtime | Hybrid: API from ref, PDB from runtime |
 | `type --platform` | Ref | Runtime | Hybrid: structure from ref, source from runtime |
-| `samples --platform` | Ref | Runtime | Hybrid: type lookup from ref, samples from PDB |
+| `source --platform` | Ref | Runtime (+forwarders) | Follows type forwarders to implementation assembly PDB |
 | `find --platform` | Ref | *(none)* | Ref only: no PDB needed for search |
 | `diff --platform` | Ref | *(none)* | Ref only: comparing public API |
 | `library --platform` | Runtime | Runtime | Runtime only: full inspection with debug info |
