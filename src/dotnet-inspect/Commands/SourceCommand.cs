@@ -602,6 +602,9 @@ public static class SourceCommand
                         var lines = content.Split('\n');
                         int start = Math.Min(startLine - 1, lines.Length);
                         int end = endLine > 0 ? Math.Min(endLine, lines.Length) : start + 1;
+                        // Expand to nearest blank line or file boundary (up to 3 lines)
+                        start = ExpandStart(lines, start);
+                        end = ExpandEnd(lines, end);
                         Console.WriteLine(string.Join('\n', lines[start..end]));
                     }
                     else
@@ -651,6 +654,38 @@ public static class SourceCommand
         }
 
         return (0, 0);
+    }
+
+    // Expand start index backward up to 3 lines, stopping at a blank line or SOF
+    private static int ExpandStart(string[] lines, int start)
+    {
+        const int maxExpand = 3;
+        for (int i = 1; i <= maxExpand && start - i >= 0; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[start - i]))
+            {
+                return start - i + 1;
+            }
+        }
+
+        // Hit SOF within range
+        return start - Math.Min(maxExpand, start) >= 0 && start <= maxExpand ? 0 : start;
+    }
+
+    // Expand end index forward up to 3 lines, stopping at a blank line or EOF
+    private static int ExpandEnd(string[] lines, int end)
+    {
+        const int maxExpand = 3;
+        for (int i = 0; i < maxExpand && end + i < lines.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[end + i]))
+            {
+                return end + i;
+            }
+        }
+
+        // Hit EOF within range
+        return end + maxExpand >= lines.Length ? lines.Length : end;
     }
 
     private static SourceListResult ToListResult(SourceListView v) => new()
