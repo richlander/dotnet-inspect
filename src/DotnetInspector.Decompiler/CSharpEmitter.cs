@@ -1776,9 +1776,26 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     if (expr.Arguments.Count >= 2)
                     {
-                        EmitExpression(expr.Arguments[0]);
+                        // stind pops: value (arg0), address (arg1) — emit as address = value
+                        var addrArg = expr.Arguments[1];
+                        var valArg = expr.Arguments[0];
+                        if (addrArg.OpCode is ILOpCode.Ldarga_s or ILOpCode.Ldarga)
+                            _sb.Append(RemapArg(addrArg.Operand, addrArg.OpCode));
+                        else if (addrArg.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca)
+                            _sb.Append(addrArg.Operand ?? "loc");
+                        else
+                            EmitExpression(addrArg);
                         _sb.Append(" = ");
-                        EmitExpression(expr.Arguments[1]);
+                        // Propagate bool context for stind.i1 when target is a bool local
+                        bool wasBool = _emitBoolContext;
+                        if (expr.OpCode is ILOpCode.Stind_i1)
+                        {
+                            if (addrArg.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca
+                                && addrArg.Operand is not null && _boolLocals.Contains(addrArg.Operand))
+                                _emitBoolContext = true;
+                        }
+                        EmitExpression(valArg);
+                        _emitBoolContext = wasBool;
                     }
                     _sb.AppendLine(";");
                     break;
