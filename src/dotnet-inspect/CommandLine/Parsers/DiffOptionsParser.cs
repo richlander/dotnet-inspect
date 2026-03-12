@@ -117,7 +117,7 @@ public static class DiffOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null
+        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

@@ -55,6 +55,11 @@ public record SourceOptions
     /// </summary>
     public bool BrowsableUrls { get; init; }
 
+    /// <summary>
+    /// Print source file contents to stdout.
+    /// </summary>
+    public bool Cat { get; init; }
+
     // Output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public bool JsonOutput { get; init; }
@@ -88,5 +93,5 @@ public record SourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine;
+    public bool IsRawOutput => JsonOutput || OneLine || Cat;
 }

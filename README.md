@@ -26,6 +26,7 @@ dnx dotnet-inspect -y -- <command>
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |
 | `find X` | Search for types across packages, frameworks, and local assets |
+| `source X` | SourceLink URLs — type or member level, `--cat` to fetch content |
 | `platform` | List installed frameworks |
 
 ### Bare Names
@@ -46,6 +47,8 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
 | `--source-link-audit` | SourceLink/determinism audit |
 | `-T:q/d` | Tips verbosity (contextual hints on stderr) |
+| `-n N` / `--head N` / `-N` | First N lines of output (like `head`) |
+| `--tail N` | Last N lines of output (like `tail`) |
 
 ## Commands
 
@@ -204,6 +207,17 @@ List installed frameworks.
 dotnet-inspect platform                             # List frameworks
 dotnet-inspect platform --framework runtime         # List runtime libraries
 dotnet-inspect platform --list-versions             # Installed SDK versions
+```
+
+### source
+
+SourceLink URLs for type source files. Supports member-level resolution with line numbers.
+
+```bash
+dotnet-inspect source JsonSerializer --package System.Text.Json          # Source file URLs
+dotnet-inspect source JsonSerializer --package System.Text.Json -m Serialize  # With line numbers
+dotnet-inspect source JsonSerializer --package System.Text.Json --cat    # Fetch and print source content
+dotnet-inspect source JsonSerializer --package System.Text.Json --verify # Verify URL accessibility
 ```
 
 ### cache

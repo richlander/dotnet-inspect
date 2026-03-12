@@ -149,7 +149,7 @@ public static class TypeOptionsParser
 
         options = options with
         {
-            TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || typeLimit != null
+            TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || typeLimit != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 

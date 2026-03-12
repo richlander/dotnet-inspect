@@ -7,6 +7,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using MarkdownTable.Formatting;
 using Markout;
 using Markout.Formatting;
 
@@ -193,6 +194,12 @@ public static class SourceCommand
             }
         }
 
+        // Cat mode: fetch and print source file contents
+        if (options.Cat)
+        {
+            return await CatUrlsAsync(rows.Where(r => r.Url != null).Select(r => r.Url!), httpClient);
+        }
+
         // Verify URLs if requested
         if (options.Verify)
             await VerifyUrlsAsync(verifiedRows, httpClient, logger);
@@ -373,6 +380,15 @@ public static class SourceCommand
                 if (options.Verify && partialUrl != null)
                     verifiedRows.Add(new VerifiedSourceUrlRow(partialUrl, "pending"));
             }
+        }
+
+        // Cat mode: fetch and print source file contents
+        if (options.Cat)
+        {
+            var urls = new List<string>();
+            if (primaryUrl != null) urls.Add(primaryUrl);
+            urls.AddRange(additionalRows.Select(r => r.Url).Where(u => !string.IsNullOrEmpty(u))!);
+            return await CatUrlsAsync(urls, httpClient);
         }
 
         // Verify URLs if requested
@@ -566,6 +582,162 @@ public static class SourceCommand
             _ => "{}"
         };
         Console.WriteLine(json);
+    }
+
+    private static async Task<int> CatUrlsAsync(IEnumerable<string> urls, HttpClient httpClient)
+    {
+        foreach (var url in urls)
+        {
+            var hashIndex = url.IndexOf('#');
+            var fetchUrl = hashIndex >= 0 ? url[..hashIndex] : url;
+            var (startLine, endLine) = hashIndex >= 0 ? ParseLineFragment(url[(hashIndex + 1)..]) : (0, 0);
+
+            try
+            {
+                using var response = await httpClient.GetAsync(fetchUrl, HttpCompletionOption.ResponseHeadersRead);
+                if (response.IsSuccessStatusCode)
+                {
+                    await using var stream = await response.Content.ReadAsStreamAsync();
+                    if (startLine > 0)
+                    {
+                        await WriteExtractedLinesAsync(stream, startLine, endLine > 0 ? endLine : startLine);
+                    }
+                    else
+                    {
+                        await WriteAllLinesAsync(stream);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"{url} {(int)response.StatusCode} {response.ReasonPhrase}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"{url} {ex.Message}");
+            }
+        }
+        return 0;
+    }
+
+    private static async Task WriteAllLinesAsync(Stream stream)
+    {
+        var reader = LineReader.Create(stream);
+        while (!reader.IsComplete)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+            Console.WriteLine(LineReader.ToString(line));
+        }
+    }
+
+    // Streams lines from startLine..endLine with blank-line expansion (up to 3 lines each direction).
+    private static async Task WriteExtractedLinesAsync(Stream stream, int startLine, int endLine)
+    {
+        const int maxExpand = 3;
+        var reader = LineReader.Create(stream);
+        int currentLine = 1;
+        int expandedStart = Math.Max(1, startLine - maxExpand);
+
+        // Skip lines before the expansion zone
+        while (currentLine < expandedStart)
+        {
+            if (!reader.ReadLine(out _))
+            {
+                if (!await reader.AdvanceAsync()) return;
+                continue;
+            }
+            currentLine++;
+        }
+
+        // Read pre-expansion zone, tracking blank-line boundaries
+        var preLines = new List<string>(maxExpand);
+        while (currentLine < startLine)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+
+            if (IsBlank(line))
+            {
+                preLines.Clear();
+            }
+            else
+            {
+                preLines.Add(LineReader.ToString(line));
+            }
+            currentLine++;
+        }
+
+        foreach (var pre in preLines)
+        {
+            Console.WriteLine(pre);
+        }
+
+        // Output requested range
+        while (currentLine <= endLine)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+            Console.WriteLine(LineReader.ToString(line));
+            currentLine++;
+        }
+
+        // Post-expansion: up to 3 lines, stopping at blank line or EOF
+        int expansionCount = 0;
+        while (expansionCount < maxExpand && !reader.IsComplete)
+        {
+            if (!reader.ReadLine(out var line))
+            {
+                if (!await reader.AdvanceAsync()) break;
+                continue;
+            }
+            if (IsBlank(line)) break;
+            Console.WriteLine(LineReader.ToString(line));
+            expansionCount++;
+        }
+    }
+
+    private static bool IsBlank(ReadOnlySpan<byte> line) =>
+        line.IsEmpty || line.IndexOfAnyExcept((byte)' ', (byte)'\t') < 0;
+
+    // Parses #L10 or #L10-L20 fragments into 1-based line numbers
+    private static (int Start, int End) ParseLineFragment(string fragment)
+    {
+        // Formats: L10, L10-L20
+        if (!fragment.StartsWith('L'))
+        {
+            return (0, 0);
+        }
+
+        var dashIndex = fragment.IndexOf('-');
+        if (dashIndex < 0)
+        {
+            return int.TryParse(fragment[1..], out var single) ? (single, single) : (0, 0);
+        }
+
+        var startPart = fragment[1..dashIndex];
+        var endPart = fragment[(dashIndex + 1)..];
+        // End part may be "L20" or just "20"
+        if (endPart.StartsWith('L'))
+        {
+            endPart = endPart[1..];
+        }
+
+        if (int.TryParse(startPart, out var start) && int.TryParse(endPart, out var end))
+        {
+            return (start, end);
+        }
+
+        return (0, 0);
     }
 
     private static SourceListResult ToListResult(SourceListView v) => new()

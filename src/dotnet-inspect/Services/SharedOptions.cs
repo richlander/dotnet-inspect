@@ -21,7 +21,8 @@ public class SharedOptions
     public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => null };
 
     // Output control options
-    public Option<int?> Limit { get; } = new("-n") { Description = "Limit output lines (like head -n)" };
+    public Option<int?> Limit { get; }
+    public Option<int?> Tail { get; }
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
@@ -53,6 +54,11 @@ public class SharedOptions
 
     public SharedOptions()
     {
+        Limit = new Option<int?>("-n") { Description = "Limit to first N lines (like head -n)" };
+        Limit.Aliases.Add("--head");
+
+        Tail = new Option<int?>("--tail") { Description = "Limit to last N lines (like tail -n)" };
+
         Tips = new Option<string?>("--tips")
         {
             Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)",
@@ -99,6 +105,7 @@ public class SharedOptions
         command.Options.Add(Tips);
         command.Options.Add(Info);
         command.Options.Add(Limit);
+        command.Options.Add(Tail);
     }
 
     /// <summary>
