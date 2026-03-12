@@ -18,16 +18,16 @@ public static class CSharpEmitter
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
         var structure = StructuredControlFlow.Analyze(context, cfg);
-        return Emit(ast, structure, context.Reader, context.HasThis);
+        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType);
     }
 
     /// <summary>
     /// Emit C# source from pre-computed ILAst and control flow structure.
     /// </summary>
-    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false)
+    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null)
     {
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis);
+        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType);
         emitter.EmitMethod();
         return sb.ToString();
     }
@@ -39,6 +39,7 @@ public static class CSharpEmitter
         readonly StringBuilder _sb;
         readonly MetadataReader? _reader;
         readonly bool _hasThis;
+        readonly bool _returnsBool;
 
         // Map block index → ILAstBlock for quick lookup
         readonly Dictionary<int, ILAstBlock> _blockMap;
@@ -48,6 +49,12 @@ public static class CSharpEmitter
 
         // Current block nodes being emitted (for dup resolution)
         List<ILAstNode>? _currentBlockNodes;
+
+        // Tracks the current ret argument being emitted (for bool context inference)
+        ILAstExpression? _currentReturnArg;
+
+        // Set when emitting an expression in a boolean context (stloc to bool local, etc.)
+        bool _emitBoolContext;
 
         // When emitting inside a null-conditional pattern, the receiver expression string
         string? _nullConditionalReceiver;
@@ -70,6 +77,9 @@ public static class CSharpEmitter
         // Local variable names to suppress from declaration (declared inline by using/etc.)
         readonly HashSet<string> _suppressedLocals = [];
 
+        // Local variables whose type is bool (for true/false literal emission)
+        readonly HashSet<string> _boolLocals;
+
         // Return blocks whose gotos have been inlined — suppress the block itself
         readonly HashSet<string> _inlinedReturnLabels;
 
@@ -82,13 +92,14 @@ public static class CSharpEmitter
         // IL offset labels consumed by while-loop conditions (body entry points from header branch)
         readonly HashSet<string> _loopConsumedLabels;
 
-        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false)
+        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null)
         {
             _ast = ast;
             _structure = structure;
             _sb = sb;
             _reader = reader;
             _hasThis = hasThis;
+            _returnsBool = returnType is "bool" or "System.Boolean";
 
             _blockMap = [];
             for (int i = 0; i < ast.Blocks.Count; i++)
@@ -106,6 +117,12 @@ public static class CSharpEmitter
             _emittedLabels = [];
             _catchVariableStatements = [];
             _inlinedReturnLabels = [];
+
+            // Build set of bool-typed locals for true/false literal emission
+            _boolLocals = [];
+            foreach (var local in ast.Locals)
+                if (local.TypeName is "bool" or "System.Boolean" or "Boolean")
+                    _boolLocals.Add(local.Name);
 
             // Build set of loop header labels for goto suppression
             _loopHeaderLabels = [];
@@ -1630,7 +1647,13 @@ public static class CSharpEmitter
                     if (expr.Arguments.Count > 0)
                     {
                         _sb.Append("return ");
+                        bool wasBool = _emitBoolContext;
+                        if (_returnsBool)
+                            _emitBoolContext = true;
+                        _currentReturnArg = expr.Arguments[0];
                         EmitExpression(expr.Arguments[0]);
+                        _currentReturnArg = null;
+                        _emitBoolContext = wasBool;
                         _sb.AppendLine(";");
                     }
                     else
@@ -1646,7 +1669,13 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     _sb.Append($"{varName} = ");
                     if (expr.Arguments.Count > 0)
+                    {
+                        bool wasBool = _emitBoolContext;
+                        if (_boolLocals.Contains(varName))
+                            _emitBoolContext = true;
                         EmitExpression(expr.Arguments[0]);
+                        _emitBoolContext = wasBool;
+                    }
                     else
                         _sb.Append("/* value */");
                     _sb.AppendLine(";");
@@ -1819,12 +1848,20 @@ public static class CSharpEmitter
 
         void EmitExpression(ILAstExpression expr)
         {
+            // Consume bool context: only applies to this direct expression, not sub-expressions
+            bool boolCtx = _emitBoolContext;
+            _emitBoolContext = false;
+
             switch (expr.OpCode)
             {
                 // Constants
                 case ILOpCode.Ldc_i4_m1: _sb.Append("-1"); break;
-                case ILOpCode.Ldc_i4_0: _sb.Append('0'); break;
-                case ILOpCode.Ldc_i4_1: _sb.Append('1'); break;
+                case ILOpCode.Ldc_i4_0:
+                    _sb.Append(IsBoolContext(expr, boolCtx) ? "false" : "0");
+                    break;
+                case ILOpCode.Ldc_i4_1:
+                    _sb.Append(IsBoolContext(expr, boolCtx) ? "true" : "1");
+                    break;
                 case ILOpCode.Ldc_i4_2: _sb.Append('2'); break;
                 case ILOpCode.Ldc_i4_3: _sb.Append('3'); break;
                 case ILOpCode.Ldc_i4_4: _sb.Append('4'); break;
@@ -1833,6 +1870,12 @@ public static class CSharpEmitter
                 case ILOpCode.Ldc_i4_7: _sb.Append('7'); break;
                 case ILOpCode.Ldc_i4_8: _sb.Append('8'); break;
                 case ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4:
+                    if (IsBoolContext(expr, boolCtx))
+                    {
+                        var val = expr.Operand?.ToString();
+                        if (val is "0") { _sb.Append("false"); break; }
+                        if (val is "1") { _sb.Append("true"); break; }
+                    }
                     _sb.Append(expr.Operand ?? "0");
                     break;
                 case ILOpCode.Ldc_i8:
@@ -2394,6 +2437,16 @@ public static class CSharpEmitter
         /// Returns true if the expression produces a numeric (non-boolean) Int32 value.
         /// Conservative: only returns true for known numeric patterns (lengths, counts, arithmetic).
         /// </summary>
+        static bool IsBoolContext(ILAstExpression expr, bool parentBoolContext)
+        {
+            if (parentBoolContext)
+                return true;
+            var tn = expr.ResultType.TypeName;
+            if (tn is "bool" or "System.Boolean" or "Boolean")
+                return true;
+            return false;
+        }
+
         static bool IsNonBooleanNumeric(ILAstExpression expr)
         {
             if (expr.ResultType.Kind is not (StackValueKind.Int32 or StackValueKind.NativeInt))

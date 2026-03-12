@@ -392,6 +392,22 @@ public class CSharpEmitterTests
             string.Join("\n", failures.Take(10)));
     }
 
+    [Fact]
+    public void BoolLiteral_AlwaysTrue_EmitsTrue()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.AlwaysTrue));
+        Assert.Contains("return true;", code);
+        Assert.DoesNotContain("return 1;", code);
+    }
+
+    [Fact]
+    public void BoolLiteral_AlwaysFalse_EmitsFalse()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.AlwaysFalse));
+        Assert.Contains("return false;", code);
+        Assert.DoesNotContain("return 0;", code);
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)

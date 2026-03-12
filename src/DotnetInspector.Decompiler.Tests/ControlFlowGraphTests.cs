@@ -393,4 +393,24 @@ public class CfgSampleClass
     {
         return items.Where(x => x > threshold).ToList();
     }
+
+    public static bool IsPositiveOrZero(int value)
+    {
+        return value >= 0;
+    }
+
+    public static bool AlwaysTrue()
+    {
+        return true;
+    }
+
+    public static bool AlwaysFalse()
+    {
+        return false;
+    }
+
+    public static void SetFlag(out bool flag)
+    {
+        flag = true;
+    }
 }
