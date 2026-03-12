@@ -32,9 +32,9 @@ public class CSharpEmitterTests
     {
         string output = EmitMethod(nameof(CfgSampleClass.Add));
 
-        // Lowered C# uses P_ variable names, not original parameter names
-        Assert.True(output.Contains("P_0") || output.Contains("P_1") || output.Contains("return"),
-            $"Expected lowered variable names in:\n{output}");
+        // With metadata param names, should use real names (a, b)
+        Assert.True(output.Contains("a") || output.Contains("b") || output.Contains("return"),
+            $"Expected parameter names in:\n{output}");
     }
 
     // --- Control flow ---
@@ -135,7 +135,7 @@ public class CSharpEmitterTests
     {
         string output = EmitMethod(nameof(CfgSampleClass.Add));
 
-        // Should have P_0 + P_1 or similar
+        // Should have a + b or similar
         Assert.Contains("+", output);
     }
 
@@ -292,8 +292,9 @@ public class CSharpEmitterTests
         string output = EmitMethod(nameof(CfgSampleClass.StringInterpolation));
 
         Assert.Contains("$\"", output);
-        Assert.Contains("{P_0}", output);
-        Assert.Contains("{P_1}", output);
+        // Parameters use real names from metadata (name, age)
+        Assert.Contains("{name}", output);
+        Assert.Contains("{age}", output);
         Assert.DoesNotContain("AppendLiteral", output);
         Assert.DoesNotContain("AppendFormatted", output);
         Assert.DoesNotContain("DefaultInterpolatedStringHandler", output);

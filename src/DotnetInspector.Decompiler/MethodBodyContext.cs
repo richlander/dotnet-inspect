@@ -42,6 +42,11 @@ public sealed class MethodBodyContext
     public IReadOnlyList<string> ParameterTypes { get; }
 
     /// <summary>
+    /// The parameter names from metadata (may be empty if stripped).
+    /// </summary>
+    public IReadOnlyList<string> ParameterNames { get; }
+
+    /// <summary>
     /// The decoded return type name.
     /// </summary>
     public string ReturnType { get; }
@@ -66,6 +71,7 @@ public sealed class MethodBodyContext
         bool hasThis,
         bool hasReturnValue,
         IReadOnlyList<string> parameterTypes,
+        IReadOnlyList<string> parameterNames,
         string returnType,
         string? declaringType = null,
         GenericContext? genericContext = null)
@@ -79,6 +85,7 @@ public sealed class MethodBodyContext
         HasThis = hasThis;
         HasReturnValue = hasReturnValue;
         ParameterTypes = parameterTypes;
+        ParameterNames = parameterNames;
         ReturnType = returnType;
         DeclaringType = declaringType;
         GenericContext = genericContext;
@@ -123,6 +130,7 @@ public sealed class MethodBodyContext
 
         var localTypes = DecodeLocalTypes(reader, body.LocalSignature, genericContext);
         var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext);
+        var paramNames = ReadParameterNames(reader, method);
 
         return new MethodBodyContext(
             ilBytes,
@@ -134,6 +142,7 @@ public sealed class MethodBodyContext
             !method.Attributes.HasFlag(System.Reflection.MethodAttributes.Static),
             sig.ReturnType != "System.Void" && sig.ReturnType != "void",
             [.. sig.ParameterTypes],
+            paramNames,
             sig.ReturnType,
             declaringType,
             genericContext);
@@ -166,6 +175,24 @@ public sealed class MethodBodyContext
         }
 
         return null;
+    }
+
+    static IReadOnlyList<string> ReadParameterNames(MetadataReader reader, MethodDefinition method)
+    {
+        var names = new List<string>();
+
+        foreach (var paramHandle in method.GetParameters())
+        {
+            var param = reader.GetParameter(paramHandle);
+            // Sequence 0 = return value parameter; skip it
+            if (param.SequenceNumber == 0)
+                continue;
+
+            var name = reader.GetString(param.Name);
+            names.Add(string.IsNullOrEmpty(name) ? $"P_{param.SequenceNumber - 1}" : name);
+        }
+
+        return names;
     }
 
     static List<string> DecodeLocalTypes(MetadataReader reader, StandaloneSignatureHandle sigHandle, GenericContext? genericContext)

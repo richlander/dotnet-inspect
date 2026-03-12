@@ -18,16 +18,16 @@ public static class CSharpEmitter
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
         var structure = StructuredControlFlow.Analyze(context, cfg);
-        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType);
+        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames);
     }
 
     /// <summary>
     /// Emit C# source from pre-computed ILAst and control flow structure.
     /// </summary>
-    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null)
+    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null)
     {
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType);
+        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType, parameterNames);
         emitter.EmitMethod();
         return sb.ToString();
     }
@@ -40,6 +40,7 @@ public static class CSharpEmitter
         readonly MetadataReader? _reader;
         readonly bool _hasThis;
         readonly bool _returnsBool;
+        readonly IReadOnlyList<string>? _paramNames;
 
         // Map block index → ILAstBlock for quick lookup
         readonly Dictionary<int, ILAstBlock> _blockMap;
@@ -92,7 +93,7 @@ public static class CSharpEmitter
         // IL offset labels consumed by while-loop conditions (body entry points from header branch)
         readonly HashSet<string> _loopConsumedLabels;
 
-        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null)
+        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null)
         {
             _ast = ast;
             _structure = structure;
@@ -100,6 +101,7 @@ public static class CSharpEmitter
             _reader = reader;
             _hasThis = hasThis;
             _returnsBool = returnType is "bool" or "System.Boolean";
+            _paramNames = parameterNames;
 
             _blockMap = [];
             for (int i = 0; i < ast.Blocks.Count; i++)
@@ -2275,8 +2277,8 @@ public static class CSharpEmitter
                     && op.StartsWith("S_in_", StringComparison.Ordinal);
                 string dot = isNullConditionalCall ? "?." : ".";
 
-                // Indexer getter: get_Item(key) → [key]
-                if (memberPart == "get_Item" && expr.Arguments.Count == 2)
+                // Indexer getter: get_Item(key)/get_Chars(index) → [key]
+                if (memberPart is "get_Item" or "get_Chars" && expr.Arguments.Count == 2)
                 {
                     EmitExpression(expr.Arguments[0]);
                     _sb.Append('[');
@@ -2642,9 +2644,7 @@ public static class CSharpEmitter
         string ExpressionToString(ILAstExpression expr)
         {
             var sb = new StringBuilder();
-            var saved = _sb;
-            // Use a temp context with the new StringBuilder
-            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames);
             tempCtx.EmitExpression(expr);
             return sb.ToString();
         }
@@ -2661,7 +2661,7 @@ public static class CSharpEmitter
 
             // For comparison-and-branch opcodes (beq, blt, ble, etc.), render via EmitBranchCondition
             var sb = new StringBuilder();
-            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis);
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames);
             tempCtx.EmitBranchCondition(branchExpr);
             return sb.ToString();
         }
@@ -2815,16 +2815,22 @@ public static class CSharpEmitter
 
         string RemapArg(string? operand, ILOpCode opcode)
         {
-            if (_hasThis && operand is not null && operand.StartsWith("P_")
+            if (operand is not null && operand.StartsWith("P_")
                 && int.TryParse(operand.AsSpan(2), out int idx))
             {
-                if (idx == 0) return "this";
-                return $"P_{idx - 1}";
+                if (_hasThis)
+                {
+                    if (idx == 0) return "this";
+                    idx--;
+                }
+                if (_paramNames is not null && idx >= 0 && idx < _paramNames.Count)
+                    return _paramNames[idx];
+                return $"P_{idx}";
             }
-            return operand ?? GetArgName(opcode, _hasThis);
+            return operand ?? GetArgName(opcode, _hasThis, _paramNames);
         }
 
-        static string GetArgName(ILOpCode opcode, bool hasThis = false)
+        static string GetArgName(ILOpCode opcode, bool hasThis = false, IReadOnlyList<string>? paramNames = null)
         {
             int idx = opcode switch
             {
@@ -2839,6 +2845,8 @@ public static class CSharpEmitter
                 if (idx == 0) return "this";
                 idx--;
             }
+            if (paramNames is not null && idx >= 0 && idx < paramNames.Count)
+                return paramNames[idx];
             return idx >= 0 ? $"P_{idx}" : "arg";
         }
 
