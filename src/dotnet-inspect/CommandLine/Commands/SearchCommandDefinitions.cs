@@ -46,7 +46,7 @@ public static class SearchCommandDefinitions
             AllowMultipleArgumentsPerToken = true
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
+        var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
@@ -140,7 +140,7 @@ public static class SearchCommandDefinitions
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
         var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete types" };
+        var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
@@ -258,7 +258,7 @@ public static class SearchCommandDefinitions
             DefaultValueFactory = _ => 2
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
+        var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };

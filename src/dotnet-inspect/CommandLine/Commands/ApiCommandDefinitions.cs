@@ -54,7 +54,7 @@ public static class ApiCommandDefinitions
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
+        var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
@@ -153,7 +153,7 @@ public static class ApiCommandDefinitions
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete members" };
+        var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var memberOption = new Option<string[]>("-m")
         {
             Description = "Filter members by name (supports globs, Type.Member dotted syntax)",

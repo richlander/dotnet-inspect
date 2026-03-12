@@ -324,7 +324,7 @@ public static class SourceCommand
         {
             var methodInfo = effectiveService.ResolveMethodSource(
                 lookupResult.Match, options.MemberName,
-                options.OverloadIndex ?? 0, publicOnly: true);
+                options.OverloadIndex ?? 0, publicOnly: false);
 
             if (methodInfo != null)
             {

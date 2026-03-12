@@ -26,7 +26,6 @@ dnx dotnet-inspect -y -- <command>
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |
 | `find X` | Search for types across packages, frameworks, and local assets |
-| `samples X` | Fetch and display code samples |
 | `platform` | List installed frameworks |
 
 ### Bare Names
@@ -43,6 +42,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `-s Name` | Include section (glob-capable: `-s Ext*`) |
 | `-x Name` | Exclude section |
 | `--shape` | Type shape diagram (hierarchy + members) — `type` command |
+| `--all` | Include non-public, hidden, and obsolete members |
 | `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
 | `--source-link-audit` | SourceLink/determinism audit |
 | `-T:q/d` | Tips verbosity (contextual hints on stderr) |
@@ -194,16 +194,6 @@ Find types implementing an interface or extending a base class.
 dotnet-inspect implements Stream                             # Default scope
 dotnet-inspect implements IDisposable --platform             # All platform frameworks
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
-```
-
-### samples
-
-Fetch and display code samples from SourceLink-indexed sources.
-
-```bash
-dotnet-inspect samples Markout MarkoutWriter --list  # List available samples
-dotnet-inspect samples Markout MarkoutWriter         # Print all samples
-dotnet-inspect samples Newtonsoft.Json JObject        # Third-party examples
 ```
 
 ### platform
