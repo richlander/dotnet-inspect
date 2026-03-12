@@ -29,6 +29,8 @@ public static class SourceCommandDefinitions
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include hidden (EditorBrowsable.Never) and obsolete types" };
+        var memberOption = new Option<string?>("-m") { Description = "Member name to resolve (e.g., Clear, TryGetValue:2 for overload)" };
+        memberOption.Aliases.Add("--member");
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var verifyOption = new Option<bool>("--verify") { Description = "Verify SourceLink URLs are accessible (HTTP HEAD)" };
@@ -45,6 +47,7 @@ public static class SourceCommandDefinitions
         sourceCommand.Options.Add(frameworkOption);
         sourceCommand.Options.Add(tfmOption);
         sourceCommand.Options.Add(allOption);
+        sourceCommand.Options.Add(memberOption);
         sourceCommand.Options.Add(typeFilterOption);
         sourceCommand.Options.Add(verifyOption);
         sourceCommand.Options.Add(auditOption);
@@ -61,7 +64,7 @@ public static class SourceCommandDefinitions
 
         var commandArgs = new SourceOptionsParser.SourceCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, verifyOption, auditOption, browsableUrlsOption,
+            allOption, memberOption, typeFilterOption, verifyOption, auditOption, browsableUrlsOption,
             compactOption, oneLineOption, noHeaderOption);
 
         sourceCommand.SetAction(async (parseResult, ct) =>
