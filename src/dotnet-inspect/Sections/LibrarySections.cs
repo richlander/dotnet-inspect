@@ -18,7 +18,6 @@ public static class LibrarySections
     public const string ScannerCustomAttributes = "CustomAttributes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerAudit = "Audit";
-    public const string ScannerSourceLinkAudit = "SourceLinkAudit";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -26,7 +25,6 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
             .Add<Symbols>()
-            .Add<SourceLinkAuditSection>()
             .Add<LibraryReferences>()
             .Add<LibraryReferencesTransitive>()
             .Add<Dependencies>()
@@ -73,14 +71,6 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         public static string? ScannerKey => ScannerAudit;
         public static bool CanRender(LibraryInspection model) => true;
-    }
-
-    public sealed class SourceLinkAuditSection : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => "Source Link Audit";
-        public static bool IsExpensive => true;
-        public static string? ScannerKey => ScannerSourceLinkAudit;
-        public static bool CanRender(LibraryInspection model) => model.TotalSourceFiles > 0;
     }
 
     // ===== Normal sections (offline, cheap) =====

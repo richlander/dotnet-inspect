@@ -48,7 +48,6 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(ApiOneLineRow))]
 [MarkoutContext(typeof(ApiSurfaceOneLineView))]
 [MarkoutContext(typeof(ApiSurfaceOneLineRow))]
-[MarkoutContext(typeof(SamplesListView))]
 [MarkoutContext(typeof(SampleRow))]
 [MarkoutContext(typeof(SourceListView))]
 [MarkoutContext(typeof(SourceOneLineView))]
@@ -59,6 +58,7 @@ namespace DotnetInspector;
 [MarkoutContext(typeof(SourceUrlRow))]
 [MarkoutContext(typeof(VerifiedSourceUrlRow))]
 [MarkoutContext(typeof(MemberDocRow))]
+[MarkoutContext(typeof(MissingFileRow))]
 [MarkoutContext(typeof(EmptyDepsView))]
 public partial class MarkoutContext : MarkoutSerializerContext
 {

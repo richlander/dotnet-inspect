@@ -207,7 +207,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(13, pipeline.AllSectionNames.Length);
+        Assert.Equal(12, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
