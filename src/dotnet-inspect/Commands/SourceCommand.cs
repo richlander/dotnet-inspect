@@ -135,13 +135,37 @@ public static class SourceCommand
         if (options.Limit.HasValue && typeList.Count > options.Limit.Value)
             typeList = typeList.Take(options.Limit.Value).ToList();
 
-        // Resolve source for each type
+        // Resolve source for each type, following type forwarders as needed
         var rows = new List<SourceFileRow>();
         var verifiedRows = new List<VerifiedSourceFileRow>();
+        var implServices = new Dictionary<string, SourceLinkService>();
+
+        try
+        {
 
         foreach (var type in typeList)
         {
             var sourceInfo = service.ResolveTypeSource(type.FullName);
+
+            // Follow type forwarder if source not found in the original assembly
+            if (sourceInfo == null)
+            {
+                var implPath = service.ResolveImplementationAssemblyPath(type.FullName);
+                if (implPath != null && !implServices.ContainsKey(implPath))
+                {
+                    var implSvc = SourceLinkService.Open(implPath, logger.Log);
+                    await SourceEnricher.AcquirePdbAsync(implSvc.Context, httpClient,
+                        null, null, isPlatformAssembly: true, logger.Log);
+                    implServices[implPath] = implSvc;
+                }
+
+                if (implPath != null && implServices.TryGetValue(implPath, out var cachedSvc)
+                    && cachedSvc.HasPdb && cachedSvc.HasSourceLink)
+                {
+                    sourceInfo = cachedSvc.ResolveTypeSource(type.FullName);
+                }
+            }
+
             if (sourceInfo == null)
             {
                 rows.Add(new SourceFileRow(type.FullName, null));
@@ -235,6 +259,12 @@ public static class SourceCommand
         }
 
         return 0;
+        }
+        finally
+        {
+            foreach (var svc in implServices.Values)
+                svc.Dispose();
+        }
     }
 
     private static async Task<int> ExecuteSingleTypeAsync(
@@ -265,12 +295,34 @@ public static class SourceCommand
         var apiType = api.Types.First(t => t.FullName == lookupResult.Match);
         var sourceInfo = service.ResolveTypeSource(lookupResult.Match);
 
+        // Follow type forwarders to the implementation assembly for source resolution.
+        // E.g., List`1 in System.Collections is forwarded to System.Private.CoreLib at runtime.
+        SourceLinkService? implService = null;
+        if (sourceInfo == null)
+        {
+            implService = service.OpenImplementation(lookupResult.Match);
+            if (implService != null)
+            {
+                logger.Log($"Following type forwarder to {Path.GetFileNameWithoutExtension(implService.Context.AssemblyPath)}");
+                await SourceEnricher.AcquirePdbAsync(implService.Context, httpClient,
+                    null, null, isPlatformAssembly: true, logger.Log);
+
+                if (implService.HasPdb && implService.HasSourceLink)
+                    sourceInfo = implService.ResolveTypeSource(lookupResult.Match);
+            }
+        }
+
+        var effectiveService = implService != null && sourceInfo != null ? implService : service;
+
+        try
+        {
+
         // Member-level resolution: get line numbers from PDB sequence points
         int? startLine = null;
         int? endLine = null;
         if (!string.IsNullOrEmpty(options.MemberName) && sourceInfo != null)
         {
-            var methodInfo = service.ResolveMethodSource(
+            var methodInfo = effectiveService.ResolveMethodSource(
                 lookupResult.Match, options.MemberName,
                 options.OverloadIndex ?? 0, publicOnly: true);
 
@@ -401,7 +453,7 @@ public static class SourceCommand
             }
             else
             {
-                var library = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath);
+                var library = Path.GetFileNameWithoutExtension(effectiveService.Context.AssemblyPath);
                 Console.Error.WriteLine($"{apiType.FullName} ({apiType.Kind}, {library}) — no source links available.");
             }
         }
@@ -421,14 +473,14 @@ public static class SourceCommand
                 Title = title,
                 Description = showExtended ? apiType.Documentation.Summary : null,
                 Kind = apiType.Kind,
-                Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
+                Assembly = Path.GetFileNameWithoutExtension(effectiveService.Context.AssemblyPath),
                 Source = singleFile ? primaryUrl : null,
                 Files = singleFile ? null : totalFiles,
                 Package = showExtended ? packageName : null,
                 Version = showExtended ? packageVersion : null,
-                Repository = showExtended ? service.RepositoryUrl : null,
-                Commit = showExtended ? service.CommitHash : null,
-                PdbStatus = showExtended ? DescribePdbStatus(service.Context) : null,
+                Repository = showExtended ? effectiveService.RepositoryUrl : null,
+                Commit = showExtended ? effectiveService.CommitHash : null,
+                PdbStatus = showExtended ? DescribePdbStatus(effectiveService.Context) : null,
                 Resolution = showExtended ? sourceInfo?.ResolutionMethod.ToString() : null,
                 AdditionalSourceFiles = showExtended ? (options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null)) : null,
                 VerifiedSourceFiles = showExtended ? (options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null) : null,
@@ -466,6 +518,11 @@ public static class SourceCommand
         }
 
         return 0;
+        }
+        finally
+        {
+            implService?.Dispose();
+        }
     }
 
     // ===== Helpers =====

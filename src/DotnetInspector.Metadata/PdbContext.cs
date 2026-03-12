@@ -36,6 +36,11 @@ public class PdbContext : IDisposable
     /// </summary>
     public string AssemblyPath => _assemblyPath;
 
+    /// <summary>
+    /// The log callback, if any.
+    /// </summary>
+    internal Action<string>? Log => _log;
+
     // --- PE/Assembly ---
     public bool HasMetadata => _peReader.HasMetadata;
 
@@ -249,6 +254,25 @@ public class PdbContext : IDisposable
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the assembly path that actually implements a type, following type forwarders.
+    /// Returns null if the type is defined in this assembly (not forwarded).
+    /// Looks for the target assembly DLL in the same directory as this assembly.
+    /// </summary>
+    public string? ResolveImplementationAssemblyPath(string typeName)
+    {
+        var targetAssemblyName = FindTypeForwarder(typeName);
+        if (targetAssemblyName == null)
+            return null;
+
+        var dir = Path.GetDirectoryName(_assemblyPath);
+        if (dir == null)
+            return null;
+
+        var targetPath = Path.Combine(dir, targetAssemblyName + ".dll");
+        return File.Exists(targetPath) ? targetPath : null;
     }
 
     /// <summary>
