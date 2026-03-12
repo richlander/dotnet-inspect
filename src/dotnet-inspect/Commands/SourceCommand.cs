@@ -184,7 +184,8 @@ public static class SourceCommand
         }
         else
         {
-            // Markdown: header fields + table
+            // Markdown: header fields + table (table only at -v:m+)
+            bool showTable = options.Verbosity >= Verbosity.Minimal;
             string title = packageName ?? (api.Name ?? "Source Files");
             var view = new SourceListView
             {
@@ -196,8 +197,8 @@ public static class SourceCommand
                 Version = packageVersion,
                 Tfm = selectedTfm,
                 Types = typeList.Count,
-                SourceFiles = options.Verify ? null : rows,
-                VerifiedSourceFiles = options.Verify ? verifiedRows : null
+                SourceFiles = showTable ? (options.Verify ? null : rows) : null,
+                VerifiedSourceFiles = showTable ? (options.Verify ? verifiedRows : null) : null
             };
             WriteMarkdown(view, options);
         }
@@ -358,22 +359,27 @@ public static class SourceCommand
         else
         {
             // Markdown: heading + inline fields + sections
+            // -v:q = heading + core fields (Kind, Library, Source)
+            // -v:m = + extended metadata (Package, Version, Repo, Commit, PDB, Resolution) + partials
+            // -v:n = + Documentation
+            // -v:d = + Samples
+            bool showExtended = options.Verbosity >= Verbosity.Minimal;
             string title = apiType.FullName;
             var view = new SourceDetailView
             {
                 Title = title,
-                Description = apiType.Documentation.Summary,
+                Description = showExtended ? apiType.Documentation.Summary : null,
                 Kind = apiType.Kind,
                 Assembly = Path.GetFileNameWithoutExtension(service.Context.AssemblyPath),
                 Source = primaryUrl,
-                Package = packageName,
-                Version = packageVersion,
-                Repository = service.RepositoryUrl,
-                Commit = service.CommitHash,
-                PdbStatus = DescribePdbStatus(service.Context),
-                Resolution = sourceInfo?.ResolutionMethod.ToString(),
-                AdditionalSourceFiles = options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null),
-                VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null,
+                Package = showExtended ? packageName : null,
+                Version = showExtended ? packageVersion : null,
+                Repository = showExtended ? service.RepositoryUrl : null,
+                Commit = showExtended ? service.CommitHash : null,
+                PdbStatus = showExtended ? DescribePdbStatus(service.Context) : null,
+                Resolution = showExtended ? sourceInfo?.ResolutionMethod.ToString() : null,
+                AdditionalSourceFiles = showExtended ? (options.Verify ? null : (additionalRows.Count > 0 ? additionalRows : null)) : null,
+                VerifiedSourceFiles = showExtended ? (options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null) : null,
                 MemberDocs = memberDocs,
                 Samples = samples
             };
