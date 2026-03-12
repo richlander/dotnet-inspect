@@ -413,4 +413,14 @@ public class CfgSampleClass
     {
         flag = true;
     }
+
+    public static bool BoolAnd(int x, int y)
+    {
+        return x > 0 && y > 0;
+    }
+
+    public static bool BoolOr(int x, int y)
+    {
+        return x > 0 || y > 0;
+    }
 }
