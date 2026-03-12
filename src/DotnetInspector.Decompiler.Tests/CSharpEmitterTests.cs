@@ -325,6 +325,26 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void ClosureCapture_SimplifiesClosureType()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ClosureCapture));
+
+        Assert.Contains("/* closure */", output);
+        Assert.Contains("/* lambda: ClosureCapture */", output);
+        Assert.DoesNotContain("<>c__DisplayClass", output);
+        Assert.DoesNotContain("System.Func", output);
+    }
+
+    [Fact]
+    public void ClosureWithLinq_SimplifiesLambda()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ClosureWithLinq));
+
+        Assert.Contains("/* lambda: ClosureWithLinq */", output);
+        Assert.DoesNotContain("<>c__DisplayClass", output);
+    }
+
+    [Fact]
     public void PlatformAssembly_EmitAll_NoCrashes()
     {
         var assembly = typeof(object).Assembly;

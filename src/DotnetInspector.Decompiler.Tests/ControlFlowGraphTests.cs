@@ -383,4 +383,14 @@ public class CfgSampleClass
             result.Add(item.ToString());
         return result;
     }
+
+    public static Func<int, int> ClosureCapture(int offset)
+    {
+        return x => x + offset;
+    }
+
+    public static List<int> ClosureWithLinq(int[] items, int threshold)
+    {
+        return items.Where(x => x > threshold).ToList();
+    }
 }

@@ -410,6 +410,9 @@ public static class CSharpEmitter
                     if (_suppressedLocals.Contains(local.Name))
                         continue;
                     string typeName = SimplifyTypeName(local.TypeName ?? "var");
+                    // Skip compiler-generated closure variable declarations
+                    if (typeName.Contains("/* closure */", StringComparison.Ordinal))
+                        continue;
                     _sb.AppendLine($"{typeName} {local.Name};");
                 }
                 _sb.AppendLine();
@@ -1929,7 +1932,20 @@ public static class CSharpEmitter
                 case ILOpCode.Newobj:
                 {
                     string typeName = ExtractTypeName(expr.Operand);
-                    _sb.Append($"new {SimplifyTypeName(typeName)}(");
+                    string simplified = SimplifyTypeName(typeName);
+
+                    // Delegate construction with closure lambda: new Func<T,R>(closure, <Method>b__N)
+                    // Simplify to lambda annotation
+                    if (expr.Arguments.Count == 2
+                        && expr.Arguments[1] is { Operand: string lambdaName }
+                        && lambdaName.Contains(">b__", StringComparison.Ordinal))
+                    {
+                        string cleanLambda = SimplifyLambdaName(lambdaName);
+                        _sb.Append($"/* {cleanLambda} */");
+                        break;
+                    }
+
+                    _sb.Append($"new {simplified}(");
                     // Skip 'this' argument (first arg for instance constructor)
                     for (int i = 0; i < expr.Arguments.Count; i++)
                     {
@@ -2827,28 +2843,55 @@ public static class CSharpEmitter
             return qualifiedName;
         }
 
-        static string SimplifyTypeName(string typeName) => typeName switch
+        /// <summary>
+        /// Simplify compiler-generated lambda method names like "&lt;ClosureCapture&gt;b__0"
+        /// to readable form like "lambda: ClosureCapture".
+        /// </summary>
+        static string SimplifyLambdaName(string name)
         {
-            "System.Void" or "void" => "void",
-            "System.Boolean" or "bool" => "bool",
-            "System.Byte" or "byte" => "byte",
-            "System.SByte" or "sbyte" => "sbyte",
-            "System.Int16" or "short" => "short",
-            "System.UInt16" or "ushort" => "ushort",
-            "System.Int32" or "int" => "int",
-            "System.UInt32" or "uint" => "uint",
-            "System.Int64" or "long" => "long",
-            "System.UInt64" or "ulong" => "ulong",
-            "System.Single" or "float" => "float",
-            "System.Double" or "double" => "double",
-            "System.Decimal" or "decimal" => "decimal",
-            "System.Char" or "char" => "char",
-            "System.String" or "string" => "string",
-            "System.Object" or "object" => "object",
-            "System.IntPtr" or "nint" => "nint",
-            "System.UIntPtr" or "nuint" => "nuint",
-            _ => typeName
-        };
+            // Extract the enclosing method name from "<>c__DisplayClass::<MethodName>b__N" 
+            // or just "<MethodName>b__N"
+            int lastOpen = name.LastIndexOf('<');
+            int lastClose = name.IndexOf('>', lastOpen + 1);
+            if (lastOpen >= 0 && lastClose > lastOpen + 1)
+            {
+                string methodName = name[(lastOpen + 1)..lastClose];
+                return $"lambda: {methodName}";
+            }
+            return $"lambda";
+        }
+
+        static string SimplifyTypeName(string typeName)
+        {
+            // Compiler-generated closure types
+            if (typeName.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+                return "/* closure */";
+            if (typeName.Contains("<>c", StringComparison.Ordinal) && !typeName.Contains("__DisplayClass"))
+                return "/* static closure */";
+
+            return typeName switch
+            {
+                "System.Void" or "void" => "void",
+                "System.Boolean" or "bool" => "bool",
+                "System.Byte" or "byte" => "byte",
+                "System.SByte" or "sbyte" => "sbyte",
+                "System.Int16" or "short" => "short",
+                "System.UInt16" or "ushort" => "ushort",
+                "System.Int32" or "int" => "int",
+                "System.UInt32" or "uint" => "uint",
+                "System.Int64" or "long" => "long",
+                "System.UInt64" or "ulong" => "ulong",
+                "System.Single" or "float" => "float",
+                "System.Double" or "double" => "double",
+                "System.Decimal" or "decimal" => "decimal",
+                "System.Char" or "char" => "char",
+                "System.String" or "string" => "string",
+                "System.Object" or "object" => "object",
+                "System.IntPtr" or "nint" => "nint",
+                "System.UIntPtr" or "nuint" => "nuint",
+                _ => typeName
+            };
+        }
     }
 
     record InterpolationPart(bool IsLiteral, string? LiteralText, ILAstExpression? FormatExpression);
