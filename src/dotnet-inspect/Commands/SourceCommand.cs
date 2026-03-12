@@ -442,20 +442,27 @@ public static class SourceCommand
                 urlRows.Add(new SourceUrlRow(primaryUrl));
             urlRows.AddRange(additionalRows);
 
-            if (urlRows.Count > 0)
+            if (urlRows.Count == 0)
             {
-                var oneLineView = new SourceDetailOneLineView
-                {
-                    SourceFiles = options.Verify ? null : urlRows,
-                    VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null
-                };
-                WriteOneLine(oneLineView, options);
+                var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
+                    : !string.IsNullOrEmpty(options.PackagePath) ? $"{packageName ?? options.PackagePath}"
+                    : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
+                    : "";
+                var simpleName = apiType.FullName.Contains('.')
+                    ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
+
+                Console.Error.WriteLine($"No source URLs found for '{lookupResult.Match}'.");
+                Console.Error.WriteLine("The PDB may not contain SourceLink document mappings.");
+                Console.Error.WriteLine($"Try: source {sourceFlag} {simpleName} -v:q");
+                return 0;
             }
-            else
+
+            var oneLineView = new SourceDetailOneLineView
             {
-                var library = Path.GetFileNameWithoutExtension(effectiveService.Context.AssemblyPath);
-                Console.Error.WriteLine($"{apiType.FullName} ({apiType.Kind}, {library}) — no source links available.");
-            }
+                SourceFiles = options.Verify ? null : urlRows,
+                VerifiedSourceFiles = options.Verify ? (verifiedRows.Count > 0 ? verifiedRows : null) : null
+            };
+            WriteOneLine(oneLineView, options);
         }
         else
         {

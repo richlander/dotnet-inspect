@@ -114,6 +114,15 @@ public static class StackValueKindExtensions
         // Len
         ILOpCode.Ldlen => StackValueKind.NativeInt,
 
+        // Array element loads
+        ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_i4 or
+        ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4
+            => StackValueKind.Int32,
+        ILOpCode.Ldelem_i8 => StackValueKind.Int64,
+        ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8 => StackValueKind.Float,
+        ILOpCode.Ldelem_i => StackValueKind.NativeInt,
+        ILOpCode.Ldelem_ref => StackValueKind.ObjRef,
+
         _ => StackValueKind.Unknown
     };
 }
