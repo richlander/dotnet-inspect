@@ -246,6 +246,12 @@ public class ApiMember
     public bool IsUnsafe { get; set; }
 
     /// <summary>
+    /// Access level for non-public members (e.g., "private", "protected", "internal").
+    /// Null for public members.
+    /// </summary>
+    public string? Accessibility { get; set; }
+
+    /// <summary>
     /// True if this is an extension method.
     /// </summary>
     public bool IsExtension { get; set; }

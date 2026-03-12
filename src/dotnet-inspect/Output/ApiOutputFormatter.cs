@@ -443,7 +443,8 @@ public static class ApiOutputFormatter
                     select = $"`{(hasOverloads ? $"{m.Name}:{idx}" : m.Name)}`";
                 }
 
-                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), $"`{sig}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
+                var sigDisplay = m.Accessibility != null ? $"{m.Accessibility} {sig}" : sig;
+                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), $"`{sigDisplay}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)
@@ -791,7 +792,8 @@ public static class ApiOutputFormatter
                 "constructor" or "method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
                 _ => ""
             };
-            return new ApiOneLineRow(e.kind, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
+            var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
+            return new ApiOneLineRow(kindLabel, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
         }).ToList();
 
         return (new ApiTypeOneLineView { Rows = rows }, truncated);

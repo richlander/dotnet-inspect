@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.6.0
+version: 0.6.7
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
@@ -158,6 +158,7 @@ dnx dotnet-inspect -y -- type System.Text.Json -5                    # first 5 l
 - **`-m N`** (numeric) — item limit (members per kind section).
 - **`-k Kind`** — filter by kind: `class/struct/interface/enum/delegate` (type) or `method/property/field/event/constructor` (type single-type view, member).
 - **`-S Section`** — show only a specific section (glob-capable).
+- **`--all`** — include non-public (private, protected, internal), hidden, and obsolete members. Kind/signature columns show access level.
 
 ## Key Syntax
 

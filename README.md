@@ -43,6 +43,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `-s Name` | Include section (glob-capable: `-s Ext*`) |
 | `-x Name` | Exclude section |
 | `--shape` | Type shape diagram (hierarchy + members) — `type` command |
+| `--all` | Include non-public, hidden, and obsolete members |
 | `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
 | `--source-link-audit` | SourceLink/determinism audit |
 | `-T:q/d` | Tips verbosity (contextual hints on stderr) |

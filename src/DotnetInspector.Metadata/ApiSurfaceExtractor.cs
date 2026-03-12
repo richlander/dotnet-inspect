@@ -138,7 +138,7 @@ public static class ApiSurfaceExtractor
                 }
             }
 
-            // Get public members
+            // Get members (public only, or all when includeAll)
             if (!typesOnly)
             {
             apiType.Members = [];
@@ -147,7 +147,8 @@ public static class ApiSurfaceExtractor
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+                if (methodAccess != MethodAttributes.Public && !includeAll)
                     continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -155,6 +156,10 @@ public static class ApiSurfaceExtractor
                 // Skip property accessors and event accessors
                 if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
                     methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                    continue;
+
+                // Skip compiler-generated methods (lambdas, state machines, etc.)
+                if (methodName.StartsWith("<"))
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete methods unless --all
@@ -170,7 +175,8 @@ public static class ApiSurfaceExtractor
                     IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0,
                     IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
                     Signature = signature,
-                    IsUnsafe = HasUnsafeSignature(signature)
+                    IsUnsafe = HasUnsafeSignature(signature),
+                    Accessibility = GetAccessibility(methodAccess)
                 };
 
                 // Check for extension method
@@ -190,20 +196,23 @@ public static class ApiSurfaceExtractor
                 var prop = reader.GetPropertyDefinition(propHandle);
                 var accessors = prop.GetAccessors();
 
-                // Check if any accessor is public
-                bool isPublicProp = false;
+                // Determine best accessor visibility
+                MethodAttributes bestAccess = 0;
                 if (!accessors.Getter.IsNil)
                 {
                     var getter = reader.GetMethodDefinition(accessors.Getter);
-                    isPublicProp = (getter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
+                    bestAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
                 }
-                if (!isPublicProp && !accessors.Setter.IsNil)
+                if (!accessors.Setter.IsNil)
                 {
                     var setter = reader.GetMethodDefinition(accessors.Setter);
-                    isPublicProp = (setter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
+                    var setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
+                    if (setterAccess > bestAccess)
+                        bestAccess = setterAccess;
                 }
 
-                if (!isPublicProp)
+                bool isPublicProp = bestAccess == MethodAttributes.Public;
+                if (!isPublicProp && !includeAll)
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete properties unless --all
@@ -214,19 +223,21 @@ public static class ApiSurfaceExtractor
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
-                    Signature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext)
+                    Signature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll),
+                    Accessibility = GetAccessibility(bestAccess)
                 };
 
                 apiType.Members.Add(member);
                 surface.PublicPropertyCount++;
             }
 
-            // Fields (only public non-backing fields)
+            // Fields (non-backing fields; non-public included with --all)
             bool isEnum = apiType.Kind == "enum";
             foreach (var fieldHandle in typeDef.GetFields())
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
-                if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public)
+                var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
+                if (fieldAccess != FieldAttributes.Public && !includeAll)
                     continue;
 
                 string fieldName = reader.GetString(field.Name);
@@ -254,7 +265,8 @@ public static class ApiSurfaceExtractor
                     Name = fieldName,
                     Kind = "field",
                     ReturnType = fieldType,
-                    IsStatic = (field.Attributes & FieldAttributes.Static) != 0
+                    IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
+                    Accessibility = GetFieldAccessibility(fieldAccess)
                 };
 
                 // Read enum constant value
@@ -290,12 +302,13 @@ public static class ApiSurfaceExtractor
                 var evt = reader.GetEventDefinition(eventHandle);
                 var accessors = evt.GetAccessors();
 
-                // Check if adder is public
+                // Check if adder exists
                 if (accessors.Adder.IsNil)
                     continue;
 
                 var adder = reader.GetMethodDefinition(accessors.Adder);
-                if ((adder.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                var adderAccess = adder.Attributes & MethodAttributes.MemberAccessMask;
+                if (adderAccess != MethodAttributes.Public && !includeAll)
                     continue;
 
                 // Skip EditorBrowsable(Never) and Obsolete events unless --all
@@ -306,7 +319,8 @@ public static class ApiSurfaceExtractor
                 {
                     Name = reader.GetString(evt.Name),
                     Kind = "event",
-                    IsStatic = (adder.Attributes & MethodAttributes.Static) != 0
+                    IsStatic = (adder.Attributes & MethodAttributes.Static) != 0,
+                    Accessibility = GetAccessibility(adderAccess)
                 };
 
                 apiType.Members.Add(member);
@@ -510,7 +524,7 @@ public static class ApiSurfaceExtractor
         };
     }
 
-    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext)
+    private static string GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
@@ -522,37 +536,67 @@ public static class ApiSurfaceExtractor
         treeSignature.ReturnType.ApplyNullability(propBytes, ref pos, typeNullableContext);
 
         // Determine accessor visibility
-        bool hasPublicGetter = false;
-        bool hasPublicSetter = false;
-        bool hasPrivateSetter = false;
+        MethodAttributes getterAccess = 0;
+        MethodAttributes setterAccess = 0;
+        bool hasGetter = !accessors.Getter.IsNil;
+        bool hasSetter = !accessors.Setter.IsNil;
 
-        if (!accessors.Getter.IsNil)
+        if (hasGetter)
         {
             var getter = reader.GetMethodDefinition(accessors.Getter);
-            hasPublicGetter = (getter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
+            getterAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
-        if (!accessors.Setter.IsNil)
+        if (hasSetter)
         {
             var setter = reader.GetMethodDefinition(accessors.Setter);
-            hasPublicSetter = (setter.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
-            hasPrivateSetter = !hasPublicSetter;
+            setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
         }
+
+        bool hasPublicGetter = hasGetter && getterAccess == MethodAttributes.Public;
+        bool hasPublicSetter = hasSetter && setterAccess == MethodAttributes.Public;
 
         // Build accessor string
         string accessorStr;
-        if (hasPublicGetter && hasPublicSetter)
-            accessorStr = "{ get; set; }";
-        else if (hasPublicGetter && hasPrivateSetter)
-            accessorStr = "{ get; private set; }";
-        else if (hasPublicGetter)
-            accessorStr = "{ get; }";
-        else if (hasPublicSetter)
-            accessorStr = "{ set; }";
+        if (includeAll)
+        {
+            // Show explicit access levels for non-public accessors
+            var getStr = hasGetter ? FormatAccessor("get", getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
+            var setStr = hasSetter ? FormatAccessor("set", setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
+            accessorStr = (getStr, setStr) switch
+            {
+                (not null, not null) => $"{{ {getStr}; {setStr}; }}",
+                (not null, null) => $"{{ {getStr}; }}",
+                (null, not null) => $"{{ {setStr}; }}",
+                _ => "{ get; }"
+            };
+        }
         else
-            accessorStr = "{ get; }"; // Fallback
+        {
+            if (hasPublicGetter && hasPublicSetter)
+                accessorStr = "{ get; set; }";
+            else if (hasPublicGetter && hasSetter)
+                accessorStr = "{ get; private set; }";
+            else if (hasPublicGetter)
+                accessorStr = "{ get; }";
+            else if (hasPublicSetter)
+                accessorStr = "{ set; }";
+            else
+                accessorStr = "{ get; }"; // Fallback
+        }
 
         return $"{treeSignature.ReturnType.Render()} {name} {accessorStr}";
+    }
+
+    /// <summary>
+    /// Formats a property accessor with its access level prefix when it differs from the property's overall level.
+    /// </summary>
+    private static string FormatAccessor(string kind, MethodAttributes access, int bestAccess)
+    {
+        if ((int)access == bestAccess)
+            return kind;
+        var prefix = GetAccessibility(access);
+        return prefix != null ? $"{prefix} {kind}" : kind;
     }
 
     /// <summary>
@@ -577,4 +621,30 @@ public static class ApiSurfaceExtractor
         // and function pointers (delegate*)
         return signature.Contains('*');
     }
+
+    /// <summary>
+    /// Maps MethodAttributes access level to C# keyword. Returns null for public.
+    /// </summary>
+    private static string? GetAccessibility(MethodAttributes access) => access switch
+    {
+        MethodAttributes.Private => "private",
+        MethodAttributes.FamANDAssem => "private protected",
+        MethodAttributes.Assembly => "internal",
+        MethodAttributes.Family => "protected",
+        MethodAttributes.FamORAssem => "protected internal",
+        _ => null // Public
+    };
+
+    /// <summary>
+    /// Maps FieldAttributes access level to C# keyword. Returns null for public.
+    /// </summary>
+    private static string? GetFieldAccessibility(FieldAttributes access) => access switch
+    {
+        FieldAttributes.Private => "private",
+        FieldAttributes.FamANDAssem => "private protected",
+        FieldAttributes.Assembly => "internal",
+        FieldAttributes.Family => "protected",
+        FieldAttributes.FamORAssem => "protected internal",
+        _ => null // Public
+    };
 }

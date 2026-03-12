@@ -58,6 +58,8 @@ dotnet-inspect type System.Text.Json --columns Kind,Type    # project columns in
 - `-m N` (numeric) — item limit (members per kind)
 - `-n N` or `-N` — line limit (like `head -N`)
 
+- `--all` — include non-public (private, protected, internal), hidden, and obsolete members. Kind/signature columns show the access level.
+
 Never pipe through `head`/`tail`/`Select-Object` — use `-n` instead.
 
 ### Scope Flags (search commands)

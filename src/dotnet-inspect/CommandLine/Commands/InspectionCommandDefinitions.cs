@@ -34,7 +34,7 @@ public static class InspectionCommandDefinitions
             Description = "Framework for platform diff (runtime, aspnetcore). Default: runtime"
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
-        var allOption = new Option<bool>("--all") { Description = "Include hidden/obsolete members" };
+        var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var typeFilterOption = new Option<string[]>("-t")
         {
             Description = "Filter to specific type(s)",
