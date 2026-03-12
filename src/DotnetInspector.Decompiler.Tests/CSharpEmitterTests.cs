@@ -32,9 +32,9 @@ public class CSharpEmitterTests
     {
         string output = EmitMethod(nameof(CfgSampleClass.Add));
 
-        // Lowered C# uses P_ variable names, not original parameter names
-        Assert.True(output.Contains("P_0") || output.Contains("P_1") || output.Contains("return"),
-            $"Expected lowered variable names in:\n{output}");
+        // With metadata param names, should use real names (a, b)
+        Assert.True(output.Contains("a") || output.Contains("b") || output.Contains("return"),
+            $"Expected parameter names in:\n{output}");
     }
 
     // --- Control flow ---
@@ -60,11 +60,11 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void LoopSum_HasLoop()
+    public void LoopSum_HasForLoop()
     {
         string output = EmitMethod(nameof(CfgSampleClass.LoopSum));
 
-        Assert.Contains("while", output);
+        Assert.Contains("for", output);
         Assert.DoesNotContain("goto", output);
     }
 
@@ -135,7 +135,7 @@ public class CSharpEmitterTests
     {
         string output = EmitMethod(nameof(CfgSampleClass.Add));
 
-        // Should have P_0 + P_1 or similar
+        // Should have a + b or similar
         Assert.Contains("+", output);
     }
 
@@ -182,21 +182,32 @@ public class CSharpEmitterTests
     // --- While loops ---
 
     [Fact]
-    public void WhileLoop_EmitsWhile()
+    public void WhileLoop_EmitsForLoop()
     {
         string output = EmitMethod(nameof(CfgSampleClass.WhileLoop));
 
-        Assert.Contains("while", output);
+        // Detected as a for-loop (increment pattern: V_0 = V_0 + 1)
+        Assert.Contains("for", output);
         Assert.DoesNotContain("goto", output);
     }
 
     [Fact]
-    public void NestedLoops_EmitsWhile()
+    public void DoWhileLoop_EmitsDoWhile()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.DoWhileLoop));
+
+        Assert.Contains("do", output);
+        Assert.Contains("while", output);
+        // The do-while body should contain the increment
+        Assert.Contains("+ 1", output);
+    }
+
+    [Fact]
+    public void NestedLoops_EmitsFor()
     {
         string output = EmitMethod(nameof(CfgSampleClass.NestedLoops));
 
-        // Should have at least one while
-        Assert.Contains("while", output);
+        Assert.Contains("for", output);
     }
 
     // --- Goto-to-return inlining ---
@@ -211,7 +222,128 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("IL_", output);
     }
 
+    [Fact]
+    public void MultipleCatch_HasBothCatchBlocks()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.MultipleCatch));
+
+        Assert.Contains("try", output);
+        Assert.Contains("FormatException", output);
+        Assert.Contains("OverflowException", output);
+        // Both catch blocks should appear — count occurrences of "catch"
+        int catchCount = output.Split("catch").Length - 1;
+        Assert.True(catchCount >= 2, $"Expected at least 2 catch blocks, found {catchCount} in:\n{output}");
+    }
+
+    // --- Switch ---
+
+    [Fact]
+    public void SwitchStatement_HasSwitchKeyword()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("switch", output);
+    }
+
+    [Fact]
+    public void SwitchStatement_HasCaseLabels()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("case", output);
+    }
+
+    [Fact]
+    public void SwitchStatement_HasDefaultCase()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("default:", output);
+    }
+
+    [Fact]
+    public void SwitchStatement_HasStringReturns()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
+
+        Assert.Contains("return", output);
+        Assert.Contains("\"zero\"", output);
+        Assert.Contains("\"other\"", output);
+    }
+
+    // --- Ternary ---
+
+    [Fact]
+    public void Ternary_HasBothValues()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.Ternary));
+
+        // In Release, the ternary compiles to if/return branches
+        Assert.Contains("\"positive\"", output);
+        Assert.Contains("\"non-positive\"", output);
+        Assert.Contains("return", output);
+    }
+
     // --- Platform stress test ---
+
+    [Fact]
+    public void StringInterpolation_EmitsInterpolatedString()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.StringInterpolation));
+
+        Assert.Contains("$\"", output);
+        // Parameters use real names from metadata (name, age)
+        Assert.Contains("{name}", output);
+        Assert.Contains("{age}", output);
+        Assert.DoesNotContain("AppendLiteral", output);
+        Assert.DoesNotContain("AppendFormatted", output);
+        Assert.DoesNotContain("DefaultInterpolatedStringHandler", output);
+    }
+
+    [Fact]
+    public void UsingStatement_EmitsUsingDeclaration()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UsingStatement));
+
+        Assert.Contains("using var", output);
+        Assert.Contains("OpenRead", output);
+        Assert.DoesNotContain("try", output);
+        Assert.DoesNotContain("finally", output);
+        Assert.DoesNotContain("Dispose", output);
+    }
+
+    [Fact]
+    public void ForeachLoop_EmitsForeach()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ForeachLoop));
+
+        Assert.Contains("foreach", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("MoveNext", output);
+        Assert.DoesNotContain("Current", output);
+        Assert.DoesNotContain("Dispose", output);
+        Assert.DoesNotContain("try", output);
+    }
+
+    [Fact]
+    public void ClosureCapture_SimplifiesClosureType()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ClosureCapture));
+
+        Assert.Contains("/* closure */", output);
+        Assert.Contains("/* lambda: ClosureCapture */", output);
+        Assert.DoesNotContain("<>c__DisplayClass", output);
+        Assert.DoesNotContain("System.Func", output);
+    }
+
+    [Fact]
+    public void ClosureWithLinq_SimplifiesLambda()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ClosureWithLinq));
+
+        Assert.Contains("/* lambda: ClosureWithLinq */", output);
+        Assert.DoesNotContain("<>c__DisplayClass", output);
+    }
 
     [Fact]
     public void PlatformAssembly_EmitAll_NoCrashes()
@@ -259,6 +391,22 @@ public class CSharpEmitterTests
         Assert.True(failureRate < 0.02,
             $"C# emit failed for {failures.Count}/{totalMethods} ({failureRate:P1}):\n" +
             string.Join("\n", failures.Take(10)));
+    }
+
+    [Fact]
+    public void BoolLiteral_AlwaysTrue_EmitsTrue()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.AlwaysTrue));
+        Assert.Contains("return true;", code);
+        Assert.DoesNotContain("return 1;", code);
+    }
+
+    [Fact]
+    public void BoolLiteral_AlwaysFalse_EmitsFalse()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.AlwaysFalse));
+        Assert.Contains("return false;", code);
+        Assert.DoesNotContain("return 0;", code);
     }
 
     // --- Helpers ---

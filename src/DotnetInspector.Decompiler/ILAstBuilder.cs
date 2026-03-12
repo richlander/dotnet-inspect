@@ -93,6 +93,28 @@ public static class ILAstBuilder
                 block.Nodes.Add(new ILAstStatement { Expression = node, Offset = offset });
             }
         }
+
+        // Flush remaining stack values as explicit S_out assignments.
+        // These represent values passed to successor blocks via the stack
+        // (e.g., ternary branches that load a value and branch to a join point).
+        if (stack.Count > 0)
+        {
+            var remaining = stack.ToArray();
+            Array.Reverse(remaining);
+            for (int i = 0; i < remaining.Length; i++)
+            {
+                var variable = new ILVariable(
+                    ILVariableKind.StackSlot,
+                    remaining[i].ResultType,
+                    index: i);
+                block.Nodes.Add(new ILAstAssignment
+                {
+                    Variable = variable,
+                    Value = remaining[i],
+                    Offset = remaining[i].Offset
+                });
+            }
+        }
     }
 
     static ILAstExpression? DecodeInstruction(

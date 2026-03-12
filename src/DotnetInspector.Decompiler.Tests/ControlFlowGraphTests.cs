@@ -259,6 +259,20 @@ public class CfgSampleClass
         _ => "other"
     };
 
+    public static string SwitchStatement(int x)
+    {
+        switch (x)
+        {
+            case 0: return "zero";
+            case 1: return "one";
+            case 2: return "two";
+            case 3: return "three";
+            case 4: return "four";
+            case 5: return "five";
+            default: return "other";
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
@@ -287,6 +301,22 @@ public class CfgSampleClass
             catch (FormatException) { return -1; }
         }
         finally { Console.WriteLine("done"); }
+    }
+
+    public static int MultipleCatch(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (FormatException)
+        {
+            return -1;
+        }
+        catch (OverflowException)
+        {
+            return -2;
+        }
     }
 
     public static void ThrowAndRethrow()
@@ -331,5 +361,66 @@ public class CfgSampleClass
             for (int j = 0; j < m; j++)
                 sum += i * j;
         return sum;
+    }
+
+    public static string Ternary(int x) => x > 0 ? "positive" : "non-positive";
+
+    public static int TernaryInt(int a, int b) => a > b ? a : b;
+
+    public static string StringInterpolation(string name, int age)
+        => $"Hello, {name}! You are {age} years old.";
+
+    public static int UsingStatement(string path)
+    {
+        using var stream = System.IO.File.OpenRead(path);
+        return stream.ReadByte();
+    }
+
+    public static List<string> ForeachLoop(IEnumerable<int> items)
+    {
+        var result = new List<string>();
+        foreach (var item in items)
+            result.Add(item.ToString());
+        return result;
+    }
+
+    public static Func<int, int> ClosureCapture(int offset)
+    {
+        return x => x + offset;
+    }
+
+    public static List<int> ClosureWithLinq(int[] items, int threshold)
+    {
+        return items.Where(x => x > threshold).ToList();
+    }
+
+    public static bool IsPositiveOrZero(int value)
+    {
+        return value >= 0;
+    }
+
+    public static bool AlwaysTrue()
+    {
+        return true;
+    }
+
+    public static bool AlwaysFalse()
+    {
+        return false;
+    }
+
+    public static void SetFlag(out bool flag)
+    {
+        flag = true;
+    }
+
+    public static bool BoolAnd(int x, int y)
+    {
+        return x > 0 && y > 0;
+    }
+
+    public static bool BoolOr(int x, int y)
+    {
+        return x > 0 || y > 0;
     }
 }
