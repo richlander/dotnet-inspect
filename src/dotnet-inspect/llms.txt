@@ -87,7 +87,6 @@ On `type`/`member`/`library`/`diff`, `--platform` takes a library name (string),
 | `depends` | Dependency graphs — type hierarchy, package deps, or library refs (depends on input) |
 | `library` | Assembly metadata, symbols, references. `--source-link-audit` for provenance |
 | `package` | NuGet metadata, versions, files, layout, dependencies, readme |
-| `samples` | Code samples via SourceLink (coverage varies by package) |
 | `demo` | Curated showcase queries |
 | `cache` | Cache management (`--clean` to clear) |
 

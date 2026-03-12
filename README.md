@@ -26,7 +26,6 @@ dnx dotnet-inspect -y -- <command>
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |
 | `find X` | Search for types across packages, frameworks, and local assets |
-| `samples X` | Fetch and display code samples |
 | `platform` | List installed frameworks |
 
 ### Bare Names
@@ -195,16 +194,6 @@ Find types implementing an interface or extending a base class.
 dotnet-inspect implements Stream                             # Default scope
 dotnet-inspect implements IDisposable --platform             # All platform frameworks
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
-```
-
-### samples
-
-Fetch and display code samples from SourceLink-indexed sources.
-
-```bash
-dotnet-inspect samples Markout MarkoutWriter --list  # List available samples
-dotnet-inspect samples Markout MarkoutWriter         # Print all samples
-dotnet-inspect samples Newtonsoft.Json JObject        # Third-party examples
 ```
 
 ### platform
