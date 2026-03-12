@@ -22,6 +22,7 @@ public static class SourceOptionsParser
         Option<string?> FrameworkOption,
         Option<string?> TfmOption,
         Option<bool> AllOption,
+        Option<string?> MemberOption,
         Option<string?> TypeFilterOption,
         Option<bool> VerifyOption,
         Option<bool> AuditOption,
@@ -96,42 +97,44 @@ public static class SourceOptionsParser
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
 
-        // Capture member name from extra positional args (after package + type)
-        // Pattern: source <package> <type> <member>  or  source <type> --package <pkg> <member>
-        string? memberName = null;
+        // Capture member name: -m/--member option, positional args, or Type.Member dot syntax
+        string? memberName = parseResult.GetValue(args.MemberOption);
         int? overloadIndex = null;
         {
-            var positionalMembers = new List<string>();
-            if (hasExplicitSource && argsValue.Length >= 2)
-                positionalMembers.AddRange(argsValue[1..]);
-            else if (!hasExplicitSource && argsValue.Length >= 3)
-                positionalMembers.AddRange(argsValue[2..]);
-
-            // Handle Type.Member dotted syntax
-            var typeName = source.TypeName;
-            if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
+            // Fall back to positional or dot syntax if -m not specified
+            if (memberName == null)
             {
-                var lastDot = typeName.LastIndexOf('.');
-                var rightPart = typeName[(lastDot + 1)..];
-                if (!rightPart.Contains('<'))
+                var positionalMembers = new List<string>();
+                if (hasExplicitSource && argsValue.Length >= 2)
+                    positionalMembers.AddRange(argsValue[1..]);
+                else if (!hasExplicitSource && argsValue.Length >= 3)
+                    positionalMembers.AddRange(argsValue[2..]);
+
+                // Handle Type.Member dotted syntax
+                var typeName = source.TypeName;
+                if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
                 {
-                    positionalMembers.Add(rightPart);
-                    source = source with { TypeName = typeName[..lastDot] };
+                    var lastDot = typeName.LastIndexOf('.');
+                    var rightPart = typeName[(lastDot + 1)..];
+                    if (!rightPart.Contains('<'))
+                    {
+                        positionalMembers.Add(rightPart);
+                        source = source with { TypeName = typeName[..lastDot] };
+                    }
                 }
+
+                if (positionalMembers.Count > 0)
+                    memberName = positionalMembers[0];
             }
 
-            if (positionalMembers.Count > 0)
+            // Parse overload index shorthand: GetValue:2
+            if (memberName != null && memberName.Contains(':'))
             {
-                memberName = positionalMembers[0];
-                // Parse overload index shorthand: GetValue:2
-                if (memberName.Contains(':'))
+                var colonIdx = memberName.LastIndexOf(':');
+                if (int.TryParse(memberName[(colonIdx + 1)..], out var idx))
                 {
-                    var colonIdx = memberName.LastIndexOf(':');
-                    if (int.TryParse(memberName[(colonIdx + 1)..], out var idx))
-                    {
-                        overloadIndex = idx;
-                        memberName = memberName[..colonIdx];
-                    }
+                    overloadIndex = idx;
+                    memberName = memberName[..colonIdx];
                 }
             }
         }

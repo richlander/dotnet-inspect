@@ -21,7 +21,8 @@ public static class GenericTypeNameConverter
         string typeParamSection = typeName[(angleBracketStart + 1)..angleBracketEnd];
         int arity = CountTypeParameters(typeParamSection);
 
-        return $"{baseName}`{arity}";
+        string suffix = angleBracketEnd + 1 < typeName.Length ? typeName[(angleBracketEnd + 1)..] : "";
+        return $"{baseName}`{arity}{suffix}";
     }
 
     private static int CountTypeParameters(string typeParams)
