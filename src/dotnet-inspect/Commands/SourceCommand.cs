@@ -288,7 +288,7 @@ public static class SourceCommand
 
         // Docs enrichment at Normal+ verbosity
         List<MemberDocRow>? memberDocs = null;
-        if (options.Verbosity >= Verbosity.Normal && sourceInfo?.SourceUrl != null)
+        if (options.Verbosity >= Verbosity.Detailed && sourceInfo?.SourceUrl != null)
         {
             var enrichOptions = new ApiOptions
             {
