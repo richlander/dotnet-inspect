@@ -701,7 +701,7 @@ public static class CSharpEmitter
                 if (lastNode is ILAstStatement { Expression: var earlyExpr } && IsConstantBranch(earlyExpr))
                 {
                     // Determine if branch is always taken or never taken
-                    bool constVal = earlyExpr.Arguments[0].OpCode is ILOpCode.Ldc_i4_1;
+                    bool constVal = IsNonZeroConstant(earlyExpr.Arguments[0]);
                     bool branchTaken = earlyExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
                         ? constVal : !constVal;
 
@@ -1740,6 +1740,7 @@ public static class CSharpEmitter
                 return;
 
             _consumedBlocks.Add(blockIndex);
+            _currentBlockIndex = blockIndex;
             _currentBlockNodes = astBlock.Nodes;
 
             TryEmitLabel(blockIndex);
@@ -1845,24 +1846,11 @@ public static class CSharpEmitter
             }
             if (targetBlockIdx < 0) return false;
 
-            // The current block is the one being emitted — find it
-            int currentBlockIdx = -1;
-            foreach (var (blockIdx, offset) in _blockStartOffset)
-            {
-                if (_consumedBlocks.Contains(blockIdx)
-                    && blockIdx < targetBlockIdx
-                    && (currentBlockIdx < 0 || blockIdx > currentBlockIdx))
-                {
-                    // Find the most recently consumed block before the target
-                    currentBlockIdx = blockIdx;
-                }
-            }
-
             // Find unconsumed blocks between current block and target (these are the fallthrough)
             var fallthroughBlocks = new List<int>();
             for (int i = 0; i < _ast.Blocks.Count; i++)
             {
-                if (i <= currentBlockIdx || i >= targetBlockIdx) continue;
+                if (i <= _currentBlockIndex || i >= targetBlockIdx) continue;
                 if (_consumedBlocks.Contains(i)) continue;
                 fallthroughBlocks.Add(i);
             }
@@ -1951,6 +1939,15 @@ public static class CSharpEmitter
             return arg.OpCode is ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1
                 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4;
         }
+
+        static bool IsNonZeroConstant(ILAstExpression expr) => expr.OpCode switch
+        {
+            ILOpCode.Ldc_i4_0 => false,
+            ILOpCode.Ldc_i4_1 => true,
+            // ldc.i4.s and ldc.i4 carry the value in Operand
+            ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 => expr.Operand is not null && expr.Operand != "0",
+            _ => false
+        };
 
         /// <summary>
         /// Detect guard clause pattern for conditional branches outside of loops:
@@ -2563,7 +2560,7 @@ public static class CSharpEmitter
 
                 // Item 9: If default block is a bare goto, consume its fallthrough
                 // instead of emitting the goto
-                bool defaultHandled = false;
+                int defaultEmittedBlock = -1;
                 if (_blockMap.TryGetValue(block.SwitchDefaultIndex, out var defAstBlock))
                 {
                     var defLastNode = defAstBlock.Nodes.LastOrDefault();
@@ -2578,13 +2575,13 @@ public static class CSharpEmitter
 
                             _consumedBlocks.Add(block.SwitchDefaultIndex);
                             EmitBasicBlock(blockIdx, indent + 2);
-                            defaultHandled = true;
+                            defaultEmittedBlock = blockIdx;
                             break;
                         }
                     }
                 }
 
-                if (!defaultHandled)
+                if (defaultEmittedBlock < 0)
                 {
                     EmitBasicBlock(block.SwitchDefaultIndex, indent + 2);
                     if (!BlockEndsWithReturn(block.SwitchDefaultIndex))
@@ -2593,21 +2590,10 @@ public static class CSharpEmitter
                         _sb.AppendLine("break;");
                     }
                 }
-                else
+                else if (!BlockEndsWithReturn(defaultEmittedBlock))
                 {
-                    // Default was handled by consuming fallthrough — check if break is needed
-                    string output = _sb.ToString().TrimEnd();
-                    string? lastLine = output.LastIndexOf('\n') is int nl2 && nl2 >= 0
-                        ? output[(nl2 + 1)..].TrimStart() : null;
-                    bool endsWithExit = output.EndsWith("break;") || output.EndsWith("return;")
-                        || (lastLine is not null && (lastLine.StartsWith("return ")
-                            || lastLine.StartsWith("goto ")
-                            || lastLine.StartsWith("throw ")));
-                    if (!endsWithExit)
-                    {
-                        WriteIndent(indent + 2);
-                        _sb.AppendLine("break;");
-                    }
+                    WriteIndent(indent + 2);
+                    _sb.AppendLine("break;");
                 }
             }
 
