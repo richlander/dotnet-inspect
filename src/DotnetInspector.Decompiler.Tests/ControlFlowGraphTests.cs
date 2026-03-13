@@ -434,6 +434,16 @@ public class CfgSampleClass
         return 1.0d;
     }
 
+    public static double DoubleNaN()
+    {
+        return double.NaN;
+    }
+
+    public static double DoublePositiveInfinity()
+    {
+        return double.PositiveInfinity;
+    }
+
     public static int? NullableReturn(bool flag)
     {
         if (flag) return 42;

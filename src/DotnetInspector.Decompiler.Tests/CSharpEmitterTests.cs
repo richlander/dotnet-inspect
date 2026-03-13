@@ -425,6 +425,22 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void DoubleLiteral_NaN_UsesFrameworkConstant()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoubleNaN));
+        Assert.Contains("double.NaN", code);
+        Assert.DoesNotContain("NaNd", code);
+    }
+
+    [Fact]
+    public void DoubleLiteral_PositiveInfinity_UsesFrameworkConstant()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoublePositiveInfinity));
+        Assert.Contains("double.PositiveInfinity", code);
+        Assert.DoesNotContain("Infinityd", code);
+    }
+
+    [Fact]
     public void NullableType_UsesShorthand()
     {
         var code = EmitMethod(nameof(CfgSampleClass.NullableReturn));

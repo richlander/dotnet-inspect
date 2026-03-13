@@ -2992,13 +2992,22 @@ public static class CSharpEmitter
                     _sb.Append($"{expr.Operand ?? "0"}L");
                     break;
                 case ILOpCode.Ldc_r4:
-                    _sb.Append($"{expr.Operand ?? "0"}f");
+                {
+                    string fval = expr.Operand ?? "0";
+                    if (fval == "NaN") _sb.Append("float.NaN");
+                    else if (fval == "Infinity") _sb.Append("float.PositiveInfinity");
+                    else if (fval == "-Infinity") _sb.Append("float.NegativeInfinity");
+                    else _sb.Append($"{fval}f");
                     break;
+                }
                 case ILOpCode.Ldc_r8:
                 {
                     string dval = expr.Operand ?? "0";
+                    if (dval == "NaN") _sb.Append("double.NaN");
+                    else if (dval == "Infinity") _sb.Append("double.PositiveInfinity");
+                    else if (dval == "-Infinity") _sb.Append("double.NegativeInfinity");
                     // Ensure double literals have a decimal point so they aren't mistaken for int
-                    if (!dval.Contains('.') && !dval.Contains('E') && !dval.Contains('e')
+                    else if (!dval.Contains('.') && !dval.Contains('E') && !dval.Contains('e')
                         && char.IsAsciiDigit(dval[^1]))
                         _sb.Append($"{dval}.0d");
                     else
