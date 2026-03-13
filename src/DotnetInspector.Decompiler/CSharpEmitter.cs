@@ -3176,7 +3176,13 @@ public static class CSharpEmitter
                     EmitCheckedCast(expr, "long"); break;
                 case ILOpCode.Conv_u8:
                     if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
-                        _sb.Append($"{GetI4Value(expr.Arguments[0])}UL");
+                    {
+                        int i4Val = GetI4Value(expr.Arguments[0]);
+                        if (i4Val >= 0)
+                            _sb.Append($"{i4Val}UL");
+                        else
+                            _sb.Append($"unchecked((ulong){i4Val})");
+                    }
                     else
                         EmitCast(expr, "ulong");
                     break;
