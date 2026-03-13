@@ -2191,8 +2191,7 @@ public static class CSharpEmitter
                     bool wasBool = _emitBoolContext;
                     if (_returnsBool)
                         _emitBoolContext = true;
-                    retExpr.Arguments[0].ExpectedType ??= _returnTypeName;
-                    EmitExpression(retExpr.Arguments[0]);
+                    EmitExpression(retExpr.Arguments[0], _returnTypeName);
                     _emitBoolContext = wasBool;
                     _sb.AppendLine(";");
                 }
@@ -2244,8 +2243,7 @@ public static class CSharpEmitter
             _sb.Append("return ");
             bool wasBool = _emitBoolContext;
             if (_returnsBool) _emitBoolContext = true;
-            valueExpr.ExpectedType ??= _returnTypeName;
-            EmitExpression(valueExpr);
+            EmitExpression(valueExpr, _returnTypeName);
             _emitBoolContext = wasBool;
             _sb.AppendLine(";");
             return true;
@@ -2788,8 +2786,7 @@ public static class CSharpEmitter
                         if (_returnsBool)
                             _emitBoolContext = true;
                         _currentReturnArg = expr.Arguments[0];
-                        expr.Arguments[0].ExpectedType ??= _returnTypeName;
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], _returnTypeName);
                         _currentReturnArg = null;
                         _emitBoolContext = wasBool;
                         _sb.AppendLine(";");
@@ -2823,8 +2820,7 @@ public static class CSharpEmitter
                         bool wasBool = _emitBoolContext;
                         if (_boolLocals.Contains(varName))
                             _emitBoolContext = true;
-                        expr.Arguments[0].ExpectedType ??= _ast.Locals.FirstOrDefault(l => l.Name == varName)?.TypeName;
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], _ast.Locals.FirstOrDefault(l => l.Name == varName)?.TypeName);
                         _emitBoolContext = wasBool;
                     }
                     else
@@ -2840,14 +2836,12 @@ public static class CSharpEmitter
                     {
                         EmitExpression(expr.Arguments[0]);
                         _sb.Append($".{ExtractMemberName(expr.Operand)} = ");
-                        expr.Arguments[1].ExpectedType ??= TryResolveFieldType(expr.Operand);
-                        EmitExpression(expr.Arguments[1]);
+                        EmitExpression(expr.Arguments[1], TryResolveFieldType(expr.Operand));
                     }
                     else if (expr.OpCode == ILOpCode.Stsfld && expr.Arguments.Count >= 1)
                     {
                         _sb.Append($"{expr.Operand} = ");
-                        expr.Arguments[0].ExpectedType ??= TryResolveFieldType(expr.Operand);
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], TryResolveFieldType(expr.Operand));
                     }
                     else
                     {
@@ -3021,15 +3015,18 @@ public static class CSharpEmitter
             }
         }
 
-        void EmitExpression(ILAstExpression expr)
+        void EmitExpression(ILAstExpression expr, string? expectedType = null)
         {
             // Consume bool context: only applies to this direct expression, not sub-expressions
             bool boolCtx = _emitBoolContext;
             _emitBoolContext = false;
 
+            // Merge emission-context expectedType with AST-level ExpectedType (from BuildCall annotations)
+            string? resolvedType = expectedType ?? expr.ExpectedType;
+
             // Enum constant resolution for integer literals with known parameter types
-            if (IsLdcI4(expr.OpCode) && expr.ExpectedType is not null
-                && TryResolveEnumName(expr.ExpectedType, GetI4Value(expr), out string? enumName))
+            if (IsLdcI4(expr.OpCode) && resolvedType is not null
+                && TryResolveEnumName(resolvedType, GetI4Value(expr), out string? enumName))
             {
                 _sb.Append(enumName);
                 return;
@@ -3153,9 +3150,9 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_i2: EmitCast(expr, "short"); break;
                 case ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i2_un:
                     EmitCheckedCast(expr, "short"); break;
-                case ILOpCode.Conv_u2: EmitCast(expr, PreferredUInt16Type(expr)); break;
+                case ILOpCode.Conv_u2: EmitCast(expr, PreferredUInt16Type(resolvedType)); break;
                 case ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
-                    EmitCheckedCast(expr, PreferredUInt16Type(expr)); break;
+                    EmitCheckedCast(expr, PreferredUInt16Type(resolvedType)); break;
                 case ILOpCode.Conv_i4:
                     // Suppress (int) cast on ldlen — Array.Length is int in C#
                     if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Ldlen)
@@ -3336,7 +3333,7 @@ public static class CSharpEmitter
                 // Dup (pass through, or reconstruct from preceding expression in block)
                 case ILOpCode.Dup:
                     if (expr.Arguments.Count > 0)
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], resolvedType);
                     else if (_currentBlockNodes is not null)
                     {
                         // Find the preceding expression that produced the dup'd value
@@ -3893,8 +3890,8 @@ public static class CSharpEmitter
             _sb.Append(')');
         }
 
-        string PreferredUInt16Type(ILAstExpression expr)
-            => expr.ExpectedType is "char" or "System.Char" ? "char" : "ushort";
+        string PreferredUInt16Type(string? resolvedType)
+            => resolvedType is "char" or "System.Char" ? "char" : "ushort";
 
         void WriteIndent(int indent)
         {
