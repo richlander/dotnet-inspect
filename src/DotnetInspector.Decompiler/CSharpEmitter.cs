@@ -1,6 +1,8 @@
 using System.Reflection.Metadata;
 using System.Text;
 
+using DotnetInspector.Metadata;
+
 namespace DotnetInspector.Decompiler;
 
 /// <summary>
@@ -103,6 +105,9 @@ public static class CSharpEmitter
 
         // Synthetic variable substitutions (e.g., S_in_0 → "x > 0 && y > 0")
         readonly Dictionary<string, string> _syntheticSubstitutions = [];
+
+        // Array initializer elements: newarr IL offset → collected element values
+        readonly Dictionary<int, SortedDictionary<int, ILAstExpression>> _arrayInitValues = [];
 
         // Variables inlined by ExpressionInliner (suppress declarations)
         readonly HashSet<string> _inlinedLocals;
@@ -651,6 +656,9 @@ public static class CSharpEmitter
             _consumedBlocks.Add(blockIndex);
             _currentBlockIndex = blockIndex;
             _currentBlockNodes = astBlock.Nodes;
+
+            // Pre-scan for array initializer patterns (stelem + dup + newarr)
+            ScanArrayInitializers(astBlock.Nodes);
 
             // Emit IL offset label if this block is a goto target
             TryEmitLabel(blockIndex);
@@ -1263,6 +1271,48 @@ public static class CSharpEmitter
                 else return null;
             }
             return value;
+        }
+
+        /// <summary>
+        /// Scan a block's nodes for array initializer patterns: stelem(dup(newarr), index, value).
+        /// Collects element values per newarr IL offset and marks stelem nodes for skipping.
+        /// </summary>
+        void ScanArrayInitializers(IList<ILAstNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node is not ILAstStatement stmt) continue;
+                var expr = stmt.Expression;
+                if (!IsStelemOpCode(expr.OpCode) || expr.Arguments.Count < 3) continue;
+
+                // Check for stelem(dup(newarr T(N)), constIndex, value)
+                var arrayArg = expr.Arguments[0];
+                if (arrayArg.OpCode != ILOpCode.Dup || arrayArg.Arguments.Count < 1) continue;
+                var newarr = arrayArg.Arguments[0];
+                if (newarr.OpCode != ILOpCode.Newarr) continue;
+
+                if (!TryGetConstantIndex(expr.Arguments[1], out int idx) || idx < 0) continue;
+
+                if (!_arrayInitValues.TryGetValue(newarr.Offset, out var elements))
+                {
+                    elements = [];
+                    _arrayInitValues[newarr.Offset] = elements;
+                }
+
+                elements[idx] = expr.Arguments[2];
+                _skipNodes.Add(node);
+            }
+        }
+
+        static bool IsStelemOpCode(ILOpCode op) => op is
+            ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
+            ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
+            ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref;
+
+        static bool TryGetConstantIndex(ILAstExpression expr, out int value)
+        {
+            value = 0;
+            return expr.Operand is string s && int.TryParse(s, out value);
         }
 
         /// <summary>
@@ -2967,6 +3017,14 @@ public static class CSharpEmitter
             bool boolCtx = _emitBoolContext;
             _emitBoolContext = false;
 
+            // Enum constant resolution for integer literals with known parameter types
+            if (IsLdcI4(expr.OpCode) && expr.ExpectedType is not null
+                && TryResolveEnumName(expr.ExpectedType, GetI4Value(expr), out string? enumName))
+            {
+                _sb.Append(enumName);
+                return;
+            }
+
             switch (expr.OpCode)
             {
                 // Constants
@@ -3154,10 +3212,28 @@ public static class CSharpEmitter
                 }
 
                 case ILOpCode.Newarr:
-                    _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[");
-                    if (expr.Arguments.Count > 0)
-                        EmitExpression(expr.Arguments[0]);
-                    _sb.Append(']');
+                    if (_arrayInitValues.TryGetValue(expr.Offset, out var initElements))
+                    {
+                        int size = 0;
+                        if (expr.Arguments.Count > 0 && TryGetConstantIndex(expr.Arguments[0], out size)) { }
+                        _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[] {{ ");
+                        for (int ai = 0; ai < size; ai++)
+                        {
+                            if (ai > 0) _sb.Append(", ");
+                            if (initElements.TryGetValue(ai, out var elemExpr))
+                                EmitExpression(elemExpr);
+                            else
+                                _sb.Append("default");
+                        }
+                        _sb.Append(" }");
+                    }
+                    else
+                    {
+                        _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[");
+                        if (expr.Arguments.Count > 0)
+                            EmitExpression(expr.Arguments[0]);
+                        _sb.Append(']');
+                    }
                     break;
 
                 // Field access
@@ -3790,6 +3866,90 @@ public static class CSharpEmitter
         {
             for (int i = 0; i < indent; i++)
                 _sb.Append("    ");
+        }
+
+        static bool IsLdcI4(ILOpCode op) => op is
+            ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or
+            ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or
+            ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7 or
+            ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4;
+
+        static int GetI4Value(ILAstExpression expr) => expr.OpCode switch
+        {
+            ILOpCode.Ldc_i4_m1 => -1,
+            ILOpCode.Ldc_i4_0 => 0,
+            ILOpCode.Ldc_i4_1 => 1,
+            ILOpCode.Ldc_i4_2 => 2,
+            ILOpCode.Ldc_i4_3 => 3,
+            ILOpCode.Ldc_i4_4 => 4,
+            ILOpCode.Ldc_i4_5 => 5,
+            ILOpCode.Ldc_i4_6 => 6,
+            ILOpCode.Ldc_i4_7 => 7,
+            ILOpCode.Ldc_i4_8 => 8,
+            _ => int.TryParse(expr.Operand, out int v) ? v : 0
+        };
+
+        readonly Dictionary<string, Dictionary<int, string>?> _enumCache = [];
+
+        bool TryResolveEnumName(string typeName, int value, out string? result)
+        {
+            result = null;
+            if (_reader is null) return false;
+
+            if (!_enumCache.TryGetValue(typeName, out var valueMap))
+            {
+                valueMap = BuildEnumValueMap(typeName);
+                _enumCache[typeName] = valueMap;
+            }
+
+            if (valueMap is null) return false;
+            return valueMap.TryGetValue(value, out result);
+        }
+
+        Dictionary<int, string>? BuildEnumValueMap(string typeName)
+        {
+            if (_reader is null) return null;
+
+            foreach (var typeDefHandle in _reader.TypeDefinitions)
+            {
+                var typeDef = _reader.GetTypeDefinition(typeDefHandle);
+                if (_reader.GetFullTypeName(typeDef) != typeName)
+                    continue;
+
+                var map = new Dictionary<int, string>();
+                string shortType = SimplifyTypeName(typeName);
+
+                foreach (var fieldHandle in typeDef.GetFields())
+                {
+                    var field = _reader.GetFieldDefinition(fieldHandle);
+                    if ((field.Attributes & (System.Reflection.FieldAttributes.Literal | System.Reflection.FieldAttributes.Static))
+                        != (System.Reflection.FieldAttributes.Literal | System.Reflection.FieldAttributes.Static))
+                        continue;
+
+                    try
+                    {
+                        var constant = _reader.GetConstant(field.GetDefaultValue());
+                        var blob = _reader.GetBlobReader(constant.Value);
+                        int fieldValue = constant.TypeCode switch
+                        {
+                            ConstantTypeCode.Int32 => blob.ReadInt32(),
+                            ConstantTypeCode.UInt32 => unchecked((int)blob.ReadUInt32()),
+                            ConstantTypeCode.Int16 => blob.ReadInt16(),
+                            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+                            ConstantTypeCode.Byte => blob.ReadByte(),
+                            ConstantTypeCode.SByte => blob.ReadSByte(),
+                            _ => int.MinValue
+                        };
+                        if (fieldValue != int.MinValue)
+                            map.TryAdd(fieldValue, $"{shortType}.{_reader.GetString(field.Name)}");
+                    }
+                    catch { }
+                }
+
+                return map.Count > 0 ? map : null;
+            }
+
+            return null;
         }
 
         /// <summary>

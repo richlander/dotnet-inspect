@@ -464,4 +464,21 @@ public class CfgSampleClass
     {
         return a ?? b;
     }
+
+    public static string[] ArrayWithInit(string a)
+    {
+        return new string[] { a, "hello" };
+    }
+
+    public static void CallWithLocalEnum()
+    {
+        HandlePriority(CfgPriority.High);
+    }
+
+    public static void HandlePriority(CfgPriority p)
+    {
+        Console.WriteLine(p);
+    }
 }
+
+public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

@@ -469,6 +469,23 @@ public class CSharpEmitterTests
         Assert.Contains("??", code);
     }
 
+    [Fact]
+    public void ArrayInit_EmitsInitializer()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ArrayWithInit));
+        Assert.Contains("new string[]", code);
+        Assert.Contains("{", code);
+        Assert.DoesNotContain("[0] =", code); // stelem statements should be collapsed
+    }
+
+    [Fact]
+    public void EnumConstant_ResolvedInCallArgs()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CallWithLocalEnum));
+        Assert.Contains("CfgPriority.High", code);
+        Assert.DoesNotContain(" 2)", code); // should not show raw number
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)

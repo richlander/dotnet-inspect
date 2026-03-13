@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -780,6 +781,7 @@ public static class ILAstBuilder
             bool isStatic;
             string returnType;
             string? methodName;
+            ImmutableArray<string> parameterTypes = default;
 
             switch (handle.Kind)
             {
@@ -788,6 +790,7 @@ public static class ILAstBuilder
                     var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
                     var sig = methodDef.DecodeSignature(SignatureDecoder.Instance, callerGenericContext);
                     paramCount = sig.ParameterTypes.Length;
+                    parameterTypes = sig.ParameterTypes;
                     isStatic = methodDef.Attributes.HasFlag(MethodAttributes.Static);
                     returnType = sig.ReturnType;
                     var declType = reader.GetTypeDefinition(methodDef.GetDeclaringType());
@@ -811,6 +814,7 @@ public static class ILAstBuilder
                     }
                     var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericCtx);
                     paramCount = sig.ParameterTypes.Length;
+                    parameterTypes = sig.ParameterTypes;
                     isStatic = !sig.Header.IsInstance;
                     returnType = sig.ReturnType;
                     methodName = ResolveMethodRefName(reader, memberRef, genericCtx);
@@ -839,6 +843,14 @@ public static class ILAstBuilder
             var args = new ILAstExpression[totalPop];
             for (int i = totalPop - 1; i >= 0; i--)
                 args[i] = TryPop(stack);
+
+            // Annotate arguments with expected parameter types (for enum resolution)
+            if (!parameterTypes.IsDefault)
+            {
+                int paramStart = (!isStatic && opcode != ILOpCode.Newobj) ? 1 : 0;
+                for (int i = 0; i < parameterTypes.Length && (i + paramStart) < args.Length; i++)
+                    args[i + paramStart].ExpectedType = parameterTypes[i];
+            }
 
             // Compute result type
             StackValue resultType;
@@ -1075,17 +1087,31 @@ public static class ILAstBuilder
             if (handle.Kind == HandleKind.FieldDefinition)
             {
                 var fieldDef = reader.GetFieldDefinition((FieldDefinitionHandle)handle);
-                return reader.GetString(fieldDef.Name);
+                string fieldName = reader.GetString(fieldDef.Name);
+                var declType = fieldDef.GetDeclaringType();
+                if (!declType.IsNil)
+                {
+                    var typeDef = reader.GetTypeDefinition(declType);
+                    return $"{reader.GetFullTypeName(typeDef)}::{fieldName}";
+                }
+                return fieldName;
             }
             if (handle.Kind == HandleKind.MethodDefinition)
             {
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                return reader.GetString(methodDef.Name);
+                string methodNameStr = reader.GetString(methodDef.Name);
+                var declType = methodDef.GetDeclaringType();
+                if (!declType.IsNil)
+                {
+                    var typeDef = reader.GetTypeDefinition(declType);
+                    return $"{reader.GetFullTypeName(typeDef)}::{methodNameStr}";
+                }
+                return methodNameStr;
             }
             if (handle.Kind == HandleKind.MemberReference)
             {
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)handle);
-                return reader.GetString(memberRef.Name);
+                return ResolveMethodRefName(reader, memberRef, genericContext) ?? reader.GetString(memberRef.Name);
             }
         }
         // Fallback to raw token when metadata is malformed or token is unresolvable

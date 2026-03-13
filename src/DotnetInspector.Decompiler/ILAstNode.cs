@@ -56,6 +56,12 @@ public sealed class ILAstExpression : ILAstNode
     /// </summary>
     public bool IsStaticCall { get; init; }
 
+    /// <summary>
+    /// The parameter type this expression is being passed as (set for call arguments).
+    /// Used by the emitter to resolve enum constant names.
+    /// </summary>
+    public string? ExpectedType { get; set; }
+
     public override void WriteTo(StringBuilder sb, int indent)
     {
         sb.Append(FormatOpCode(OpCode));
