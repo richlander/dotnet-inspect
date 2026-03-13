@@ -148,32 +148,32 @@ public static class ILAstBuilder
             case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3:
             {
                 int index = opcode - ILOpCode.Ldloc_0;
-                return MakeLoad(opcode, $"V_{index}", ResolveLocalType(context, index), offset);
+                return MakeLoad(opcode, ResolveLocalName(context, index), ResolveLocalType(context, index), offset);
             }
 
             case ILOpCode.Ldloc_s:
             {
                 int index = reader.ReadILByte();
-                return MakeLoad(opcode, $"V_{index}", ResolveLocalType(context, index), offset);
+                return MakeLoad(opcode, ResolveLocalName(context, index), ResolveLocalType(context, index), offset);
             }
 
             case ILOpCode.Ldloc:
             {
                 int index = reader.ReadILUInt16();
-                return MakeLoad(opcode, $"V_{index}", ResolveLocalType(context, index), offset);
+                return MakeLoad(opcode, ResolveLocalName(context, index), ResolveLocalType(context, index), offset);
             }
 
             // Address-of
             case ILOpCode.Ldloca_s:
             {
                 int index = reader.ReadILByte();
-                return MakeLoad(opcode, $"V_{index}", StackValue.CreateByRef(), offset);
+                return MakeLoad(opcode, ResolveLocalName(context, index), StackValue.CreateByRef(), offset);
             }
 
             case ILOpCode.Ldloca:
             {
                 int index = reader.ReadILUInt16();
-                return MakeLoad(opcode, $"V_{index}", StackValue.CreateByRef(), offset);
+                return MakeLoad(opcode, ResolveLocalName(context, index), StackValue.CreateByRef(), offset);
             }
 
             case ILOpCode.Ldarga_s:
@@ -267,7 +267,7 @@ public static class ILAstBuilder
                 var val = TryPop(stack);
                 return new ILAstExpression
                 {
-                    OpCode = opcode, Operand = $"V_{index}",
+                    OpCode = opcode, Operand = ResolveLocalName(context, index),
                     Arguments = { val }, ResultType = StackValue.CreateUnknown(),
                     Offset = offset
                 };
@@ -279,7 +279,7 @@ public static class ILAstBuilder
                 var val = TryPop(stack);
                 return new ILAstExpression
                 {
-                    OpCode = opcode, Operand = $"V_{index}",
+                    OpCode = opcode, Operand = ResolveLocalName(context, index),
                     Arguments = { val }, ResultType = StackValue.CreateUnknown(),
                     Offset = offset
                 };
@@ -291,7 +291,7 @@ public static class ILAstBuilder
                 var val = TryPop(stack);
                 return new ILAstExpression
                 {
-                    OpCode = opcode, Operand = $"V_{index}",
+                    OpCode = opcode, Operand = ResolveLocalName(context, index),
                     Arguments = { val }, ResultType = StackValue.CreateUnknown(),
                     Offset = offset
                 };
@@ -994,6 +994,11 @@ public static class ILAstBuilder
         index < context.LocalTypes.Count
             ? StackValue.FromTypeName(context.LocalTypes[index])
             : StackValue.CreateUnknown();
+
+    static string ResolveLocalName(MethodBodyContext context, int index) =>
+        index < context.LocalNames.Count && context.LocalNames[index] is { } name
+            ? name
+            : $"V_{index}";
 
     static (string Name, StackValue Type) ResolveField(MetadataReader reader, int token)
     {

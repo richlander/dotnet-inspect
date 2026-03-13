@@ -19,6 +19,12 @@ public sealed class MethodBodyContext
     public ImmutableArray<ExceptionRegion> ExceptionRegions { get; }
     public int MaxStack { get; }
     public IReadOnlyList<string> LocalTypes { get; }
+
+    /// <summary>
+    /// Local variable names from PDB debug info. Entries may be null for unnamed slots.
+    /// </summary>
+    public IReadOnlyList<string?> LocalNames { get; }
+
     public MetadataReader Reader { get; }
 
     /// <summary>
@@ -74,12 +80,14 @@ public sealed class MethodBodyContext
         IReadOnlyList<string> parameterNames,
         string returnType,
         string? declaringType = null,
-        GenericContext? genericContext = null)
+        GenericContext? genericContext = null,
+        IReadOnlyList<string?>? localNames = null)
     {
         ILBytes = ilBytes;
         ExceptionRegions = exceptionRegions;
         MaxStack = maxStack;
         LocalTypes = localTypes;
+        LocalNames = localNames ?? [];
         Reader = reader;
         ParameterCount = parameterCount;
         HasThis = hasThis;
@@ -95,7 +103,8 @@ public sealed class MethodBodyContext
     /// Creates a <see cref="MethodBodyContext"/> from a PE reader and method definition.
     /// Returns null if the method has no IL body.
     /// </summary>
-    public static MethodBodyContext? Create(PEReader peReader, MetadataReader reader, MethodDefinition method)
+    public static MethodBodyContext? Create(PEReader peReader, MetadataReader reader, MethodDefinition method,
+        MetadataReader? pdbReader = null, MethodDefinitionHandle methodHandle = default)
     {
         if (method.RelativeVirtualAddress == 0)
             return null;
@@ -132,6 +141,11 @@ public sealed class MethodBodyContext
         var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext);
         var paramNames = ReadParameterNames(reader, method);
 
+        // Read PDB local variable names if available
+        IReadOnlyList<string?>? localNames = null;
+        if (pdbReader != null && !methodHandle.IsNil)
+            localNames = ReadLocalNamesFromPdb(pdbReader, methodHandle, localTypes.Count);
+
         return new MethodBodyContext(
             ilBytes,
             body.ExceptionRegions,
@@ -145,15 +159,19 @@ public sealed class MethodBodyContext
             paramNames,
             sig.ReturnType,
             declaringType,
-            genericContext);
+            genericContext,
+            localNames);
     }
 
     /// <summary>
     /// Convenience: find a method by type/name and create context.
+    /// Tries to read local variable names from embedded PDB if available.
     /// </summary>
     public static MethodBodyContext? Create(PEReader peReader, string typeName, string methodName, int overloadIndex = 0, bool publicOnly = false)
     {
         var reader = peReader.GetMetadataReader();
+        MetadataReader? pdbReader = TryGetEmbeddedPdbReader(peReader);
+
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -169,7 +187,7 @@ public sealed class MethodBodyContext
                 if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
                     continue;
                 if (matchCount == overloadIndex)
-                    return Create(peReader, reader, method);
+                    return Create(peReader, reader, method, pdbReader, methodHandle);
                 matchCount++;
             }
         }
@@ -210,5 +228,43 @@ public sealed class MethodBodyContext
         {
             return [];
         }
+    }
+
+    static IReadOnlyList<string?> ReadLocalNamesFromPdb(MetadataReader pdbReader, MethodDefinitionHandle methodHandle, int localCount)
+    {
+        var names = new string?[localCount];
+        try
+        {
+            foreach (var scopeHandle in pdbReader.GetLocalScopes(methodHandle))
+            {
+                var scope = pdbReader.GetLocalScope(scopeHandle);
+                foreach (var varHandle in scope.GetLocalVariables())
+                {
+                    var variable = pdbReader.GetLocalVariable(varHandle);
+                    if (variable.Index >= 0 && variable.Index < localCount)
+                        names[variable.Index] = pdbReader.GetString(variable.Name);
+                }
+            }
+        }
+        catch { }
+        return names;
+    }
+
+    /// <summary>
+    /// Try to get a MetadataReader from an embedded portable PDB.
+    /// The provider is not disposed — the PEReader owns the lifetime.
+    /// </summary>
+    static MetadataReader? TryGetEmbeddedPdbReader(PEReader peReader)
+    {
+        try
+        {
+            foreach (var entry in peReader.ReadDebugDirectory())
+            {
+                if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
+                    return peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry).GetMetadataReader();
+            }
+        }
+        catch { }
+        return null;
     }
 }
