@@ -3168,7 +3168,14 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_i8:
                     // Emit suffixed literal instead of cast for constants: (long)3 → 3L
                     if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
-                        _sb.Append($"{GetI4Value(expr.Arguments[0])}L");
+                    {
+                        int i4Val = GetI4Value(expr.Arguments[0]);
+                        // For ulong return type, negative constants need unchecked cast
+                        if (resolvedType is "ulong" or "System.UInt64" && i4Val < 0)
+                            _sb.Append($"unchecked((ulong){i4Val})");
+                        else
+                            _sb.Append($"{i4Val}L");
+                    }
                     else
                         EmitCast(expr, "long");
                     break;
@@ -3298,10 +3305,10 @@ public static class CSharpEmitter
                         EmitExpression(expr.Arguments[0]);
                     break;
 
-                // Boxing
+                // Boxing - emit as cast to object (boxing is implicit in C#)
                 case ILOpCode.Box:
+                    _sb.Append("(object)");
                     EmitParenthesized(expr, 0);
-                    _sb.Append($" /* box {SimplifyTypeName(expr.Operand ?? "?")} */");
                     break;
                 case ILOpCode.Unbox_any:
                     _sb.Append($"({SimplifyTypeName(expr.Operand ?? "object")})");
@@ -3856,6 +3863,14 @@ public static class CSharpEmitter
         {
             if (expr.Arguments.Count >= 2)
             {
+                if (TryFoldBinary(expr, op, out var foldedExpr) && foldedExpr is { })
+                {
+                    // Emit folded expression through parenthesization logic
+                    // to preserve required parentheses for parent context
+                    EmitParenthesized(expr, -1, foldedExpr);
+                    return;
+                }
+
                 EmitParenthesized(expr, 0);
                 _sb.Append($" {op} ");
                 EmitParenthesized(expr, 1);
@@ -3866,14 +3881,114 @@ public static class CSharpEmitter
             }
         }
 
+        bool TryFoldBinary(ILAstExpression expr, string op, out ILAstExpression? foldedExpr)
+        {
+            foldedExpr = null;
+            if (expr.Arguments.Count < 2) return false;
+
+            var lhs = expr.Arguments[0];
+            var rhs = expr.Arguments[1];
+
+            if (op == "+" && IsZero(rhs) && !IsSideEffecting(lhs))
+            {
+                foldedExpr = lhs;
+                return true;
+            }
+            if (op == "+" && IsZero(lhs) && !IsSideEffecting(rhs))
+            {
+                foldedExpr = rhs;
+                return true;
+            }
+            if (op == "-" && IsZero(rhs) && !IsSideEffecting(lhs))
+            {
+                foldedExpr = lhs;
+                return true;
+            }
+            if (op == "*" && IsOne(rhs) && !IsSideEffecting(lhs))
+            {
+                foldedExpr = lhs;
+                return true;
+            }
+            if (op == "*" && IsOne(lhs) && !IsSideEffecting(rhs))
+            {
+                foldedExpr = rhs;
+                return true;
+            }
+
+            return false;
+        }
+
+        static bool IsZero(ILAstExpression expr) => expr.OpCode switch
+        {
+            ILOpCode.Ldc_i4_0 => true,
+            ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 => expr.Operand is "0",
+            ILOpCode.Ldc_i8 => expr.Operand is "0",
+            _ => false
+        };
+
+        static bool IsOne(ILAstExpression expr) => expr.OpCode switch
+        {
+            ILOpCode.Ldc_i4_1 => true,
+            ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 => expr.Operand is "1",
+            _ => false
+        };
+
+        static bool IsSideEffecting(ILAstExpression expr)
+        {
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Calli)
+                return true;
+            foreach (var arg in expr.Arguments)
+                if (IsSideEffecting(arg))
+                    return true;
+            return false;
+        }
+
         void EmitParenthesized(ILAstExpression parent, int argIndex)
         {
             if (argIndex >= parent.Arguments.Count) return;
             var arg = parent.Arguments[argIndex];
-            bool needsParens = NeedsParentheses(arg);
+            bool needsParens = NeedsParenthesesInContext(arg, parent);
             if (needsParens) _sb.Append('(');
             EmitExpression(arg);
             if (needsParens) _sb.Append(')');
+        }
+
+        void EmitParenthesized(ILAstExpression parent, int argIndex, ILAstExpression foldedExpr)
+        {
+            // Used when folding to emit the folded expression with proper parent context
+            bool needsParens = argIndex < 0 || NeedsParenthesesInContext(foldedExpr, parent);
+            if (needsParens) _sb.Append('(');
+            EmitExpression(foldedExpr);
+            if (needsParens) _sb.Append(')');
+        }
+
+        static bool NeedsParenthesesInContext(ILAstExpression arg, ILAstExpression parent)
+        {
+            if (!IsBinaryOp(arg.OpCode))
+                return false;
+
+            int parentPrec = GetPrecedence(parent.OpCode);
+            int argPrec = GetPrecedence(arg.OpCode);
+
+            if (argPrec < parentPrec)
+                return true;
+
+            if (argPrec == parentPrec)
+            {
+                if (parent.OpCode == ILOpCode.Sub || parent.OpCode == ILOpCode.Div
+                    || parent.OpCode == ILOpCode.Rem)
+                {
+                    if (arg.OpCode == parent.OpCode)
+                        return true;
+                }
+                if (parent.OpCode == ILOpCode.Shl || parent.OpCode == ILOpCode.Shr)
+                    return true;
+            }
+
+            if (arg.OpCode == ILOpCode.Sub)
+                return true;
+
+            return false;
         }
 
         void EmitCast(ILAstExpression expr, string typeName)
@@ -4316,13 +4431,26 @@ public static class CSharpEmitter
             return false;
         }
 
-        static bool NeedsParentheses(ILAstExpression expr) => expr.OpCode switch
+        static bool IsBinaryOp(ILOpCode op) => op switch
         {
             ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or
             ILOpCode.Rem or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor or
             ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Ceq or ILOpCode.Cgt or
-            ILOpCode.Clt => true,
+            ILOpCode.Clt or ILOpCode.Cgt_un or ILOpCode.Clt_un => true,
             _ => false
+        };
+
+        static int GetPrecedence(ILOpCode op) => op switch
+        {
+            ILOpCode.Or => 1,
+            ILOpCode.Xor => 2,
+            ILOpCode.And => 3,
+            ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Clt or
+            ILOpCode.Cgt_un or ILOpCode.Clt_un => 4,
+            ILOpCode.Shl or ILOpCode.Shr => 5,
+            ILOpCode.Add or ILOpCode.Sub => 6,
+            ILOpCode.Mul or ILOpCode.Div or ILOpCode.Rem => 7,
+            _ => 8
         };
 
         /// <summary>
@@ -4413,14 +4541,16 @@ public static class CSharpEmitter
         static bool IsLoadOf(ILAstExpression expr, string varName)
         {
             if (expr.Operand == varName) return true;
-            return (expr.OpCode, varName) switch
+            string? name = expr.OpCode switch
             {
-                (ILOpCode.Ldloc_0, "V_0") => true,
-                (ILOpCode.Ldloc_1, "V_1") => true,
-                (ILOpCode.Ldloc_2, "V_2") => true,
-                (ILOpCode.Ldloc_3, "V_3") => true,
-                _ => false
+                ILOpCode.Ldloc_0 => "V_0",
+                ILOpCode.Ldloc_1 => "V_1",
+                ILOpCode.Ldloc_2 => "V_2",
+                ILOpCode.Ldloc_3 => "V_3",
+                ILOpCode.Ldloca_s or ILOpCode.Ldloca => expr.Operand,
+                _ => null
             };
+            return name == varName;
         }
 
         static bool IsConstantOne(ILAstExpression expr)

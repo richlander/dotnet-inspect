@@ -501,6 +501,8 @@ public class CfgSampleClass
     {
         return x + 1L;
     }
+
+    public static ulong ULongNegOne() => unchecked((ulong)-1);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
