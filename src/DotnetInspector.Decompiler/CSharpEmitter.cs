@@ -694,6 +694,33 @@ public static class CSharpEmitter
 
         void EmitIfThenElse(StructuredBlock block, int indent)
         {
+            // Skip constant-condition branches (Debug stepping markers like brtrue [ldc.i4.1])
+            if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var earlyCondBlock))
+            {
+                var lastNode = earlyCondBlock.Nodes.LastOrDefault();
+                if (lastNode is ILAstStatement { Expression: var earlyExpr } && IsConstantBranch(earlyExpr))
+                {
+                    // Determine if branch is always taken or never taken
+                    bool constVal = earlyExpr.Arguments[0].OpCode is ILOpCode.Ldc_i4_1;
+                    bool branchTaken = earlyExpr.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                        ? constVal : !constVal;
+
+                    if (branchTaken)
+                    {
+                        // Always branches to then — emit then body as flat code
+                        if (block.ThenBlock is not null)
+                            EmitStructuredBlock(block.ThenBlock, indent);
+                    }
+                    else
+                    {
+                        // Never branches — emit else body (fallthrough) as flat code
+                        if (block.ElseBlock is not null)
+                            EmitStructuredBlock(block.ElseBlock, indent);
+                    }
+                    return;
+                }
+            }
+
             // The condition block's last expression is the branch condition
             string condition = "/* condition */";
             ILAstExpression? branchExpression = null;
@@ -1865,11 +1892,17 @@ public static class CSharpEmitter
             if (exitLabel is not null)
                 _loopConsumedLabels.Add(exitLabel);
 
-            // Emit: if (negated_cond) { ... }
+            // Emit: if (fall_through_cond) { ... }
+            // BranchConditionToString returns the raw VALUE for brfalse/brtrue (via ExtractCondition)
+            // and the branch-taken CONDITION for binary branches (beq/blt/etc via EmitBranchCondition).
+            // For brfalse: branch taken when value is FALSE, fall-through when TRUE → use condition directly
+            // For brtrue/binary: branch taken when TRUE/condition met, fall-through when FALSE → negate
             string condition = BranchConditionToString(branchExpr);
-            string negated = NegateConditionString(condition);
+            string guardCondition = branchExpr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                ? condition
+                : NegateConditionString(condition);
             WriteIndent(indent);
-            _sb.AppendLine($"if ({negated})");
+            _sb.AppendLine($"if ({guardCondition})");
             WriteIndent(indent);
             _sb.AppendLine("{");
             foreach (int ftIdx in fallthroughBlocks)
@@ -1903,6 +1936,21 @@ public static class CSharpEmitter
             ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s or
             ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or
             ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s;
+
+        /// <summary>
+        /// Detect constant-condition branches used as Debug stepping markers.
+        /// e.g., brtrue [ldc.i4.1] — always taken, brfalse [ldc.i4.1] — never taken.
+        /// These are compiler-generated no-ops and should be silently skipped.
+        /// </summary>
+        static bool IsConstantBranch(ILAstExpression expr)
+        {
+            if (expr.OpCode is not (ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s))
+                return false;
+            if (expr.Arguments.Count != 1) return false;
+            var arg = expr.Arguments[0];
+            return arg.OpCode is ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1
+                or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4;
+        }
 
         /// <summary>
         /// Detect guard clause pattern for conditional branches outside of loops:
@@ -2549,9 +2597,13 @@ public static class CSharpEmitter
                 {
                     // Default was handled by consuming fallthrough — check if break is needed
                     string output = _sb.ToString().TrimEnd();
-                    if (!output.EndsWith("break;") && !output.EndsWith("return;")
-                        && !(output.LastIndexOf('\n') is int nl2 && nl2 >= 0
-                            && output[(nl2 + 1)..].TrimStart().StartsWith("return ")))
+                    string? lastLine = output.LastIndexOf('\n') is int nl2 && nl2 >= 0
+                        ? output[(nl2 + 1)..].TrimStart() : null;
+                    bool endsWithExit = output.EndsWith("break;") || output.EndsWith("return;")
+                        || (lastLine is not null && (lastLine.StartsWith("return ")
+                            || lastLine.StartsWith("goto ")
+                            || lastLine.StartsWith("throw ")));
+                    if (!endsWithExit)
                     {
                         WriteIndent(indent + 2);
                         _sb.AppendLine("break;");
@@ -2785,6 +2837,9 @@ public static class CSharpEmitter
                 case ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s:
                 case ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
                 case ILOpCode.Ble_un or ILOpCode.Ble_un_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                    // Skip constant-condition branches (Debug stepping markers like brtrue [ldc.i4.1])
+                    if (IsConstantBranch(expr))
+                        break;
                     // Conditional branches — when not consumed by structuring
                     // Try guard clause pattern: if (cond) goto TARGET; body → if (negated) { body; }
                     if (expr.Operand is string condTarget && TryEmitGuardClause(expr, condTarget, indent))
