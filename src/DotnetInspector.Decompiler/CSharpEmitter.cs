@@ -36,10 +36,9 @@ public static class CSharpEmitter
 
     sealed class EmitterContext
     {
-        static readonly HashSet<string> s_extensionMethodTypes =
+        static readonly HashSet<string> s_knownExtensionMethodTypes =
         [
-            "Enumerable", "Queryable", "MemoryExtensions", "EnumerableExtensions",
-            "ImmutableArrayExtensions", "CollectionExtensions", "StringExtensions", "TaskExtensions",
+            "Enumerable", "Queryable",
         ];
 
         readonly ILAstMethod _ast;
@@ -506,10 +505,14 @@ public static class CSharpEmitter
                 CollectLoadedLocals(arg, locals);
         }
 
+        /// <summary>
+        /// Returns true for expressions that should block merged-local declarations.
+        /// Call/Callvirt/Newobj are allowed because the merge doesn't reorder anything —
+        /// it just combines "type x; x = expr;" into "type x = expr;" at the same position.
+        /// </summary>
         static bool HasSideEffects(ILAstExpression expr)
         {
-            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj
-                or ILOpCode.Calli or ILOpCode.Throw or ILOpCode.Rethrow)
+            if (expr.OpCode is ILOpCode.Throw or ILOpCode.Rethrow)
                 return true;
             foreach (var arg in expr.Arguments)
                 if (HasSideEffects(arg))
@@ -3258,7 +3261,7 @@ public static class CSharpEmitter
                     var simplifiedType = SimplifyTypeName(typePart);
 
                     // Extension method syntax: arg0.Method(arg1, arg2, ...)
-                    if (expr.Arguments.Count >= 1 && s_extensionMethodTypes.Contains(simplifiedType))
+                    if (expr.Arguments.Count >= 1 && IsLikelyExtensionMethodType(simplifiedType))
                     {
                         EmitCallArgument(expr.Arguments[0]);
                         _sb.Append($".{memberPart}(");
@@ -4083,6 +4086,12 @@ public static class CSharpEmitter
                 return $"lambda: {methodName}";
             }
             return $"lambda";
+        }
+
+        static bool IsLikelyExtensionMethodType(string typeName)
+        {
+            return typeName.EndsWith("Extensions", StringComparison.Ordinal)
+                || s_knownExtensionMethodTypes.Contains(typeName);
         }
 
         static string SimplifyTypeName(string typeName)
