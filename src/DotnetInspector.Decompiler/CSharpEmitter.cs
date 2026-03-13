@@ -49,6 +49,7 @@ public static class CSharpEmitter
         readonly MetadataReader? _reader;
         readonly bool _hasThis;
         readonly bool _returnsBool;
+        readonly string? _returnTypeName;
         readonly IReadOnlyList<string>? _paramNames;
 
         // Map block index → ILAstBlock for quick lookup
@@ -124,6 +125,7 @@ public static class CSharpEmitter
             _reader = reader;
             _hasThis = hasThis;
             _returnsBool = returnType is "bool" or "System.Boolean";
+            _returnTypeName = returnType;
             _paramNames = parameterNames;
             _inlinedLocals = inlinedLocals ?? [];
 
@@ -1290,6 +1292,8 @@ public static class CSharpEmitter
                 if (arrayArg.OpCode != ILOpCode.Dup || arrayArg.Arguments.Count < 1) continue;
                 var newarr = arrayArg.Arguments[0];
                 if (newarr.OpCode != ILOpCode.Newarr) continue;
+                if (newarr.Arguments.Count == 0 || !TryGetConstantIndex(newarr.Arguments[0], out int size) || size < 0)
+                    continue;
 
                 if (!TryGetConstantIndex(expr.Arguments[1], out int idx) || idx < 0) continue;
 
@@ -2187,6 +2191,7 @@ public static class CSharpEmitter
                     bool wasBool = _emitBoolContext;
                     if (_returnsBool)
                         _emitBoolContext = true;
+                    retExpr.Arguments[0].ExpectedType ??= _returnTypeName;
                     EmitExpression(retExpr.Arguments[0]);
                     _emitBoolContext = wasBool;
                     _sb.AppendLine(";");
@@ -2239,6 +2244,7 @@ public static class CSharpEmitter
             _sb.Append("return ");
             bool wasBool = _emitBoolContext;
             if (_returnsBool) _emitBoolContext = true;
+            valueExpr.ExpectedType ??= _returnTypeName;
             EmitExpression(valueExpr);
             _emitBoolContext = wasBool;
             _sb.AppendLine(";");
@@ -2782,6 +2788,7 @@ public static class CSharpEmitter
                         if (_returnsBool)
                             _emitBoolContext = true;
                         _currentReturnArg = expr.Arguments[0];
+                        expr.Arguments[0].ExpectedType ??= _returnTypeName;
                         EmitExpression(expr.Arguments[0]);
                         _currentReturnArg = null;
                         _emitBoolContext = wasBool;
@@ -2816,6 +2823,7 @@ public static class CSharpEmitter
                         bool wasBool = _emitBoolContext;
                         if (_boolLocals.Contains(varName))
                             _emitBoolContext = true;
+                        expr.Arguments[0].ExpectedType ??= _ast.Locals.FirstOrDefault(l => l.Name == varName)?.TypeName;
                         EmitExpression(expr.Arguments[0]);
                         _emitBoolContext = wasBool;
                     }
@@ -2832,11 +2840,13 @@ public static class CSharpEmitter
                     {
                         EmitExpression(expr.Arguments[0]);
                         _sb.Append($".{ExtractMemberName(expr.Operand)} = ");
+                        expr.Arguments[1].ExpectedType ??= TryResolveFieldType(expr.Operand);
                         EmitExpression(expr.Arguments[1]);
                     }
                     else if (expr.OpCode == ILOpCode.Stsfld && expr.Arguments.Count >= 1)
                     {
                         _sb.Append($"{expr.Operand} = ");
+                        expr.Arguments[0].ExpectedType ??= TryResolveFieldType(expr.Operand);
                         EmitExpression(expr.Arguments[0]);
                     }
                     else
@@ -3143,9 +3153,9 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_i2: EmitCast(expr, "short"); break;
                 case ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i2_un:
                     EmitCheckedCast(expr, "short"); break;
-                case ILOpCode.Conv_u2: EmitCast(expr, "ushort"); break;
+                case ILOpCode.Conv_u2: EmitCast(expr, PreferredUInt16Type(expr)); break;
                 case ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
-                    EmitCheckedCast(expr, "ushort"); break;
+                    EmitCheckedCast(expr, PreferredUInt16Type(expr)); break;
                 case ILOpCode.Conv_i4:
                     // Suppress (int) cast on ldlen — Array.Length is int in C#
                     if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Ldlen)
@@ -3363,8 +3373,8 @@ public static class CSharpEmitter
                 case ILOpCode.Ldtoken:
                 {
                     string tokenOp = expr.Operand ?? "?";
-                    if (tokenOp.Contains("::", StringComparison.Ordinal))
-                        _sb.Append($"/* ldtoken {tokenOp} */");
+                    if (TryFormatTokenExpression(expr, tokenOp, out string? tokenExpr))
+                        _sb.Append(tokenExpr);
                     else
                         _sb.Append($"typeof({SimplifyTypeName(tokenOp)})");
                     break;
@@ -3883,6 +3893,9 @@ public static class CSharpEmitter
             _sb.Append(')');
         }
 
+        string PreferredUInt16Type(ILAstExpression expr)
+            => expr.ExpectedType is "char" or "System.Char" ? "char" : "ushort";
+
         void WriteIndent(int indent)
         {
             for (int i = 0; i < indent; i++)
@@ -3925,6 +3938,72 @@ public static class CSharpEmitter
 
             if (valueMap is null) return false;
             return valueMap.TryGetValue(value, out result);
+        }
+
+        string? TryResolveFieldType(string? qualifiedName)
+        {
+            if (_reader is null || string.IsNullOrEmpty(qualifiedName))
+                return null;
+
+            int sep = qualifiedName.LastIndexOf("::", StringComparison.Ordinal);
+            if (sep <= 0 || sep >= qualifiedName.Length - 2)
+                return null;
+
+            string typeName = qualifiedName[..sep];
+            string fieldName = qualifiedName[(sep + 2)..];
+
+            foreach (var typeDefHandle in _reader.TypeDefinitions)
+            {
+                var typeDef = _reader.GetTypeDefinition(typeDefHandle);
+                if (_reader.GetFullTypeName(typeDef) != typeName)
+                    continue;
+
+                foreach (var fieldHandle in typeDef.GetFields())
+                {
+                    var field = _reader.GetFieldDefinition(fieldHandle);
+                    if (_reader.GetString(field.Name) != fieldName)
+                        continue;
+
+                    try
+                    {
+                        return field.DecodeSignature(SignatureDecoder.Instance, null);
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        bool TryFormatTokenExpression(ILAstExpression expr, string tokenOp, out string? tokenExpr)
+        {
+            tokenExpr = null;
+            if (!tokenOp.Contains("::", StringComparison.Ordinal))
+                return false;
+
+            int sep = tokenOp.LastIndexOf("::", StringComparison.Ordinal);
+            if (sep <= 0 || sep >= tokenOp.Length - 2)
+                return false;
+
+            string memberRef = $"{SimplifyTypeName(tokenOp[..sep])}.{tokenOp[(sep + 2)..]}";
+            string? handleType = expr.ResultType.TypeName;
+
+            if (handleType is "System.RuntimeMethodHandle")
+            {
+                tokenExpr = $"__methodref({memberRef})";
+                return true;
+            }
+
+            if (handleType is "System.RuntimeFieldHandle")
+            {
+                tokenExpr = $"__fieldref({memberRef})";
+                return true;
+            }
+
+            return false;
         }
 
         Dictionary<int, string>? BuildEnumValueMap(string typeName)

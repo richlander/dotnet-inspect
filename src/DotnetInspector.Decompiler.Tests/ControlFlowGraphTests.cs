@@ -470,6 +470,13 @@ public class CfgSampleClass
         return new string[] { a, "hello" };
     }
 
+    public static int[] ArrayWithDynamicSize(int n)
+    {
+        var values = new int[n];
+        values[0] = 1;
+        return values;
+    }
+
     public static void CallWithLocalEnum()
     {
         HandlePriority(CfgPriority.High);
@@ -479,6 +486,17 @@ public class CfgSampleClass
     {
         Console.WriteLine(p);
     }
+
+    public static char ReturnChar(int value)
+    {
+        return (char)value;
+    }
+
+    public static ushort ReturnUInt16(int value)
+    {
+        return (ushort)value;
+    }
+
     public static long LongConstArith(int x)
     {
         return x + 1L;

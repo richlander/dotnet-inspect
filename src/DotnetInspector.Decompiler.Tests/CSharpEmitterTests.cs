@@ -479,6 +479,15 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void ArrayInit_DynamicSize_DoesNotCollapseToEmptyInitializer()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ArrayWithDynamicSize));
+        Assert.Contains("new int[n]", code);
+        Assert.Contains("[0] = 1", code);
+        Assert.DoesNotContain("new int[] {  }", code);
+    }
+
+    [Fact]
     public void EnumConstant_ResolvedInCallArgs()
     {
         var code = EmitMethod(nameof(CfgSampleClass.CallWithLocalEnum));
@@ -492,6 +501,21 @@ public class CSharpEmitterTests
         var code = EmitMethod(nameof(CfgSampleClass.LongConstArith));
         Assert.Contains("1L", code);
         Assert.DoesNotContain("(long)1", code);
+    }
+
+    [Fact]
+    public void ConvU2_ReturningChar_UsesCharCast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ReturnChar));
+        Assert.Contains("(char)", code);
+        Assert.DoesNotContain("(ushort)", code);
+    }
+
+    [Fact]
+    public void ConvU2_ReturningUInt16_UsesUInt16Cast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ReturnUInt16));
+        Assert.Contains("(ushort)", code);
     }
 
     // --- Helpers ---
