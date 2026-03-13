@@ -3158,14 +3158,35 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_u4: EmitCast(expr, "uint"); break;
                 case ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u4_un:
                     EmitCheckedCast(expr, "uint"); break;
-                case ILOpCode.Conv_i8: EmitCast(expr, "long"); break;
+                case ILOpCode.Conv_i8:
+                    // Emit suffixed literal instead of cast for constants: (long)3 → 3L
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}L");
+                    else
+                        EmitCast(expr, "long");
+                    break;
                 case ILOpCode.Conv_ovf_i8 or ILOpCode.Conv_ovf_i8_un:
                     EmitCheckedCast(expr, "long"); break;
-                case ILOpCode.Conv_u8: EmitCast(expr, "ulong"); break;
+                case ILOpCode.Conv_u8:
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}UL");
+                    else
+                        EmitCast(expr, "ulong");
+                    break;
                 case ILOpCode.Conv_ovf_u8 or ILOpCode.Conv_ovf_u8_un:
                     EmitCheckedCast(expr, "ulong"); break;
-                case ILOpCode.Conv_r4: EmitCast(expr, "float"); break;
-                case ILOpCode.Conv_r8 or ILOpCode.Conv_r_un: EmitCast(expr, "double"); break;
+                case ILOpCode.Conv_r4:
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}.0f");
+                    else
+                        EmitCast(expr, "float");
+                    break;
+                case ILOpCode.Conv_r8 or ILOpCode.Conv_r_un:
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}.0d");
+                    else
+                        EmitCast(expr, "double");
+                    break;
                 case ILOpCode.Conv_i: EmitCast(expr, "nint"); break;
                 case ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_i_un:
                     EmitCheckedCast(expr, "nint"); break;

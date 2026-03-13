@@ -479,6 +479,10 @@ public class CfgSampleClass
     {
         Console.WriteLine(p);
     }
+    public static long LongConstArith(int x)
+    {
+        return x + 1L;
+    }
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

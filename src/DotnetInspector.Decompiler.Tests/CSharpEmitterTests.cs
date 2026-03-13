@@ -486,6 +486,14 @@ public class CSharpEmitterTests
         Assert.DoesNotContain(" 2)", code); // should not show raw number
     }
 
+    [Fact]
+    public void ConvI8_OnConstant_EmitsSuffix()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.LongConstArith));
+        Assert.Contains("1L", code);
+        Assert.DoesNotContain("(long)1", code);
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)
