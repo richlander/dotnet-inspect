@@ -1191,6 +1191,7 @@ public static class CSharpEmitter
 
             ILAstExpression? branchExpr = null;
             ILAstExpression? nonNullValue = null;
+            ILVariable? stackSlotVar = null;
 
             foreach (var node in condBlock.Nodes)
             {
@@ -1204,6 +1205,8 @@ public static class CSharpEmitter
                 else if (node is ILAstAssignment assign
                     && assign.Variable.Kind == ILVariableKind.StackSlot)
                 {
+                    if (stackSlotVar is not null) return false; // multiple stack values — not null-coalescing
+                    stackSlotVar = assign.Variable;
                     nonNullValue = assign.Value;
                 }
             }
@@ -1211,13 +1214,15 @@ public static class CSharpEmitter
             if (branchExpr is null || nonNullValue is null)
                 return false;
 
-            // Then block (the negated/null path) should have pop + S_0 = alternative
+            // Then block (the negated/null path) should have pop + S_N = alternative
             var altValue = TryExtractNullCoalesceAlternative(block.ThenBlock!);
             if (altValue is null)
                 return false;
 
             string lhs = ExpressionToString(nonNullValue);
             string rhs = ExpressionToString(altValue);
+            // The pattern produces exactly one value at the merge point, so entry stack
+            // position is always 0 → S_in_0. Same invariant as ternary pattern detection.
             _syntheticSubstitutions["S_in_0"] = $"{lhs} ?? {rhs}";
 
             if (block.ThenBlock!.BlockIndex >= 0)
@@ -3080,9 +3085,9 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_i2: EmitCast(expr, "short"); break;
                 case ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i2_un:
                     EmitCheckedCast(expr, "short"); break;
-                case ILOpCode.Conv_u2: EmitCast(expr, "char"); break;
+                case ILOpCode.Conv_u2: EmitCast(expr, "ushort"); break;
                 case ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
-                    EmitCheckedCast(expr, "char"); break;
+                    EmitCheckedCast(expr, "ushort"); break;
                 case ILOpCode.Conv_i4:
                     // Suppress (int) cast on ldlen — Array.Length is int in C#
                     if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Ldlen)
