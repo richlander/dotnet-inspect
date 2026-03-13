@@ -410,6 +410,49 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("return 0;", code);
     }
 
+    [Fact]
+    public void DoubleLiteral_HasSuffix()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoubleConstant));
+        Assert.Contains("3.14d", code);
+    }
+
+    [Fact]
+    public void DoubleLiteral_WholeNumber_HasDecimalPoint()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoubleWholeNumber));
+        Assert.Contains("1.0d", code);
+    }
+
+    [Fact]
+    public void NullableType_UsesShorthand()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullableReturn));
+        Assert.Contains("int?", code);
+        Assert.DoesNotContain("Nullable<", code);
+    }
+
+    [Fact]
+    public void CheckedAdd_EmitsChecked()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CheckedAdd));
+        Assert.Contains("checked(", code);
+    }
+
+    [Fact]
+    public void CheckedCast_EmitsChecked()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CheckedCast));
+        Assert.Contains("checked(", code);
+    }
+
+    [Fact]
+    public void NullCoalesce_EmitsDoubleQuestion()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullCoalesce));
+        Assert.Contains("??", code);
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)

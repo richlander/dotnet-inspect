@@ -423,4 +423,35 @@ public class CfgSampleClass
     {
         return x > 0 || y > 0;
     }
+
+    public static double DoubleConstant()
+    {
+        return 3.14d;
+    }
+
+    public static double DoubleWholeNumber()
+    {
+        return 1.0d;
+    }
+
+    public static int? NullableReturn(bool flag)
+    {
+        if (flag) return 42;
+        return null;
+    }
+
+    public static int CheckedAdd(int a, int b)
+    {
+        return checked(a + b);
+    }
+
+    public static short CheckedCast(int value)
+    {
+        return checked((short)value);
+    }
+
+    public static string NullCoalesce(string? a, string b)
+    {
+        return a ?? b;
+    }
 }
