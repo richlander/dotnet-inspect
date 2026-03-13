@@ -410,6 +410,114 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("return 0;", code);
     }
 
+    [Fact]
+    public void DoubleLiteral_HasSuffix()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoubleConstant));
+        Assert.Contains("3.14d", code);
+    }
+
+    [Fact]
+    public void DoubleLiteral_WholeNumber_HasDecimalPoint()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoubleWholeNumber));
+        Assert.Contains("1.0d", code);
+    }
+
+    [Fact]
+    public void DoubleLiteral_NaN_UsesFrameworkConstant()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoubleNaN));
+        Assert.Contains("double.NaN", code);
+        Assert.DoesNotContain("NaNd", code);
+    }
+
+    [Fact]
+    public void DoubleLiteral_PositiveInfinity_UsesFrameworkConstant()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.DoublePositiveInfinity));
+        Assert.Contains("double.PositiveInfinity", code);
+        Assert.DoesNotContain("Infinityd", code);
+    }
+
+    [Fact]
+    public void NullableType_UsesShorthand()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullableReturn));
+        Assert.Contains("int?", code);
+        Assert.DoesNotContain("Nullable<", code);
+    }
+
+    [Fact]
+    public void CheckedAdd_EmitsChecked()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CheckedAdd));
+        Assert.Contains("checked(", code);
+    }
+
+    [Fact]
+    public void CheckedCast_EmitsChecked()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CheckedCast));
+        Assert.Contains("checked(", code);
+    }
+
+    [Fact]
+    public void NullCoalesce_EmitsDoubleQuestion()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullCoalesce));
+        Assert.Contains("??", code);
+    }
+
+    [Fact]
+    public void ArrayInit_EmitsInitializer()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ArrayWithInit));
+        Assert.Contains("new string[]", code);
+        Assert.Contains("{", code);
+        Assert.DoesNotContain("[0] =", code); // stelem statements should be collapsed
+    }
+
+    [Fact]
+    public void ArrayInit_DynamicSize_DoesNotCollapseToEmptyInitializer()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ArrayWithDynamicSize));
+        Assert.Contains("new int[n]", code);
+        Assert.Contains("[0] = 1", code);
+        Assert.DoesNotContain("new int[] {  }", code);
+    }
+
+    [Fact]
+    public void EnumConstant_ResolvedInCallArgs()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CallWithLocalEnum));
+        Assert.Contains("CfgPriority.High", code);
+        Assert.DoesNotContain(" 2)", code); // should not show raw number
+    }
+
+    [Fact]
+    public void ConvI8_OnConstant_EmitsSuffix()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.LongConstArith));
+        Assert.Contains("1L", code);
+        Assert.DoesNotContain("(long)1", code);
+    }
+
+    [Fact]
+    public void ConvU2_ReturningChar_UsesCharCast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ReturnChar));
+        Assert.Contains("(char)", code);
+        Assert.DoesNotContain("(ushort)", code);
+    }
+
+    [Fact]
+    public void ConvU2_ReturningUInt16_UsesUInt16Cast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ReturnUInt16));
+        Assert.Contains("(ushort)", code);
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)

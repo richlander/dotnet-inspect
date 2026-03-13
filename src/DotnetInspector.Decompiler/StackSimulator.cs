@@ -584,9 +584,12 @@ internal static class StackSimulator
                     HandleKind.TypeReference or
                     HandleKind.TypeSpecification
                         => "System.RuntimeTypeHandle",
-                    HandleKind.FieldDefinition or
-                    HandleKind.MemberReference
+                    HandleKind.FieldDefinition
                         => "System.RuntimeFieldHandle",
+                    HandleKind.MemberReference
+                        => IsMethodMemberReference(context.Reader, (MemberReferenceHandle)handle)
+                            ? "System.RuntimeMethodHandle"
+                            : "System.RuntimeFieldHandle",
                     HandleKind.MethodDefinition or
                     HandleKind.MethodSpecification
                         => "System.RuntimeMethodHandle",
@@ -1085,6 +1088,20 @@ internal static class StackSimulator
                 return true;
         }
         return false;
+    }
+
+    static bool IsMethodMemberReference(MetadataReader reader, MemberReferenceHandle handle)
+    {
+        try
+        {
+            var memberRef = reader.GetMemberReference(handle);
+            _ = memberRef.DecodeMethodSignature(Metadata.SignatureDecoder.Instance, null);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     static void BuildParameterVariables(MethodBodyContext context, StackSimulationResult result)

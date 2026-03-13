@@ -423,4 +423,84 @@ public class CfgSampleClass
     {
         return x > 0 || y > 0;
     }
+
+    public static double DoubleConstant()
+    {
+        return 3.14d;
+    }
+
+    public static double DoubleWholeNumber()
+    {
+        return 1.0d;
+    }
+
+    public static double DoubleNaN()
+    {
+        return double.NaN;
+    }
+
+    public static double DoublePositiveInfinity()
+    {
+        return double.PositiveInfinity;
+    }
+
+    public static int? NullableReturn(bool flag)
+    {
+        if (flag) return 42;
+        return null;
+    }
+
+    public static int CheckedAdd(int a, int b)
+    {
+        return checked(a + b);
+    }
+
+    public static short CheckedCast(int value)
+    {
+        return checked((short)value);
+    }
+
+    public static string NullCoalesce(string? a, string b)
+    {
+        return a ?? b;
+    }
+
+    public static string[] ArrayWithInit(string a)
+    {
+        return new string[] { a, "hello" };
+    }
+
+    public static int[] ArrayWithDynamicSize(int n)
+    {
+        var values = new int[n];
+        values[0] = 1;
+        return values;
+    }
+
+    public static void CallWithLocalEnum()
+    {
+        HandlePriority(CfgPriority.High);
+    }
+
+    public static void HandlePriority(CfgPriority p)
+    {
+        Console.WriteLine(p);
+    }
+
+    public static char ReturnChar(int value)
+    {
+        return (char)value;
+    }
+
+    public static ushort ReturnUInt16(int value)
+    {
+        return (ushort)value;
+    }
+
+    public static long LongConstArith(int x)
+    {
+        return x + 1L;
+    }
 }
+
+public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

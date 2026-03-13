@@ -38,6 +38,10 @@ dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
 
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
+## Git Commits
+
+Never amend commits. Always create new commits instead of using `git commit --amend`.
+
 ## Branching
 
 The `main` branch is protected. All work must be done on a feature branch.

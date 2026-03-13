@@ -1,6 +1,8 @@
 using System.Reflection.Metadata;
 using System.Text;
 
+using DotnetInspector.Metadata;
+
 namespace DotnetInspector.Decompiler;
 
 /// <summary>
@@ -47,6 +49,7 @@ public static class CSharpEmitter
         readonly MetadataReader? _reader;
         readonly bool _hasThis;
         readonly bool _returnsBool;
+        readonly string? _returnTypeName;
         readonly IReadOnlyList<string>? _paramNames;
 
         // Map block index → ILAstBlock for quick lookup
@@ -104,6 +107,9 @@ public static class CSharpEmitter
         // Synthetic variable substitutions (e.g., S_in_0 → "x > 0 && y > 0")
         readonly Dictionary<string, string> _syntheticSubstitutions = [];
 
+        // Array initializer elements: newarr IL offset → collected element values
+        readonly Dictionary<int, SortedDictionary<int, ILAstExpression>> _arrayInitValues = [];
+
         // Variables inlined by ExpressionInliner (suppress declarations)
         readonly HashSet<string> _inlinedLocals;
 
@@ -119,6 +125,7 @@ public static class CSharpEmitter
             _reader = reader;
             _hasThis = hasThis;
             _returnsBool = returnType is "bool" or "System.Boolean";
+            _returnTypeName = returnType;
             _paramNames = parameterNames;
             _inlinedLocals = inlinedLocals ?? [];
 
@@ -652,6 +659,9 @@ public static class CSharpEmitter
             _currentBlockIndex = blockIndex;
             _currentBlockNodes = astBlock.Nodes;
 
+            // Pre-scan for array initializer patterns (stelem + dup + newarr)
+            ScanArrayInitializers(astBlock.Nodes);
+
             // Emit IL offset label if this block is a goto target
             TryEmitLabel(blockIndex);
 
@@ -727,6 +737,15 @@ public static class CSharpEmitter
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
             {
                 _currentBlockNodes = condBlock.Nodes;
+
+                // Early detect null-coalescing: brtrue(dup(value)) + S_0 assignment in cond block.
+                // Must check before emitting cond block statements, since the brtrue isn't the last
+                // node (dup leaves a post-branch assignment) and would be emitted as a goto.
+                if (block.NegateCondition && block.ThenBlock is not null
+                    && TryEmitNullCoalescing(block, indent))
+                {
+                    return;
+                }
 
                 // Emit IL label if this condition block is a goto target
                 TryEmitLabel(block.ConditionBlockIndex);
@@ -1166,6 +1185,138 @@ public static class CSharpEmitter
                 EmitStructuredBlock(block.ThenBlock, indent);
 
             _nullConditionalReceiver = null;
+        }
+
+        /// <summary>
+        /// Detect null-coalescing pattern: brtrue(dup(value)) where condition block assigns
+        /// S_0 = value (non-null path) and then block has pop + S_0 = alternative (null path).
+        /// Emits: value ?? alternative
+        /// </summary>
+        bool TryEmitNullCoalescing(StructuredBlock block, int indent)
+        {
+            // Scan the condition block for brtrue(dup(value))
+            if (block.ConditionBlockIndex < 0
+                || !_blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
+                return false;
+
+            ILAstExpression? branchExpr = null;
+            ILAstExpression? nonNullValue = null;
+            ILVariable? stackSlotVar = null;
+
+            foreach (var node in condBlock.Nodes)
+            {
+                if (node is ILAstStatement stmt
+                    && stmt.Expression.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    && stmt.Expression.Arguments.Count == 1
+                    && stmt.Expression.Arguments[0].OpCode == ILOpCode.Dup)
+                {
+                    branchExpr = stmt.Expression;
+                }
+                else if (node is ILAstAssignment assign
+                    && assign.Variable.Kind == ILVariableKind.StackSlot)
+                {
+                    if (stackSlotVar is not null) return false; // multiple stack values — not null-coalescing
+                    stackSlotVar = assign.Variable;
+                    nonNullValue = assign.Value;
+                }
+            }
+
+            if (branchExpr is null || nonNullValue is null)
+                return false;
+
+            // Then block (the negated/null path) should have pop + S_N = alternative
+            var altValue = TryExtractNullCoalesceAlternative(block.ThenBlock!);
+            if (altValue is null)
+                return false;
+
+            string lhs = ExpressionToString(nonNullValue);
+            string rhs = ExpressionToString(altValue);
+            // The pattern produces exactly one value at the merge point, so entry stack
+            // position is always 0 → S_in_0. Same invariant as ternary pattern detection.
+            _syntheticSubstitutions["S_in_0"] = $"{lhs} ?? {rhs}";
+
+            if (block.ThenBlock!.BlockIndex >= 0)
+            {
+                _consumedBlocks.Add(block.ThenBlock.BlockIndex);
+                RemoveGotoTargetsForConsumedBlock(block.ThenBlock.BlockIndex);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Extract the alternative value from a null-coalescing null path block.
+        /// The block should contain: pop (discard dup), S_0 = alternative, optional br.
+        /// </summary>
+        ILAstExpression? TryExtractNullCoalesceAlternative(StructuredBlock? block)
+        {
+            if (block is null || block.BlockIndex < 0
+                || !_blockMap.TryGetValue(block.BlockIndex, out var astBlock))
+                return null;
+
+            ILAstExpression? value = null;
+            foreach (var node in astBlock.Nodes)
+            {
+                if (node is ILAstAssignment assign
+                    && assign.Variable.Kind == ILVariableKind.StackSlot)
+                {
+                    if (value is not null) return null;
+                    value = assign.Value;
+                }
+                else if (node is ILAstStatement stmt)
+                {
+                    var op = stmt.Expression.OpCode;
+                    if (op is ILOpCode.Pop or ILOpCode.Br or ILOpCode.Br_s
+                        or ILOpCode.Nop or ILOpCode.Leave or ILOpCode.Leave_s)
+                        continue;
+                    return null;
+                }
+                else return null;
+            }
+            return value;
+        }
+
+        /// <summary>
+        /// Scan a block's nodes for array initializer patterns: stelem(dup(newarr), index, value).
+        /// Collects element values per newarr IL offset and marks stelem nodes for skipping.
+        /// </summary>
+        void ScanArrayInitializers(IList<ILAstNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node is not ILAstStatement stmt) continue;
+                var expr = stmt.Expression;
+                if (!IsStelemOpCode(expr.OpCode) || expr.Arguments.Count < 3) continue;
+
+                // Check for stelem(dup(newarr T(N)), constIndex, value)
+                var arrayArg = expr.Arguments[0];
+                if (arrayArg.OpCode != ILOpCode.Dup || arrayArg.Arguments.Count < 1) continue;
+                var newarr = arrayArg.Arguments[0];
+                if (newarr.OpCode != ILOpCode.Newarr) continue;
+                if (newarr.Arguments.Count == 0 || !TryGetConstantIndex(newarr.Arguments[0], out int size) || size < 0)
+                    continue;
+
+                if (!TryGetConstantIndex(expr.Arguments[1], out int idx) || idx < 0) continue;
+
+                if (!_arrayInitValues.TryGetValue(newarr.Offset, out var elements))
+                {
+                    elements = [];
+                    _arrayInitValues[newarr.Offset] = elements;
+                }
+
+                elements[idx] = expr.Arguments[2];
+                _skipNodes.Add(node);
+            }
+        }
+
+        static bool IsStelemOpCode(ILOpCode op) => op is
+            ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
+            ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
+            ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref;
+
+        static bool TryGetConstantIndex(ILAstExpression expr, out int value)
+        {
+            value = 0;
+            return expr.Operand is string s && int.TryParse(s, out value);
         }
 
         /// <summary>
@@ -2040,7 +2191,7 @@ public static class CSharpEmitter
                     bool wasBool = _emitBoolContext;
                     if (_returnsBool)
                         _emitBoolContext = true;
-                    EmitExpression(retExpr.Arguments[0]);
+                    EmitExpression(retExpr.Arguments[0], _returnTypeName);
                     _emitBoolContext = wasBool;
                     _sb.AppendLine(";");
                 }
@@ -2092,7 +2243,7 @@ public static class CSharpEmitter
             _sb.Append("return ");
             bool wasBool = _emitBoolContext;
             if (_returnsBool) _emitBoolContext = true;
-            EmitExpression(valueExpr);
+            EmitExpression(valueExpr, _returnTypeName);
             _emitBoolContext = wasBool;
             _sb.AppendLine(";");
             return true;
@@ -2635,7 +2786,7 @@ public static class CSharpEmitter
                         if (_returnsBool)
                             _emitBoolContext = true;
                         _currentReturnArg = expr.Arguments[0];
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], _returnTypeName);
                         _currentReturnArg = null;
                         _emitBoolContext = wasBool;
                         _sb.AppendLine(";");
@@ -2669,7 +2820,7 @@ public static class CSharpEmitter
                         bool wasBool = _emitBoolContext;
                         if (_boolLocals.Contains(varName))
                             _emitBoolContext = true;
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], _ast.Locals.FirstOrDefault(l => l.Name == varName)?.TypeName);
                         _emitBoolContext = wasBool;
                     }
                     else
@@ -2685,12 +2836,12 @@ public static class CSharpEmitter
                     {
                         EmitExpression(expr.Arguments[0]);
                         _sb.Append($".{ExtractMemberName(expr.Operand)} = ");
-                        EmitExpression(expr.Arguments[1]);
+                        EmitExpression(expr.Arguments[1], TryResolveFieldType(expr.Operand));
                     }
                     else if (expr.OpCode == ILOpCode.Stsfld && expr.Arguments.Count >= 1)
                     {
                         _sb.Append($"{expr.Operand} = ");
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], TryResolveFieldType(expr.Operand));
                     }
                     else
                     {
@@ -2754,7 +2905,7 @@ public static class CSharpEmitter
                     if (expr.Arguments.Count > 0)
                     {
                         EmitExpression(expr.Arguments[0]);
-                        _sb.AppendLine($" = default({SimplifyTypeName(expr.Operand ?? "?")});");
+                        _sb.AppendLine(" = default;");
                     }
                     else
                     {
@@ -2864,11 +3015,22 @@ public static class CSharpEmitter
             }
         }
 
-        void EmitExpression(ILAstExpression expr)
+        void EmitExpression(ILAstExpression expr, string? expectedType = null)
         {
             // Consume bool context: only applies to this direct expression, not sub-expressions
             bool boolCtx = _emitBoolContext;
             _emitBoolContext = false;
+
+            // Merge emission-context expectedType with AST-level ExpectedType (from BuildCall annotations)
+            string? resolvedType = expectedType ?? expr.ExpectedType;
+
+            // Enum constant resolution for integer literals with known parameter types
+            if (IsLdcI4(expr.OpCode) && resolvedType is not null
+                && TryResolveEnumName(resolvedType, GetI4Value(expr), out string? enumName))
+            {
+                _sb.Append(enumName);
+                return;
+            }
 
             switch (expr.OpCode)
             {
@@ -2900,11 +3062,28 @@ public static class CSharpEmitter
                     _sb.Append($"{expr.Operand ?? "0"}L");
                     break;
                 case ILOpCode.Ldc_r4:
-                    _sb.Append($"{expr.Operand ?? "0"}f");
+                {
+                    string fval = expr.Operand ?? "0";
+                    if (fval == "NaN") _sb.Append("float.NaN");
+                    else if (fval == "Infinity") _sb.Append("float.PositiveInfinity");
+                    else if (fval == "-Infinity") _sb.Append("float.NegativeInfinity");
+                    else _sb.Append($"{fval}f");
                     break;
+                }
                 case ILOpCode.Ldc_r8:
-                    _sb.Append(expr.Operand ?? "0.0");
+                {
+                    string dval = expr.Operand ?? "0";
+                    if (dval == "NaN") _sb.Append("double.NaN");
+                    else if (dval == "Infinity") _sb.Append("double.PositiveInfinity");
+                    else if (dval == "-Infinity") _sb.Append("double.NegativeInfinity");
+                    // Ensure double literals have a decimal point so they aren't mistaken for int
+                    else if (!dval.Contains('.') && !dval.Contains('E') && !dval.Contains('e')
+                        && char.IsAsciiDigit(dval[^1]))
+                        _sb.Append($"{dval}.0d");
+                    else
+                        _sb.Append($"{dval}d");
                     break;
+                }
                 case ILOpCode.Ldnull:
                     _sb.Append("null");
                     break;
@@ -2923,12 +3102,15 @@ public static class CSharpEmitter
                     break;
 
                 // Binary arithmetic/logic operators
-                case ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un:
-                    EmitBinary(expr, "+"); break;
-                case ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un:
-                    EmitBinary(expr, "-"); break;
-                case ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un:
-                    EmitBinary(expr, "*"); break;
+                case ILOpCode.Add: EmitBinary(expr, "+"); break;
+                case ILOpCode.Add_ovf or ILOpCode.Add_ovf_un:
+                    EmitCheckedBinary(expr, "+"); break;
+                case ILOpCode.Sub: EmitBinary(expr, "-"); break;
+                case ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un:
+                    EmitCheckedBinary(expr, "-"); break;
+                case ILOpCode.Mul: EmitBinary(expr, "*"); break;
+                case ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un:
+                    EmitCheckedBinary(expr, "*"); break;
                 case ILOpCode.Div or ILOpCode.Div_un:
                     EmitBinary(expr, "/"); break;
                 case ILOpCode.Rem or ILOpCode.Rem_un:
@@ -2959,33 +3141,71 @@ public static class CSharpEmitter
                     break;
 
                 // Conversions
-                case ILOpCode.Conv_i1 or ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i1_un:
-                    EmitCast(expr, "sbyte"); break;
-                case ILOpCode.Conv_u1 or ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u1_un:
-                    EmitCast(expr, "byte"); break;
-                case ILOpCode.Conv_i2 or ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i2_un:
-                    EmitCast(expr, "short"); break;
-                case ILOpCode.Conv_u2 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
-                    EmitCast(expr, "char"); break;
-                case ILOpCode.Conv_i4 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i4_un:
+                case ILOpCode.Conv_i1: EmitCast(expr, "sbyte"); break;
+                case ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i1_un:
+                    EmitCheckedCast(expr, "sbyte"); break;
+                case ILOpCode.Conv_u1: EmitCast(expr, "byte"); break;
+                case ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u1_un:
+                    EmitCheckedCast(expr, "byte"); break;
+                case ILOpCode.Conv_i2: EmitCast(expr, "short"); break;
+                case ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i2_un:
+                    EmitCheckedCast(expr, "short"); break;
+                case ILOpCode.Conv_u2: EmitCast(expr, PreferredUInt16Type(resolvedType)); break;
+                case ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u2_un:
+                    EmitCheckedCast(expr, PreferredUInt16Type(resolvedType)); break;
+                case ILOpCode.Conv_i4:
                     // Suppress (int) cast on ldlen — Array.Length is int in C#
                     if (expr.Arguments.Count > 0 && expr.Arguments[0].OpCode == ILOpCode.Ldlen)
                         EmitExpression(expr.Arguments[0]);
                     else
                         EmitCast(expr, "int");
                     break;
-                case ILOpCode.Conv_u4 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u4_un:
-                    EmitCast(expr, "uint"); break;
-                case ILOpCode.Conv_i8 or ILOpCode.Conv_ovf_i8 or ILOpCode.Conv_ovf_i8_un:
-                    EmitCast(expr, "long"); break;
-                case ILOpCode.Conv_u8 or ILOpCode.Conv_ovf_u8 or ILOpCode.Conv_ovf_u8_un:
-                    EmitCast(expr, "ulong"); break;
-                case ILOpCode.Conv_r4: EmitCast(expr, "float"); break;
-                case ILOpCode.Conv_r8 or ILOpCode.Conv_r_un: EmitCast(expr, "double"); break;
-                case ILOpCode.Conv_i or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_i_un:
-                    EmitCast(expr, "nint"); break;
-                case ILOpCode.Conv_u or ILOpCode.Conv_ovf_u or ILOpCode.Conv_ovf_u_un:
-                    EmitCast(expr, "nuint"); break;
+                case ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i4_un:
+                    EmitCheckedCast(expr, "int"); break;
+                case ILOpCode.Conv_u4: EmitCast(expr, "uint"); break;
+                case ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u4_un:
+                    EmitCheckedCast(expr, "uint"); break;
+                case ILOpCode.Conv_i8:
+                    // Emit suffixed literal instead of cast for constants: (long)3 → 3L
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}L");
+                    else
+                        EmitCast(expr, "long");
+                    break;
+                case ILOpCode.Conv_ovf_i8 or ILOpCode.Conv_ovf_i8_un:
+                    EmitCheckedCast(expr, "long"); break;
+                case ILOpCode.Conv_u8:
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                    {
+                        int i4Val = GetI4Value(expr.Arguments[0]);
+                        if (i4Val >= 0)
+                            _sb.Append($"{i4Val}UL");
+                        else
+                            _sb.Append($"unchecked((ulong){i4Val})");
+                    }
+                    else
+                        EmitCast(expr, "ulong");
+                    break;
+                case ILOpCode.Conv_ovf_u8 or ILOpCode.Conv_ovf_u8_un:
+                    EmitCheckedCast(expr, "ulong"); break;
+                case ILOpCode.Conv_r4:
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}.0f");
+                    else
+                        EmitCast(expr, "float");
+                    break;
+                case ILOpCode.Conv_r8 or ILOpCode.Conv_r_un:
+                    if (expr.Arguments.Count > 0 && IsLdcI4(expr.Arguments[0].OpCode))
+                        _sb.Append($"{GetI4Value(expr.Arguments[0])}.0d");
+                    else
+                        EmitCast(expr, "double");
+                    break;
+                case ILOpCode.Conv_i: EmitCast(expr, "nint"); break;
+                case ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_i_un:
+                    EmitCheckedCast(expr, "nint"); break;
+                case ILOpCode.Conv_u: EmitCast(expr, "nuint"); break;
+                case ILOpCode.Conv_ovf_u or ILOpCode.Conv_ovf_u_un:
+                    EmitCheckedCast(expr, "nuint"); break;
 
                 // Type casts
                 case ILOpCode.Castclass:
@@ -3026,10 +3246,28 @@ public static class CSharpEmitter
                 }
 
                 case ILOpCode.Newarr:
-                    _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[");
-                    if (expr.Arguments.Count > 0)
-                        EmitExpression(expr.Arguments[0]);
-                    _sb.Append(']');
+                    if (_arrayInitValues.TryGetValue(expr.Offset, out var initElements))
+                    {
+                        int size = 0;
+                        if (expr.Arguments.Count > 0 && TryGetConstantIndex(expr.Arguments[0], out size)) { }
+                        _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[] {{ ");
+                        for (int ai = 0; ai < size; ai++)
+                        {
+                            if (ai > 0) _sb.Append(", ");
+                            if (initElements.TryGetValue(ai, out var elemExpr))
+                                EmitExpression(elemExpr);
+                            else
+                                _sb.Append("default");
+                        }
+                        _sb.Append(" }");
+                    }
+                    else
+                    {
+                        _sb.Append($"new {SimplifyTypeName(expr.Operand ?? "object")}[");
+                        if (expr.Arguments.Count > 0)
+                            EmitExpression(expr.Arguments[0]);
+                        _sb.Append(']');
+                    }
                     break;
 
                 // Field access
@@ -3101,7 +3339,7 @@ public static class CSharpEmitter
                 // Dup (pass through, or reconstruct from preceding expression in block)
                 case ILOpCode.Dup:
                     if (expr.Arguments.Count > 0)
-                        EmitExpression(expr.Arguments[0]);
+                        EmitExpression(expr.Arguments[0], resolvedType);
                     else if (_currentBlockNodes is not null)
                     {
                         // Find the preceding expression that produced the dup'd value
@@ -3136,8 +3374,14 @@ public static class CSharpEmitter
                     break;
 
                 case ILOpCode.Ldtoken:
-                    _sb.Append($"typeof({SimplifyTypeName(expr.Operand ?? "?")})");
+                {
+                    string tokenOp = expr.Operand ?? "?";
+                    if (TryFormatTokenExpression(expr, tokenOp, out string? tokenExpr))
+                        _sb.Append(tokenExpr);
+                    else
+                        _sb.Append($"typeof({SimplifyTypeName(tokenOp)})");
                     break;
+                }
 
                 // Function pointer (delegate creation pattern)
                 case ILOpCode.Ldftn:
@@ -3638,10 +3882,177 @@ public static class CSharpEmitter
             EmitParenthesized(expr, 0);
         }
 
+        void EmitCheckedBinary(ILAstExpression expr, string op)
+        {
+            _sb.Append("checked(");
+            EmitBinary(expr, op);
+            _sb.Append(')');
+        }
+
+        void EmitCheckedCast(ILAstExpression expr, string typeName)
+        {
+            _sb.Append("checked(");
+            EmitCast(expr, typeName);
+            _sb.Append(')');
+        }
+
+        string PreferredUInt16Type(string? resolvedType)
+            => resolvedType is "char" or "System.Char" ? "char" : "ushort";
+
         void WriteIndent(int indent)
         {
             for (int i = 0; i < indent; i++)
                 _sb.Append("    ");
+        }
+
+        static bool IsLdcI4(ILOpCode op) => op is
+            ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or
+            ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or
+            ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7 or
+            ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4;
+
+        static int GetI4Value(ILAstExpression expr) => expr.OpCode switch
+        {
+            ILOpCode.Ldc_i4_m1 => -1,
+            ILOpCode.Ldc_i4_0 => 0,
+            ILOpCode.Ldc_i4_1 => 1,
+            ILOpCode.Ldc_i4_2 => 2,
+            ILOpCode.Ldc_i4_3 => 3,
+            ILOpCode.Ldc_i4_4 => 4,
+            ILOpCode.Ldc_i4_5 => 5,
+            ILOpCode.Ldc_i4_6 => 6,
+            ILOpCode.Ldc_i4_7 => 7,
+            ILOpCode.Ldc_i4_8 => 8,
+            _ => int.TryParse(expr.Operand, out int v) ? v : 0
+        };
+
+        readonly Dictionary<string, Dictionary<int, string>?> _enumCache = [];
+
+        bool TryResolveEnumName(string typeName, int value, out string? result)
+        {
+            result = null;
+            if (_reader is null) return false;
+
+            if (!_enumCache.TryGetValue(typeName, out var valueMap))
+            {
+                valueMap = BuildEnumValueMap(typeName);
+                _enumCache[typeName] = valueMap;
+            }
+
+            if (valueMap is null) return false;
+            return valueMap.TryGetValue(value, out result);
+        }
+
+        string? TryResolveFieldType(string? qualifiedName)
+        {
+            if (_reader is null || string.IsNullOrEmpty(qualifiedName))
+                return null;
+
+            int sep = qualifiedName.LastIndexOf("::", StringComparison.Ordinal);
+            if (sep <= 0 || sep >= qualifiedName.Length - 2)
+                return null;
+
+            string typeName = qualifiedName[..sep];
+            string fieldName = qualifiedName[(sep + 2)..];
+
+            foreach (var typeDefHandle in _reader.TypeDefinitions)
+            {
+                var typeDef = _reader.GetTypeDefinition(typeDefHandle);
+                if (_reader.GetFullTypeName(typeDef) != typeName)
+                    continue;
+
+                foreach (var fieldHandle in typeDef.GetFields())
+                {
+                    var field = _reader.GetFieldDefinition(fieldHandle);
+                    if (_reader.GetString(field.Name) != fieldName)
+                        continue;
+
+                    try
+                    {
+                        return field.DecodeSignature(SignatureDecoder.Instance, null);
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        bool TryFormatTokenExpression(ILAstExpression expr, string tokenOp, out string? tokenExpr)
+        {
+            tokenExpr = null;
+            if (!tokenOp.Contains("::", StringComparison.Ordinal))
+                return false;
+
+            int sep = tokenOp.LastIndexOf("::", StringComparison.Ordinal);
+            if (sep <= 0 || sep >= tokenOp.Length - 2)
+                return false;
+
+            string memberRef = $"{SimplifyTypeName(tokenOp[..sep])}.{tokenOp[(sep + 2)..]}";
+            string? handleType = expr.ResultType.TypeName;
+
+            if (handleType is "System.RuntimeMethodHandle")
+            {
+                tokenExpr = $"__methodref({memberRef})";
+                return true;
+            }
+
+            if (handleType is "System.RuntimeFieldHandle")
+            {
+                tokenExpr = $"__fieldref({memberRef})";
+                return true;
+            }
+
+            return false;
+        }
+
+        Dictionary<int, string>? BuildEnumValueMap(string typeName)
+        {
+            if (_reader is null) return null;
+
+            foreach (var typeDefHandle in _reader.TypeDefinitions)
+            {
+                var typeDef = _reader.GetTypeDefinition(typeDefHandle);
+                if (_reader.GetFullTypeName(typeDef) != typeName)
+                    continue;
+
+                var map = new Dictionary<int, string>();
+                string shortType = SimplifyTypeName(typeName);
+
+                foreach (var fieldHandle in typeDef.GetFields())
+                {
+                    var field = _reader.GetFieldDefinition(fieldHandle);
+                    if ((field.Attributes & (System.Reflection.FieldAttributes.Literal | System.Reflection.FieldAttributes.Static))
+                        != (System.Reflection.FieldAttributes.Literal | System.Reflection.FieldAttributes.Static))
+                        continue;
+
+                    try
+                    {
+                        var constant = _reader.GetConstant(field.GetDefaultValue());
+                        var blob = _reader.GetBlobReader(constant.Value);
+                        int fieldValue = constant.TypeCode switch
+                        {
+                            ConstantTypeCode.Int32 => blob.ReadInt32(),
+                            ConstantTypeCode.UInt32 => unchecked((int)blob.ReadUInt32()),
+                            ConstantTypeCode.Int16 => blob.ReadInt16(),
+                            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+                            ConstantTypeCode.Byte => blob.ReadByte(),
+                            ConstantTypeCode.SByte => blob.ReadSByte(),
+                            _ => int.MinValue
+                        };
+                        if (fieldValue != int.MinValue)
+                            map.TryAdd(fieldValue, $"{shortType}.{_reader.GetString(field.Name)}");
+                    }
+                    catch { }
+                }
+
+                return map.Count > 0 ? map : null;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -4173,8 +4584,15 @@ public static class CSharpEmitter
             int genericStart = typeName.IndexOf('<');
             if (genericStart >= 0 && typeName.EndsWith('>'))
             {
-                string outerType = StripNamespacePrefix(typeName[..genericStart]);
+                string outerRaw = typeName[..genericStart];
                 string innerArgs = typeName[(genericStart + 1)..^1];
+
+                // Nullable<T> → T?
+                if (outerRaw is "System.Nullable" or "Nullable"
+                    && !innerArgs.Contains(','))
+                    return $"{SimplifyTypeName(innerArgs.Trim())}?";
+
+                string outerType = StripNamespacePrefix(outerRaw);
 
                 // Split generic arguments respecting nested angle brackets
                 var args = SplitGenericArguments(innerArgs);
