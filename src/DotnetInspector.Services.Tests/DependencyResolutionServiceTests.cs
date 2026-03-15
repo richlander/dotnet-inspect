@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 

@@ -1,3 +1,6 @@
+using NuGetFetch;
+using NuGetSource = NuGetFetch.PackageSource;
+using NuGetSourceCredential = NuGetFetch.PackageSourceCredential;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
@@ -380,9 +383,9 @@ public class NuGetSourceResolverTests
             var sources = NuGetSourceResolver.ResolveSources(options);
 
             Assert.Single(sources);
-            Assert.NotNull(sources[0].Credentials);
-            Assert.Equal("myuser", sources[0].Credentials!.Username);
-            Assert.Equal("mypassword", sources[0].Credentials!.Password);
+            Assert.NotNull(sources[0].Credential);
+            Assert.Equal("myuser", sources[0].Credential!.Username);
+            Assert.Equal("mypassword", sources[0].Credential!.Password);
         }
         finally
         {
@@ -419,9 +422,9 @@ public class NuGetSourceResolverTests
             var sources = NuGetSourceResolver.ResolveSources(options);
 
             Assert.Single(sources);
-            Assert.NotNull(sources[0].Credentials);
-            Assert.Equal("spaceuser", sources[0].Credentials!.Username);
-            Assert.Equal("spacepass", sources[0].Credentials!.Password);
+            Assert.NotNull(sources[0].Credential);
+            Assert.Equal("spaceuser", sources[0].Credential!.Username);
+            Assert.Equal("spacepass", sources[0].Credential!.Password);
         }
         finally
         {
@@ -451,7 +454,7 @@ public class NuGetSourceResolverTests
             var sources = NuGetSourceResolver.ResolveSources(options);
 
             Assert.Single(sources);
-            Assert.Null(sources[0].Credentials);
+            Assert.Null(sources[0].Credential);
         }
         finally
         {
@@ -462,10 +465,8 @@ public class NuGetSourceResolverTests
     [Fact]
     public void NuGetSource_GetAuthHeader_ReturnsBasicAuth()
     {
-        var source = new NuGetSource("test", "https://test.example.com/v3/index.json")
-        {
-            Credentials = new NuGetSourceCredential("user", "pass")
-        };
+        var source = new NuGetSource("test", "https://test.example.com/v3/index.json",
+            new NuGetSourceCredential("user", "pass"));
 
         var header = source.GetAuthHeader();
 

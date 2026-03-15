@@ -4,6 +4,8 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
+using NuGetFetch;
+using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
 
@@ -378,7 +380,7 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
 
         // Cache nuget.org results even when additional custom sources are configured.
-        bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg());
+        bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg);
 
         if (canCache)
         {
@@ -395,7 +397,7 @@ public static class PackageExtractor
             var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
             if (version != null)
             {
-                if (canCache && source.IsNuGetOrg())
+                if (canCache && source.IsNuGetOrg)
                     CoreCache.Set(VersionCacheCategory, normalizedName, version, extension: "txt");
                 return version;
             }
@@ -521,7 +523,7 @@ public static class PackageExtractor
         var auth = source.GetAuthHeader();
 
         // For nuget.org, use the search API — returns latest version directly without listing all versions
-        if (source.IsNuGetOrg())
+        if (source.IsNuGetOrg)
         {
             var version = await GetLatestVersionFromSearchAsync(client, packageName, log).ConfigureAwait(false);
             if (version != null)
@@ -643,7 +645,7 @@ public static class PackageExtractor
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
         // Cache nuget.org results even when additional custom sources are configured.
-        bool canCache = sources.Any(s => s.IsNuGetOrg());
+        bool canCache = sources.Any(s => s.IsNuGetOrg);
         List<string>? allVersions = null;
 
         if (canCache)
@@ -663,7 +665,7 @@ public static class PackageExtractor
                 allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
                 if (allVersions != null)
                 {
-                    if (canCache && source.IsNuGetOrg())
+                    if (canCache && source.IsNuGetOrg)
                         CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', allVersions), extension: "txt");
                     break;
                 }
