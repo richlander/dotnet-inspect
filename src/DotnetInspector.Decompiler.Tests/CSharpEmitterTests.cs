@@ -503,6 +503,17 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("(long)1", code);
     }
 
+    // Note: C# compiler emits conv.i8 (not conv.u8) for ulong constants,
+    // so these exercise the conv.i8 path. For negative constants with ulong
+    // return type, we emit unchecked((ulong)-1) for valid C#.
+    [Fact]
+    public void ConvU8_NegativeConstant_EmitsUncheckedCast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ULongNegOne));
+        // Negative constants for ulong need unchecked cast to be valid C#
+        Assert.Contains("unchecked((ulong)-1)", code);
+    }
+
     [Fact]
     public void ConvU2_ReturningChar_UsesCharCast()
     {
