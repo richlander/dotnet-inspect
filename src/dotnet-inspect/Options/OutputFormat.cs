@@ -57,7 +57,7 @@ public static class OutputFormatResolver
             return envFormat;
 
         // Default
-        return OutputFormat.OneLine;
+        return OutputFormat.Markdown;
     }
 
     /// <summary>
