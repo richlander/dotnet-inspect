@@ -1,3 +1,4 @@
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -47,17 +48,30 @@ public static class PackageCacheService
 
     /// <summary>
     /// Clears the active app cache (session cache if isolated, default otherwise).
+    /// Also clears the legacy cache location (pre-XDG) if it exists.
     /// Returns the number of bytes freed.
     /// </summary>
     public static long ClearCache()
     {
-        var basePath = NuGetCache.GetAppCacheBasePath();
+        long totalFreed = 0;
 
-        if (!Directory.Exists(basePath))
+        totalFreed += DeleteCacheDirectory(NuGetCache.GetAppCacheBasePath());
+
+        // Clean up legacy cache location (pre-XDG: ~/.local/share/dotnet-inspect)
+        var legacyPath = CoreCache.GetLegacyBasePath();
+        if (legacyPath != null)
+            totalFreed += DeleteCacheDirectory(legacyPath);
+
+        return totalFreed;
+    }
+
+    private static long DeleteCacheDirectory(string path)
+    {
+        if (!Directory.Exists(path))
             return 0;
 
-        var (size, _) = GetDirectoryStats(basePath);
-        Directory.Delete(basePath, recursive: true);
+        var (size, _) = GetDirectoryStats(path);
+        Directory.Delete(path, recursive: true);
         return size;
     }
 
