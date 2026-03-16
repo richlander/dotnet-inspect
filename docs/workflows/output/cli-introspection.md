@@ -32,7 +32,7 @@ dotnet-inspect -v:n
 ├─ library
 ├─ member
 ├─ package
-├─ samples
+├─ source
 └─ type
 ```
 

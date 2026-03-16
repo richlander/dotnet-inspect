@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.6.9
+version: 0.7.0
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
@@ -46,7 +46,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 
 ## Key Patterns
 
-Default output is compact columnar tables (like `docker images` or `git log --oneline`). No flags needed for scanning:
+Default output is **markdown** — headings, tables, and field lists that render well in terminals, editors, and LLM contexts. No flags needed:
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json    # scan members
@@ -54,12 +54,12 @@ dnx dotnet-inspect -y -- type --package System.Text.Json                     # s
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Four formatters: **oneline** (default), **plaintext**, **markdown** (`-v` or `--markdown`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
+Four formatters: **markdown** (default), **oneline** (`--oneline`), **plaintext** (`--plaintext`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:m  # markdown with docs
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:d  # detailed (source/IL)
 dnx dotnet-inspect -y -- System.Text.Json -v:n --plaintext                      # all local sections, plaintext
+dnx dotnet-inspect -y -- type --package System.Text.Json --oneline              # compact columnar output
 ```
 
 Use `diff` first when fixing broken code — triage changes, then drill into specifics:

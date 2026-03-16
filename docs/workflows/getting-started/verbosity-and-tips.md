@@ -13,9 +13,9 @@ Verbosity levels:
 
 | Level | Flag | Content | Tips |
 | ----- | ---- | ------- | ---- |
-| Quiet | `-v:q` | H1 + oneline field list | No |
-| Minimal (default) | (none) | H1, description, oneline field list, one section table | Yes |
-| Detailed | `-v:d` | H1, description, oneline field list, all sections | No |
+| Quiet | `-v:q` | H1 + metadata field list | No |
+| Minimal (default) | (none) | H1, description, metadata field list, one section table | Yes |
+| Detailed | `-v:d` | H1, description, metadata field list, all sections | No |
 
 The `member` command follows the same scale: quiet shows the heading-only summary, default shows full signatures with docs, detailed adds Source/Lowered C#/IL.
 
@@ -53,9 +53,9 @@ dotnet-inspect System.CommandLine
 
 ```expect
 # System.CommandLine
-Version: 2.0.3
+Version: 2.0.2
 ## Package
-| Property | Value |
+| Field | Value |
 ```
 
 ```query
@@ -70,7 +70,7 @@ Tips:
 
 ## 2. Default verbosity (platform library)
 
-> Goal: Platform library default shows H1, oneline fields, Library Info section table, and no tips.
+> Goal: Platform library default shows H1, metadata fields, Library Info section table, and no tips.
 
 ```prompt
 Tell me about the System.Text.Json library.
@@ -82,14 +82,12 @@ dotnet-inspect System.Text.Json
 
 ```expect
 # System.Text.Json.dll
-Source: Platform
 ## Library Info
-| Property | Value |
+| Field | Value |
 ```
 
 ```query
 grep '^# '
-grep -o 'Source: [A-Za-z]*'
 grep '^## '
 ```
 
@@ -107,7 +105,7 @@ dotnet-inspect System.CommandLine -v:q
 
 ```expect
 # System.CommandLine
-Version: 2.0.3
+Version: 2.0.2
 ```
 
 ```expect-not
@@ -267,7 +265,7 @@ dotnet-inspect System.CommandLine -s Package
 
 ```expect
 ## Package
-| Property | Value |
+| Field | Value |
 ```
 
 ```expect-not
@@ -277,7 +275,7 @@ Tips:
 
 ```query
 grep '^## '
-grep '| Property'
+grep '| Field'
 ```
 
 ### 8b. Platform library section
