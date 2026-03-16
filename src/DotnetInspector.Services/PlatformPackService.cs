@@ -6,7 +6,7 @@ namespace DotnetInspector.Services;
 /// <summary>
 /// Downloads and caches .NET platform ref/runtime packs from NuGet.
 /// Packs are cached in the app cache directory mirroring the SDK packs layout:
-/// ~/.local/share/dotnet-inspect/packs/{PackName}/{Version}/ref/net{TFM}/*.dll
+/// {cache}/dotnet-inspect/packs/{PackName}/{Version}/ref/net{TFM}/*.dll
 /// </summary>
 public static class PlatformPackService
 {

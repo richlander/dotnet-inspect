@@ -42,13 +42,47 @@ public static class CoreCache
 
     /// <summary>
     /// Gets the default (non-overridden) base path for caches.
-    /// Always returns the platform-default local application data directory,
-    /// ignoring any base path override.
+    /// Uses XDG-appropriate directories per platform:
+    /// Linux: <c>$XDG_CACHE_HOME/appName</c> (defaults to <c>~/.cache/appName</c>),
+    /// macOS: <c>~/Library/Caches/appName</c>,
+    /// Windows: <c>%LOCALAPPDATA%\appName</c>.
     /// </summary>
     public static string GetDefaultBasePath()
     {
+        if (OperatingSystem.IsLinux())
+        {
+            var xdgCache = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+            if (!string.IsNullOrEmpty(xdgCache))
+                return Path.Combine(xdgCache, AppName);
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return Path.Combine(home, ".cache", AppName);
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return Path.Combine(home, "Library", "Caches", AppName);
+        }
+
+        // Windows: %LOCALAPPDATA%
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(localAppData, AppName);
+    }
+
+    /// <summary>
+    /// Returns the pre-XDG cache path (<c>~/.local/share/appName</c>) on Linux/macOS
+    /// if it differs from the current default path, or <c>null</c> on Windows.
+    /// Used by cache-clear to clean up the old location.
+    /// </summary>
+    public static string? GetLegacyBasePath()
+    {
+        if (OperatingSystem.IsWindows())
+            return null;
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var legacyPath = Path.Combine(localAppData, AppName);
+
+        return legacyPath != GetDefaultBasePath() ? legacyPath : null;
     }
 
     /// <summary>

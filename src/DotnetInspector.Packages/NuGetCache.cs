@@ -4,7 +4,7 @@ namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Utilities for working with NuGet package caches.
-/// Uses cross-platform paths via Environment.SpecialFolder.
+/// Uses platform-appropriate cache directories (XDG on Linux, ~/Library/Caches on macOS).
 /// Never writes to ~/.nuget/packages (read-only).
 /// Call <see cref="Initialize"/> before using app cache methods.
 /// Source content caching is delegated to <see cref="CoreCache"/>.
