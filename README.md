@@ -27,7 +27,6 @@ dnx dotnet-inspect -y -- <command>
 | `implements X` | Find types implementing an interface or extending a class |
 | `find X` | Search for types across packages, frameworks, and local assets |
 | `source X` | SourceLink URLs — type or member level, `--cat` to fetch content |
-| `platform` | List installed frameworks |
 
 ### Bare Names
 
@@ -38,6 +37,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | Flag | Description |
 | ------ | ------------- |
 | `-v:q/m/n/d` | Verbosity: quiet, minimal (default), normal, detailed |
+| `--oneline` | Compact columnar output, one result per line |
 | `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |
 | `-s Name` | Include section (glob-capable: `-s Ext*`) |
@@ -160,7 +160,7 @@ dotnet-inspect diff System.CommandLine@2.0.0-beta4.22272.1..2.0.3 -v:q  # Full p
 dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.2  # Single type
 dotnet-inspect diff "*Writer*" --package Markout@0.1.8..0.2.0            # Glob filter
 dotnet-inspect diff --platform System.Text.Json@8.0.23..10.0.2           # Platform versions
-dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --oneline            # One change per line
+dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --oneline            # Compact columnar output
 dotnet-inspect diff System.Text.Json@9.0.0..10.0.2 --breaking           # Breaking only
 ```
 
@@ -172,7 +172,7 @@ Search for types across packages, frameworks, and local assets.
 dotnet-inspect find HttpClient                           # Runtime (default scope)
 dotnet-inspect find "*Stream*" -n 10                     # Glob, limit results
 dotnet-inspect find "*Json*" --package System.Text.Json  # Search in package
-dotnet-inspect find "ChatClient*" --oneline                # Columnar output
+dotnet-inspect find "ChatClient*" --oneline                # Compact columnar output
 dotnet-inspect find ILogger --aspnetcore                 # ASP.NET Core packages
 dotnet-inspect find "*Command*" --project ./MyApp.csproj # Project dependencies
 ```
@@ -197,16 +197,6 @@ Find types implementing an interface or extending a base class.
 dotnet-inspect implements Stream                             # Default scope
 dotnet-inspect implements IDisposable --platform             # All platform frameworks
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
-```
-
-### platform
-
-List installed frameworks.
-
-```bash
-dotnet-inspect platform                             # List frameworks
-dotnet-inspect platform --framework runtime         # List runtime libraries
-dotnet-inspect platform --list-versions             # Installed SDK versions
 ```
 
 ### source
@@ -238,13 +228,9 @@ dotnet-inspect -v:q                                 # Command names only (onelin
 
 ## Output Control
 
-**Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed)
+**Format**: Default is **markdown** (headings, tables, field lists). Use `--oneline` for compact columnar output, `--plaintext` for plain text, or `--json` for JSON.
 
-Each level includes a **compact summary line** with key metadata:
-
-```text
-Version: 8.0.0 | Type: Library | TFM: net8.0 | Updated: 2023-11-14 | Vulnerabilities: 2
-```
+**Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed). Controls which sections are included.
 
 **Sections**: Use `-s Name` to include or `-x Name` to exclude sections by name. Bare `-s` lists available sections. Supports glob patterns (`-s Ext*`).
 

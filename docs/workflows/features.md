@@ -38,7 +38,8 @@
 | `-x` section exclusion | 9a9f154 | 0.2.x | Exclude sections by name |
 | `--compact` JSON | e7297bb | 0.1.0 | Minified JSON output |
 | `--json` output | e7297bb | 0.1.0 | JSON output format |
-| `--oneline` output | — | 0.1.x | One result per line, columnar |
+| `--oneline` output | — | 0.1.x | One result per line, columnar (opt-in since 0.7.0) |
+| Markdown default | 2c6e9e0 | 0.7.0 | Markdown is the default output format |
 | `--no-header` | — | 0.2.x | Suppress column headers |
 | `--signatures-only` | d718525 | 0.1.3 | Minimal output with signatures only |
 | `--out` file output | 627a0a0 | 0.2.x | Write output to file |
@@ -281,3 +282,4 @@ The `--fields-only` flag was replaced by section filtering:
 | 0.3.1 | — | Name:N shorthand for member targeting |
 | 0.4.0 | — | `demo`, `depends` commands, removed `platform` command |
 | 0.5.0 | — | Split `api` into `type`/`member`, nullability, `@latest`, `-n`/`-t`/`-m` redesign |
+| 0.7.0 | — | Markdown default output, removed `llmstxt` command, removed `dotnet-inspect-find`, NuGetFetch library, XDG cache dirs |
