@@ -6,7 +6,7 @@ The tool's defaults were designed for human terminal use, but most callers are n
 
 ### Auto-detect agent context and default to oneline
 
-If the tool detects it's being called by an agent (piped output, non-TTY, or an env var), default to `--oneline` output. Humans at a terminal keep the current full output. This matches how agents actually work — scan a compact list first, then drill into specific items. Every agent transcript shows this pattern. The win: shorter SKILL.md/llms.txt guidance because the tool does the right thing by default.
+If the tool detects it's being called by an agent (piped output, non-TTY, or an env var), default to `--oneline` output. Humans at a terminal keep the current full output. This matches how agents actually work — scan a compact list first, then drill into specific items. Every agent transcript shows this pattern. The win: shorter SKILL.md guidance because the tool does the right thing by default.
 
 ### Make `--shape` more visible on `type`
 

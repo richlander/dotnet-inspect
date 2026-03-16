@@ -56,11 +56,9 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 
 ```bash
 # Install and run with dnx (like npx)
-dnx dotnet-inspect -y -- llmstxt
+dnx dotnet-inspect -y -- --help
 
 # Or install globally
 dotnet tool install -g dotnet-inspect
-dotnet-inspect llmstxt
+dotnet-inspect --help
 ```
-
-The `llmstxt` command prints comprehensive usage examples for all commands.

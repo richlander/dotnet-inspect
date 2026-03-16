@@ -7,7 +7,7 @@ public class ResourceScannerTests
     [Fact]
     public void Scan_FindsEmbeddedResources()
     {
-        // dotnet-inspect.dll has SKILL.md and llms.txt as embedded resources
+        // dotnet-inspect.dll has SKILL.md as an embedded resource
         var testDir = Path.GetDirectoryName(typeof(ResourceScannerTests).Assembly.Location)!;
         var targetPath = Path.Combine(testDir, "dotnet-inspect.dll");
         Assert.True(File.Exists(targetPath), $"dotnet-inspect.dll not found at {targetPath}");
@@ -15,9 +15,8 @@ public class ResourceScannerTests
         using var stream = File.OpenRead(targetPath);
         var resources = ResourceScanner.Scan(stream);
 
-        Assert.True(resources.Count >= 2);
+        Assert.True(resources.Count >= 1);
         Assert.Contains(resources, r => r.Name.Contains("SKILL.md"));
-        Assert.Contains(resources, r => r.Name.Contains("llms.txt"));
 
         // All should be embedded with non-zero sizes
         var skill = resources.First(r => r.Name.Contains("SKILL.md"));

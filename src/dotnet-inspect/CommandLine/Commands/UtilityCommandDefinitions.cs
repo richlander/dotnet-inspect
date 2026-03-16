@@ -7,7 +7,7 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the cache, demo, samples, llmstxt, skill, perf, and perf-test commands.
+/// Defines the cache, demo, samples, skill, perf, and perf-test commands.
 /// </summary>
 public static class UtilityCommandDefinitions
 {
@@ -97,14 +97,6 @@ public static class UtilityCommandDefinitions
         });
 
         return demoCommand;
-    }
-
-    public static Command CreateLlmsTxtCommand(SharedOptions opts)
-    {
-        var llmsTxtCommand = new Command("llmstxt", "Show usage examples (run this first)");
-        llmsTxtCommand.Options.Add(opts.Limit);
-        llmsTxtCommand.SetAction((parseResult) => LlmsTxtCommand.Execute());
-        return llmsTxtCommand;
     }
 
     public static Command CreateSkillCommand(SharedOptions opts)

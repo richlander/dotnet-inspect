@@ -184,11 +184,3 @@ Use `dnx` (like `npx`). Always use `-y` and `--` to prevent interactive prompts:
 ```bash
 dnx dotnet-inspect -y -- <command>
 ```
-
-## Full Documentation
-
-For the full mental model, structured queries, and migration workflow:
-
-```bash
-dnx dotnet-inspect -y -- llmstxt
-```

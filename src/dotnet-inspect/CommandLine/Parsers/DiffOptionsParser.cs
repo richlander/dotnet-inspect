@@ -150,7 +150,6 @@ public static class DiffOptionsParser
             }
         }
 
-        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
         return tips;
     }
 }
