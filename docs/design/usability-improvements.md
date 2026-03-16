@@ -130,4 +130,4 @@ David Fowler's [ilspy-decompile skill](https://github.com/davidfowl/dotnet-skill
 4. **Support globs in diff type filter** — consistency with find/api
 5. **Remove diff member truncation** — easy, high value for migrations
 6. **Expand tips** — guide LLMs toward fewer round-trips
-7. **Update llms.txt and SKILL.md** — reflect all changes
+7. **Update SKILL.md** — reflect all changes

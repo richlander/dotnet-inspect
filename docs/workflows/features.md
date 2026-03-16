@@ -13,7 +13,7 @@
 | --------- | -------- | --------- | -------- | ------------- |
 | `dotnet-inspect` CLI | 6b773da | 0.1.0 | ✓ | Initial tool creation |
 | `api` command | de505ec | 0.1.0 | ⚠️ | API surface extraction (deprecated in 0.5.0, use `type`/`member`) |
-| `llmstxt` command | aaa289e | 0.1.0 | ✓ | Usage examples optimized for LLM consumption |
+| `llmstxt` command | aaa289e | 0.1.0 | ✗ | Removed in 0.7.0; replaced by SKILL.md via dotnet/skills marketplace |
 | `type` command | 208ebd2 | 0.1.3 | ✓ | Discover types (terse output, split from `api` in 0.5.0) |
 | `diff` command | 0d3d24c | 0.1.7 | ✓ | Compare API surfaces between package versions |
 | `samples` command | 916c845 | 0.1.8 | ✓ | Show sample code references via SourceLink |

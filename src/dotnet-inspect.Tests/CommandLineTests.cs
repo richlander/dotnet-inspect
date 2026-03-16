@@ -309,15 +309,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void LlmsTxtCommand_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["llmstxt"]);
-
-        Assert.Empty(result.Errors);
-        Assert.Equal("llmstxt", result.CommandResult.Command.Name);
-    }
-
-    [Fact]
     public void HelpOption_IsAvailable()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["--help"]);

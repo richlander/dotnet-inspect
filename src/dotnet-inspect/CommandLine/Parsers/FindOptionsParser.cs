@@ -121,8 +121,7 @@ public static class FindOptionsParser
         [
             new(MemberCommand.Name, $"<TypeName> {sourceFlag}", "inspect type members"),
             new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
-            new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results"),
-            new(LlmsTxtCommand.Name, "", "complete usage examples")
+            new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results")
         ];
     }
 }

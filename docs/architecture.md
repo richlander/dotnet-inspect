@@ -9,7 +9,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 1. **Structured output** - Markdown tables and JSON that LLMs can parse reliably
 2. **Progressive disclosure** - Verbosity controls let you request exactly the detail level needed
 3. **Minimal tokens** - `--oneline` and `--compact` options reduce output size
-4. **Self-documenting** - `llmstxt` command provides comprehensive usage examples
+4. **Self-documenting** - `skill` command prints the SKILL.md; `--help` and `-v` show CLI structure
 
 ## Command Structure
 
@@ -101,21 +101,11 @@ Lists platform/framework libraries from the installed .NET SDK:
 
 ## LLM Integration
 
-### llms.txt
+### SKILL.md
 
-The `llmstxt` command outputs a comprehensive usage guide embedded in the binary. This file is designed to be included in LLM context to enable effective tool usage.
+The tool includes an embedded SKILL.md that is distributed via the [dotnet/skills](https://github.com/dotnet/skills) marketplace. Skills are loaded automatically into the LLM's context when activated, providing decision trees, command patterns, and usage examples without requiring the LLM to run a command first.
 
-```csharp
-// Embedded as a resource and streamed to stdout
-var stream = assembly.GetManifestResourceStream("dotnet-inspect.llms.txt");
-```
-
-The llms.txt content includes:
-
-- Command examples for common workflows
-- Output format options
-- Filtering and verbosity controls
-- Tips for version comparison and member lookup
+Run `dotnet-inspect skill` to print the embedded SKILL.md.
 
 ### Output Designed for LLMs
 
@@ -439,8 +429,7 @@ src/dotnet-inspect/
 │   └── MemberTableFormatter.cs #   API member table rendering
 ├── Options/                    # CLI option types
 ├── JsonContext.cs              # STJ source-gen (data models)
-├── MarkoutContext.cs           # Markout source-gen (view models)
-└── llms.txt                    # Embedded LLM usage guide
+└── MarkoutContext.cs           # Markout source-gen (view models)
 
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
@@ -457,7 +446,7 @@ src/DotnetInspector.Metadata/   # PE/assembly domain provider
 
 4. **Read-only NuGet cache** — The app reads from the shared NuGet global cache but never writes to it. Downloads go to the app's own cache directory.
 
-5. **Embedded llms.txt** — The usage guide is compiled into the binary as a resource, ensuring it's always available and version-matched.
+5. **Embedded SKILL.md** — The skill definition is compiled into the binary as a resource, ensuring it's always available and version-matched. Distributed via the dotnet/skills marketplace.
 
 6. **Default exclusions** — `[EditorBrowsable(Never)]` and `[Obsolete]` members are hidden by default to reduce noise. Use `--all` to include them.
 

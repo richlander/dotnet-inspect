@@ -40,7 +40,6 @@ public static class TipWriter
         tips.Add(new(PackageCommand.Name, $"{packageName} --readme", "view README"));
         tips.Add(new(PackageCommand.Name, $"{packageName} --files", "list package files"));
         tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
-        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
 
         Hints.WriteTips(tipLevel, [.. tips]);
     }
@@ -58,7 +57,6 @@ public static class TipWriter
         tips.Add(new(PackageCommand.Name, assemblyName, "inspect as NuGet package"));
         tips.Add(new(TypeCommand.Name, $"--platform {assemblyName}", "discover types"));
         tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search for types"));
-        tips.Add(new(LlmsTxtCommand.Name, "", "complete usage examples"));
 
         Hints.WriteTips(tipLevel, [.. tips]);
     }

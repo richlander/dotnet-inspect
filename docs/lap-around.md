@@ -146,7 +146,6 @@ dotnet-inspect -v:m                                # CLI args explorer -- tree v
 dotnet-inspect -v:n                                # CLI args explorer -- tree view; commands, args, options
 dotnet-inspect -v:d                                # CLI args explorer -- deep view, all levels with descriptions
 dotnet-inspect -v:q                                # CLI args explorer -- command names only (oneliner)
-dotnet-inspect llmstxt                             # Prints llmstxt, intended for LLMs
 dotnet-inspect skill                               # Prints SKILL.md for anyone that wants it
 dotnet-inspect cache                               # How to clean the cache
 ```
@@ -170,7 +169,7 @@ For example:
 ```bash
 $ dotnet-inspect | grep Tips
 Tip: package <package>   # inspect a NuGet package
-Tip: llmstxt             # complete usage examples
+Tip: -T:d                # show more tips per command
 Tip: -T:d                # show more tips per command
 ```
 

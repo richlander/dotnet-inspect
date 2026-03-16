@@ -252,9 +252,7 @@ Version: 8.0.0 | Type: Library | TFM: net8.0 | Updated: 2023-11-14 | Vulnerabili
 
 ## LLM Integration
 
-This tool is [designed for LLM-driven development](docs/llm-design.md). Run `dotnet-inspect llmstxt` for detailed usage patterns.
-
-A skill for use with GitHub Copilot agent mode is available at [dotnet-skills](https://github.com/richlander/dotnet-skills).
+This tool is [designed for LLM-driven development](docs/llm-design.md). A skill is available in the [dotnet/skills](https://github.com/dotnet/skills) marketplace for use with GitHub Copilot and Claude Code.
 
 ## Requirements
 

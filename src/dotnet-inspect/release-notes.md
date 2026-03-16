@@ -1,6 +1,6 @@
 # v0.5.0 Release Notes
 
-49 commits since v0.4.4. Full feature history: `dotnet-inspect --help` or `dotnet-inspect llmstxt`.
+49 commits since v0.4.4. Full feature history: `dotnet-inspect --help`.
 
 ## Breaking Changes
 

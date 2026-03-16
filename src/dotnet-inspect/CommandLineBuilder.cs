@@ -106,9 +106,6 @@ public static class CommandLineBuilder
         // Source command (SourceLink file discovery)
         rootCommand.Subcommands.Add(SourceCommandDefinitions.CreateSourceCommand(opts));
 
-        // LLMs.txt command (meta command, listed last)
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateLlmsTxtCommand(opts));
-
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
 
@@ -139,7 +136,6 @@ public static class CommandLineBuilder
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-                new Tip(LlmsTxtCommand.Name, "", "complete usage examples"),
                 new Tip("-T:d", "", "show more tips per command"),
                 new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
                 new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
