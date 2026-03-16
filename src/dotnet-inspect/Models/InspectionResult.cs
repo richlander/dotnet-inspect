@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
+using NuGetFetch;
+using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Models;

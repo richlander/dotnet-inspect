@@ -2,6 +2,8 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using NuGetFetch;
+using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;

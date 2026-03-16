@@ -1,4 +1,5 @@
 using DotnetInspector.Core;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
 
@@ -203,7 +204,7 @@ public static class NuGetCache
     {
         var normalizedName = packageName.ToLowerInvariant();
 
-        NuGet.Versioning.NuGetVersion? best = null;
+        NuGetVersion? best = null;
         string? bestOriginal = null;
 
         // Check NuGet global cache — skip in isolated mode
@@ -228,7 +229,7 @@ public static class NuGetCache
     private static void ScanCacheDir(
         string packageDir,
         string normalizedName,
-        ref NuGet.Versioning.NuGetVersion? best,
+        ref NuGetVersion? best,
         ref string? bestOriginal)
     {
         if (!Directory.Exists(packageDir)) return;
@@ -236,7 +237,7 @@ public static class NuGetCache
         foreach (var dir in Directory.GetDirectories(packageDir))
         {
             var dirName = Path.GetFileName(dir);
-            if (NuGet.Versioning.NuGetVersion.TryParse(dirName, out var parsed)
+            if (NuGetVersion.TryParse(dirName, out var parsed)
                 && !parsed.IsPrerelease
                 && (best == null || parsed > best)
                 && IsCachedPackageValid(dir, normalizedName))

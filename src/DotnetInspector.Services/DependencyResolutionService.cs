@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.Services;
 
@@ -61,7 +62,7 @@ public static class DependencyResolutionService
             if (version == null) return ([], null);
 
             string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
-            var outcome = await PackageExtractor.ExtractPackageAsync(client, packageRef, log: log).ConfigureAwait(false);
+            var outcome = await DotnetInspector.Packages.PackageExtractor.ExtractPackageAsync(client, packageRef, log: log).ConfigureAwait(false);
             if (!outcome.IsSuccess)
             {
                 log?.Invoke(outcome.ErrorMessage!);
