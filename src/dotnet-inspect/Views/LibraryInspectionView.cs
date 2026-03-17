@@ -105,9 +105,10 @@ public class LibraryInspectionView
             : _data.SourceLinkUnavailableReason != null ? $"No ({_data.SourceLinkUnavailableReason})" : "No",
         Builder = _data.Builder,
         Publisher = !string.IsNullOrEmpty(_data.Publisher)
-            ? $"{_data.Publisher}{(_data.PublisherVerified ? " (Verified)" : "")}".Trim()
-            : _data.SignatureStatus,
+            ? $"{_data.Publisher}{(_data.PublisherVerified ? " (Verified)" : "")}"
+            : null,
         Repository = _data.RepositoryVerified ? "nuget.org (Verified)" : null,
+        Signature = _data.SignatureStatus,
         RepositoryUrl = _data.RepositoryUrl,
         Warning = _data.WindowsPdbDetected ? "Windows PDB format is not supported by this tool" : null,
         Recommendation = _data.WindowsPdbDetected ? "Consider asking the package maintainer to publish Portable PDBs" : null,
@@ -368,6 +369,7 @@ public class SymbolsSection
     public string? PdbPath { get; init; }
     public string? SourceLink { get; init; }
     public string? Builder { get; init; }
+    public string? Signature { get; init; }
     public string? Publisher { get; init; }
     public string? Repository { get; init; }
     [MarkoutPropertyName("Repository URL")]

@@ -1,8 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
-using System.Text.RegularExpressions;
+using NuGetFetch;
 
 namespace DotnetInspector.Services;
 
@@ -43,60 +42,50 @@ public record SignatureVerificationResult
 }
 
 /// <summary>
-/// Verifies NuGet package signatures using dotnet nuget verify.
+/// Verifies NuGet package signatures using in-process CMS/X.509 verification
+/// via NuGetFetch's PackageSignatureVerifier.
 /// </summary>
-public static partial class SignatureVerifier
+public static class SignatureVerifier
 {
     /// <summary>
     /// Verifies the signature of a NuGet package.
     /// </summary>
     /// <param name="nupkgPath">Path to the .nupkg file</param>
     /// <returns>Verification result, or null if verification could not be performed</returns>
-    public static async Task<SignatureVerificationResult?> VerifyAsync(string nupkgPath)
+    public static SignatureVerificationResult? Verify(string nupkgPath)
     {
         if (!File.Exists(nupkgPath))
             return null;
 
         try
         {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            startInfo.ArgumentList.Add("nuget");
-            startInfo.ArgumentList.Add("verify");
-            startInfo.ArgumentList.Add(nupkgPath);
+            var result = PackageSignatureVerifier.VerifyPackage(nupkgPath);
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                return null;
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            // Wait up to 10 seconds for verification
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            try
+            return result.Status switch
             {
-                await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                process.Kill();
-                return new SignatureVerificationResult
+                SignatureStatus.Unsigned => new SignatureVerificationResult
                 {
-                    StatusMessage = "Verification timed out"
-                };
-            }
-
-            var output = await outputTask.ConfigureAwait(false);
-            var error = await errorTask.ConfigureAwait(false);
-
-            return ParseVerificationOutput(output, error, process.ExitCode);
+                    IsUnsigned = true,
+                    StatusMessage = "Package is not signed"
+                },
+                SignatureStatus.Invalid => new SignatureVerificationResult
+                {
+                    StatusMessage = $"Verification failed: {result.Reason}"
+                },
+                SignatureStatus.Valid => new SignatureVerificationResult
+                {
+                    // Only report publisher for author-signed packages;
+                    // for repo-only signatures the CN is the repository, not the author
+                    Publisher = result.SignatureType == SignatureType.Author ? result.Publisher : null,
+                    AuthorVerified = result.SignatureType == SignatureType.Author,
+                    RepositoryVerified = true, // nuget.org adds repo countersignature to all packages
+                    Repository = "nuget.org",
+                },
+                _ => new SignatureVerificationResult
+                {
+                    StatusMessage = "Unknown verification result"
+                }
+            };
         }
         catch (Exception ex)
         {
@@ -107,97 +96,10 @@ public static partial class SignatureVerifier
         }
     }
 
-    internal static SignatureVerificationResult ParseVerificationOutput(string output, string error, int exitCode)
-    {
-        // Check for macOS skip message
-        if (output.Contains("skipped") && output.Contains("macOS", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SignatureVerificationResult
-            {
-                StatusMessage = "Skipped (macOS not supported)"
-            };
-        }
-
-        // Check for unsigned package
-        if (error.Contains("NU3004") || output.Contains("NU3004") ||
-            error.Contains("not signed", StringComparison.OrdinalIgnoreCase) ||
-            output.Contains("not signed", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SignatureVerificationResult
-            {
-                IsUnsigned = true,
-                StatusMessage = "Package is not signed"
-            };
-        }
-
-        // Parse author signature
-        string? publisher = null;
-        bool authorVerified = false;
-        var authorMatch = AuthorSignatureRegex().Match(output);
-        if (authorMatch.Success)
-        {
-            var subjectMatch = SubjectNameRegex().Match(output, authorMatch.Index);
-            if (subjectMatch.Success)
-            {
-                publisher = ExtractCN(subjectMatch.Groups[1].Value);
-                authorVerified = true;
-            }
-        }
-
-        // Parse repository signature
-        bool repositoryVerified = false;
-        string? repository = null;
-        var repoMatch = RepositorySignatureRegex().Match(output);
-        if (repoMatch.Success)
-        {
-            repositoryVerified = true;
-            // Check for nuget.org
-            if (output.Contains("NuGet.org Repository", StringComparison.OrdinalIgnoreCase))
-            {
-                repository = "nuget.org";
-            }
-        }
-
-        // Check overall success
-        bool success = exitCode == 0 && output.Contains("Successfully verified", StringComparison.OrdinalIgnoreCase);
-
-        if (!success && !authorVerified && !repositoryVerified)
-        {
-            return new SignatureVerificationResult
-            {
-                StatusMessage = "Verification failed"
-            };
-        }
-
-        return new SignatureVerificationResult
-        {
-            Publisher = publisher,
-            AuthorVerified = authorVerified,
-            RepositoryVerified = repositoryVerified,
-            Repository = repository
-        };
-    }
-
-    private static string? ExtractCN(string subjectName)
-    {
-        // Extract CN from subject name like "CN=Json.NET (.NET Foundation), O=..."
-        var cnMatch = CommonNameRegex().Match(subjectName);
-        if (cnMatch.Success)
-        {
-            return cnMatch.Groups[1].Value.Trim();
-        }
-        return null;
-    }
-
-    [GeneratedRegex(@"Signature type:\s*Author", RegexOptions.IgnoreCase)]
-    private static partial Regex AuthorSignatureRegex();
-
-    [GeneratedRegex(@"Signature type:\s*Repository", RegexOptions.IgnoreCase)]
-    private static partial Regex RepositorySignatureRegex();
-
-    [GeneratedRegex(@"Subject Name:\s*(.+)$", RegexOptions.Multiline)]
-    private static partial Regex SubjectNameRegex();
-
-    [GeneratedRegex(@"CN=([^,]+)")]
-    private static partial Regex CommonNameRegex();
+    /// <summary>
+    /// Async wrapper for compatibility with existing callers.
+    /// The underlying verification is synchronous (in-process crypto).
+    /// </summary>
+    public static Task<SignatureVerificationResult?> VerifyAsync(string nupkgPath) =>
+        Task.FromResult(Verify(nupkgPath));
 }
