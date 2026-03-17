@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
-    <PackageReference Include="NuGetFetch" Version="0.4.0" />
+    <PackageReference Include="NuGetFetch" Version="0.5.0" />
   </ItemGroup>
 
   <ItemGroup>
