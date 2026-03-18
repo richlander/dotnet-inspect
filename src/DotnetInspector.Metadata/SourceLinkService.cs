@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using DotnetInspector.Core;
 
 namespace DotnetInspector.Metadata;
@@ -261,25 +260,8 @@ public class SourceLinkService : IDisposable
 
     private string? ExtractCommitHash()
     {
-        var repoUrl = RepositoryUrl;
-        if (repoUrl == null)
-            return null;
-
-        // SourceLink URLs typically contain a commit hash in the path
-        // e.g., https://raw.githubusercontent.com/owner/repo/COMMITHASH/*
-        var match = Regex.Match(repoUrl, @"/([0-9a-f]{40})(?:/|$)", RegexOptions.IgnoreCase);
-        if (match.Success)
-            return match.Groups[1].Value;
-
-        // Try SourceLink JSON directly for the commit hash pattern
-        if (SourceLinkJson != null)
-        {
-            match = Regex.Match(SourceLinkJson, @"/([0-9a-f]{40})(?:/|$)", RegexOptions.IgnoreCase);
-            if (match.Success)
-                return match.Groups[1].Value;
-        }
-
-        return null;
+        var resolver = _context.GetResolver();
+        return resolver?.ExtractCommitHash();
     }
 
     public void Dispose()

@@ -3,18 +3,17 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SLF = SourceLinkFetch;
 
 namespace DotnetInspector.Metadata;
 
 /// <summary>
 /// Resolves types and members to their source file locations using SourceLink information from PDBs.
+/// Delegates URL mapping to the SourceLinkFetch library.
 /// </summary>
 public class SourceLinkResolver
 {
-    // SourceLink GUID: CC110556-A091-4D38-9FEC-25AB9A351A6A
-    private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
-
-    private readonly Dictionary<string, string> _documentMappings;
+    private readonly SLF.SourceLinkResolver _slfResolver;
 
     public enum SourceResolutionMethod
     {
@@ -63,9 +62,9 @@ public class SourceLinkResolver
         int EndLine
     );
 
-    private SourceLinkResolver(Dictionary<string, string> documentMappings)
+    private SourceLinkResolver(SLF.SourceLinkResolver slfResolver)
     {
-        _documentMappings = documentMappings;
+        _slfResolver = slfResolver;
     }
 
     /// <summary>
@@ -74,15 +73,11 @@ public class SourceLinkResolver
     /// </summary>
     public static SourceLinkResolver? Create(MetadataReader pdbReader)
     {
-        string? sourceLinkJson = ExtractSourceLinkFromReader(pdbReader);
-        if (sourceLinkJson == null)
+        var slfResolver = SLF.SourceLinkResolver.Create(pdbReader);
+        if (slfResolver is null)
             return null;
 
-        var mappings = ParseSourceLinkMappings(sourceLinkJson);
-        if (mappings.Count == 0)
-            return null;
-
-        return new SourceLinkResolver(mappings);
+        return new SourceLinkResolver(slfResolver);
     }
 
     /// <summary>
@@ -158,17 +153,7 @@ public class SourceLinkResolver
     /// Extracts the repository URL from SourceLink document mappings.
     /// </summary>
     public string? ExtractRepositoryUrl()
-    {
-        foreach (var (_, urlTemplate) in _documentMappings)
-        {
-            // Extract repository URL from raw.githubusercontent.com patterns
-            var match = Regex.Match(urlTemplate,
-                @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/");
-            if (match.Success)
-                return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
-        }
-        return null;
-    }
+        => _slfResolver.ExtractRepositoryUrl();
 
     /// <summary>
     /// Extracts the repository URL from a PDB reader's SourceLink information.
@@ -178,6 +163,12 @@ public class SourceLinkResolver
         var resolver = Create(pdbReader);
         return resolver?.ExtractRepositoryUrl();
     }
+
+    /// <summary>
+    /// Extracts the commit hash from SourceLink URL patterns.
+    /// </summary>
+    public string? ExtractCommitHash()
+        => _slfResolver.ExtractCommitHash();
 
     /// <summary>
     /// Finds a TypeDefinitionHandle by type name in the metadata reader.
@@ -376,87 +367,12 @@ public class SourceLinkResolver
     /// Applies SourceLink URL pattern to convert a file path to a source URL.
     /// </summary>
     public string? ApplySourceLinkMapping(string filePath)
-    {
-        filePath = filePath.Replace('\\', '/');
-
-        foreach (var (pattern, urlTemplate) in _documentMappings)
-        {
-            if (pattern.Contains('*'))
-            {
-                string regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", "(.*)") + "$";
-                var match = Regex.Match(filePath, regexPattern);
-
-                if (match.Success && match.Groups.Count > 1)
-                {
-                    string captured = match.Groups[1].Value;
-                    return urlTemplate.Replace("*", captured);
-                }
-            }
-            else if (filePath == pattern)
-            {
-                return urlTemplate;
-            }
-        }
-
-        return null;
-    }
+        => _slfResolver.ResolveUrl(filePath);
 
     /// <summary>
     /// Converts a raw.githubusercontent.com URL to a github.com browse URL.
     /// </summary>
     private static string? ConvertToGitHubBrowseUrl(string? rawUrl)
-    {
-        if (rawUrl == null) return null;
+        => SLF.SourceLinkResolver.ConvertToGitHubBrowseUrl(rawUrl);
 
-        var match = Regex.Match(rawUrl,
-            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
-        if (match.Success)
-            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}/raw/{match.Groups[3].Value}/{match.Groups[4].Value}";
-
-        return rawUrl;
-    }
-
-    private static string? ExtractSourceLinkFromReader(MetadataReader reader)
-    {
-        foreach (CustomDebugInformationHandle handle in reader.CustomDebugInformation)
-        {
-            CustomDebugInformation info = reader.GetCustomDebugInformation(handle);
-            Guid kind = reader.GetGuid(info.Kind);
-
-            if (kind == SourceLinkGuid)
-            {
-                byte[] bytes = reader.GetBlobBytes(info.Value);
-                return System.Text.Encoding.UTF8.GetString(bytes);
-            }
-        }
-
-        return null;
-    }
-
-    private static Dictionary<string, string> ParseSourceLinkMappings(string sourceLinkJson)
-    {
-        Dictionary<string, string> mappings = [];
-
-        try
-        {
-            using var doc = JsonDocument.Parse(sourceLinkJson);
-            if (doc.RootElement.TryGetProperty("documents", out var documents))
-            {
-                foreach (var prop in documents.EnumerateObject())
-                {
-                    string? url = prop.Value.GetString();
-                    if (url != null)
-                    {
-                        mappings[prop.Name] = url;
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Return empty mappings on parse error
-        }
-
-        return mappings;
-    }
 }

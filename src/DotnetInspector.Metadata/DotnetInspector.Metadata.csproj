@@ -23,6 +23,10 @@
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="SourceLinkFetch" Version="0.1.0" />
+  </ItemGroup>
+
   <!-- System.Reflection.Metadata is part of net10.0 BCL -->
 
 </Project>
