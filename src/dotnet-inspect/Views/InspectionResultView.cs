@@ -193,6 +193,21 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.Files)]
     public List<string>? Files => _data.Files;
 
+    [MarkoutSection(Name = PackageSections.Signing)]
+    public SigningSection? SigningSectionData => _data.SignatureResult is { } sig
+        ? new SigningSection
+        {
+            Signed = _data.Signed == true ? "Yes" : sig.IsUnsigned ? "No" : "Unknown",
+            Publisher = !string.IsNullOrEmpty(sig.Publisher)
+                ? $"{sig.Publisher}{(sig.AuthorVerified ? " (Verified)" : "")}"
+                : null,
+            AuthorVerified = sig.AuthorVerified ? "Yes" : sig.IsUnsigned ? "No" : null,
+            RepositoryVerified = sig.RepositoryVerified ? "Yes" : null,
+            Repository = sig.Repository,
+            Status = sig.StatusMessage,
+        }
+        : null;
+
     private List<MarkoutField> GetCompactFields()
     {
         List<MarkoutField> fields = [];
@@ -248,6 +263,9 @@ public class InspectionResultView
         if (_data.IsVerified == true)
             fields.Add(new("Verified", "Yes"));
 
+        if (_data.Signed.HasValue)
+            fields.Add(new("Signed", _data.Signed.Value ? "Yes" : "No"));
+
         if (_data.ContentDirectories is { Count: > 0 })
             fields.Add(new("Content", string.Join(", ", _data.ContentDirectories)));
         if (TargetFrameworkCount > 0)
@@ -274,4 +292,16 @@ public class InspectionResultView
         return fields;
     }
 
+}
+
+public class SigningSection
+{
+    public string Signed { get; init; } = "Unknown";
+    public string? Publisher { get; init; }
+    [MarkoutPropertyName("Author Verified")]
+    public string? AuthorVerified { get; init; }
+    [MarkoutPropertyName("Repository Verified")]
+    public string? RepositoryVerified { get; init; }
+    public string? Repository { get; init; }
+    public string? Status { get; init; }
 }

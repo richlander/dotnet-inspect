@@ -3,6 +3,7 @@ using DotnetInspector.Packages;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
+using SignatureVerificationResult = DotnetInspector.Services.SignatureVerificationResult;
 
 namespace DotnetInspector.Models;
 
@@ -144,4 +145,21 @@ public class InspectionResult
     /// List of files in the package (DLLs from lib/tools, or all files with --all).
     /// </summary>
     public List<string>? Files { get; set; }
+
+    /// <summary>
+    /// Result of NuGet package signature verification.
+    /// </summary>
+    public SignatureVerificationResult? SignatureResult { get; set; }
+
+    /// <summary>
+    /// Whether the package has a valid signature (author or repository).
+    /// </summary>
+    [JsonIgnore]
+    public bool? Signed => SignatureResult switch
+    {
+        null => null,
+        { IsUnsigned: true } => false,
+        { AuthorVerified: true } or { RepositoryVerified: true } => true,
+        _ => false
+    };
 }
