@@ -515,7 +515,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(8, pipeline.AllSectionNames.Length);
+        Assert.Equal(9, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -723,7 +723,8 @@ public class SectionPipelineTests
             Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }],
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Dep2", Version = "2.0" }],
-            Files = ["lib/net8.0/test.dll"]
+            Files = ["lib/net8.0/test.dll"],
+            SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" }
         };
 
         // At Detailed with all data populated, all 7 sections render
