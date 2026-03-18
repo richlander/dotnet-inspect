@@ -17,6 +17,7 @@ public static class PackageSectionDescriptors
             .Add<Summary>()
             .Add<PackageInfo>()
             .Add<Statistics>()
+            .Add<Signing>()
             .Add<PackageDependencies>()
             .Add<Vulnerabilities>()
             .Add<RidPackages>()
@@ -51,6 +52,15 @@ public static class PackageSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.TotalDownloads != null;
+    }
+
+    public sealed class Signing : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.Signing;
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.SignatureResult != null;
     }
 
     public sealed class Vulnerabilities : ISectionDescriptor<InspectionResult>

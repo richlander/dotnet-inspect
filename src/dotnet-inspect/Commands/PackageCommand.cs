@@ -255,6 +255,13 @@ public class PackageCommand
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
+            // Verify package signature if nupkg is available
+            if (resolution.NupkgPath != null && options.Verbosity >= Verbosity.Normal)
+            {
+                logger.Log($"Verifying package signature: {Path.GetFileName(resolution.NupkgPath)}");
+                result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
+            }
+
             result.Source = isLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             // Filter output based on options

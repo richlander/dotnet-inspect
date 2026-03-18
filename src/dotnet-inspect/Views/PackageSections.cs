@@ -14,4 +14,5 @@ public static class PackageSections
     public const string Vulnerabilities = "Vulnerabilities";
     public const string RidPackages = "RID Packages";
     public const string RuntimeDependencies = "Runtime Dependencies";
+    public const string Signing = "Signing";
 }
