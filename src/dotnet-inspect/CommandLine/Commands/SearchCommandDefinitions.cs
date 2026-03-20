@@ -50,6 +50,7 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
@@ -145,6 +146,7 @@ public static class SearchCommandDefinitions
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 

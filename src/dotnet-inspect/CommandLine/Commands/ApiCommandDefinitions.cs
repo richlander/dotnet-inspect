@@ -60,6 +60,7 @@ public static class ApiCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var memberOption = new Option<string[]>("-m")
@@ -164,6 +165,7 @@ public static class ApiCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };

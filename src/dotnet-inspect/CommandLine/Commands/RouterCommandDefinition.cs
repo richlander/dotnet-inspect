@@ -34,6 +34,7 @@ public static class RouterCommandDefinition
 
         var routerOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var routerNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        routerNoHeaderOption.Aliases.Add("--nh");
         routerCommand.Options.Add(routerOneLineOption);
         routerCommand.Options.Add(routerNoHeaderOption);
 

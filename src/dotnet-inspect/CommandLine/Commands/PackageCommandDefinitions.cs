@@ -41,6 +41,7 @@ public static class PackageCommandDefinitions
         var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest version from nuget.org" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
 
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
