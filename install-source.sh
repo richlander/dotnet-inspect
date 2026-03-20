@@ -1,9 +1,10 @@
 #!/bin/sh
-# Install script for dotnet-inspect.
-# Usage: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/richlander/dotnet-inspect/main/install.sh | sh
+# Install dotnet-inspect from local source (developer workflow).
+# Usage: ./install-source.sh
 #
-# Installs dotnet-inspect using dotnet-install. If dotnet-install is
-# not available, it is installed first via `dotnet tool install -g`.
+# Installs dotnet-inspect from the local source tree using
+# dotnet-install. If dotnet-install is not available, it is
+# installed first via `dotnet tool install -g`.
 #
 # Requires the .NET SDK.
 #
@@ -12,11 +13,13 @@
 
 set -eu
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 main() {
     ensure_dotnet_install
 
-    say "installing dotnet-inspect..."
-    ensure dotnet-install --package dotnet-inspect
+    say "installing dotnet-inspect from source..."
+    ensure dotnet-install "$SCRIPT_DIR/src/dotnet-inspect"
 
     say "done"
 }
