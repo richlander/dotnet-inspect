@@ -31,7 +31,7 @@
   -->
   <!-- PackageReference: releases -->
   <ItemGroup>
-    <PackageReference Include="MarkdownTable.Formatting" Version="0.3.1" />
+    <PackageReference Include="MarkdownTable.Formatting" />
   </ItemGroup>
 
 </Project>

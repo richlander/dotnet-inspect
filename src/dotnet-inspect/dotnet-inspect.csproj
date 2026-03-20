@@ -68,13 +68,13 @@
   -->
   <!-- PackageReference: Use for releases after new Markout version is published -->
   <ItemGroup>
-    <PackageReference Include="Markout" Version="0.10.0" />
-    <PackageReference Include="MarkdownTable.Formatting" Version="0.3.1" />
+    <PackageReference Include="Markout" />
+    <PackageReference Include="MarkdownTable.Formatting" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="NuGet.Versioning" Version="7.0.1" />
-    <PackageReference Include="System.CommandLine" Version="2.0.2" />
+    <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
 </Project>

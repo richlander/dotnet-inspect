@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="SourceLinkFetch" Version="0.1.0" />
+    <PackageReference Include="SourceLinkFetch" />
   </ItemGroup>
 
   <!-- System.Reflection.Metadata is part of net10.0 BCL -->
