@@ -1,0 +1,7 @@
+{
+  "exe": "dotnet-inspect",
+  "update": {
+    "type": "nuget",
+    "package": "dotnet-inspect"
+  }
+}
