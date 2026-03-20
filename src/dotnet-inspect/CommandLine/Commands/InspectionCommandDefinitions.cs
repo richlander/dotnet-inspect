@@ -43,6 +43,7 @@ public static class InspectionCommandDefinitions
         typeFilterOption.Aliases.Add("--type");
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
@@ -119,6 +120,8 @@ public static class InspectionCommandDefinitions
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
+        var asmNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        asmNoHeaderOption.Aliases.Add("--nh");
 
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -128,6 +131,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(asmNoHeaderOption);
         opts.AddAllOptionsTo(assemblyCommand);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
@@ -183,6 +187,7 @@ public static class InspectionCommandDefinitions
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
+                NoHeader = parseResult.GetValue(asmNoHeaderOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

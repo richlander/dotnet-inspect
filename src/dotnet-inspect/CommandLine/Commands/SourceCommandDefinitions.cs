@@ -40,6 +40,7 @@ public static class SourceCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
+        noHeaderOption.Aliases.Add("--nh");
 
         sourceCommand.Arguments.Add(argsArg);
         sourceCommand.Options.Add(packageOption);

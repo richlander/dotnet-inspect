@@ -249,6 +249,7 @@ public static class RouterOptionsParser
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
+            NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Effective = parseResult.GetValue(opts.Effective),
         };
     }

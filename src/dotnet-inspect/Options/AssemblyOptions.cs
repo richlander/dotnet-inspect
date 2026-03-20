@@ -68,6 +68,11 @@ public record AssemblyOptions
     public bool OneLine { get; init; }
 
     /// <summary>
+    /// Suppress column headers (use with --oneline).
+    /// </summary>
+    public bool NoHeader { get; init; }
+
+    /// <summary>
     /// True when --oneline was explicitly passed (not just the default format).
     /// </summary>
     public bool OneLineExplicitlySet { get; init; }

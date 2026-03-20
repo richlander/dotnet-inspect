@@ -109,7 +109,7 @@ public static class OutputFormatter
         }
         else
         {
-            MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(), InspectionContext.Default, writerOpts);
+            MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
         }
     }
 
@@ -150,7 +150,7 @@ public static class OutputFormatter
                     IncludeSections = includeSections,
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
-                MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(), InspectionContext.Default, writerOpts);
+                MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
             }
         }
     }
