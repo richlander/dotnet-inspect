@@ -188,16 +188,16 @@ public class SharedOptions
 
     /// <summary>
     /// Resolves the output format from parse result.
-    /// Precedence: explicit CLI flags (--json, --markdown, -v:*) → DOTNET_INSPECT_FORMAT env → default (OneLine).
+    /// Precedence: explicit CLI flags (--json, --markdown, -v:*) → DOTNET_INSPECT_FORMAT env → <paramref name="defaultFormat"/>.
     /// </summary>
-    public OutputFormat ResolveFormat(ParseResult parseResult)
+    public OutputFormat ResolveFormat(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         bool jsonFlag = parseResult.GetValue(Json);
         bool markdownFlag = parseResult.GetValue(Markdown);
         bool plainTextFlag = parseResult.GetValue(PlainText);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag);
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, defaultFormat);
     }
 
     /// <summary>
@@ -205,7 +205,7 @@ public class SharedOptions
     /// Explicit --oneline always wins; otherwise derived from ResolveFormat.
     /// Throws if --oneline is combined with -v (contradictory: -v implies markdown).
     /// </summary>
-    public bool ResolveOneLine(ParseResult parseResult, Option<bool> oneLineOption)
+    public bool ResolveOneLine(ParseResult parseResult, Option<bool> oneLineOption, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         bool explicitOneLine = parseResult.GetResult(oneLineOption) is { Implicit: false };
         bool explicitVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
@@ -220,7 +220,22 @@ public class SharedOptions
         if (explicitOneLine)
             return parseResult.GetValue(oneLineOption);
 
-        return ResolveFormat(parseResult) == OutputFormat.OneLine;
+        return ResolveFormat(parseResult, defaultFormat) == OutputFormat.OneLine;
+    }
+
+    /// <summary>
+    /// Returns true when the user explicitly chose an output format via CLI flags
+    /// (--json, --markdown, --plain-text, --oneline, or -v).
+    /// When false, commands are free to apply their own default format.
+    /// </summary>
+    public bool IsFormatExplicitlySet(ParseResult parseResult, Option<bool>? oneLineOption = null)
+    {
+        if (oneLineOption != null && parseResult.GetResult(oneLineOption) is { Implicit: false }) return true;
+        if (parseResult.GetResult(Json) is { Implicit: false }) return true;
+        if (parseResult.GetResult(Markdown) is { Implicit: false }) return true;
+        if (parseResult.GetResult(PlainText) is { Implicit: false }) return true;
+        if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
+        return false;
     }
 
     /// <summary>

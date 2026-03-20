@@ -130,6 +130,11 @@ public record InspectionOptions
     public bool OneLineExplicitlySet { get; init; }
 
     /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// </summary>
+    public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
     /// Suppress column headers (use with --oneline).
     /// </summary>
     public bool NoHeader { get; init; }
