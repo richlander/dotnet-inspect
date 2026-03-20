@@ -43,6 +43,13 @@ public record ApiOptions
     public bool OneLine { get; init; }
     public bool OneLineExplicitlySet { get; init; }
     public bool PlainText { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// When false, commands are free to apply their own default format (e.g., shape/tree).
+    /// </summary>
+    public bool FormatExplicitlySet { get; init; }
+
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }
     public HashSet<string> MemberFilter { get; init; } = [];
@@ -90,7 +97,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
     /// </summary>
-    public bool IsDefaultInvocation => OneLine && !JsonOutput && !OneLineExplicitlySet;
+    public bool IsDefaultInvocation => !FormatExplicitlySet && !ShapeExplicitlySet;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

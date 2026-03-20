@@ -38,9 +38,9 @@ public static class OutputFormatResolver
 
     /// <summary>
     /// Resolves format. Any -v flag implies Markdown. --json implies Json. --markdown implies Markdown.
-    /// OneLine is the default when no -v flag is specified.
+    /// Commands may supply a <paramref name="defaultFormat"/> to override the global default (Markdown).
     /// </summary>
-    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity, bool plainTextFlag = false)
+    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity, bool plainTextFlag = false, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         // Explicit CLI flags win
         if (jsonFlag)
@@ -56,8 +56,8 @@ public static class OutputFormatResolver
         if (GetEnvOverride() is OutputFormat envFormat)
             return envFormat;
 
-        // Default
-        return OutputFormat.Markdown;
+        // Command-specific or global default
+        return defaultFormat;
     }
 
     /// <summary>

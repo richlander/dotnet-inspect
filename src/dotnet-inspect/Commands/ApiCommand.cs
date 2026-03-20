@@ -38,6 +38,7 @@ public class ApiCommand
             BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
             OneLine = options.OneLine, OneLineExplicitlySet = options.OneLineExplicitlySet,
+            FormatExplicitlySet = options.FormatExplicitlySet,
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,

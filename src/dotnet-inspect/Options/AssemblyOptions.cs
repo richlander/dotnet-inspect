@@ -73,6 +73,11 @@ public record AssemblyOptions
     public bool OneLineExplicitlySet { get; init; }
 
     /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// </summary>
+    public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
     /// Resolved output format.
     /// </summary>
     public OutputFormat Format { get; init; }
