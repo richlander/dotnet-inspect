@@ -483,3 +483,4 @@ $RECYCLE.BIN/
 *.nettrace
 *.speedscope.json
 docs/field-parser.md
+.claude/worktrees/

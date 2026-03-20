@@ -15,11 +15,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
-    <PackageReference Include="NuGetFetch" Version="0.5.0" />
+    <PackageReference Include="NuGetFetch" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.4" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
 </Project>

@@ -194,6 +194,92 @@ internal static class ApiServices
         }
     }
 
+    // ===== Merged API Extraction (multi-library packages) =====
+
+    /// <summary>
+    /// Extracts and merges API surfaces from ALL DLLs in a package at the highest TFM.
+    /// Used by diff to compare multi-library packages.
+    /// </summary>
+    internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractMergedApiSurfaceAsync(ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    {
+        string? tempDir = null;
+        try
+        {
+            if (string.IsNullOrEmpty(options.PackagePath))
+                return (null, null);
+
+            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
+            if (!outcome.IsSuccess)
+            {
+                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                return (null, null);
+            }
+            var extracted = outcome.Result!;
+            var (searchPath, packageName) = (extracted.ExtractPath, extracted.PackageName);
+            tempDir = extracted.TempDir;
+
+            var dlls = TfmSelector.GetPackageDlls(searchPath);
+            if (dlls.Count == 0)
+                return (null, null);
+
+            // Single DLL — fast path
+            if (dlls.Count == 1)
+                return await ExtractApiSurfaceAsync(options, logger, httpClient);
+
+            var (tfmDlls, selectedTfm) = TfmSelector.SelectHighestTfmAssemblies(dlls, searchPath);
+            if (tfmDlls.Count == 0)
+                return (null, null);
+
+            // Single DLL at this TFM — fast path
+            if (tfmDlls.Count == 1)
+            {
+                var singleApi = AssemblyReader.ExtractApiSurface(tfmDlls[0], options.IncludeAll);
+                if (singleApi != null)
+                {
+                    singleApi.Name = packageName ?? Path.GetFileNameWithoutExtension(tfmDlls[0]);
+                    singleApi.Tfm = selectedTfm;
+                }
+                return (singleApi, selectedTfm);
+            }
+
+            // Multiple DLLs — merge all API surfaces
+            logger.Log($"Merging API surfaces from {tfmDlls.Count} libraries at {selectedTfm}");
+
+            var merged = new ApiSurface
+            {
+                Name = packageName,
+                Tfm = selectedTfm
+            };
+
+            foreach (var dll in tfmDlls)
+            {
+                var surface = AssemblyReader.ExtractApiSurface(dll, options.IncludeAll);
+                if (surface == null)
+                    continue;
+
+                var libName = Path.GetFileNameWithoutExtension(dll);
+                logger.Log($"  + {libName}: {surface.PublicTypeCount} types");
+
+                merged.Types.AddRange(surface.Types);
+                merged.PublicTypeCount += surface.PublicTypeCount;
+                merged.PublicMethodCount += surface.PublicMethodCount;
+                merged.PublicPropertyCount += surface.PublicPropertyCount;
+                merged.PublicEventCount += surface.PublicEventCount;
+                merged.PublicFieldCount += surface.PublicFieldCount;
+            }
+
+            merged.Types = merged.Types.OrderBy(t => t.FullName).ToList();
+            return (merged, selectedTfm);
+        }
+        finally
+        {
+            if (tempDir != null && Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+    }
+
     // ===== Type Lookup =====
 
     internal static (ApiType? type, string? assembly, string? dllPath, ApiSurface? surface) FindType(string typeName, string searchPath, VerboseLogger logger, bool includeAll)
@@ -241,10 +327,21 @@ internal static class ApiServices
         }
         else if (Directory.Exists(searchPath))
         {
-            var libDir = Path.Combine(searchPath, "lib");
-            if (Directory.Exists(libDir))
+            // Check ref/ (ref packages) then lib/
+            string? contentDir = null;
+            foreach (var subdir in new[] { "ref", "lib" })
             {
-                var dlls = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories).ToList();
+                var candidate = Path.Combine(searchPath, subdir);
+                if (Directory.Exists(candidate))
+                {
+                    contentDir = candidate;
+                    break;
+                }
+            }
+
+            if (contentDir != null)
+            {
+                var dlls = Directory.GetFiles(contentDir, "*.dll", SearchOption.AllDirectories).ToList();
                 var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath);
                 dllFile = selectedPath;
                 if (selectedTfm != null)

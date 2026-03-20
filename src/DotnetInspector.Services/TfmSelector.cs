@@ -11,12 +11,19 @@ public static class TfmSelector
     public static List<string> GetPackageDlls(string extractPath)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
+        var refDir = Path.Combine(extractPath, "ref");
         var libDir = Path.Combine(extractPath, "lib");
 
         string[] candidates = [];
         if (Directory.Exists(toolsDir))
         {
             candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
+        }
+
+        // Ref packages (e.g. Microsoft.NETCore.App.Ref) put assemblies in ref/
+        if (candidates.Length == 0 && Directory.Exists(refDir))
+        {
+            candidates = Directory.GetFiles(refDir, "*.dll", SearchOption.AllDirectories);
         }
 
         if (candidates.Length == 0 && Directory.Exists(libDir))
@@ -83,28 +90,68 @@ public static class TfmSelector
         return (directDll ?? assemblies[0], highestTfm);
     }
 
+    /// <summary>
+    /// Returns ALL assemblies at the highest TFM (for multi-library packages).
+    /// Filters out resource assemblies.
+    /// </summary>
+    public static (List<string> paths, string? tfm) SelectHighestTfmAssemblies(List<string> dlls, string extractPath)
+    {
+        dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var byTfm = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dll in dlls)
+        {
+            var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
+            var tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            if (tfm != null)
+            {
+                if (!byTfm.TryGetValue(tfm, out var list))
+                {
+                    list = [];
+                    byTfm[tfm] = list;
+                }
+                list.Add(dll);
+            }
+        }
+
+        if (byTfm.Count == 0)
+            return ([], null);
+
+        var highestTfm = byTfm.Keys
+            .Select(tfm => (tfm, priority: TfmResolver.GetTfmPriority(tfm)))
+            .OrderByDescending(x => x.priority)
+            .First().tfm;
+
+        return (byTfm[highestTfm], highestTfm);
+    }
+
     public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)
     {
+        var refDir = Path.Combine(extractPath, "ref");
         var libDir = Path.Combine(extractPath, "lib");
         var toolsDir = Path.Combine(extractPath, "tools");
 
-        if (Directory.Exists(libDir))
+        // Check ref/ first (ref packages), then lib/
+        foreach (var dir in new[] { refDir, libDir })
         {
-            var tfmDir = Path.Combine(libDir, tfm);
-            if (Directory.Exists(tfmDir))
+            if (Directory.Exists(dir))
             {
-                var dlls = Directory.GetFiles(tfmDir, "*.dll");
-                if (dlls.Length > 0)
+                var tfmDir = Path.Combine(dir, tfm);
+                if (Directory.Exists(tfmDir))
                 {
-                    // Prefer assembly matching the package name
-                    if (packageName != null)
+                    var dlls = Directory.GetFiles(tfmDir, "*.dll");
+                    if (dlls.Length > 0)
                     {
-                        var match = dlls.FirstOrDefault(d =>
-                            Path.GetFileNameWithoutExtension(d).Equals(packageName, StringComparison.OrdinalIgnoreCase));
-                        if (match != null)
-                            return match;
+                        if (packageName != null)
+                        {
+                            var match = dlls.FirstOrDefault(d =>
+                                Path.GetFileNameWithoutExtension(d).Equals(packageName, StringComparison.OrdinalIgnoreCase));
+                            if (match != null)
+                                return match;
+                        }
+                        return dlls[0];
                     }
-                    return dlls[0];
                 }
             }
         }

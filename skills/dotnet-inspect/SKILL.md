@@ -11,6 +11,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 ## Quick Decision Tree
 
 - **Code broken?** → `diff --package Foo@old..new` first, then `member`
+- **What's new in a .NET preview?** → `diff --platform System.Runtime@P2..P3 --additive` per framework library
 - **What types exist?** → `type --package Foo` (discover types in a package or library)
 - **What members does a type have?** → `member Type --package Foo` (compact table by default)
 - **What does a type look like?** → `type Type --package Foo` (tree view for single type)
@@ -30,6 +31,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What types are in this package?"** — `type` discovers types, `find` searches by pattern
 - **"What members does this type have?"** — `member` for methods/properties/events (docs on by default)
 - **"What changed between versions?"** — `diff` classifies breaking/additive changes
+- **"What new APIs shipped in this preview?"** — `diff --platform System.Runtime@prev..current --additive` per framework library
 - **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
 - **"What extends this type?"** — `extensions` finds extension methods/properties (`--reachable` for transitive)
 - **"What implements this interface?"** — `implements` finds concrete types
@@ -67,6 +69,27 @@ Use `diff` first when fixing broken code — triage changes, then drill into spe
 ```bash
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
 dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3               # new API surface
+```
+
+## Platform Diffs & Release Notes
+
+For framework libraries (System.*, Microsoft.AspNetCore.*), use `--platform` instead of `--package`. This is the primary workflow for .NET release notes — diff each framework library between preview versions:
+
+```bash
+dnx dotnet-inspect -y -- diff --platform System.Runtime@P2..P3 --additive        # what's new?
+dnx dotnet-inspect -y -- diff --platform System.Net.Http@P2..P3 --additive       # per-library
+dnx dotnet-inspect -y -- diff --platform System.Text.Json@9.0.0..10.0.0          # across major versions
+```
+
+**Multi-library packages:** `diff --package` works across all libraries in a package (e.g., `Microsoft.Azure.SignalR` with multiple DLLs). For framework ref packages like `Microsoft.NETCore.App.Ref`, prefer `--platform` per-library since it resolves from installed packs.
+
+**Nightly/preview packages from custom feeds:** The `--source` flag works for version listing but not package downloads. Pre-populate the NuGet cache instead:
+
+```bash
+# Pre-populate cache (fails with NU1213 but downloads the package)
+dotnet add package Microsoft.NETCore.App.Ref --version <version> --source <feed-url>
+# Then use normally — resolves from NuGet cache
+dnx dotnet-inspect -y -- diff --platform System.Runtime@P2..P3 --additive
 ```
 
 ## Version Resolution (Docker-style)

@@ -139,8 +139,8 @@ public class DiffCommand
             Verbose = options.Verbose
         };
 
-        var (fromSurface, _) = await ApiServices.ExtractApiSurfaceAsync(fromOptions, logger, httpClient);
-        var (toSurface, _) = await ApiServices.ExtractApiSurfaceAsync(toOptions, logger, httpClient);
+        var (fromSurface, _) = await ApiServices.ExtractMergedApiSurfaceAsync(fromOptions, logger, httpClient);
+        var (toSurface, _) = await ApiServices.ExtractMergedApiSurfaceAsync(toOptions, logger, httpClient);
 
         if (fromSurface == null || toSurface == null)
         {
