@@ -109,6 +109,9 @@ public static class CommandLineBuilder
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
 
+        // Completion command (shell completion scripts)
+        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCompletionCommand());
+
         // Perf command (hidden, for profiling various code paths)
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreatePerfCommand());
 

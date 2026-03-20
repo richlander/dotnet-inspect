@@ -74,6 +74,7 @@
 
   <ItemGroup>
     <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="ShellComplete" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 

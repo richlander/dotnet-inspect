@@ -107,6 +107,18 @@ public static class UtilityCommandDefinitions
         return skillCommand;
     }
 
+    public static Command CreateCompletionCommand()
+    {
+        var completionCommand = new Command("completion", "Generate shell completion script");
+        var shellArg = new Argument<string>("shell") { Description = "Shell type (bash, zsh, fish, powershell)" };
+        completionCommand.Arguments.Add(shellArg);
+        completionCommand.SetAction((parseResult) =>
+        {
+            return CompletionCommand.Run(parseResult.GetValue(shellArg)!);
+        });
+        return completionCommand;
+    }
+
     public static Command CreatePerfCommand()
     {
         var perfCommand = new Command(PerfCommand.Name, "Run operations in a loop for profiling") { Hidden = true };
