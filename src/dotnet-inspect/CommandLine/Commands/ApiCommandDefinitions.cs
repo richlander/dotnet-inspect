@@ -109,7 +109,7 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case TypeOptionsParser.Discovery d:
-                    var typeSchemaMap = MarkoutContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+                    var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree);
 
                 case TypeOptionsParser.ShowHelp:
@@ -215,7 +215,7 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case MemberOptionsParser.Discovery d:
-                    var memberSchemaMap = MarkoutContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+                    var memberSchemaMap = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
                     return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree);
 
                 case MemberOptionsParser.ShowHelp:

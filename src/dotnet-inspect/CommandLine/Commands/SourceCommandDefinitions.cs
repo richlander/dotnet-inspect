@@ -76,7 +76,7 @@ public static class SourceCommandDefinitions
             switch (result)
             {
                 case SourceOptionsParser.Discovery d:
-                    var schemaMap = MarkoutContext.Default.GetSchemaInfo<SourceListView>()!.ToDocumentSchema();
+                    var schemaMap = SourceViewContext.Default.GetSchemaInfo<SourceListView>()!.ToDocumentSchema();
                     return DiscoverOutput.Execute(d.Discover, schemaMap, tree: d.Tree);
 
                 case SourceOptionsParser.ShowHelp:

@@ -44,3 +44,12 @@ public class DiffFullView
 public record DiffChangeRow(
     [property: MarkoutIgnore] string TypeName,
     string Message);
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(DiffOneLineView))]
+[MarkoutContext(typeof(DiffOneLineRow))]
+[MarkoutContext(typeof(DiffFullView))]
+[MarkoutContext(typeof(DiffChangeRow))]
+public partial class DiffViewContext : MarkoutSerializerContext
+{
+}

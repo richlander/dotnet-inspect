@@ -435,3 +435,26 @@ public class MemberCodeView
 public partial class TypeViewContext : MarkoutSerializerContext
 {
 }
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(CliApiSurface))]
+[MarkoutContext(typeof(TypeView))]
+[MarkoutContext(typeof(MemberCodeView))]
+[MarkoutContext(typeof(TypeSummaryRow))]
+[MarkoutContext(typeof(ForwarderSummaryRow))]
+[MarkoutContext(typeof(MemberRow))]
+[MarkoutContext(typeof(MethodAttributeRow))]
+[MarkoutContext(typeof(ConstructorOverloadView))]
+[MarkoutContext(typeof(ConstructorParameterRow))]
+[MarkoutContext(typeof(EnumValueRow))]
+[MarkoutContext(typeof(TypeParameterRow))]
+[MarkoutContext(typeof(InterfaceRow))]
+[MarkoutContext(typeof(BaseclassRow))]
+[MarkoutContext(typeof(ApiTypeOneLineView))]
+[MarkoutContext(typeof(ApiOneLineRow))]
+[MarkoutContext(typeof(ApiSurfaceOneLineView))]
+[MarkoutContext(typeof(ApiSurfaceOneLineRow))]
+[MarkoutContext(typeof(SampleRow))]
+public partial class ApiViewContext : MarkoutSerializerContext
+{
+}

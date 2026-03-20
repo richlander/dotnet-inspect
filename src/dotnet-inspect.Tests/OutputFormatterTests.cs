@@ -139,15 +139,13 @@ public class OutputFormatterTests
 
     private static string Serialize(LibraryInspectionReport report)
     {
-        var context = new MarkoutContext();
-        return context.Serialize(report).TrimEnd();
+        return MarkoutSerializer.Serialize(report, InspectionContext.Default).TrimEnd();
     }
 
     private static string Serialize(LibraryInspection inspection, bool topFieldsOnly = false)
     {
         var view = new LibraryInspectionView(inspection, topFieldsOnly);
-        var context = new MarkoutContext();
-        return context.Serialize(view).TrimEnd();
+        return MarkoutSerializer.Serialize(view, InspectionContext.Default).TrimEnd();
     }
 
     // ===== API Output Formatter Tests =====
@@ -245,7 +243,7 @@ public class OutputFormatterTests
         var view = ApiOutputFormatter.BuildTypeView(type, "TestLib", "TestLib", "1.0.0", "NuGet", "net10.0", options);
         var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
         var writer = new MarkoutWriter(new MarkdownFormatter(), writerOptions);
-        new MarkoutContext().Serialize(view, writer);
+        ApiViewContext.Default.Serialize(view, writer);
         var output = writer.ToString().TrimEnd();
 
         Assert.Contains("Source: NuGet", output);
@@ -267,7 +265,7 @@ public class OutputFormatterTests
         var view = ApiOutputFormatter.BuildTypeView(type, "TestLib", null, null, null, null, options);
         var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
         var writer = new MarkoutWriter(new MarkdownFormatter(), writerOptions);
-        new MarkoutContext().Serialize(view, writer);
+        ApiViewContext.Default.Serialize(view, writer);
         var output = writer.ToString().TrimEnd();
 
         Assert.DoesNotContain("Source:", output);
@@ -299,12 +297,11 @@ public class OutputFormatterTests
     {
         var result = CreateTestPackageResult();
         var view = new InspectionResultView(result);
-        var context = new MarkoutContext(new MarkoutWriterOptions
+        var output = MarkoutSerializer.Serialize(view, InspectionContext.Default, new MarkoutWriterOptions
         {
             IncludeSections = [PackageSections.Summary],
             IncludeDescription = false
-        });
-        var output = context.Serialize(view).TrimEnd();
+        }).TrimEnd();
         var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.None);
 
         Assert.Equal(3, lines.Length);
@@ -335,7 +332,7 @@ public class OutputFormatterTests
         var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);
         var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
         var writer = new MarkoutWriter(new MarkdownFormatter(), writerOptions);
-        new MarkoutContext().Serialize(view, writer);
+        ApiViewContext.Default.Serialize(view, writer);
         if (truncatedCount > 0)
             writer.WriteParagraph($"... *and {truncatedCount} more types*");
         return writer.ToString().TrimEnd();
@@ -344,11 +341,10 @@ public class OutputFormatterTests
     private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections, bool topFieldsOnly = false)
     {
         var view = new LibraryInspectionView(inspection, topFieldsOnly);
-        var context = new MarkoutContext(new MarkoutWriterOptions
+        return MarkoutSerializer.Serialize(view, InspectionContext.Default, new MarkoutWriterOptions
         {
             IncludeSections = includeSections
-        });
-        return context.Serialize(view).TrimEnd();
+        }).TrimEnd();
     }
 
     private static InspectionResult CreateTestPackageResult()

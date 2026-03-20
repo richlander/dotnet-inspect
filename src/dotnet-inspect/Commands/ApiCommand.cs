@@ -63,8 +63,8 @@ public class ApiCommand
         if (options.Discover != null)
         {
             // Combine type-list and member-detail schema maps
-            var typeSchemaMap = MarkoutContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            var memberSchemaMap = MarkoutContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+            var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            var memberSchemaMap = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
             // Use combined section names for discovery
             return (null!, DiscoverOutput.Execute(options.Discover, typeSchemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
@@ -384,12 +384,12 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+            MarkoutSerializer.Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), ApiViewContext.Default, writerOpts);
         }
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            new MarkoutContext().Serialize(view, Console.Out, options.CreateFormatter(), writerOptions);
+            MarkoutSerializer.Serialize(view, Console.Out, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
         }
     }
 
@@ -563,16 +563,16 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            new MarkoutContext().Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+            MarkoutSerializer.Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), ApiViewContext.Default, writerOpts);
         }
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var writer = new Markout.MarkoutWriter(Console.Out, options.CreateFormatter(), writerOptions);
-            new MarkoutContext().Serialize(view, writer);
+            ApiViewContext.Default.Serialize(view, writer);
 
             if (view.MemberCode != null)
-                new MarkoutContext().Serialize(view.MemberCode, writer);
+                ApiViewContext.Default.Serialize(view.MemberCode, writer);
 
             writer.Flush();
         }

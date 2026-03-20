@@ -38,3 +38,15 @@ public record FindRow(
     string Source,
     string Match,
     string Sim);
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(FindResultView))]
+[MarkoutContext(typeof(FindRow))]
+[MarkoutContext(typeof(ImplementsResultView))]
+[MarkoutContext(typeof(ImplementerRow))]
+[MarkoutContext(typeof(ExtensionsResultView))]
+[MarkoutContext(typeof(ExtensionCountRow))]
+[MarkoutContext(typeof(ExtensionRow))]
+public partial class SearchViewContext : MarkoutSerializerContext
+{
+}

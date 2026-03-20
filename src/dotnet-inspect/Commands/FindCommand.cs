@@ -88,11 +88,11 @@ public class FindCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+            MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), SearchViewContext.Default, writerOpts);
         }
         else
         {
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            Console.WriteLine(MarkoutSerializer.Serialize(view, SearchViewContext.Default));
         }
     }
 }

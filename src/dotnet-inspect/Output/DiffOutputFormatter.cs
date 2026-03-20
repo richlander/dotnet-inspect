@@ -100,7 +100,7 @@ public static class DiffOutputFormatter
     {
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
         var writer = new MarkoutWriter(new MarkdownFormatter());
-        new MarkoutContext().Serialize(view, writer);
+        DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
 

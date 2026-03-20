@@ -31,7 +31,7 @@ public class PackageCommand
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null && !options.Effective)
         {
-            var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+            var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
                 verbosity: (int)options.Verbosity);
@@ -60,7 +60,7 @@ public class PackageCommand
         // Pre-render validation: check --fields/--columns names against the section schema
         if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
         {
-            var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+            var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             foreach (var section in options.IncludeSections)
                 ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
         }
@@ -271,7 +271,7 @@ public class PackageCommand
             if (effectiveDiscovery)
             {
                 var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections);
-                var schemaMap = MarkoutContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+                var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
 
                 // Field-level filtering: detect which fields produced output
                 // For bare -D, target all effective sections; for -D SectionName, target specific ones
@@ -288,7 +288,7 @@ public class PackageCommand
                     if (targetSections.Count > 0)
                     {
                         var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
-                        var rendered = new MarkoutContext(writerOpts).Serialize(view);
+                        var rendered = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOpts);
                         schemaMap = FilterSchemaToEffectiveFields(effective, schemaMap, rendered);
                     }
                 }
@@ -324,7 +324,7 @@ public class PackageCommand
                     var sw = new StringWriter();
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
-                    new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+                    MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
                     var rendered = sw.ToString();
                     ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
                     Console.Out.Write(rendered);
@@ -626,7 +626,7 @@ public class PackageCommand
                 Title = $"{result.PackageName} ({result.Version})",
                 Description = $"No additional dependencies for {tfm}."
             };
-            Console.WriteLine(new MarkoutContext().Serialize(emptyView));
+            Console.WriteLine(MarkoutSerializer.Serialize(emptyView, InspectionContext.Default));
             return 0;
         }
 

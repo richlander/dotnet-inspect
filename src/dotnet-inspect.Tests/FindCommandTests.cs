@@ -28,7 +28,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
+        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: false), SearchViewContext.Default);
         var lines = sw.ToString().TrimEnd().Split(Environment.NewLine);
 
         Assert.Equal(3, lines.Length);
@@ -42,7 +42,7 @@ public class FindCommandTests
     {
         var view = FindOutputFormatter.BuildView([]);
         var sw = new StringWriter();
-        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
+        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: false), SearchViewContext.Default);
 
         // OneLineFormatter doesn't support paragraphs (no IBlockFormatter),
         // so the description is not rendered
@@ -97,7 +97,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: true));
+        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: true), SearchViewContext.Default);
         var output = sw.ToString();
 
         Assert.Contains("TYPE", output);
@@ -115,7 +115,7 @@ public class FindCommandTests
 
         var view = FindOutputFormatter.BuildView(results);
         var sw = new StringWriter();
-        new MarkoutContext().Serialize(view, sw, new OneLineFormatter(showHeader: false));
+        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: false), SearchViewContext.Default);
         var output = sw.ToString();
 
         Assert.DoesNotContain("TYPE", output);

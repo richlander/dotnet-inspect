@@ -161,3 +161,18 @@ public record MemberDocRow(string Member, string? Summary);
 /// </summary>
 [MarkoutSerializable]
 public record MissingFileRow(string File);
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(SourceListView))]
+[MarkoutContext(typeof(SourceOneLineView))]
+[MarkoutContext(typeof(SourceDetailOneLineView))]
+[MarkoutContext(typeof(SourceDetailView))]
+[MarkoutContext(typeof(SourceFileRow))]
+[MarkoutContext(typeof(VerifiedSourceFileRow))]
+[MarkoutContext(typeof(SourceUrlRow))]
+[MarkoutContext(typeof(VerifiedSourceUrlRow))]
+[MarkoutContext(typeof(MemberDocRow))]
+[MarkoutContext(typeof(MissingFileRow))]
+public partial class SourceViewContext : MarkoutSerializerContext
+{
+}

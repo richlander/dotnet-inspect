@@ -305,3 +305,23 @@ public class SigningSection
     public string? Repository { get; init; }
     public string? Status { get; init; }
 }
+
+[MarkoutContextOptions(SuppressTableWarnings = true)]
+[MarkoutContext(typeof(InspectionResultView))]
+[MarkoutContext(typeof(LibraryInspectionView))]
+[MarkoutContext(typeof(LibraryInspectionReport))]
+[MarkoutContext(typeof(ReferenceRow))]
+[MarkoutContext(typeof(ExtensionMethodRow))]
+[MarkoutContext(typeof(ClassifiedMethodRow))]
+[MarkoutContext(typeof(PInvokeMethodRow))]
+[MarkoutContext(typeof(ResourceRow))]
+[MarkoutContext(typeof(CustomAttributeRow))]
+[MarkoutContext(typeof(TypeForwarderRow))]
+[MarkoutContext(typeof(DependencyGroup))]
+[MarkoutContext(typeof(PackageDependency))]
+[MarkoutContext(typeof(FlatDependency))]
+[MarkoutContext(typeof(RidPackageReferenceView))]
+[MarkoutContext(typeof(EmptyDepsView))]
+public partial class InspectionContext : MarkoutSerializerContext
+{
+}
