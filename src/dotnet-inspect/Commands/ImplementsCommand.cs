@@ -148,11 +148,11 @@ public class ImplementsCommand
             {
                 Projection = OutputFormatter.BuildProjection(columns, fields)
             };
-            new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), writerOpts);
+            MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), SearchViewContext.Default, writerOpts);
         }
         else
         {
-            Console.WriteLine(new MarkoutContext().Serialize(view));
+            Console.WriteLine(MarkoutSerializer.Serialize(view, SearchViewContext.Default));
         }
     }
 }

@@ -556,7 +556,7 @@ public static class SourceCommand
         {
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
-        new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+        MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), SourceViewContext.Default, writerOpts);
     }
 
     private static void WriteMarkdown<T>(T view, SourceOptions options) where T : class
@@ -566,7 +566,7 @@ public static class SourceCommand
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
         var formatter = options.PlainText ? (IMarkoutFormatter)new PlainTextFormatter() : new MarkdownFormatter();
-        new MarkoutContext().Serialize(view, Console.Out, formatter, writerOpts);
+        MarkoutSerializer.Serialize(view, Console.Out, formatter, SourceViewContext.Default, writerOpts);
     }
 
     private static void WriteJson<T>(T view, bool compact) where T : class

@@ -4,6 +4,8 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -146,7 +148,7 @@ public class ExtensionsCommand
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
-        Console.WriteLine(new MarkoutContext().Serialize(view));
+        Console.WriteLine(MarkoutSerializer.Serialize(view, SearchViewContext.Default));
     }
 
     /// <summary>

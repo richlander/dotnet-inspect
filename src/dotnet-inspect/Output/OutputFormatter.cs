@@ -28,8 +28,7 @@ public static class OutputFormatter
 
         var view = new InspectionResultView(result);
         var writerOptions = BuildWriterOptions(result, options, pipeline);
-        var context = new MarkoutContext(writerOptions);
-        return context.Serialize(view).TrimEnd();
+        return MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
     }
 
     public static void WritePackageOneLine(InspectionResult result, InspectionOptions options,
@@ -37,7 +36,7 @@ public static class OutputFormatter
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         var view = new InspectionResultView(result);
-        new MarkoutContext().Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), writerOpts);
+        MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), InspectionContext.Default, writerOpts);
     }
 
     /// <summary>
@@ -97,22 +96,20 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            new MarkoutContext().Serialize(auditView, Console.Out, new PlainTextFormatter(), writerOpts);
+            MarkoutSerializer.Serialize(auditView, Console.Out, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
         }
         else if (options.VerbosityEnabled)
         {
-            var context = new MarkoutContext(writerOpts);
-            Console.WriteLine(context.Serialize(auditView).TrimEnd());
+            Console.WriteLine(MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd());
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and oneline wasn't explicitly requested
-            var context = new MarkoutContext(writerOpts);
-            Console.WriteLine(context.Serialize(auditView).TrimEnd());
+            Console.WriteLine(MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd());
         }
         else
         {
-            new MarkoutContext().Serialize(auditView, Console.Out, new OneLineFormatter(), writerOpts);
+            MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(), InspectionContext.Default, writerOpts);
         }
     }
 
@@ -139,8 +136,7 @@ public static class OutputFormatter
                     inspections[0], options.Verbosity, options.IncludeSections),
                 Projection = BuildProjection(options.Columns, options.Fields)
             };
-            var context = new MarkoutContext(writerOptions);
-            Console.WriteLine(context.Serialize(report).TrimEnd());
+            Console.WriteLine(MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd());
         }
         else
         {
@@ -154,7 +150,7 @@ public static class OutputFormatter
                     IncludeSections = includeSections,
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
-                new MarkoutContext().Serialize(auditView, Console.Out, new OneLineFormatter(), writerOpts);
+                MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(), InspectionContext.Default, writerOpts);
             }
         }
     }

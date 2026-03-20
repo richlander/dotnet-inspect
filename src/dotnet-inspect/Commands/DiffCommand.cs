@@ -95,7 +95,7 @@ public class DiffCommand
                 {
                     Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
                 };
-                new MarkoutContext().Serialize(view, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), writerOpts);
+                MarkoutSerializer.Serialize(view, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), DiffViewContext.Default, writerOpts);
             }
             else
             {

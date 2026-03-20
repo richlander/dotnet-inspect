@@ -3,6 +3,8 @@ using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -181,7 +183,7 @@ public class ExtensionsCommandTests
         var collapsed = ExtensionsCommand.CollapseOverloads(results);
 
         var view = ExtensionsOutputFormatter.BuildView("IEnumerable<T>", collapsed);
-        var output = new MarkoutContext().Serialize(view);
+        var output = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
         var tableRows = output.Split('\n')
             .Where(l => l.StartsWith("| ") && !l.StartsWith("| -") && !l.Contains("Name"))
             .ToList();
@@ -276,7 +278,7 @@ public class ExtensionsCommandTests
         };
 
         var view = ExtensionsOutputFormatter.BuildView("HttpClient", results, Verbosity.Quiet);
-        var output = new MarkoutContext().Serialize(view);
+        var output = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
 
         // Should have a counts table, not the full extension tables
         Assert.Contains("| Type ", output);
