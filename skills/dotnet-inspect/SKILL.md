@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.7.1
+version: 0.7.2
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
