@@ -77,7 +77,7 @@ public record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public virtual bool IsRawOutput => JsonOutput || OneLine;
+    public virtual bool IsRawOutput => JsonOutput || OneLine || NoHeader;
 }
 
 /// <summary>
@@ -102,7 +102,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public override bool IsRawOutput => JsonOutput || OneLine || ShapeOutput;
+    public override bool IsRawOutput => JsonOutput || OneLine || NoHeader || ShapeOutput;
 }
 
 /// <summary>

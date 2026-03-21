@@ -127,5 +127,4 @@ public record FindOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine;
-}
+    public bool IsRawOutput => JsonOutput || OneLine || NoHeader;}

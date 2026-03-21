@@ -303,5 +303,5 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => OneLine || NameOnly;
+    public bool IsRawOutput => OneLine || NoHeader || NameOnly;
 }

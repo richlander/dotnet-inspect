@@ -93,5 +93,5 @@ public record SourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Cat;
+    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || Cat;
 }
