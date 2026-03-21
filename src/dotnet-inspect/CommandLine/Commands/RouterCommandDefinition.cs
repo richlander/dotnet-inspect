@@ -116,7 +116,7 @@ public static class RouterCommandDefinition
         {
             var assemblyExitCode = await AssemblyCommand.ExecuteAsync(route.Options);
 
-            if (assemblyExitCode == 0 && !route.Options.JsonOutput)
+            if (assemblyExitCode == 0 && !route.Options.IsRawOutput)
             {
                 var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                     ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);

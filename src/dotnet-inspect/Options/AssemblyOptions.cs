@@ -164,5 +164,5 @@ public record AssemblyOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || ExtractResources != null;
+    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ExtractResources != null;
 }
