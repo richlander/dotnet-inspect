@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.7.1
+version: 0.7.2
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
@@ -56,7 +56,7 @@ dnx dotnet-inspect -y -- type --package System.Text.Json                     # s
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Four formatters: **markdown** (default), **oneline** (`--oneline`), **plaintext** (`--plaintext`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
+Default format is **markdown** — no flags needed. Optional formats: **oneline** (`--oneline`), **plaintext** (`--plaintext`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:d  # detailed (source/IL)
