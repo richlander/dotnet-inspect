@@ -24,7 +24,13 @@ public enum OutputFormat
     /// <summary>
     /// JSON output.
     /// </summary>
-    Json
+    Json,
+
+    /// <summary>
+    /// Standalone Mermaid diagram syntax (graph TD, classDiagram, etc.).
+    /// Only works for commands that produce graph/tree data.
+    /// </summary>
+    Mermaid
 }
 
 /// <summary>
@@ -40,11 +46,13 @@ public static class OutputFormatResolver
     /// Resolves format. Any -v flag implies Markdown. --json implies Json. --markdown implies Markdown.
     /// Commands may supply a <paramref name="defaultFormat"/> to override the global default (Markdown).
     /// </summary>
-    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity, bool plainTextFlag = false, OutputFormat defaultFormat = OutputFormat.Markdown)
+    public static OutputFormat Resolve(bool jsonFlag, bool markdownFlag, Verbosity? verbosity, bool plainTextFlag = false, bool mermaidFlag = false, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         // Explicit CLI flags win
         if (jsonFlag)
             return OutputFormat.Json;
+        if (mermaidFlag && !markdownFlag)
+            return OutputFormat.Mermaid;
         if (markdownFlag)
             return OutputFormat.Markdown;
         if (plainTextFlag)
@@ -59,6 +67,13 @@ public static class OutputFormatResolver
         // Command-specific or global default
         return defaultFormat;
     }
+
+    /// <summary>
+    /// Returns true when --mermaid is combined with --markdown (embedded mermaid mode).
+    /// In this mode, the output is still markdown but tree/graph sections render as mermaid code blocks.
+    /// </summary>
+    public static bool IsEmbeddedMermaid(bool markdownFlag, bool mermaidFlag)
+        => markdownFlag && mermaidFlag;
 
     /// <summary>
     /// Warns when --oneline is combined with a verbosity that produces multiple sections
@@ -85,6 +100,7 @@ public static class OutputFormatResolver
                 "markdown" or "md" => OutputFormat.Markdown,
                 "plaintext" or "plain-text" or "plain" or "text" => OutputFormat.PlainText,
                 "json" => OutputFormat.Json,
+                "mermaid" => OutputFormat.Mermaid,
                 _ => null
             };
             _envParsed = true;

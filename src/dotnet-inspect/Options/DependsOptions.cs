@@ -58,6 +58,16 @@ public record DependsOptions : IAssemblySourceOptions
     public bool CompactJson { get; init; }
 
     /// <summary>
+    /// Output as standalone Mermaid diagram.
+    /// </summary>
+    public bool MermaidOutput { get; init; }
+
+    /// <summary>
+    /// Embed mermaid diagrams in markdown output (--markdown --mermaid).
+    /// </summary>
+    public bool EmbeddedMermaid { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

@@ -7,6 +7,7 @@ using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspector.Commands;
 
@@ -68,12 +69,25 @@ public class DependsCommand
             else
             {
                 var rootName = options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!;
-                var view = new PackageDependenciesView
+                var treeNodes = ToTreeNodes(result.Tree);
+
+                if (options.MermaidOutput)
                 {
-                    Title = rootName,
-                    Dependencies = ToTreeNodes(result.Tree)
-                };
-                MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                    WriteMermaidTree(rootName, treeNodes);
+                }
+                else if (options.EmbeddedMermaid)
+                {
+                    WriteEmbeddedMermaidTree(rootName, treeNodes);
+                }
+                else
+                {
+                    var view = new PackageDependenciesView
+                    {
+                        Title = rootName,
+                        Dependencies = treeNodes
+                    };
+                    MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                }
             }
 
             return 0;
@@ -159,12 +173,23 @@ public class DependsCommand
 
             var treeNodes = BuildNestedDependencyTree(refNodes);
 
-            var view = new PackageDependenciesView
+            if (options.MermaidOutput)
             {
-                Title = assemblyName,
-                Dependencies = treeNodes
-            };
-            MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                WriteMermaidTree(assemblyName, treeNodes);
+            }
+            else if (options.EmbeddedMermaid)
+            {
+                WriteEmbeddedMermaidTree(assemblyName, treeNodes);
+            }
+            else
+            {
+                var view = new PackageDependenciesView
+                {
+                    Title = assemblyName,
+                    Dependencies = treeNodes
+                };
+                MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+            }
             return 0;
         }
         catch (Exception ex)
@@ -253,12 +278,26 @@ public class DependsCommand
             var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
                 context.HttpClient, group.Dependencies, tfm, globalSeen, logger.Log);
 
-            var view = new PackageDependenciesView
+            var title = $"{packageName} ({version})";
+            var treeNodes = ToDependencyTreeNodes(depNodes);
+
+            if (options.MermaidOutput)
             {
-                Title = $"{packageName} ({version})",
-                Dependencies = ToDependencyTreeNodes(depNodes)
-            };
-            MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                WriteMermaidTree(title, treeNodes);
+            }
+            else if (options.EmbeddedMermaid)
+            {
+                WriteEmbeddedMermaidTree(title, treeNodes);
+            }
+            else
+            {
+                var view = new PackageDependenciesView
+                {
+                    Title = title,
+                    Dependencies = treeNodes
+                };
+                MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+            }
             return 0;
         }
         catch (Exception ex)
@@ -323,5 +362,37 @@ public class DependsCommand
 
             target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
+    }
+
+    /// <summary>
+    /// Writes standalone mermaid output using the MermaidFormatter.
+    /// </summary>
+    private static void WriteMermaidTree(string title, List<TreeNode> treeNodes)
+    {
+        var writer = MarkoutWriter.Create(Console.Out, new MermaidFormatter());
+        writer.WriteHeading(1, title);
+        writer.WriteTree([.. treeNodes]);
+        writer.Flush();
+    }
+
+    /// <summary>
+    /// Writes mermaid embedded in a markdown document (```mermaid code block).
+    /// </summary>
+    private static void WriteEmbeddedMermaidTree(string title, List<TreeNode> treeNodes)
+    {
+        var mdWriter = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        mdWriter.WriteHeading(1, title);
+
+        // Render the mermaid content to a string
+        var mermaidWriter = MarkoutWriter.Create(new MermaidFormatter());
+        mermaidWriter.WriteTree([.. treeNodes]);
+        var mermaidContent = mermaidWriter.ToString();
+
+        mdWriter.WriteCodeStart("mermaid");
+        Console.Out.Write(mermaidContent);
+        if (!mermaidContent.EndsWith('\n'))
+            Console.Out.WriteLine();
+        mdWriter.WriteCodeEnd();
+        mdWriter.Flush();
     }
 }
