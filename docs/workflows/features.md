@@ -46,6 +46,7 @@
 | Tips system | 935a39b | 0.2.x | Contextual suggestions on stderr |
 | `-T` tips verbosity | 0c679e4 | 0.2.x | Control tip output level |
 | Redesigned tips UI | 381efa2 | 0.3.x | Single header with aligned entries |
+| `--mermaid` output | b88427d | 0.7.x | Mermaid diagram output for depends (standalone and embedded) |
 
 ## Type and Member Inspection
 
