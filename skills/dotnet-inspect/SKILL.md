@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.7.2
+version: 0.7.5
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
@@ -23,6 +23,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **How many overloads?** → `member Type --package Foo --show-index` (shows `Name:N` indices)
 - **What does this package depend on?** → `depends --package Foo`
 - **What does this type inherit?** → `depends 'INumber<TSelf>'`
+- **Want a dependency diagram?** → `depends --mermaid` (standalone) or `depends --markdown --mermaid` (embedded)
 - **What metadata fields exist?** → `-S Section --fields "PDB*"` (structured query, no DSL)
 - **What version is available?** → `Foo --version` (cache-first), `Foo --latest-version` (always NuGet), `Foo --versions` (list all)
 
@@ -36,6 +37,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"What extends this type?"** — `extensions` finds extension methods/properties (`--reachable` for transitive)
 - **"What implements this interface?"** — `implements` finds concrete types
 - **"What does this type depend on?"** — `depends` walks type hierarchy, package deps, or library refs
+- **"Show dependencies as a diagram"** — `depends --mermaid` for standalone mermaid, `--markdown --mermaid` for embedded
 - **"Where is the source code?"** — `source` returns SourceLink URLs; add member name for line numbers
 - **"What version/metadata does this have?"** — `package` and `library` inspect metadata
 - **"What version is available?"** — `Foo --version` (fast, cache-first — like `docker run`)
@@ -56,12 +58,14 @@ dnx dotnet-inspect -y -- type --package System.Text.Json                     # s
 dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
 ```
 
-Default format is **markdown** — no flags needed. Optional formats: **oneline** (`--oneline`), **plaintext** (`--plaintext`), **json** (`--json`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
+Default format is **markdown** — no flags needed. Optional formats: **oneline** (`--oneline`), **plaintext** (`--plaintext`), **json** (`--json`), **mermaid** (`--mermaid`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:d  # detailed (source/IL)
 dnx dotnet-inspect -y -- System.Text.Json -v:n --plaintext                      # all local sections, plaintext
 dnx dotnet-inspect -y -- type --package System.Text.Json --oneline              # compact columnar output
+dnx dotnet-inspect -y -- depends Stream --mermaid                               # standalone mermaid diagram
+dnx dotnet-inspect -y -- depends Stream --markdown --mermaid                    # mermaid embedded in markdown
 ```
 
 Use `diff` first when fixing broken code — triage changes, then drill into specifics:
@@ -143,6 +147,22 @@ dnx dotnet-inspect -y -- library System.Text.Json -D --tree           # full sch
 dnx dotnet-inspect -y -- System.Text.Json -S Symbols                  # render one section
 dnx dotnet-inspect -y -- System.Text.Json -S Symbols --fields "PDB*"  # project specific fields
 dnx dotnet-inspect -y -- type System.Text.Json --columns Kind,Type    # project specific columns
+```
+
+## Mermaid Diagrams
+
+The `depends` command supports `--mermaid` for Mermaid diagram output. Two modes:
+
+| Flags | Output | Use case |
+| ----- | ------ | -------- |
+| `--mermaid` | Standalone mermaid (`graph TD`) | Pipe to `mmdc`, embed in tooling |
+| `--markdown --mermaid` | Mermaid fenced blocks inside markdown | Render in GitHub, VS Code, docs |
+
+```bash
+dnx dotnet-inspect -y -- depends Stream --mermaid                               # type hierarchy as mermaid
+dnx dotnet-inspect -y -- depends Stream --markdown --mermaid                    # embedded in markdown
+dnx dotnet-inspect -y -- depends --library System.Text.Json --mermaid           # assembly reference graph
+dnx dotnet-inspect -y -- depends --package Markout --mermaid                    # package dependency graph
 ```
 
 ## Search Scope

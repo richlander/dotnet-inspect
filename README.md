@@ -25,6 +25,7 @@ dnx dotnet-inspect -y -- <command>
 | `diff X` | Compare versions with breaking/additive classification |
 | `extensions X` | Find extension methods/properties for a type |
 | `implements X` | Find types implementing an interface or extending a class |
+| `depends X` | Walk dependency graphs — type hierarchy, package deps, library refs (`--mermaid` for diagrams) |
 | `find X` | Search for types across packages, frameworks, and local assets |
 | `source X` | SourceLink URLs — type or member level, `--cat` to fetch content |
 
@@ -40,6 +41,7 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `--oneline` | Compact columnar output, one result per line |
 | `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |
+| `--mermaid` | Mermaid diagram output (`depends` command) |
 | `-s Name` | Include section (glob-capable: `-s Ext*`) |
 | `-x Name` | Exclude section |
 | `--shape` | Type shape diagram (hierarchy + members) — `type` command |
@@ -199,6 +201,20 @@ dotnet-inspect implements IDisposable --platform             # All platform fram
 dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
+### depends
+
+Walk dependency graphs — type hierarchy, library references, or package dependencies. Supports `--mermaid` for diagram output.
+
+```bash
+dotnet-inspect depends Stream                                    # Type hierarchy (markdown tree)
+dotnet-inspect depends 'INumber<TSelf>'                          # Deep interface hierarchy
+dotnet-inspect depends Command --package System.CommandLine       # NuGet package type
+dotnet-inspect depends --library System.Text.Json                # Assembly reference graph
+dotnet-inspect depends --package Markout                         # Package dependency graph
+dotnet-inspect depends Stream --mermaid                          # Standalone mermaid diagram
+dotnet-inspect depends Stream --markdown --mermaid               # Mermaid embedded in markdown
+```
+
 ### source
 
 SourceLink URLs for type source files. Supports member-level resolution with line numbers.
@@ -228,13 +244,15 @@ dotnet-inspect -v:q                                 # Command names only (onelin
 
 ## Output Control
 
-**Format**: Default is **markdown** (headings, tables, field lists). Use `--oneline` for compact columnar output, `--plaintext` for plain text, or `--json` for JSON.
+**Format**: Default is **markdown** (headings, tables, field lists). Use `--oneline` for compact columnar output, `--plaintext` for plain text, `--json` for JSON, or `--mermaid` for Mermaid diagrams.
 
 **Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed). Controls which sections are included.
 
 **Sections**: Use `-s Name` to include or `-x Name` to exclude sections by name. Bare `-s` lists available sections. Supports glob patterns (`-s Ext*`).
 
 **JSON**: `--json` for full JSON, `--json --compact` for minified.
+
+**Mermaid**: `--mermaid` for standalone mermaid (`graph TD`), `--markdown --mermaid` for mermaid fenced blocks inside markdown. Currently supported on the `depends` command.
 
 ## LLM Integration
 
