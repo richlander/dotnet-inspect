@@ -374,6 +374,8 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
+        dependsCommand.Options.Add(opts.Mermaid);
+        dependsCommand.Options.Add(opts.Markdown);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
 
@@ -391,6 +393,8 @@ public static class SearchCommandDefinitions
                     Tfm = parseResult.GetValue(tfmOption),
                     JsonOutput = parseResult.GetValue(opts.Json),
                     CompactJson = parseResult.GetValue(compactOption),
+                    MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
+                    EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
@@ -424,6 +428,8 @@ public static class SearchCommandDefinitions
                 Tfm = parseResult.GetValue(tfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
+                MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
+                EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
@@ -439,6 +445,8 @@ public static class SearchCommandDefinitions
                     Tfm = parseResult.GetValue(tfmOption),
                     JsonOutput = parseResult.GetValue(opts.Json),
                     CompactJson = parseResult.GetValue(compactOption),
+                    MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
+                    EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };

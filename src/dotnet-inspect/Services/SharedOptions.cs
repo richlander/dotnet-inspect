@@ -15,6 +15,7 @@ public class SharedOptions
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
+    public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
@@ -147,6 +148,7 @@ public class SharedOptions
         command.Options.Add(Json);
         command.Options.Add(Markdown);
         command.Options.Add(PlainText);
+        command.Options.Add(Mermaid);
         AddOutputOptionsTo(command);
         AddSectionOptionsTo(command);
         AddNuGetOptionsTo(command);
@@ -195,10 +197,17 @@ public class SharedOptions
         bool jsonFlag = parseResult.GetValue(Json);
         bool markdownFlag = parseResult.GetValue(Markdown);
         bool plainTextFlag = parseResult.GetValue(PlainText);
+        bool mermaidFlag = parseResult.GetValue(Mermaid);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, defaultFormat);
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, defaultFormat);
     }
+
+    /// <summary>
+    /// Returns true when --mermaid is combined with --markdown (embedded mermaid in markdown).
+    /// </summary>
+    public bool IsEmbeddedMermaid(ParseResult parseResult)
+        => OutputFormatResolver.IsEmbeddedMermaid(parseResult.GetValue(Markdown), parseResult.GetValue(Mermaid));
 
     /// <summary>
     /// Resolves whether oneline output should be used, considering the --oneline flag and format resolution.
@@ -234,6 +243,7 @@ public class SharedOptions
         if (parseResult.GetResult(Json) is { Implicit: false }) return true;
         if (parseResult.GetResult(Markdown) is { Implicit: false }) return true;
         if (parseResult.GetResult(PlainText) is { Implicit: false }) return true;
+        if (parseResult.GetResult(Mermaid) is { Implicit: false }) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
         return false;
     }
