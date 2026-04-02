@@ -8,6 +8,9 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class TfmSelector
 {
+    private static List<string> FilterResourceAssemblies(IEnumerable<string> dlls)
+        => dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+
     public static List<string> GetPackageDlls(string extractPath)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
@@ -41,7 +44,7 @@ public static class TfmSelector
 
     public static (string? path, string? tfm) SelectHighestTfmAssembly(List<string> dlls, string extractPath, string? packageName = null)
     {
-        dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+        dlls = FilterResourceAssemblies(dlls);
 
         var byTfm = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -96,7 +99,7 @@ public static class TfmSelector
     /// </summary>
     public static (List<string> paths, string? tfm) SelectHighestTfmAssemblies(List<string> dlls, string extractPath)
     {
-        dlls = dlls.Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+        dlls = FilterResourceAssemblies(dlls);
 
         var byTfm = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -124,6 +127,103 @@ public static class TfmSelector
             .First().tfm;
 
         return (byTfm[highestTfm], highestTfm);
+    }
+
+    public static (string? path, string? tfm) FindAssemblyInPackage(string extractPath, string assemblyName, string? tfm = null)
+    {
+        var dlls = FilterResourceAssemblies(GetPackageDlls(extractPath));
+        if (dlls.Count == 0)
+            return (null, null);
+
+        var normalizedAssemblyName = assemblyName.Replace('\\', '/');
+        var assemblyLeaf = Path.GetFileName(assemblyName);
+        var bareName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFileNameWithoutExtension(assemblyLeaf)
+            : assemblyLeaf;
+        var fileName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyLeaf
+            : $"{bareName}.dll";
+
+        var matchingFiles = dlls
+            .Where(dll =>
+            {
+                var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
+                return relativePath.Equals(normalizedAssemblyName, StringComparison.OrdinalIgnoreCase)
+                    || relativePath.Equals(normalizedAssemblyName + ".dll", StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileNameWithoutExtension(dll).Equals(bareName, StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        if (matchingFiles.Count == 0)
+            return (null, null);
+
+        if (!string.IsNullOrEmpty(tfm))
+        {
+            matchingFiles = matchingFiles
+                .Where(dll => string.Equals(
+                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/')),
+                    tfm,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (matchingFiles.Count == 0)
+                return (null, tfm);
+        }
+
+        var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(matchingFiles, extractPath);
+        return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
+    }
+
+    public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)
+    {
+        var dlls = FilterResourceAssemblies(GetPackageDlls(extractPath));
+        if (dlls.Count == 0)
+            return (null, null);
+
+        string? selectedTfm = tfm;
+        var candidateDlls = new List<string>();
+
+        if (!string.IsNullOrEmpty(tfm))
+        {
+            candidateDlls = dlls
+                .Where(dll => string.Equals(
+                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/')),
+                    tfm,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        else
+        {
+            var (highestTfmDlls, highestTfm) = SelectHighestTfmAssemblies(dlls, extractPath);
+            if (highestTfmDlls.Count > 0)
+            {
+                candidateDlls = highestTfmDlls;
+                selectedTfm = highestTfm;
+            }
+        }
+
+        foreach (var dll in candidateDlls)
+        {
+            if (PlatformResolver.HasType(dll, typeName))
+            {
+                selectedTfm ??= TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/'));
+                return (dll, selectedTfm);
+            }
+        }
+
+        // Fallback: if the highest-TFM scan misses, search the remaining DLLs so
+        // `find` results from multi-library packages still lead to a working follow-up.
+        foreach (var dll in dlls.Except(candidateDlls))
+        {
+            if (PlatformResolver.HasType(dll, typeName))
+            {
+                var matchedTfm = TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/'));
+                return (dll, matchedTfm ?? selectedTfm);
+            }
+        }
+
+        return (null, selectedTfm);
     }
 
     public static string? FindAssemblyByTfm(string extractPath, string tfm, string? packageName = null)

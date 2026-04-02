@@ -1,7 +1,9 @@
+using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
@@ -14,6 +16,28 @@ public class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
+
+    private static (string PackagePath, string TempDir) CreateLocalRefPackage(params string[] assemblyNames)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        string? tfm = null;
+
+        foreach (var assemblyName in assemblyNames)
+        {
+            var (path, _, _, error) = PlatformResolver.ResolveAssembly(assemblyName);
+            Assert.True(error == null && path != null, $"Could not resolve platform assembly '{assemblyName}': {error}");
+
+            tfm ??= Path.GetFileName(Path.GetDirectoryName(path!));
+            var targetDir = Path.Combine(packageRoot, "ref", tfm!);
+            Directory.CreateDirectory(targetDir);
+            File.Copy(path!, Path.Combine(targetDir, Path.GetFileName(path!)));
+        }
+
+        var packagePath = Path.Combine(tempDir, "Test.MultiLib.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
 
     public CommandExecutionTests()
     {
@@ -130,6 +154,58 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Member_PackageLibrarySelector_ResolvesBareLibraryName()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime", "System.Text.RegularExpressions");
+        try
+        {
+            var options = new MemberOptions
+            {
+                TypeName = "RegexOptions",
+                PackagePath = packagePath,
+                AssemblyPath = "System.Text.RegularExpressions"
+            };
+
+            var (exit, output, _) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(options));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("RegexOptions", output);
+            Assert.Contains("None", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PackageTypeResolution_SearchesAcrossPackageLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime", "System.Text.RegularExpressions");
+        try
+        {
+            var options = new MemberOptions
+            {
+                TypeName = "RegexOptions",
+                PackagePath = packagePath,
+                Verbosity = Verbosity.Minimal
+            };
+
+            var (exit, output, _) = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(options));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("RegexOptions", output);
+            Assert.Contains("Compiled", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
