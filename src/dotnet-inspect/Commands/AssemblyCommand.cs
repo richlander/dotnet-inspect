@@ -553,28 +553,8 @@ public class AssemblyCommand
             return ([selectedPath], extractPath, tempDir, nupkgPath);
         }
 
-        // Normalize the assembly path for comparison
-        string normalizedAssemblyName = assemblyName.Replace('\\', '/');
-
-        // First try to match by relative path (for disambiguation)
-        string[] matchingFiles = allDlls
-            .Where(f =>
-            {
-                string relativePath = Path.GetRelativePath(extractPath, f).Replace('\\', '/');
-                return relativePath.Equals(normalizedAssemblyName, StringComparison.OrdinalIgnoreCase);
-            })
-            .ToArray();
-
-        // If no exact path match, try matching by filename
-        if (matchingFiles.Length == 0)
-        {
-            matchingFiles = allDlls
-                .Where(f => Path.GetFileName(f).Equals(assemblyName, StringComparison.OrdinalIgnoreCase) ||
-                            Path.GetFileName(f).Equals(assemblyName + ".dll", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-        }
-
-        if (matchingFiles.Length == 0)
+        var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
+        if (matchedAssembly == null)
         {
             Console.Error.WriteLine($"Error: Library '{assemblyName}' not found in package.");
             Console.Error.WriteLine("Use 'dotnet-inspect package <name> --files' to list available libraries.");
@@ -582,20 +562,11 @@ public class AssemblyCommand
             return null;
         }
 
-        if (matchingFiles.Length > 1)
-        {
-            Console.Error.WriteLine($"Multiple matches found for '{assemblyName}':");
-            foreach (var f in matchingFiles)
-            {
-                Console.Error.WriteLine($"  {Path.GetRelativePath(extractPath, f)}");
-            }
-            Console.Error.WriteLine("Specify the full relative path to disambiguate.");
-            if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
-            return null;
-        }
+        if (matchedTfm != null)
+            logger.Log($"Using TFM: {matchedTfm}");
 
-        logger.Log($"Found: {Path.GetRelativePath(extractPath, matchingFiles[0])}");
-        return ([matchingFiles[0]], extractPath, tempDir, nupkgPath);
+        logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
+        return ([matchedAssembly], extractPath, tempDir, nupkgPath);
     }
 
 }

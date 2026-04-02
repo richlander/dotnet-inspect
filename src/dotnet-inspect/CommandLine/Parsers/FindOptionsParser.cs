@@ -115,13 +115,26 @@ public static class FindOptionsParser
     public static List<Tip> BuildTips(FindOptions options, string? pattern)
     {
         var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
-        var sourceFlag = pkg != null ? $"--package {pkg}" : "--platform";
+        if (pkg != null)
+        {
+            var sourceFlag = $"--package {pkg}";
+            var pinnedSourceFlag = pkg.Contains("@", StringComparison.Ordinal)
+                ? sourceFlag
+                : $"--package {pkg}@<version>";
+
+            return
+            [
+                new(MemberCommand.Name, $"<TypeName> {pinnedSourceFlag} --library <LibraryName>", "inspect the type you found"),
+                new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
+                new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results")
+            ];
+        }
 
         return
         [
-            new(MemberCommand.Name, $"<TypeName> {sourceFlag}", "inspect type members"),
-            new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
-            new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results")
+            new(MemberCommand.Name, "<TypeName> --platform <LibraryName>", "inspect the type you found"),
+            new(FindCommand.Name, $"{pattern} --platform --oneline", "compact output"),
+            new(FindCommand.Name, $"{pattern} --platform -v:d", "detailed results")
         ];
     }
 }

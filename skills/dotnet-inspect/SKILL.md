@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.7.5
+version: 0.7.6
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
 ---
 
@@ -75,6 +75,30 @@ dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..
 dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3               # new API surface
 ```
 
+### Find -> member workflow
+
+Use `find` to discover the type, then carry forward the exact source information into `member`.
+
+```bash
+dnx dotnet-inspect -y -- find RegexOptions \
+  --package Microsoft.NETCore.App.Ref@11.0.0-preview.3.26179.102 --oneline
+```
+
+The result row tells you:
+
+- the owning **library** (for example `System.Text.RegularExpressions`)
+- the resolved **package version** to keep pinned in follow-up commands
+
+Then inspect the type with the same `package@version`, adding `--library` for multi-library packages:
+
+```bash
+dnx dotnet-inspect -y -- member RegexOptions \
+  --package Microsoft.NETCore.App.Ref@11.0.0-preview.3.26179.102 \
+  --library System.Text.RegularExpressions
+```
+
+For framework libraries (`System.*`, `Microsoft.AspNetCore.*`), prefer `--platform <LibraryName>` when possible. Use `--package` when you specifically need a NuGet package or custom-feed workflow.
+
 ## Platform Diffs & Release Notes
 
 For framework libraries (System.*, Microsoft.AspNetCore.*), use `--platform` instead of `--package`. This is the primary workflow for .NET release notes — diff each framework library between preview versions:
@@ -87,13 +111,18 @@ dnx dotnet-inspect -y -- diff --platform System.Text.Json@9.0.0..10.0.0         
 
 **Multi-library packages:** `diff --package` works across all libraries in a package (e.g., `Microsoft.Azure.SignalR` with multiple DLLs). For framework ref packages like `Microsoft.NETCore.App.Ref`, prefer `--platform` per-library since it resolves from installed packs.
 
-**Nightly/preview packages from custom feeds:** The `--source` flag works for version listing but not package downloads. Pre-populate the NuGet cache instead:
+**Nightly/preview packages from custom feeds:** Use `--source <feed-url>` directly with a pinned `package@version`, then carry the same source/version into follow-up commands:
 
 ```bash
-# Pre-populate cache (fails with NU1213 but downloads the package)
-dotnet add package Microsoft.NETCore.App.Ref --version <version> --source <feed-url>
-# Then use normally — resolves from NuGet cache
-dnx dotnet-inspect -y -- diff --platform System.Runtime@P2..P3 --additive
+FEED="https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json"
+VER="11.0.0-preview.3.26179.102"
+
+dnx dotnet-inspect -y -- find RegexOptions \
+  --package Microsoft.NETCore.App.Ref@${VER} --source "$FEED" --oneline
+
+dnx dotnet-inspect -y -- member RegexOptions \
+  --package Microsoft.NETCore.App.Ref@${VER} --source "$FEED" \
+  --library System.Text.RegularExpressions
 ```
 
 ## Version Resolution (Docker-style)

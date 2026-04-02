@@ -113,6 +113,7 @@ public class ApiCommand
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         string? tempDir = null;
+        string? selectedTfm = null;
 
         string searchPath;
         string? runtimeAssemblyPath = null;
@@ -135,7 +136,32 @@ public class ApiCommand
             apiSource = SourceKind.NuGet;
             apiVersion = packageVersion;
 
-            if (!string.IsNullOrEmpty(options.Tfm))
+            if (!string.IsNullOrEmpty(options.AssemblyPath))
+            {
+                var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
+                if (matchedAssembly == null)
+                {
+                    Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
+                    return (null!, 1);
+                }
+                searchPath = matchedAssembly;
+                selectedTfm = matchedTfm;
+                if (selectedTfm != null)
+                {
+                    logger.Log($"Using TFM: {selectedTfm}");
+                }
+            }
+            else if (!string.IsNullOrEmpty(typeName))
+            {
+                var (typeAssembly, matchedTfm) = TfmSelector.FindAssemblyContainingType(searchPath, typeName, options.Tfm);
+                if (typeAssembly != null)
+                {
+                    searchPath = typeAssembly;
+                    selectedTfm = matchedTfm;
+                    logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
+                }
+            }
+            else if (!string.IsNullOrEmpty(options.Tfm))
             {
                 var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                 if (tfmAssembly == null)
@@ -144,23 +170,8 @@ public class ApiCommand
                     return (null!, 1);
                 }
                 searchPath = tfmAssembly;
+                selectedTfm = options.Tfm;
                 logger.Log($"Using TFM: {options.Tfm}");
-            }
-            else if (!string.IsNullOrEmpty(options.AssemblyPath))
-            {
-                var targetPath = Path.Combine(searchPath, options.AssemblyPath.Replace('\\', '/'));
-                // If it's a bare filename, search for it within the package
-                if (!File.Exists(targetPath) && !options.AssemblyPath.Contains('/') && !options.AssemblyPath.Contains('\\'))
-                {
-                    var found = Directory.EnumerateFiles(searchPath, options.AssemblyPath, SearchOption.AllDirectories).FirstOrDefault();
-                    if (found != null) targetPath = found;
-                }
-                if (!File.Exists(targetPath))
-                {
-                    Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
-                    return (null!, 1);
-                }
-                searchPath = targetPath;
             }
         }
         else if (!string.IsNullOrEmpty(options.AssemblyPath))
@@ -294,8 +305,6 @@ public class ApiCommand
             Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
             return (null!, 1);
         }
-
-        string? selectedTfm = null;
 
         // Derive TFM for platform assemblies from the version
         if (apiSource == SourceKind.Platform && apiVersion != null)
