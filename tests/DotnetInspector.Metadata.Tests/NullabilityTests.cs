@@ -10,7 +10,7 @@ namespace DotnetInspector.Metadata.Tests;
 /// Tests for nullability annotation reading and rendering in API signatures.
 /// Uses the test assembly itself (compiled with nullable enabled) as the test subject.
 /// </summary>
-public class NullabilityTests
+public sealed class NullabilityTests
 {
     private static readonly ApiSurface Surface;
 
@@ -39,37 +39,48 @@ public class NullabilityTests
     [Fact]
     public void GetNullableContext_ReturnsDefault_WhenNotPresent()
     {
-        // Value types typically don't have NullableContextAttribute
-        var reader = GetMetadataReader();
+        // NullableObliviousClass is defined below in a #nullable disable region,
+        // so it has no NullableContextAttribute in this assembly.
+        // PEReader/stream are inlined (not shared) because MetadataReader borrows memory
+        // owned by PEReader — sharing a static reader would leak the file handle.
+        var assemblyPath = typeof(NullabilityTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
-            if (reader.GetString(typeDef.Name) == "Int32")
+            if (reader.GetString(typeDef.Name) == nameof(NullableObliviousClass))
             {
-                // System.Int32 doesn't have a NullableContext attribute
                 var context = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
                 Assert.Equal(0, context);
                 return;
             }
         }
+        Assert.Fail($"{nameof(NullableObliviousClass)} type definition not found in test assembly");
     }
 
     [Fact]
     public void GetNullableContext_ReadsValue_WhenPresent()
     {
-        // This test assembly has nullable=enable, so types should have NullableContextAttribute
-        var reader = GetMetadataReader();
+        // See comment in GetNullableContext_ReturnsDefault_WhenNotPresent for why PEReader is inlined.
+        var assemblyPath = typeof(NullabilityTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
             if (reader.GetString(typeDef.Name) == nameof(NullableSampleClass))
             {
                 var context = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
-                // Should be 1 (not annotated) or 2 (annotated) — non-zero for nullable-enabled types
                 Assert.NotEqual(0, context);
                 return;
             }
         }
+        Assert.Fail($"{nameof(NullableSampleClass)} type definition not found in test assembly");
     }
 
     // --- TypeNode tree + rendering tests ---
@@ -250,13 +261,6 @@ public class NullabilityTests
         Assert.Contains("string?", member.Signature);
     }
 
-    private static MetadataReader GetMetadataReader()
-    {
-        var path = typeof(NullabilityTests).Assembly.Location;
-        var stream = File.OpenRead(path);
-        var peReader = new PEReader(stream);
-        return peReader.GetMetadataReader();
-    }
 }
 
 // ===== Test fixture types compiled with #nullable enable =====
@@ -281,3 +285,11 @@ public class NullableSampleClass
 
     public Dictionary<string, object?> MixedGeneric() => new();
 }
+
+#nullable disable
+// Fixture type with no NullableContextAttribute — used to test GetNullableContext returns 0
+public class NullableObliviousClass
+{
+    public string Value;
+}
+#nullable restore
