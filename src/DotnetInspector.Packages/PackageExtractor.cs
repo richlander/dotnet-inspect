@@ -264,6 +264,16 @@ public static class PackageExtractor
     }
 
     /// <summary>
+    /// Returns true when <paramref name="source"/>'s URL is an absolute http/https URL.
+    /// Local folder sources (e.g. `D:\packages`, `/var/packages`, `file://...`) and
+    /// otherwise unparseable URLs return false — they cannot be queried by the
+    /// remote-only operations in this class.
+    /// </summary>
+    private static bool IsHttpSource(NuGetSource source) =>
+        Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    /// <summary>
     /// Discovers the PackageBaseAddress (flat-container) endpoint from a V3 service index.
     /// </summary>
     private static async Task<string?> GetPackageBaseAddressAsync(
@@ -271,6 +281,16 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log)
     {
+        // Skip non-HTTP sources (e.g. local folder feeds from NuGet.Config).
+        // Passing a file: URL or raw filesystem path to HttpClient throws
+        // NotSupportedException ("net_http_unsupported_requesturi_scheme, file"),
+        // which would crash version resolution / package download. Issue #310.
+        if (!IsHttpSource(source))
+        {
+            log?.Invoke($"Skipping non-HTTP NuGet source '{source.Name}': {source.Url}");
+            return null;
+        }
+
         // The source URL should be the V3 index.json
         var indexUrl = source.Url;
         if (!indexUrl.EndsWith("index.json", StringComparison.OrdinalIgnoreCase))

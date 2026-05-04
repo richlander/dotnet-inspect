@@ -137,6 +137,15 @@ public static class HttpRetryHelper
 
                 log?.Invoke($"Socket error {socketError} (retryable): {url}");
             }
+            catch (NotSupportedException ex)
+            {
+                // Thrown by HttpRequestMessage when the URL scheme is unsupported
+                // (e.g. file:// or a raw local folder path). Treat as non-retryable
+                // so a local folder NuGet source listed in NuGet.Config can't crash
+                // remote queries. Issue #310.
+                log?.Invoke($"HTTP {methodName} unsupported URL (not retryable): {ex.Message}");
+                return null;
+            }
             catch (DotnetInspector.Core.OfflineException)
             {
                 log?.Invoke($"Network access is disabled (--offline mode).");
