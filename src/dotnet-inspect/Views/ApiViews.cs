@@ -88,75 +88,98 @@ public class TypeView
     // Member sections (populated by ApiOutputFormatter.PopulateMemberSections)
     // Without --show-index: hide Select column
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorRows { get; set; }
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Fields", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? FieldRows { get; set; }
     [MarkoutSection(Name = "Fields", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? FieldRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Properties", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? PropertyRows { get; set; }
     [MarkoutSection(Name = "Properties", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? PropertyRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Methods", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? MethodRows { get; set; }
     [MarkoutSection(Name = "Methods", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? MethodRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Events", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? EventRows { get; set; }
     [MarkoutSection(Name = "Events", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? EventRowsWithDocs { get; set; }
 
     // With --show-index: show Select column
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorSelectRows { get; set; }
     [MarkoutSection(Name = "Constructors")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorSelectRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Fields", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? FieldSelectRows { get; set; }
     [MarkoutSection(Name = "Fields")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? FieldSelectRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Properties", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? PropertySelectRows { get; set; }
     [MarkoutSection(Name = "Properties")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? PropertySelectRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Methods", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? MethodSelectRows { get; set; }
     [MarkoutSection(Name = "Methods")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? MethodSelectRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Events", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? EventSelectRows { get; set; }
     [MarkoutSection(Name = "Events")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? EventSelectRowsWithDocs { get; set; }
+
+    public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
 
     // Constructor emphasis (--ctor mode, Normal+ verbosity)
     [MarkoutSection(Name = "Constructors")]
