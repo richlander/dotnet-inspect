@@ -340,6 +340,69 @@ public class ApiSurfaceExtractorTests
 
         Assert.Empty(leafType.DerivedTypes);
     }
+    [Fact]
+    public void Extract_ObsoleteMethod_VisibleByDefault_WithMessage()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        // includeAll: false — obsolete should still appear, but EditorBrowsable(Never) should not.
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleObsoleteHost");
+        Assert.NotNull(testType);
+
+        var obsoleteMethod = testType.Members.FirstOrDefault(m => m.Name == "OldMethod");
+        Assert.NotNull(obsoleteMethod);
+        Assert.True(obsoleteMethod.IsObsolete);
+        Assert.Equal("Use NewMethod instead.", obsoleteMethod.ObsoleteMessage);
+
+        var newMethod = testType.Members.FirstOrDefault(m => m.Name == "NewMethod");
+        Assert.NotNull(newMethod);
+        Assert.False(newMethod.IsObsolete);
+        Assert.Null(newMethod.ObsoleteMessage);
+
+        // EditorBrowsable(Never) is still filtered out by default.
+        var hidden = testType.Members.FirstOrDefault(m => m.Name == "HiddenMethod");
+        Assert.Null(hidden);
+    }
+
+    [Fact]
+    public void Extract_ObsoleteMethodWithoutMessage_HasIsObsoleteTrue()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleObsoleteHost");
+        Assert.NotNull(testType);
+
+        var method = testType.Members.FirstOrDefault(m => m.Name == "OldMethodNoMessage");
+        Assert.NotNull(method);
+        Assert.True(method.IsObsolete);
+        Assert.Null(method.ObsoleteMessage);
+    }
+
+    [Fact]
+    public void Extract_EditorBrowsableNever_StillVisibleWithIncludeAll()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleObsoleteHost");
+        Assert.NotNull(testType);
+
+        var hidden = testType.Members.FirstOrDefault(m => m.Name == "HiddenMethod");
+        Assert.NotNull(hidden);
+        Assert.False(hidden.IsObsolete);
+    }
+
 }
 
 /// <summary>
@@ -350,6 +413,23 @@ public class SampleClassForTesting
     public void MethodWithParameters(int count, string name) { }
     public void MethodWithNoParameters() { }
     public void GenericMethod<T>(T item) { }
+}
+
+/// <summary>
+/// Sample class hosting Obsolete and EditorBrowsable(Never) members for testing.
+/// </summary>
+public class SampleObsoleteHost
+{
+    [Obsolete("Use NewMethod instead.")]
+    public void OldMethod() { }
+
+    [Obsolete]
+    public void OldMethodNoMessage() { }
+
+    public void NewMethod() { }
+
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public void HiddenMethod() { }
 }
 
 /// <summary>

@@ -444,7 +444,14 @@ public static class ApiOutputFormatter
                 }
 
                 var sigDisplay = m.Accessibility != null ? $"{m.Accessibility} {sig}" : sig;
-                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), $"`{sigDisplay}`", hasDocs ? (m.Documentation.Summary ?? "") : null);
+                string? obsoleteCell = null;
+                if (m.IsObsolete)
+                {
+                    obsoleteCell = string.IsNullOrWhiteSpace(m.ObsoleteMessage)
+                        ? "⚠ Obsolete"
+                        : $"⚠ Obsolete — {m.ObsoleteMessage}";
+                }
+                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), $"`{sigDisplay}`", obsoleteCell, hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)

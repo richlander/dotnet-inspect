@@ -295,13 +295,14 @@ public record MemberRow(
     [property: MarkoutSkipNull] string? Select,
     string Name,
     string Signature,
+    [property: MarkoutSkipNull] string? Obsolete,
     string? Description)
 {
     /// <summary>
-    /// Creates a MemberRow without a Select column.
+    /// Creates a MemberRow without Select or Obsolete columns.
     /// </summary>
     public MemberRow(string name, string signature, string? description)
-        : this(null, name, signature, description) { }
+        : this(null, name, signature, null, description) { }
 }
 
 /// <summary>
