@@ -257,6 +257,17 @@ public class ApiMember
     public bool IsExtension { get; set; }
 
     /// <summary>
+    /// True if the member carries an [Obsolete] attribute.
+    /// </summary>
+    public bool IsObsolete { get; set; }
+
+    /// <summary>
+    /// Optional deprecation message from [Obsolete("...")]. Null when the
+    /// attribute is missing or has no message argument.
+    /// </summary>
+    public string? ObsoleteMessage { get; set; }
+
+    /// <summary>
     /// The type that this extension method extends (first parameter type).
     /// Only populated when IsExtension is true.
     /// </summary>

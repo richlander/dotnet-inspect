@@ -40,20 +40,60 @@ public static class AttributeReader
 
             if (attrTypeName == EditorBrowsableAttributeName)
             {
-                // Check if the value is EditorBrowsableState.Never (value = 1)
-                var value = reader.GetBlobBytes(attr.Value);
-                // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32
-                if (value.Length >= 6)
-                {
-                    int enumValue = value[2] | (value[3] << 8) | (value[4] << 16) | (value[5] << 24);
-                    if (enumValue == 1) // EditorBrowsableState.Never
-                        return true;
-                }
+                if (IsEditorBrowsableNever(reader, attr))
+                    return true;
             }
             else if (attrTypeName == ObsoleteAttributeName)
             {
                 return true;
             }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if the member has the [EditorBrowsable(Never)] attribute.
+    /// </summary>
+    public static bool HasEditorBrowsableNeverAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            if (attrTypeName == EditorBrowsableAttributeName && IsEditorBrowsableNever(reader, attr))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if the member has the [Obsolete] attribute, returning the optional message.
+    /// </summary>
+    public static bool TryGetObsoleteAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes, out string? message)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            if (attrTypeName == ObsoleteAttributeName)
+            {
+                message = TryGetAttributeDisplayValue(reader, attr);
+                return true;
+            }
+        }
+        message = null;
+        return false;
+    }
+
+    private static bool IsEditorBrowsableNever(MetadataReader reader, CustomAttribute attr)
+    {
+        // Check if the value is EditorBrowsableState.Never (value = 1)
+        var value = reader.GetBlobBytes(attr.Value);
+        // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32
+        if (value.Length >= 6)
+        {
+            int enumValue = value[2] | (value[3] << 8) | (value[4] << 16) | (value[5] << 24);
+            return enumValue == 1; // EditorBrowsableState.Never
         }
         return false;
     }

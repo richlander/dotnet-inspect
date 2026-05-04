@@ -162,9 +162,11 @@ public static class ApiSurfaceExtractor
                 if (methodName.StartsWith("<"))
                     continue;
 
-                // Skip EditorBrowsable(Never) and Obsolete methods unless --all
-                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
+                // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
+                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
                     continue;
+
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
 
                 var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
                 var member = new ApiMember
@@ -176,7 +178,9 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
                     Signature = signature,
                     IsUnsafe = HasUnsafeSignature(signature),
-                    Accessibility = GetAccessibility(methodAccess)
+                    Accessibility = GetAccessibility(methodAccess),
+                    IsObsolete = isObsolete,
+                    ObsoleteMessage = obsoleteMessage
                 };
 
                 // Check for extension method
@@ -215,16 +219,20 @@ public static class ApiSurfaceExtractor
                 if (!isPublicProp && !includeAll)
                     continue;
 
-                // Skip EditorBrowsable(Never) and Obsolete properties unless --all
-                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, prop.GetCustomAttributes()))
+                // Skip EditorBrowsable(Never) properties unless --all; obsolete are surfaced with marker.
+                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, prop.GetCustomAttributes()))
                     continue;
+
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
 
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
                     Signature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll),
-                    Accessibility = GetAccessibility(bestAccess)
+                    Accessibility = GetAccessibility(bestAccess),
+                    IsObsolete = isObsolete,
+                    ObsoleteMessage = obsoleteMessage
                 };
 
                 apiType.Members.Add(member);
@@ -244,9 +252,11 @@ public static class ApiSurfaceExtractor
                 if (fieldName.StartsWith("<"))
                     continue; // Skip backing fields
 
-                // Skip EditorBrowsable(Never) and Obsolete fields unless --all
-                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, field.GetCustomAttributes()))
+                // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
+                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
                     continue;
+
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
 
                 // Decode field type
                 string? fieldType = null;
@@ -266,7 +276,9 @@ public static class ApiSurfaceExtractor
                     Kind = "field",
                     ReturnType = fieldType,
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
-                    Accessibility = GetFieldAccessibility(fieldAccess)
+                    Accessibility = GetFieldAccessibility(fieldAccess),
+                    IsObsolete = isObsolete,
+                    ObsoleteMessage = obsoleteMessage
                 };
 
                 // Read enum constant value
@@ -311,16 +323,20 @@ public static class ApiSurfaceExtractor
                 if (adderAccess != MethodAttributes.Public && !includeAll)
                     continue;
 
-                // Skip EditorBrowsable(Never) and Obsolete events unless --all
-                if (!includeAll && AttributeReader.HasHiddenAttribute(reader, evt.GetCustomAttributes()))
+                // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
+                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
                     continue;
+
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
 
                 var member = new ApiMember
                 {
                     Name = reader.GetString(evt.Name),
                     Kind = "event",
                     IsStatic = (adder.Attributes & MethodAttributes.Static) != 0,
-                    Accessibility = GetAccessibility(adderAccess)
+                    Accessibility = GetAccessibility(adderAccess),
+                    IsObsolete = isObsolete,
+                    ObsoleteMessage = obsoleteMessage
                 };
 
                 apiType.Members.Add(member);
