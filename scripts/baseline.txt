@@ -757,7 +757,7 @@ COMMAND: assembly --package System.Text.Json@10.0.2 --tfm net10.0
 | Compilation | CoreCLR |
 | Informational Version | 10.0.2+44525024595742ebe09023abe709df51de65009b |
 | Signed | Yes |
-| Public Key Token | 1d05d9bed22b38cb |
+| Public Key Token | cc7b13ffcd2ddd51 |
 
 ================================================================================
 COMMAND: assembly --package System.Text.Json@10.0.2 --tfm net10.0 --audit
@@ -775,7 +775,7 @@ COMMAND: assembly --package System.Text.Json@10.0.2 --tfm net10.0 --audit
 | Compilation | CoreCLR |
 | Informational Version | 10.0.2+44525024595742ebe09023abe709df51de65009b |
 | Signed | Yes |
-| Public Key Token | 1d05d9bed22b38cb |
+| Public Key Token | cc7b13ffcd2ddd51 |
 
 ## Build Audit
 

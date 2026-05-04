@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 
 namespace DotnetInspector.Metadata;
 
@@ -83,7 +84,10 @@ public static class AssemblyInspector
                 var publicKey = metadataReader.GetBlobBytes(assemblyDef.PublicKey);
                 if (publicKey.Length > 0)
                 {
-                    info.PublicKeyToken = Convert.ToHexString(publicKey.TakeLast(8).ToArray()).ToLowerInvariant();
+                    var publicKeyHash = SHA1.HashData(publicKey);
+                    var publicKeyToken = publicKeyHash[^8..];
+                    Array.Reverse(publicKeyToken);
+                    info.PublicKeyToken = Convert.ToHexString(publicKeyToken).ToLowerInvariant();
                 }
             }
 
@@ -429,8 +433,7 @@ public static class AssemblyInspector
                     string url = prop.Value.GetString() ?? "";
                     if (url.Contains("github.com", StringComparison.OrdinalIgnoreCase))
                     {
-                        var match = System.Text.RegularExpressions.Regex.Match(url,
-                            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/");
+                        var match = AssemblyInspectorRegex.GitHubRawUrl().Match(url);
                         if (match.Success)
                         {
                             return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
