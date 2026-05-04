@@ -489,7 +489,7 @@ Name: System.Text.Json | Version: 10.0.3 | TFM: .NETCoreApp,Version=v10.0 | Arch
 | Company | Microsoft Corporation |
 | Copyright | © Microsoft Corporation. All rights reserved. |
 | Signed | Yes |
-| Public Key Token | 1d05d9bed22b38cb |
+| Public Key Token | cc7b13ffcd2ddd51 |
 | Deterministic | ✓ |
 | Reproducible | ✓ |
 | File Size | 80.8 KB |
@@ -543,7 +543,7 @@ Name: System.Text.Json | Version: 10.0.3 | TFM: .NETCoreApp,Version=v10.0 | Arch
 | Company | Microsoft Corporation |
 | Copyright | © Microsoft Corporation. All rights reserved. |
 | Signed | Yes |
-| Public Key Token | 1d05d9bed22b38cb |
+| Public Key Token | cc7b13ffcd2ddd51 |
 | Deterministic | ✓ |
 | Reproducible | ✓ |
 | File Size | 80.8 KB |
