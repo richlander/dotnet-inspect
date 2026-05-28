@@ -151,6 +151,25 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_DiscoverEffective_OnlyShowsSectionsWithData()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [],
+            Effective = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Methods | section |", output);
+        Assert.DoesNotContain("| Fields | section |", output);
+    }
+
+    [Fact]
     public async Task Api_NonexistentPackage_ShowsError()
     {
         var options = new ApiOptions { PackagePath = "NonexistentPackage123456" };

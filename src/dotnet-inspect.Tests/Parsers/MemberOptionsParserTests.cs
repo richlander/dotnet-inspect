@@ -309,4 +309,12 @@ public class MemberOptionsParserTests
         Assert.NotNull(options.Select);
         Assert.Equal(["Classes", "Constructors"], options.Select);
     }
+
+    [Fact]
+    public async Task EffectiveFlag_SetsEffectiveMode()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-D", "--effective");
+
+        Assert.True(options.Effective);
+    }
 }
