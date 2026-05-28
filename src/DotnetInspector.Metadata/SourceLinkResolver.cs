@@ -364,6 +364,130 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// Source location resolved from a method token and IL offset.
+    /// </summary>
+    public record ILOffsetSourceInfo(
+        string? MethodName,
+        string FilePath,
+        string? SourceUrl,
+        int Line,
+        int MatchedOffset,
+        string? GitHubBrowseUrl);
+
+    /// <summary>
+    /// Resolves source file and line number from a method token and IL offset
+    /// by walking PDB sequence points.
+    /// </summary>
+    public ILOffsetSourceInfo? ResolveByILOffset(MetadataReader metadata, MetadataReader pdb, int methodToken, int ilOffset)
+    {
+        try
+        {
+            var handle = MetadataTokens.Handle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
+
+            var methodDefHandle = (MethodDefinitionHandle)handle;
+
+            // Resolve method name for context
+            var methodDef = metadata.GetMethodDefinition(methodDefHandle);
+            var typeDef = metadata.GetTypeDefinition(methodDef.GetDeclaringType());
+            string methodName = $"{metadata.GetFullTypeName(typeDef)}.{metadata.GetString(methodDef.Name)}";
+
+            var debugInfoHandle = methodDefHandle.ToDebugInformationHandle();
+            var debugInfo = pdb.GetMethodDebugInformation(debugInfoHandle);
+
+            if (debugInfo.SequencePointsBlob.IsNil)
+                return null;
+
+            SequencePoint? bestPoint = null;
+            foreach (var sp in debugInfo.GetSequencePoints())
+            {
+                if (sp.Offset > ilOffset)
+                    break;
+
+                if (sp.StartLine != SequencePoint.HiddenLine)
+                    bestPoint = sp;
+            }
+
+            if (!bestPoint.HasValue)
+                return null;
+
+            var document = pdb.GetDocument(bestPoint.Value.Document);
+            string filePath = pdb.GetString(document.Name);
+
+            string? sourceUrl = ApplySourceLinkMapping(filePath);
+            string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
+
+            return new ILOffsetSourceInfo(
+                methodName,
+                filePath,
+                sourceUrl,
+                bestPoint.Value.StartLine,
+                bestPoint.Value.Offset,
+                browseUrl);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves source file and line number from a method token and IL offset
+    /// using only the PDB reader (no SourceLink URL mapping, no method name).
+    /// Used when no SourceLinkResolver is available.
+    /// </summary>
+    public static ILOffsetSourceInfo? ResolveByILOffsetDirect(MetadataReader metadata, MetadataReader pdb, int methodToken, int ilOffset)
+    {
+        try
+        {
+            var handle = MetadataTokens.Handle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
+
+            var methodDefHandle = (MethodDefinitionHandle)handle;
+
+            var methodDef = metadata.GetMethodDefinition(methodDefHandle);
+            var typeDef = metadata.GetTypeDefinition(methodDef.GetDeclaringType());
+            string methodName = $"{metadata.GetFullTypeName(typeDef)}.{metadata.GetString(methodDef.Name)}";
+
+            var debugInfoHandle = methodDefHandle.ToDebugInformationHandle();
+            var debugInfo = pdb.GetMethodDebugInformation(debugInfoHandle);
+
+            if (debugInfo.SequencePointsBlob.IsNil)
+                return null;
+
+            SequencePoint? bestPoint = null;
+            foreach (var sp in debugInfo.GetSequencePoints())
+            {
+                if (sp.Offset > ilOffset)
+                    break;
+
+                if (sp.StartLine != SequencePoint.HiddenLine)
+                    bestPoint = sp;
+            }
+
+            if (!bestPoint.HasValue)
+                return null;
+
+            var document = pdb.GetDocument(bestPoint.Value.Document);
+            string filePath = pdb.GetString(document.Name);
+
+            return new ILOffsetSourceInfo(
+                methodName,
+                filePath,
+                null,
+                bestPoint.Value.StartLine,
+                bestPoint.Value.Offset,
+                null);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Applies SourceLink URL pattern to convert a file path to a source URL.
     /// </summary>
     public string? ApplySourceLinkMapping(string filePath)

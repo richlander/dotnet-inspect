@@ -23,6 +23,12 @@ public record SourceOptions
     /// </summary>
     public int? OverloadIndex { get; init; }
 
+    /// <summary>
+    /// IL offset in "token+offset" format (e.g., "0x6000001+0x5").
+    /// When set, resolves a method token and IL offset to a source location.
+    /// </summary>
+    public string? ILOffset { get; init; }
+
     // Source resolution
     public string? PackagePath { get; init; }
     public string? AssemblyPath { get; init; }

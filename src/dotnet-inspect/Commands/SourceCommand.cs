@@ -51,6 +51,12 @@ public static class SourceCommand
 
         try
         {
+            // IL offset mode: resolve method token + offset directly, skip API extraction
+            if (!string.IsNullOrEmpty(options.ILOffset))
+            {
+                return await ExecuteILOffsetAsync(source, options, logger);
+            }
+
             // Extract all types
             var (api, apiDllPath) = ApiServices.ExtractFullApi(searchPath, logger, options.IncludeAll);
             if (api == null)
@@ -548,6 +554,154 @@ public static class SourceCommand
         }
     }
 
+    // ===== IL Offset Mode =====
+
+    /// <summary>
+    /// Parses an IL offset string in the format "0x6000001+0x5" into method token and IL offset.
+    /// </summary>
+    internal static bool TryParseILOffset(string value, out int methodToken, out int ilOffset)
+    {
+        methodToken = 0;
+        ilOffset = 0;
+
+        var plusIndex = value.IndexOf('+');
+        if (plusIndex < 0)
+            return false;
+
+        var tokenPart = value[..plusIndex].Trim();
+        var offsetPart = value[(plusIndex + 1)..].Trim();
+
+        if (!TryParseHexOrDecimal(tokenPart, out methodToken))
+            return false;
+
+        if (!TryParseHexOrDecimal(offsetPart, out ilOffset))
+            return false;
+
+        // Validate the token is in the MethodDef table (table 0x06)
+        int table = (methodToken >> 24) & 0xFF;
+        if (table != 0x06)
+            return false;
+
+        return ilOffset >= 0;
+    }
+
+    private static bool TryParseHexOrDecimal(string value, out int result)
+    {
+        if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(value[2..], System.Globalization.NumberStyles.HexNumber, null, out result);
+        return int.TryParse(value, out result);
+    }
+
+    private static async Task<int> ExecuteILOffsetAsync(
+        ApiCommand.SourceResult source, SourceOptions options,
+        VerboseLogger logger)
+    {
+        var dllPath = source.RuntimeAssemblyPath;
+
+        // If no runtime assembly path, try to find a DLL in the search path
+        if (dllPath == null && source.SearchPath != null)
+        {
+            var (_, apiDllPath) = ApiServices.ExtractFullApi(source.SearchPath, logger, options.IncludeAll);
+            dllPath = apiDllPath;
+        }
+
+        if (dllPath == null)
+        {
+            Console.Error.WriteLine("Error: No library found.");
+            return 1;
+        }
+
+        if (!TryParseILOffset(options.ILOffset!, out var methodToken, out var ilOffset))
+        {
+            Console.Error.WriteLine($"Error: Invalid --il-offset format '{options.ILOffset}'.");
+            Console.Error.WriteLine("Expected format: 0x6000001+0x5 (method token + IL offset)");
+            return 1;
+        }
+
+        using var service = SourceLinkService.Open(dllPath, logger.Log);
+        var pdbContext = service.Context;
+
+        if (!pdbContext.HasMetadata)
+        {
+            Console.Error.WriteLine("Error: No metadata in library.");
+            return 1;
+        }
+
+        await SourceEnricher.AcquirePdbAsync(pdbContext, source.Context.HttpClient,
+            source.PackageName, source.PackageVersion,
+            isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+
+        if (!pdbContext.HasPdb)
+        {
+            WritePdbWarning(pdbContext);
+            return 1;
+        }
+
+        if (!service.HasSourceLink)
+        {
+            logger.Log("Warning: No SourceLink information found. URLs will not be available.");
+        }
+
+        var result = service.ResolveByILOffset(methodToken, ilOffset);
+
+        if (result == null)
+        {
+            Console.Error.WriteLine($"Error: Could not resolve source location for token 0x{methodToken:X}+0x{ilOffset:X}.");
+            Console.Error.WriteLine("The method token may be invalid or the PDB may not contain sequence points for this method.");
+            return 1;
+        }
+
+        // Build URL with line fragment
+        string? url = options.BrowsableUrls ? result.GitHubBrowseUrl : result.SourceUrl;
+        if (url != null)
+            url += $"#L{result.Line}";
+
+        // Output
+        if (options.JsonOutput)
+        {
+            var jsonResult = new ILOffsetResult
+            {
+                Method = result.MethodName,
+                Token = $"0x{methodToken:X}",
+                ILOffset = $"0x{ilOffset:X}",
+                MatchedOffset = $"0x{result.MatchedOffset:X}",
+                File = result.FilePath,
+                Line = result.Line,
+                Url = url
+            };
+            string json = options.CompactJson
+                ? System.Text.Json.JsonSerializer.Serialize(jsonResult, SourceCompactJsonContext.Default.ILOffsetResult)
+                : System.Text.Json.JsonSerializer.Serialize(jsonResult, SourceJsonContext.Default.ILOffsetResult);
+            Console.WriteLine(json);
+        }
+        else
+        {
+            var view = new SourceILOffsetView
+            {
+                Title = result.MethodName ?? $"0x{methodToken:X}",
+                Method = result.MethodName,
+                Token = $"0x{methodToken:X}",
+                ILOffset = $"0x{ilOffset:X}",
+                MatchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null,
+                File = result.FilePath,
+                Line = result.Line,
+                Source = url
+            };
+
+            if (options.IsDefaultInvocation || (options.OneLine && !options.JsonOutput))
+            {
+                // Oneline: just the URL (or file:line if no URL)
+                Console.WriteLine(url ?? $"{result.FilePath}:{result.Line}");
+            }
+            else
+            {
+                WriteMarkdown(view, options);
+            }
+        }
+
+        return 0;
+    }
+
     // ===== Helpers =====
 
     private static void WriteOneLine<T>(T view, SourceOptions options) where T : class
@@ -1007,5 +1161,16 @@ public class SampleEntry
 {
     public string? Type { get; init; }
     public string? Name { get; init; }
+    public string? Url { get; init; }
+}
+
+public class ILOffsetResult
+{
+    public string? Method { get; init; }
+    public string? Token { get; init; }
+    public string? ILOffset { get; init; }
+    public string? MatchedOffset { get; init; }
+    public string? File { get; init; }
+    public int? Line { get; init; }
     public string? Url { get; init; }
 }

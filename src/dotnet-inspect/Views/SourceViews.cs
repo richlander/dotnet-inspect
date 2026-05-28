@@ -162,6 +162,31 @@ public record MemberDocRow(string Member, string? Summary);
 [MarkoutSerializable]
 public record MissingFileRow(string File);
 
+/// <summary>
+/// View model for the source command: IL offset resolution mode.
+/// Shows the resolved source location from a method token + IL offset.
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title), FieldLayout = FieldLayout.Inline)]
+public class SourceILOffsetView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+
+    [MarkoutSkipNull] public string? Method { get; set; }
+    [MarkoutSkipNull] public string? Token { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Matched Offset")]
+    public string? MatchedOffset { get; set; }
+
+    [MarkoutSkipNull] public string? File { get; set; }
+    [MarkoutSkipNull] public int? Line { get; set; }
+    [MarkoutSkipNull] public string? Source { get; set; }
+}
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(SourceListView))]
 [MarkoutContext(typeof(SourceOneLineView))]
@@ -173,6 +198,7 @@ public record MissingFileRow(string File);
 [MarkoutContext(typeof(VerifiedSourceUrlRow))]
 [MarkoutContext(typeof(MemberDocRow))]
 [MarkoutContext(typeof(MissingFileRow))]
+[MarkoutContext(typeof(SourceILOffsetView))]
 public partial class SourceViewContext : MarkoutSerializerContext
 {
 }
