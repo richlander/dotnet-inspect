@@ -124,7 +124,7 @@ public static class ApiOutputFormatter
         {
             IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet,
-            Projection = OutputFormatter.BuildProjection(options.Columns)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
     }
 
@@ -140,7 +140,7 @@ public static class ApiOutputFormatter
         {
             IncludeSections = includeSections,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet,
-            Projection = OutputFormatter.BuildProjection(options.Columns)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
     }
 

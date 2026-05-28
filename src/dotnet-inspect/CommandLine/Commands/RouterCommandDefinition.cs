@@ -151,6 +151,7 @@ public static class RouterCommandDefinition
                 Select = route.Options.Select,
                 Columns = route.Options.Columns,
                 Fields = route.Options.Fields,
+                Effective = route.Options.Effective,
                 SourceOptions = route.Options.SourceOptions,
                 TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
@@ -290,6 +291,7 @@ public static class RouterCommandDefinition
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
+            Effective = parseResult.GetValue(opts.Effective),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
