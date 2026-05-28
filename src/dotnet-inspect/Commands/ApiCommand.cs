@@ -58,21 +58,23 @@ public class ApiCommand
     {
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
+        bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
+        bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
+        bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
+        var knownSections = singleTypeMode ? memberPipeline.AllSectionNames : typePipeline.AllSectionNames;
 
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
         {
-            // Combine type-list and member-detail schema maps
-            var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            var memberSchemaMap = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-            // Use combined section names for discovery
-            return (null!, DiscoverOutput.Execute(options.Discover, typeSchemaMap,
+            var schema = singleTypeMode
+                ? ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema()
+                : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, knownSections);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
