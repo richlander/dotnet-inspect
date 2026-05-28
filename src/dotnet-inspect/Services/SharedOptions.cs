@@ -76,7 +76,7 @@ public class SharedOptions
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select sections by name (comma-separated, supports wildcards)",
+            Description = "Select sections by name (comma/semicolon-separated, supports wildcards)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");
@@ -85,13 +85,13 @@ public class SharedOptions
 
         Columns = new Option<string?>("--columns")
         {
-            Description = "Filter columns by name (comma-separated)",
+            Description = "Filter columns by name (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
 
         Fields = new Option<string?>("--fields")
         {
-            Description = "Filter fields by name (comma-separated)",
+            Description = "Filter fields by name (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
     }
@@ -311,10 +311,12 @@ public class SharedOptions
                string.IsNullOrWhiteSpace(parseResult.GetValue(option));
     }
 
+    private static readonly char[] ListSeparators = [',', ';'];
+
     private static string[]? ParseCommaSeparatedList(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
-        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return value.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 }
