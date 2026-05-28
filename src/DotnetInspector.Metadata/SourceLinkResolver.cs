@@ -376,66 +376,21 @@ public class SourceLinkResolver
 
     /// <summary>
     /// Resolves source file and line number from a method token and IL offset
-    /// by walking PDB sequence points.
+    /// by walking PDB sequence points. Applies SourceLink URL mapping when available.
     /// </summary>
     public ILOffsetSourceInfo? ResolveByILOffset(MetadataReader metadata, MetadataReader pdb, int methodToken, int ilOffset)
     {
-        try
-        {
-            var handle = MetadataTokens.Handle(methodToken);
-            if (handle.Kind != HandleKind.MethodDefinition)
-                return null;
-
-            var methodDefHandle = (MethodDefinitionHandle)handle;
-
-            // Resolve method name for context
-            var methodDef = metadata.GetMethodDefinition(methodDefHandle);
-            var typeDef = metadata.GetTypeDefinition(methodDef.GetDeclaringType());
-            string methodName = $"{metadata.GetFullTypeName(typeDef)}.{metadata.GetString(methodDef.Name)}";
-
-            var debugInfoHandle = methodDefHandle.ToDebugInformationHandle();
-            var debugInfo = pdb.GetMethodDebugInformation(debugInfoHandle);
-
-            if (debugInfo.SequencePointsBlob.IsNil)
-                return null;
-
-            SequencePoint? bestPoint = null;
-            foreach (var sp in debugInfo.GetSequencePoints())
-            {
-                if (sp.Offset > ilOffset)
-                    break;
-
-                if (sp.StartLine != SequencePoint.HiddenLine)
-                    bestPoint = sp;
-            }
-
-            if (!bestPoint.HasValue)
-                return null;
-
-            var document = pdb.GetDocument(bestPoint.Value.Document);
-            string filePath = pdb.GetString(document.Name);
-
-            string? sourceUrl = ApplySourceLinkMapping(filePath);
-            string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
-
-            return new ILOffsetSourceInfo(
-                methodName,
-                filePath,
-                sourceUrl,
-                bestPoint.Value.StartLine,
-                bestPoint.Value.Offset,
-                browseUrl);
-        }
-        catch
-        {
+        if (ResolveByILOffsetDirect(metadata, pdb, methodToken, ilOffset) is not { } info)
             return null;
-        }
+
+        string? sourceUrl = ApplySourceLinkMapping(info.FilePath);
+        return info with { SourceUrl = sourceUrl, GitHubBrowseUrl = ConvertToGitHubBrowseUrl(sourceUrl) };
     }
 
     /// <summary>
-    /// Resolves source file and line number from a method token and IL offset
-    /// using only the PDB reader (no SourceLink URL mapping, no method name).
-    /// Used when no SourceLinkResolver is available.
+    /// Resolves source file and line number from a method token and IL offset by walking
+    /// PDB sequence points, returning the last visible point at or before the requested offset.
+    /// Uses only the PDB reader (no SourceLink URL mapping); used when no resolver is available.
     /// </summary>
     public static ILOffsetSourceInfo? ResolveByILOffsetDirect(MetadataReader metadata, MetadataReader pdb, int methodToken, int ilOffset)
     {
@@ -451,9 +406,7 @@ public class SourceLinkResolver
             var typeDef = metadata.GetTypeDefinition(methodDef.GetDeclaringType());
             string methodName = $"{metadata.GetFullTypeName(typeDef)}.{metadata.GetString(methodDef.Name)}";
 
-            var debugInfoHandle = methodDefHandle.ToDebugInformationHandle();
-            var debugInfo = pdb.GetMethodDebugInformation(debugInfoHandle);
-
+            var debugInfo = pdb.GetMethodDebugInformation(methodDefHandle.ToDebugInformationHandle());
             if (debugInfo.SequencePointsBlob.IsNil)
                 return null;
 
@@ -463,23 +416,17 @@ public class SourceLinkResolver
                 if (sp.Offset > ilOffset)
                     break;
 
-                if (sp.StartLine != SequencePoint.HiddenLine)
+                if (!sp.IsHidden)
                     bestPoint = sp;
             }
 
-            if (!bestPoint.HasValue)
+            if (bestPoint is not { } point)
                 return null;
 
-            var document = pdb.GetDocument(bestPoint.Value.Document);
+            var document = pdb.GetDocument(point.Document);
             string filePath = pdb.GetString(document.Name);
 
-            return new ILOffsetSourceInfo(
-                methodName,
-                filePath,
-                null,
-                bestPoint.Value.StartLine,
-                bestPoint.Value.Offset,
-                null);
+            return new ILOffsetSourceInfo(methodName, filePath, null, point.StartLine, point.Offset, null);
         }
         catch
         {
