@@ -124,7 +124,7 @@ public static class ApiOutputFormatter
         {
             IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet,
-            Projection = OutputFormatter.BuildProjection(options.Columns)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
     }
 
@@ -140,7 +140,7 @@ public static class ApiOutputFormatter
         {
             IncludeSections = includeSections,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet,
-            Projection = OutputFormatter.BuildProjection(options.Columns)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
     }
 
@@ -764,6 +764,11 @@ public static class ApiOutputFormatter
     internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        var requestedKinds = GetRequestedMemberKinds(options.IncludeSections);
+        if (requestedKinds is { Count: > 0 })
+            grouped = grouped
+                .Where(kvp => requestedKinds.Contains(kvp.Key))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (new ApiTypeOneLineView(), 0);
 
         var allEntries = grouped
@@ -814,6 +819,9 @@ public static class ApiOutputFormatter
     {
         int truncated = 0;
         var types = api.Types;
+        var requestedKinds = GetRequestedTypeKinds(options.IncludeSections);
+        if (requestedKinds is { Count: > 0 })
+            types = types.Where(t => requestedKinds.Contains(t.Kind)).ToList();
         if (options.Limit.HasValue && options.Limit.Value < types.Count)
         {
             truncated = types.Count - options.Limit.Value;
@@ -887,5 +895,67 @@ public static class ApiOutputFormatter
             _ => kind + "s"
         };
         return $"{plural} ({count})";
+    }
+
+    private static HashSet<string>? GetRequestedMemberKinds(HashSet<string>? includeSections)
+    {
+        if (includeSections is not { Count: > 0 })
+            return null;
+
+        HashSet<string> kinds = [];
+        foreach (var section in includeSections)
+        {
+            switch (section)
+            {
+                case "Constructors":
+                    kinds.Add("constructor");
+                    break;
+                case "Fields":
+                    kinds.Add("field");
+                    break;
+                case "Properties":
+                    kinds.Add("property");
+                    break;
+                case "Methods":
+                    kinds.Add("method");
+                    break;
+                case "Events":
+                    kinds.Add("event");
+                    break;
+            }
+        }
+
+        return kinds;
+    }
+
+    private static HashSet<string>? GetRequestedTypeKinds(HashSet<string>? includeSections)
+    {
+        if (includeSections is not { Count: > 0 })
+            return null;
+
+        HashSet<string> kinds = [];
+        foreach (var section in includeSections)
+        {
+            switch (section)
+            {
+                case "Classes":
+                    kinds.Add("class");
+                    break;
+                case "Structs":
+                    kinds.Add("struct");
+                    break;
+                case "Interfaces":
+                    kinds.Add("interface");
+                    break;
+                case "Enums":
+                    kinds.Add("enum");
+                    break;
+                case "Delegates":
+                    kinds.Add("delegate");
+                    break;
+            }
+        }
+
+        return kinds;
     }
 }

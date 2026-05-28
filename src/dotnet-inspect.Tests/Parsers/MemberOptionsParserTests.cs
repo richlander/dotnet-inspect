@@ -291,4 +291,30 @@ public class MemberOptionsParserTests
 
         Assert.Contains("method", options.KindFilter);
     }
+
+    [Fact]
+    public async Task Columns_WithSemicolonSeparator_AreParsedAsMultipleColumns()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--columns", "Kind;Type");
+
+        Assert.NotNull(options.Columns);
+        Assert.Equal(["Kind", "Type"], options.Columns);
+    }
+
+    [Fact]
+    public async Task Select_WithSemicolonSeparator_AreParsedAsMultipleSections()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-S", "Classes;Constructors");
+
+        Assert.NotNull(options.Select);
+        Assert.Equal(["Classes", "Constructors"], options.Select);
+    }
+
+    [Fact]
+    public async Task EffectiveFlag_SetsEffectiveMode()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-D", "--effective");
+
+        Assert.True(options.Effective);
+    }
 }

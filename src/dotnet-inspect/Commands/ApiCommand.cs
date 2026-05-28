@@ -42,7 +42,8 @@ public class ApiCommand
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
-            Select = options.Select, Columns = options.Columns, SourceOptions = options.SourceOptions,
+            Select = options.Select, Columns = options.Columns, Fields = options.Fields,
+            Effective = options.Effective, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
         })
     };
@@ -58,21 +59,23 @@ public class ApiCommand
     {
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        var allApiSections = typePipeline.AllSectionNames.Concat(memberPipeline.AllSectionNames).Distinct().ToArray();
+        bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
+        bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
+        bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
+        var knownSections = singleTypeMode ? memberPipeline.AllSectionNames : typePipeline.AllSectionNames;
 
-        // Discovery mode: -D/--discover lists schema
-        if (options.Discover != null)
+        // Discovery mode: -D/--discover lists schema unless --effective is requested.
+        if (options.Discover != null && !options.Effective)
         {
-            // Combine type-list and member-detail schema maps
-            var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            var memberSchemaMap = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-            // Use combined section names for discovery
-            return (null!, DiscoverOutput.Execute(options.Discover, typeSchemaMap,
+            var schema = singleTypeMode
+                ? ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema()
+                : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, allApiSections);
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, knownSections);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
@@ -343,12 +346,8 @@ public class ApiCommand
             apiSource, apiVersion, selectedTfm, tempDir, typeName, context), null);
     }
 
-    // ===== Full API Surface Rendering =====
-
-    internal static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
+    internal static void ApplySurfaceFilters(ApiSurface api, ApiOptions options, string? typeFilter = null)
     {
-        // Apply type filter
-        var typeFilter = (options as TypeOptions)?.TypeFilter;
         if (!string.IsNullOrEmpty(typeFilter))
         {
             api.Types = api.Types
@@ -357,14 +356,12 @@ public class ApiCommand
             api.PublicTypeCount = api.Types.Count;
         }
 
-        // Apply kind filter (type kinds for multi-type listing)
         if (options.KindFilter.Count > 0)
         {
             api.Types = api.Types.Where(t => options.KindFilter.Contains(t.Kind)).ToList();
             api.PublicTypeCount = api.Types.Count;
         }
 
-        // Apply unsafe filter
         if (options.UnsafeOnly)
         {
             foreach (var type in api.Types)
@@ -378,6 +375,54 @@ public class ApiCommand
             api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
             api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
         }
+    }
+
+    internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
+    {
+        var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
+
+        if (options.MemberFilter.Count > 0)
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
+
+        if (options.UnsafeOnly)
+            members = members.Where(m => m.IsUnsafe);
+
+        if (options.KindFilter.Count > 0)
+            members = members.Where(m => options.KindFilter.Contains(m.Kind));
+
+        var filteredMembers = members.ToList();
+        if (options.Limit.HasValue && options.Limit.Value < filteredMembers.Count)
+            filteredMembers = filteredMembers.Take(options.Limit.Value).ToList();
+
+        return new ApiType
+        {
+            Namespace = type.Namespace,
+            Name = type.Name,
+            Kind = type.Kind,
+            IsSealed = type.IsSealed,
+            IsAbstract = type.IsAbstract,
+            IsStatic = type.IsStatic,
+            BaseType = type.BaseType,
+            Interfaces = type.Interfaces,
+            DerivedTypes = type.DerivedTypes,
+            TypeParameters = type.TypeParameters,
+            Members = filteredMembers,
+            SourceFilePath = type.SourceFilePath,
+            SourceUrl = type.SourceUrl,
+            GitHubBrowseUrl = type.GitHubBrowseUrl,
+            SourceLineNumber = type.SourceLineNumber,
+            SourceResolution = type.SourceResolution,
+            AdditionalSourceFiles = type.AdditionalSourceFiles,
+            IsForwarded = type.IsForwarded,
+            Documentation = type.Documentation
+        };
+    }
+
+    // ===== Full API Surface Rendering =====
+
+    internal static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
+    {
+        ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
 
         if (options.JsonOutput)
         {

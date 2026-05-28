@@ -61,6 +61,7 @@ public record ApiOptions
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
+    public bool Effective { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>

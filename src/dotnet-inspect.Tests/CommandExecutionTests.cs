@@ -115,6 +115,61 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_SelectClasses_ShowsSelectError()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            OneLine = true,
+            Select = ["Classes"]
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Classes' not found", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverMethods_Works()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Methods"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Name", output);
+        Assert.Contains("Signature", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverEffective_OnlyShowsSectionsWithData()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [],
+            Effective = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Methods | section |", output);
+        Assert.DoesNotContain("| Fields | section |", output);
+    }
+
+    [Fact]
     public async Task Api_NonexistentPackage_ShowsError()
     {
         var options = new ApiOptions { PackagePath = "NonexistentPackage123456" };

@@ -272,6 +272,45 @@ public class OutputFormatterTests
         Assert.DoesNotContain("TFM:", output);
     }
 
+    [Fact]
+    public void ApiTypeWriterOptions_IncludeFieldsProjection()
+    {
+        var type = new ApiType
+        {
+            Namespace = "TestLib",
+            Name = "MyClass",
+            Kind = "class"
+        };
+        var options = new ApiOptions
+        {
+            Columns = ["Name"],
+            Fields = ["Title"]
+        };
+
+        var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+
+        Assert.NotNull(writerOptions.Projection);
+        Assert.Equal(["Name"], writerOptions.Projection!.IncludeColumns);
+        Assert.Equal(["Title"], writerOptions.Projection!.IncludeFields);
+    }
+
+    [Fact]
+    public void ApiSurfaceWriterOptions_IncludeFieldsProjection()
+    {
+        var api = CreateTestApiSurface();
+        var options = new ApiOptions
+        {
+            Columns = ["Name"],
+            Fields = ["Title"]
+        };
+
+        var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+
+        Assert.NotNull(writerOptions.Projection);
+        Assert.Equal(["Name"], writerOptions.Projection!.IncludeColumns);
+        Assert.Equal(["Title"], writerOptions.Projection!.IncludeFields);
+    }
+
     // ===== Quiet Output Tests =====
 
     [Fact]

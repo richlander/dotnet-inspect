@@ -86,6 +86,15 @@ public static class TypeCommand
                 if (pdbLookupPath != null && listOptions.ShowDocs)
                     SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, listOptions, logger);
 
+                if (options.Effective && options.Discover != null)
+                {
+                    ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
+                    var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+                    var effective = typePipeline.GetEffectiveSections(api, Verbosity.Detailed, options.IncludeSections);
+                    return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
+                        tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                        verbosity: (int)options.Verbosity);
+                }
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
 
@@ -186,6 +195,15 @@ public static class TypeCommand
                             SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
                     }
 
+                    if (effectiveOptions.Effective && effectiveOptions.Discover != null)
+                    {
+                        var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+                        var filteredType = ApiCommand.BuildFilteredTypeForSections(apiType, effectiveOptions);
+                        var effective = memberPipeline.GetEffectiveSections(filteredType, Verbosity.Detailed, effectiveOptions.IncludeSections);
+                        return DiscoverOutput.ExecuteEffective(effectiveOptions.Discover, effective, schema,
+                            tree: effectiveOptions.Tree, json: effectiveOptions.JsonOutput, markdown: !effectiveOptions.OneLine && !effectiveOptions.JsonOutput,
+                            verbosity: (int)effectiveOptions.Verbosity);
+                    }
 
                     ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
 
