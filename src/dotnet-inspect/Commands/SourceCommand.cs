@@ -676,16 +676,33 @@ public static class SourceCommand
         }
         else
         {
+            // Verbosity discipline (mirrors the library-info view):
+            //   -v:q  → compact inline line only
+            //   -v:m  → "Offset" section only
+            //   -v:n+ → "Offset" + "Source" sections
+            bool showSections = options.Verbosity >= Verbosity.Minimal;
+            bool showSource = options.Verbosity >= Verbosity.Normal;
+            string token = $"0x{methodToken:X}";
+            string ilOffsetHex = $"0x{ilOffset:X}";
+            string? matchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null;
+
             var view = new SourceILOffsetView
             {
-                Title = result.MethodName ?? $"0x{methodToken:X}",
-                Method = result.MethodName,
-                Token = $"0x{methodToken:X}",
-                ILOffset = $"0x{ilOffset:X}",
-                MatchedOffset = result.MatchedOffset != ilOffset ? $"0x{result.MatchedOffset:X}" : null,
-                File = result.FilePath,
-                Line = result.Line,
-                Source = url
+                Title = result.MethodName ?? token,
+
+                // Compact inline fields (only at -v:q) — token + offsets only;
+                // source location is reserved for the "Source" section at -v:n+.
+                Token = showSections ? null : token,
+                ILOffset = showSections ? null : ilOffsetHex,
+                MatchedOffset = showSections ? null : matchedOffset,
+
+                // Offset section (-v:m+)
+                Offset = showSections
+                    ? new ILOffsetInfoSection { Token = token, ILOffset = ilOffsetHex, MatchedOffset = matchedOffset }
+                    : null,
+
+                // Source section (-v:n+)
+                Location = showSource ? [new ILOffsetSourceRow(result.FilePath, result.Line, url)] : null,
             };
 
             if (options.IsDefaultInvocation || (options.OneLine && !options.JsonOutput))
