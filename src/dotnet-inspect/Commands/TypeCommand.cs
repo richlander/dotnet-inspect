@@ -184,9 +184,16 @@ public static class TypeCommand
                     if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                         effectiveOptions = options with { ShowDocs = true };
 
-                    // Default --shape on for single-type view when no explicit format was chosen
-                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.IsDefaultInvocation)
+                    // Default --shape on for single-type view when no explicit format was
+                    // chosen and the user is not running a section/projection query. Selection
+                    // (-S) and projection (--columns/--fields) produce focused output, not the tree.
+                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.IsDefaultInvocation && !effectiveOptions.HasSectionQuery)
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
+
+                    // Explicit --shape cannot honor a section/projection query; warn rather than
+                    // silently dropping the selection.
+                    if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true })
+                        Console.Error.WriteLine("Warning: --shape does not support -S/--columns/--fields; selection was ignored.");
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
@@ -197,15 +204,46 @@ public static class TypeCommand
 
                     if (effectiveOptions.Effective && effectiveOptions.Discover != null)
                     {
-                        var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-                        var filteredType = ApiCommand.BuildFilteredTypeForSections(apiType, effectiveOptions);
-                        var effective = memberPipeline.GetEffectiveSections(filteredType, Verbosity.Detailed, effectiveOptions.IncludeSections);
-                        return DiscoverOutput.ExecuteEffective(effectiveOptions.Discover, effective, schema,
-                            tree: effectiveOptions.Tree, json: effectiveOptions.JsonOutput, markdown: !effectiveOptions.OneLine && !effectiveOptions.JsonOutput,
-                            verbosity: (int)effectiveOptions.Verbosity);
+                        return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
                     }
 
-                    ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                    bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
+                    bool tabularProjection = hasProjection
+                        && !effectiveOptions.JsonOutput
+                        && effectiveOptions is not TypeOptions { ShapeOutput: true };
+
+                    // Pre-render: validate --columns/--fields names against the section schema
+                    // (catches typos) when a specific section is selected, mirroring the package path.
+                    if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
+                    {
+                        var projSchema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+                        foreach (var section in effectiveOptions.IncludeSections)
+                            ProjectionDiagnostics.ValidateProjection(projSchema, section, effectiveOptions.Fields, effectiveOptions.Columns);
+                    }
+
+                    if (tabularProjection)
+                    {
+                        // Capture output so we can warn when a requested column produced no data
+                        // (e.g. Select without --show-index, or a column not shown at this verbosity).
+                        var sw = new StringWriter();
+                        ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        var rendered = sw.ToString();
+                        ProjectionDiagnostics.DiagnoseRendered(effectiveOptions.Fields ?? effectiveOptions.Columns, rendered);
+                        Console.Out.Write(rendered);
+                    }
+                    else
+                    {
+                        ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                    }
+
+                    // Notify when a requested section matched but has no data for this type.
+                    // JSON and markdown both honor -S; one-line falls back to showing all
+                    // members and shape replaces selection, so skip those.
+                    if (!effectiveOptions.OneLine
+                        && effectiveOptions is not TypeOptions { ShapeOutput: true })
+                    {
+                        ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
+                    }
 
                     if (!effectiveOptions.IsRawOutput)
                     {

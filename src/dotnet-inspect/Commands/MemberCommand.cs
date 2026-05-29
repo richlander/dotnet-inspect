@@ -254,12 +254,7 @@ public static class MemberCommand
 
             if (effectiveOptions.Effective && effectiveOptions.Discover != null)
             {
-                var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-                var filteredType = ApiCommand.BuildFilteredTypeForSections(apiType, effectiveOptions);
-                var effective = memberPipeline.GetEffectiveSections(filteredType, Verbosity.Detailed, effectiveOptions.IncludeSections);
-                return DiscoverOutput.ExecuteEffective(effectiveOptions.Discover, effective, schema,
-                    tree: effectiveOptions.Tree, json: effectiveOptions.JsonOutput, markdown: !effectiveOptions.OneLine && !effectiveOptions.JsonOutput,
-                    verbosity: (int)effectiveOptions.Verbosity);
+                return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
             }
 
 

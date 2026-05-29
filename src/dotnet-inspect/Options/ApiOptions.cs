@@ -70,6 +70,13 @@ public record ApiOptions
     public bool VerbosityEnabled => !OneLine && !JsonOutput;
 
     /// <summary>
+    /// True when the user is performing a section/projection query (-S/--columns/--fields).
+    /// Such queries produce a focused section view, not the default tree shape.
+    /// </summary>
+    public bool HasSectionQuery =>
+        Select is { Length: > 0 } || Columns is { Length: > 0 } || Fields is { Length: > 0 };
+
+    /// <summary>
     /// Returns the appropriate Markout formatter for the current output format.
     /// </summary>
     public IMarkoutFormatter CreateFormatter() =>
