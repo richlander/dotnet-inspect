@@ -322,6 +322,23 @@ public class PdbContext : IDisposable
         => _resolver?.ExtractRepositoryUrl();
 
     /// <summary>
+    /// Resolves source file and line number from a method token and IL offset.
+    /// Works even without SourceLink (returns file path + line, no URL).
+    /// </summary>
+    public SourceLinkResolver.ILOffsetSourceInfo? ResolveByILOffset(int methodToken, int ilOffset)
+    {
+        if (_pdbReader == null || !_peReader.HasMetadata)
+            return null;
+
+        var metadataReader = _peReader.GetMetadataReader();
+
+        if (_resolver != null)
+            return _resolver.ResolveByILOffset(metadataReader, _pdbReader, methodToken, ilOffset);
+
+        return SourceLinkResolver.ResolveByILOffsetDirect(metadataReader, _pdbReader, methodToken, ilOffset);
+    }
+
+    /// <summary>
     /// Gets the SourceLinkResolver for batch operations (e.g. resolving multiple types).
     /// Returns null if no PDB/SourceLink is available.
     /// </summary>

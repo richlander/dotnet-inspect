@@ -28,6 +28,7 @@ public static class SourceOptionsParser
         Option<bool> AuditOption,
         Option<bool> BrowsableUrlsOption,
         Option<bool> CatOption,
+        Option<string?> ILOffsetOption,
         Option<bool> CompactOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
@@ -74,11 +75,12 @@ public static class SourceOptionsParser
         var explicitPackage = parseResult.GetValue(args.PackageOption);
         var explicitAssembly = parseResult.GetValue(args.AssemblyOption);
         var explicitPlatform = parseResult.GetValue(args.PlatformOption);
+        var ilOffset = parseResult.GetValue(args.ILOffsetOption);
         bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
 
         // Handle projection discovery or help
-        if (argsValue.Length == 0 && !hasExplicitSource)
+        if (argsValue.Length == 0 && !hasExplicitSource && ilOffset == null)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -148,6 +150,7 @@ public static class SourceOptionsParser
             TypeName = source.TypeName,
             MemberName = memberName,
             OverloadIndex = overloadIndex,
+            ILOffset = ilOffset,
             PackagePath = source.PackagePath,
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
