@@ -124,6 +124,7 @@ internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(SourceListResult))]
 [JsonSerializable(typeof(SourceDetailResult))]
+[JsonSerializable(typeof(ILOffsetResult))]
 internal partial class SourceJsonContext : JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
@@ -132,6 +133,7 @@ internal partial class SourceJsonContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(SourceListResult))]
 [JsonSerializable(typeof(SourceDetailResult))]
+[JsonSerializable(typeof(ILOffsetResult))]
 internal partial class SourceCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper

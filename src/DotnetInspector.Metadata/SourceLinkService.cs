@@ -133,6 +133,15 @@ public class SourceLinkService : IDisposable
     }
 
     /// <summary>
+    /// Resolves source file and line number from a method token and IL offset.
+    /// Works even without SourceLink (returns file path + line, no URL).
+    /// </summary>
+    public SourceLinkResolver.ILOffsetSourceInfo? ResolveByILOffset(int methodToken, int ilOffset)
+    {
+        return _context.ResolveByILOffset(methodToken, ilOffset);
+    }
+
+    /// <summary>
     /// Gets the source file paths for a type, including all partial class files.
     /// Uses a cached index built from PDB sequence point data.
     /// The index is persisted to disk keyed by commit hash for cross-invocation reuse.

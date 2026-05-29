@@ -364,6 +364,77 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// Source location resolved from a method token and IL offset.
+    /// </summary>
+    public record ILOffsetSourceInfo(
+        string? MethodName,
+        string FilePath,
+        string? SourceUrl,
+        int Line,
+        int MatchedOffset,
+        string? GitHubBrowseUrl);
+
+    /// <summary>
+    /// Resolves source file and line number from a method token and IL offset
+    /// by walking PDB sequence points. Applies SourceLink URL mapping when available.
+    /// </summary>
+    public ILOffsetSourceInfo? ResolveByILOffset(MetadataReader metadata, MetadataReader pdb, int methodToken, int ilOffset)
+    {
+        if (ResolveByILOffsetDirect(metadata, pdb, methodToken, ilOffset) is not { } info)
+            return null;
+
+        string? sourceUrl = ApplySourceLinkMapping(info.FilePath);
+        return info with { SourceUrl = sourceUrl, GitHubBrowseUrl = ConvertToGitHubBrowseUrl(sourceUrl) };
+    }
+
+    /// <summary>
+    /// Resolves source file and line number from a method token and IL offset by walking
+    /// PDB sequence points, returning the last visible point at or before the requested offset.
+    /// Uses only the PDB reader (no SourceLink URL mapping); used when no resolver is available.
+    /// </summary>
+    public static ILOffsetSourceInfo? ResolveByILOffsetDirect(MetadataReader metadata, MetadataReader pdb, int methodToken, int ilOffset)
+    {
+        try
+        {
+            var handle = MetadataTokens.Handle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
+
+            var methodDefHandle = (MethodDefinitionHandle)handle;
+
+            var methodDef = metadata.GetMethodDefinition(methodDefHandle);
+            var typeDef = metadata.GetTypeDefinition(methodDef.GetDeclaringType());
+            string methodName = $"{metadata.GetFullTypeName(typeDef)}.{metadata.GetString(methodDef.Name)}";
+
+            var debugInfo = pdb.GetMethodDebugInformation(methodDefHandle.ToDebugInformationHandle());
+            if (debugInfo.SequencePointsBlob.IsNil)
+                return null;
+
+            SequencePoint? bestPoint = null;
+            foreach (var sp in debugInfo.GetSequencePoints())
+            {
+                if (sp.Offset > ilOffset)
+                    break;
+
+                if (!sp.IsHidden)
+                    bestPoint = sp;
+            }
+
+            if (bestPoint is not { } point)
+                return null;
+
+            var document = pdb.GetDocument(point.Document);
+            string filePath = pdb.GetString(document.Name);
+
+            return new ILOffsetSourceInfo(methodName, filePath, null, point.StartLine, point.Offset, null);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Applies SourceLink URL pattern to convert a file path to a source URL.
     /// </summary>
     public string? ApplySourceLinkMapping(string filePath)
