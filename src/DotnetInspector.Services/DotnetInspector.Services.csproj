@@ -32,6 +32,7 @@
   <!-- PackageReference: releases -->
   <ItemGroup>
     <PackageReference Include="MarkdownTable.Formatting" />
+    <PackageReference Include="NuGet.Versioning" />
   </ItemGroup>
 
 </Project>

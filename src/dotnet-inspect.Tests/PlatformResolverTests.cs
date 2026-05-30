@@ -67,6 +67,61 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void GetInstalledVersions_OrdersPrereleasesOfSameBaseVersion()
+    {
+        // Regression: prerelease labels sharing a base version (e.g. multiple
+        // 11.0.0 previews installed side-by-side) must order by SemVer
+        // precedence, not collapse to the base version and fall back to
+        // directory enumeration order.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"platform-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            Directory.CreateDirectory(Path.Combine(tempDir, "11.0.0-preview.1.26104.118"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "11.0.0-preview.3.26207.106"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "11.0.0-preview.4.26230.115"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "11.0.0-preview.2.26159.112"));
+
+            var versions = PlatformResolver.GetInstalledVersions(tempDir);
+
+            Assert.Equal(4, versions.Count);
+            Assert.Equal("11.0.0-preview.4.26230.115", versions[0]);
+            Assert.Equal("11.0.0-preview.3.26207.106", versions[1]);
+            Assert.Equal("11.0.0-preview.2.26159.112", versions[2]);
+            Assert.Equal("11.0.0-preview.1.26104.118", versions[3]);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetInstalledVersions_OrdersReleaseAbovePrereleaseOfSameBase()
+    {
+        // A stable release must sort above any prerelease sharing its base version.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"platform-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            Directory.CreateDirectory(Path.Combine(tempDir, "11.0.0-preview.4.26230.115"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "11.0.0"));
+
+            var versions = PlatformResolver.GetInstalledVersions(tempDir);
+
+            Assert.Equal(2, versions.Count);
+            Assert.Equal("11.0.0", versions[0]);
+            Assert.Equal("11.0.0-preview.4.26230.115", versions[1]);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GetInstalledVersions_IgnoresNonVersionDirectories()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"platform-test-{Guid.NewGuid():N}");
