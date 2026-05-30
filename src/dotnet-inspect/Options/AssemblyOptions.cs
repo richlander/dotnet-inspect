@@ -130,6 +130,11 @@ public record AssemblyOptions
     public bool Effective { get; init; }
 
     /// <summary>
+    /// Output the number of rendered table rows for a single selected section.
+    /// </summary>
+    public bool Count { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
@@ -164,5 +169,5 @@ public record AssemblyOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ExtractResources != null;
+    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ExtractResources != null || Count;
 }

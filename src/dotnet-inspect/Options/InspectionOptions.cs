@@ -167,9 +167,14 @@ public record InspectionOptions
     public bool Effective { get; init; }
 
     /// <summary>
+    /// Output the number of rendered table rows for a single selected section.
+    /// </summary>
+    public bool Count { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies;
+    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;
 
     /// <summary>
     /// All inspection features enabled.

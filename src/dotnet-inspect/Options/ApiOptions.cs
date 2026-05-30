@@ -63,6 +63,7 @@ public record ApiOptions
     public string[]? Fields { get; init; }
     public bool Effective { get; init; }
     public bool Schema { get; init; }
+    public bool Count { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>
@@ -94,7 +95,7 @@ public record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public virtual bool IsRawOutput => JsonOutput || OneLine || NoHeader;
+    public virtual bool IsRawOutput => JsonOutput || OneLine || NoHeader || Count;
 }
 
 /// <summary>
@@ -119,7 +120,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public override bool IsRawOutput => JsonOutput || OneLine || NoHeader || ShapeOutput;
+    public override bool IsRawOutput => JsonOutput || OneLine || NoHeader || ShapeOutput || Count;
 }
 
 /// <summary>

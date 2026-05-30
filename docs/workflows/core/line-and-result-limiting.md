@@ -1,13 +1,13 @@
 ---
 id: line-and-result-limiting
-description: Control output size with line and result limits
-commands: [-n, -t, -m, --versions]
-areas: [output, limiting, agents]
+description: Control output size with line limits, result limits, and row counts
+commands: [-n, -t, -m, --versions, --count]
+areas: [output, limiting, count, agents]
 ---
 
-# Line and Result Limiting
+# Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`). `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n` limits output lines (like `head`). `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` returns one integer for the rendered row count of a single selected section. These are essential for agents that need compact, predictable output.
 
 ## Preconditions
 
@@ -210,4 +210,42 @@ wc -l | tr -d ' '
 
 ```expect-not
 Tips:
+```
+
+## 8. Count rows in a section
+
+> Goal: Return a single integer row count for a selected table section.
+
+### 8a. Count async methods
+
+```prompt
+How many async methods are in System.Text.Json?
+```
+
+```bash
+dotnet-inspect System.Text.Json -S "Async*" --count
+```
+
+```query
+awk '/^[0-9]+$/ && $1 > 0 { print "positive" }'
+```
+
+```expect
+positive
+```
+
+```expect-not
+#
+|
+Tips:
+```
+
+### 8b. Count requires one selected section
+
+```bash
+dotnet-inspect System.Text.Json --count
+```
+
+```expect-error
+--count requires -S/--select to match exactly one section
 ```

@@ -16,7 +16,7 @@
 | `llmstxt` command | aaa289e | 0.1.0 | ✗ | Removed in 0.7.0; replaced by SKILL.md via dotnet/skills marketplace |
 | `type` command | 208ebd2 | 0.1.3 | ✓ | Discover types (terse output, split from `api` in 0.5.0) |
 | `diff` command | 0d3d24c | 0.1.7 | ✓ | Compare API surfaces between package versions |
-| `samples` command | 916c845 | 0.1.8 | ✓ | Show sample code references via SourceLink |
+| `samples` command | 916c845 | 0.1.8 | ✗ | Removed; use `source` for SourceLink workflows |
 | `platform` command | e516f96 | 0.2.0 | ✗ | Inspect platform assemblies (removed in 0.4.0, use `--platform` flag) |
 | `find` command | ec02273 | 0.2.x | ✓ | Search for types across packages and assemblies |
 | `extensions` command | 8f48d5e | 0.2.x | ✓ | Find extension methods for a type |
@@ -27,6 +27,7 @@
 | `depends` command | c378030 | 0.4.0 | ✓ | Walk type dependency graphs upward |
 | `member` command | 14f93c9 | 0.5.0 | ✓ | Inspect type members (split from `api`) |
 | `package search` | — | 0.2.x | ✓ | Search NuGet for packages by keyword |
+| `source` command | — | 0.8.0 | ✓ | Resolve SourceLink URLs, fetch source, and map IL offsets |
 
 ## Output Control
 
@@ -34,7 +35,7 @@
 | --------- | -------- | --------- | ------------- |
 | `-n` line limit | 826c64a | 0.1.0 | Limit output lines |
 | `-v` verbosity levels | 826c64a | 0.1.0 | quiet/minimal/normal/detailed |
-| `-s` section filtering | aaa289e | 0.1.0 | Include sections by name (glob-capable) |
+| `-S`/`-s` section filtering | aaa289e | 0.1.0 | Include sections by name (glob-capable) |
 | `-x` section exclusion | 9a9f154 | 0.2.x | Exclude sections by name |
 | `--compact` JSON | e7297bb | 0.1.0 | Minified JSON output |
 | `--json` output | e7297bb | 0.1.0 | JSON output format |
@@ -47,6 +48,9 @@
 | `-T` tips verbosity | 0c679e4 | 0.2.x | Control tip output level |
 | Redesigned tips UI | 381efa2 | 0.3.x | Single header with aligned entries |
 | `--mermaid` output | b88427d | 0.7.x | Mermaid diagram output for depends (standalone and embedded) |
+| `--count` output | — | 0.8.0 | Return row count for exactly one selected section |
+| Effective `-D` discovery | — | 0.8.0 | Type/member discovery reports only renderable sections/columns by default |
+| `--schema` discovery | — | 0.8.0 | Opt back into static type/member schema discovery |
 
 ## Type and Member Inspection
 
@@ -74,6 +78,7 @@
 | Dotted syntax (`Type.Member`) | 14f93c9 | 0.5.0 | `-m JsonSerializer.Deserialize` |
 | `--no-docs` flag | 14f93c9 | 0.5.0 | Suppress XML documentation |
 | `-t` type filter | 6ae1c1a | 0.5.0 | Filter types by glob pattern |
+| Obsolete members shown by default | — | 0.8.0 | Obsolete marker/message appears when available |
 
 ## Package Inspection
 
@@ -129,6 +134,8 @@
 | Platform routing | 41defca | 0.3.x | Auto-detect platform assemblies |
 | SDK packs fallback | 10afb58 | 0.5.0 | Use SDK packs as search path |
 | `--framework` flag | 9d2c939 | 0.3.x | Select runtime/aspnetcore/netstandard |
+| Runtime-only platform assemblies | — | 0.8.0 | Resolve implementation assemblies such as System.Private.CoreLib |
+| SemVer-aware platform resolution | — | 0.8.0 | Compare prerelease versions without stripping suffixes |
 
 ## Search and Discovery
 
@@ -144,19 +151,20 @@
 | `--hierarchy` flag | a98eb01 | 0.2.x | Show type hierarchy |
 | `--dotnet` scope | b9c3263 | 0.3.x | Default platform + extensions scope |
 | Fully qualified names | 8b1a64d | 0.5.0 | Use `System.Text.Json.JsonSerializer` as positional |
+| Multi-library package follow-up context | — | 0.8.0 | Preserve package/library context for type and member drill-in |
 
 ## Samples and Source
 
 | Feature | Commit | Version | Description |
 | --------- | -------- | --------- | ------------- |
-| Sample linking | b6026dc | 0.1.8 | Link to code samples via XML docs |
-| `--print` option | 177d867 | 0.1.8 | Print specific sample by number |
-| Parallel batch fetching | 7f41248 | 0.1.8 | Optimize sample retrieval |
+| Sample linking | b6026dc | 0.1.8 | Retired with `samples`; use `source` for SourceLink workflows |
+| `--print` option | 177d867 | 0.1.8 | Retired with `samples` |
+| Parallel batch fetching | 7f41248 | 0.1.8 | Optimized retired sample retrieval |
 | Persistent disk cache | aac88cc | 0.1.8 | Cache source content |
-| `--file` option | 1186bd7 | 0.4.4 | Read local .cs file directly |
-| `--region` option | 1186bd7 | 0.4.4 | Extract specific #region |
+| `--file` option | 1186bd7 | 0.4.4 | Retired with `samples --file` |
+| `--region` option | 1186bd7 | 0.4.4 | Retired with `samples --region` |
 | `--browsable-urls` | — | 0.2.x | Use /blob/ URLs for browser viewing |
-| `--list` option | — | 0.2.x | List samples without fetching |
+| `--list` option | — | 0.2.x | Retired with `samples` |
 
 ## NuGet Sources
 
@@ -166,6 +174,7 @@
 | `--add-source` flag | 7525d35 | 0.1.x | Add NuGet source |
 | `--nugetconfig` flag | 7525d35 | 0.1.x | Path to nuget.config |
 | Credential support | 759dcd5 | 0.5.0 | NuGet source authentication |
+| Local source resilience | — | 0.8.0 | Skip local/file NuGet sources for HTTP-only resolution instead of blocking later feeds |
 
 ## Diff and Comparison
 
@@ -201,6 +210,7 @@
 | Decompiler foundation | dde4d16 | 0.3.x | DotnetInspector.Decompiler library |
 | Lowered C# section | b033660 | 0.3.x | Decompiled C# faithful to IL |
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
+| `source --il-offset` | — | 0.8.0 | Map MethodDef token + IL offset to source file location |
 
 ## Demo and Documentation
 
@@ -245,15 +255,15 @@ The standalone `platform` command was removed in favor of the `--platform` flag 
 
 Commit: af5ecd0 "Simplify scope flags and remove platform command (#180)"
 
-### `--discover` Flag (Replaced in 0.2.x)
+### Section Discovery Flags
 
-The `--discover` flag for section discovery was replaced with bare `-s`:
+`-D`/`--discover` reports schemas. Bare `-S`/`-s` lists sections; `-S <name>` selects sections:
 
-| Original | Replacement |
-| ---------- | ------------- |
-| `--discover` | `-s` (alone, no value) |
-
-Commit: 8d12a0b "Replace --discover with bare -s for section discovery (#100)"
+| Goal | Syntax |
+| ---- | ------ |
+| Discover schema | `-D` or `--discover` |
+| List sections | bare `-S` or `-s` |
+| Select sections | `-S Section` or `-s Section` |
 
 ### `--fields-only` Flag (Removed)
 
@@ -285,3 +295,4 @@ The `--fields-only` flag was replaced by section filtering:
 | 0.4.0 | — | `demo`, `depends` commands, removed `platform` command |
 | 0.5.0 | — | Split `api` into `type`/`member`, nullability, `@latest`, `-n`/`-t`/`-m` redesign |
 | 0.7.0 | — | Markdown default output, removed `llmstxt` command, removed `dotnet-inspect-find`, NuGetFetch library, XDG cache dirs |
+| 0.8.0 | — | `--count`, SourceLink IL-offset lookup, effective discovery defaults, async/runtime assembly fixes, package/source resolution improvements |

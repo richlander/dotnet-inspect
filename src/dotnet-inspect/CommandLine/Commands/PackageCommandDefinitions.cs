@@ -64,6 +64,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.PlainText);
         opts.AddOutputOptionsTo(packageCommand);
         opts.AddSectionOptionsTo(packageCommand);
+        opts.AddCountOptionTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);
 
         // Search subcommand

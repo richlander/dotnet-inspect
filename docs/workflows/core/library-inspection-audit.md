@@ -130,7 +130,7 @@ Does System.CommandLine have SourceLink? What PDB format does it use?
 ```
 
 ```bash
-dotnet-inspect library --package System.CommandLine -v:d -s Symbols
+dotnet-inspect library --package System.CommandLine -v:d -S Symbols
 ```
 
 ```expect
@@ -199,7 +199,7 @@ Custom Attributes
 > Goal: See resources embedded in the assembly.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -s Resources
+dotnet-inspect library System.Text.Json -v:d -S Resources
 ```
 
 ```expect
@@ -213,7 +213,7 @@ SR.resources
 > Goal: See assembly-level attributes.
 
 ```bash
-dotnet-inspect library --package System.CommandLine -v:d -s "Custom Attributes" -n 12
+dotnet-inspect library --package System.CommandLine -v:d -S "Custom Attributes" -n 12
 ```
 
 ```expect
@@ -233,7 +233,7 @@ Tips:
 > Goal: See extension methods defined in the library.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -s "Extension Methods" -n 15
+dotnet-inspect library System.Text.Json -v:d -S "Extension Methods" -n 15
 ```
 
 ```expect
@@ -273,7 +273,7 @@ TFM: .NETStandard,Version=v2.0
 > Goal: See type forwarding declarations in the assembly.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -s "Type Forwarders"
+dotnet-inspect library System.Text.Json -v:d -S "Type Forwarders"
 ```
 
 ```expect
@@ -292,7 +292,7 @@ Tips:
 > Goal: See methods with pointer signatures — useful for security audit and interop review.
 
 ```bash
-dotnet-inspect library System.Security.Cryptography -s 'Unsafe Methods' -n 10
+dotnet-inspect library System.Security.Cryptography -S 'Unsafe Methods' -n 10
 ```
 
 ```expect
@@ -305,7 +305,7 @@ dotnet-inspect library System.Security.Cryptography -s 'Unsafe Methods' -n 10
 > Goal: See native interop methods declared via DllImport/LibraryImport.
 
 ```bash
-dotnet-inspect library System.Security.Cryptography -s 'P/Invoke Methods' -n 10
+dotnet-inspect library System.Security.Cryptography -S 'P/Invoke Methods' -n 10
 ```
 
 ```expect

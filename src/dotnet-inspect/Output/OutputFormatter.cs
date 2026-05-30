@@ -21,14 +21,15 @@ public static class OutputFormatter
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
-        if (options.JsonOutput)
+        if (options.JsonOutput && !options.Count)
         {
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
         var view = new InspectionResultView(result);
         var writerOptions = BuildWriterOptions(result, options, pipeline);
-        return MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
+        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
+        return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
     }
 
     public static void WritePackageOneLine(InspectionResult result, InspectionOptions options,
@@ -70,6 +71,23 @@ public static class OutputFormatter
     public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+        var includeSections = pipeline.ComputeIncludeSections(
+            inspection, options.Verbosity, options.IncludeSections);
+        var writerOpts = new MarkoutWriterOptions
+        {
+            IncludeSections = includeSections,
+            Projection = BuildProjection(options.Columns, options.Fields)
+        };
+
+        if (options.Count)
+        {
+            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+            CountOutput.WriteCountFromMarkdown(markdown);
+            return;
+        }
+
         if (inspection.UseDependenciesView)
         {
             Console.Error.WriteLine("Tip: use 'depends --library' for dependency trees.");
@@ -83,16 +101,6 @@ public static class OutputFormatter
             Console.WriteLine(JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection));
             return;
         }
-
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
-        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-        var includeSections = pipeline.ComputeIncludeSections(
-            inspection, options.Verbosity, options.IncludeSections);
-        var writerOpts = new MarkoutWriterOptions
-        {
-            IncludeSections = includeSections,
-            Projection = BuildProjection(options.Columns, options.Fields)
-        };
 
         if (options.Format == OutputFormat.PlainText)
         {
@@ -116,6 +124,26 @@ public static class OutputFormatter
     public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        var report = new LibraryInspectionReport
+        {
+            Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
+            Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
+        };
+        var writerOptions = new MarkoutWriterOptions
+        {
+            IncludeSections = pipeline.ComputeIncludeSections(
+                inspections[0], options.Verbosity, options.IncludeSections),
+            Projection = BuildProjection(options.Columns, options.Fields)
+        };
+
+        if (options.Count)
+        {
+            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
+            CountOutput.WriteCountFromMarkdown(markdown);
+            return;
+        }
+
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
@@ -124,18 +152,6 @@ public static class OutputFormatter
 
         if (options.VerbosityEnabled)
         {
-            bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
-            var report = new LibraryInspectionReport
-            {
-                Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
-                Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
-            };
-            var writerOptions = new MarkoutWriterOptions
-            {
-                IncludeSections = pipeline.ComputeIncludeSections(
-                    inspections[0], options.Verbosity, options.IncludeSections),
-                Projection = BuildProjection(options.Columns, options.Fields)
-            };
             Console.WriteLine(MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd());
         }
         else

@@ -14,6 +14,7 @@ namespace DotnetInspector.Services.Tests;
 /// must not crash version resolution / package download with
 /// `System.NotSupportedException: net_http_unsupported_requesturi_scheme, file`.
 /// </summary>
+[Collection(CoreCacheCollection.Name)]
 public class LocalFolderSourceTests : IDisposable
 {
     private const string VersionCacheCategory = "versions";

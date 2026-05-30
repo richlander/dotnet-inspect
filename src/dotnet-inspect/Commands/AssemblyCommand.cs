@@ -56,6 +56,9 @@ public class AssemblyCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
+        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            return 1;
+
         // -S targeting specific sections: promote verbosity to ensure data collection
         var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
         if (requiredVerbosity > options.Verbosity)
@@ -79,7 +82,7 @@ public class AssemblyCommand
         }
 
         // Warn if --oneline combined with detailed verbosity without section selector
-        if (!effectiveDiscovery)
+        if (!effectiveDiscovery && !options.Count)
             OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
         // Compute which scanners are needed for the requested sections

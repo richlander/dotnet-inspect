@@ -1,6 +1,6 @@
 # Sample References in XML Doc Comments
 
-The `samples` command extracts code sample references from XML documentation comments (`///`).
+The `source` command can surface code sample references from XML documentation comments (`///`) at detailed verbosity.
 This document describes the supported formats and known repositories with examples.
 
 ## Supported Formats
@@ -174,7 +174,7 @@ Original doc comments live in dotnet/roslyn and dotnet/roslyn-sdk repositories.
 #### dotnet/dotnet-api-docs 📝
 
 Uses **Docfx Markdown syntax** (`:::code`) rather than Sandcastle XML attributes.
-This format is not currently supported by the `samples` command.
+This format is not currently surfaced by the SourceLink sample-reference path.
 
 **Format:**
 
@@ -199,7 +199,7 @@ This format is not currently supported by the `samples` command.
 
 **Multi-language examples are common** (C#, VB.NET, F#, C++).
 
-## Testing the `samples` Command
+## Testing sample references with `source`
 
 ### Newtonsoft.Json
 
@@ -211,14 +211,8 @@ This format is not currently supported by the `samples` command.
 ### Markout
 
 ```bash
-# List samples for the Markout package
-dotnet-inspect samples --package Markout --list
-
-# Get samples for a specific type
-dotnet-inspect samples TreeNode --package Markout
-
-# Fetch and display sample content
-dotnet-inspect samples MarkoutWriter --package Markout
+# Show sample references discovered from SourceLink/XML docs
+dotnet-inspect source TreeNode --package Markout -v:d -S Samples --tips q
 ```
 
 ## Notes

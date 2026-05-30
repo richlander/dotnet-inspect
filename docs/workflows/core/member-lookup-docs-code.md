@@ -1,7 +1,7 @@
 ---
 id: member-lookup-docs-code
 description: Look up type members with documentation and source code
-commands: [member, samples]
+commands: [member, source]
 areas: [members, documentation, source, decompilation, nullability, overloads]
 ---
 

@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -788,6 +789,64 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.Json", output);
+    }
+
+    [Fact]
+    public async Task Assembly_SingleSectionCount_WritesInteger()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            Select = ["Async*"],
+            Count = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Assembly_CountWithoutSingleSection_Errors()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            Count = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, error);
+    }
+
+    [Fact]
+    public async Task Type_SingleSectionCount_WritesInteger()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods"],
+            Count = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
     }
 
     [Fact]

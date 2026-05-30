@@ -12,6 +12,62 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void CountMarkdownTableRows_CountsDataRowsOnly()
+    {
+        const string markdown = """
+        # Title
+
+        ## Methods
+
+        | Name | Signature |
+        | ---- | --------- |
+        | Read | void Read() |
+        | Write | void Write() |
+
+        ## Notes
+
+        Not a table.
+        """;
+
+        Assert.Equal(2, CountOutput.CountMarkdownTableRows(markdown));
+    }
+
+    [Fact]
+    public void CountMarkdownTableRows_SumsMultipleTables()
+    {
+        const string markdown = """
+        | Field | Value |
+        | ----- | ----- |
+        | Name | Example |
+
+        | Name |
+        | ---- |
+        | One |
+        | Two |
+        """;
+
+        Assert.Equal(3, CountOutput.CountMarkdownTableRows(markdown));
+    }
+
+    [Fact]
+    public void CountMarkdownTableRows_IgnoresCodeFences()
+    {
+        const string markdown = """
+        ```md
+        | Not | Data |
+        | --- | ---- |
+        | One | Two |
+        ```
+
+        | Name |
+        | ---- |
+        | Real |
+        """;
+
+        Assert.Equal(1, CountOutput.CountMarkdownTableRows(markdown));
+    }
+
+    [Fact]
     public void MultiAssemblyReport_HasSingleH1()
     {
         var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");

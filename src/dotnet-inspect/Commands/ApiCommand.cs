@@ -43,7 +43,7 @@ public class ApiCommand
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
-            Effective = options.Effective, Schema = options.Schema, SourceOptions = options.SourceOptions,
+            Effective = options.Effective, Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
         })
     };
@@ -87,6 +87,9 @@ public class ApiCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
+        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            return (null!, 1);
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -98,7 +101,8 @@ public class ApiCommand
         }
 
         // Warn if --oneline combined with detailed verbosity without section selector
-        OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+        if (!options.Count)
+            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }
@@ -457,7 +461,7 @@ public class ApiCommand
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
 
-        if (options.JsonOutput)
+        if (options.JsonOutput && !options.Count)
         {
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
             return;
@@ -465,7 +469,13 @@ public class ApiCommand
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
 
-        if (options.OneLine)
+        if (options.Count)
+        {
+            var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+            CountOutput.WriteCountFromMarkdown(markdown);
+        }
+        else if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
             var writerOpts = new MarkoutWriterOptions
@@ -591,13 +601,13 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (options is TypeOptions { ShapeOutput: true })
+        if (options is TypeOptions { ShapeOutput: true } && !options.Count)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter);
             return;
         }
 
-        if (options.JsonOutput)
+        if (options.JsonOutput && !options.Count)
         {
             WriteJsonTypeOutput(type, options);
             return;
@@ -646,7 +656,20 @@ public class ApiCommand
             }
         }
 
-        if (options.OneLine)
+        if (options.Count)
+        {
+            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var sw = new StringWriter();
+            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+            ApiViewContext.Default.Serialize(view, writer);
+
+            if (view.MemberCode != null)
+                ApiViewContext.Default.Serialize(view.MemberCode, writer);
+
+            writer.Flush();
+            CountOutput.WriteCountFromMarkdown(sw.ToString());
+        }
+        else if (options.OneLine)
         {
             var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
             var writerOpts = new MarkoutWriterOptions

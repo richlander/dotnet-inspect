@@ -31,6 +31,7 @@ public static class RouterCommandDefinition
 
         routerCommand.Arguments.Add(packageNameArg);
         opts.AddAllOptionsTo(routerCommand);
+        opts.AddCountOptionTo(routerCommand);
 
         var routerOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
         var routerNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
@@ -157,6 +158,7 @@ public static class RouterCommandDefinition
                 Columns = route.Options.Columns,
                 Fields = route.Options.Fields,
                 Effective = route.Options.Effective,
+                Count = route.Options.Count,
                 Schema = opts.ParseSchema(parseResult),
                 SourceOptions = route.Options.SourceOptions,
                 TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
@@ -184,6 +186,7 @@ public static class RouterCommandDefinition
             Columns = route.Options.Columns,
             Fields = route.Options.Fields,
             Effective = route.Options.Effective,
+            Count = route.Options.Count,
             SourceOptions = route.Options.SourceOptions
         };
 
@@ -299,6 +302,7 @@ public static class RouterCommandDefinition
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
+            Count = parseResult.GetValue(opts.Count),
             Schema = opts.ParseSchema(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)

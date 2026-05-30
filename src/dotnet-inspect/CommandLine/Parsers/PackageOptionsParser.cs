@@ -99,9 +99,10 @@ public static class PackageOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
-                Columns = opts.ParseColumns(parseResult),
-                Fields = opts.ParseFields(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
+            Count = parseResult.GetValue(opts.Count),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

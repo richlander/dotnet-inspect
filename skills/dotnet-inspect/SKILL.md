@@ -1,260 +1,113 @@
 ---
 name: dotnet-inspect
-version: 0.7.7
-description: Query .NET APIs across NuGet packages, platform libraries, and local files. Search for types, list API surfaces, compare and diff versions, find extension methods and implementors. Use whenever you need to answer questions about .NET library contents.
+version: 0.8.0
+description: Query .NET APIs across NuGet packages, platform libraries, and local files. Use for factual answers about package contents, API signatures, compatibility changes, relationships, SourceLink, and assembly metadata.
 ---
 
 # dotnet-inspect
 
-Query .NET library APIs — the same commands work across NuGet packages, platform libraries (System.*, Microsoft.AspNetCore.*), and local .dll/.nupkg files.
+Use dotnet-inspect when you need evidence about .NET libraries instead of guessing: API signatures, package contents, extension methods, implementors, SourceLink URLs, dependencies, or version-to-version API changes.
 
-## Quick Decision Tree
-
-- **Code broken?** → `diff --package Foo@old..new` first, then `member`
-- **What's new in a .NET preview?** → `diff --platform System.Runtime@P2..P3 --additive` per framework library
-- **What types exist?** → `type --package Foo` (discover types in a package or library)
-- **What members does a type have?** → `member Type --package Foo` (compact table by default)
-- **What does a type look like?** → `type Type --package Foo` (tree view for single type)
-- **What are the method signatures?** → `member Type --package Foo -m Method` (full signatures + docs)
-- **What is the source/IL?** → `member Type --package Foo -m Method:1 -v:d` (Source, Lowered C#, IL)
-- **Where is the source code?** → `source Type --package Foo` (SourceLink URLs), `source Type -m Member` (with line numbers)
-- **Want raw source content?** → `source Type --package Foo --cat` (fetches and prints source files)
-- **What constructors exist?** → `member 'Type<T>' --package Foo -m .ctor` (use `<T>` not `<>`)
-- **How many overloads?** → `member Type --package Foo --show-index` (shows `Name:N` indices)
-- **What does this package depend on?** → `depends --package Foo`
-- **What does this type inherit?** → `depends 'INumber<TSelf>'`
-- **Want a dependency diagram?** → `depends --mermaid` (standalone) or `depends --markdown --mermaid` (embedded)
-- **What metadata fields exist?** → `-S Section --fields "PDB*"` (structured query, no DSL)
-- **What version is available?** → `Foo --version` (cache-first), `Foo --latest-version` (always NuGet), `Foo --versions` (list all)
-
-## When to Use This Skill
-
-- **"What types are in this package?"** — `type` discovers types, `find` searches by pattern
-- **"What members does this type have?"** — `member` for methods/properties/events (docs on by default)
-- **"What changed between versions?"** — `diff` classifies breaking/additive changes
-- **"What new APIs shipped in this preview?"** — `diff --platform System.Runtime@prev..current --additive` per framework library
-- **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
-- **"What extends this type?"** — `extensions` finds extension methods/properties (`--reachable` for transitive)
-- **"What implements this interface?"** — `implements` finds concrete types
-- **"Which methods are async — and runtime or state-machine?"** — `library X -S "Async*"` lists async methods, classifying each as `Runtime` (.NET 11 runtime async) or `State Machine` (classic compiler async)
-- **"What does this type depend on?"** — `depends` walks type hierarchy, package deps, or library refs
-- **"Show dependencies as a diagram"** — `depends --mermaid` for standalone mermaid, `--markdown --mermaid` for embedded
-- **"Where is the source code?"** — `source` returns SourceLink URLs; add member name for line numbers
-- **"What version/metadata does this have?"** — `package` and `library` inspect metadata
-- **"What version is available?"** — `Foo --version` (fast, cache-first — like `docker run`)
-- **"What's the latest on NuGet?"** — `Foo --latest-version` (always queries NuGet — like `docker pull`)
-- **"What versions exist?"** — `Foo --versions` (list all published versions)
-- **"What TFMs are available?"** — `package Foo --tfms`, then `type --package Foo --tfm net8.0`
-- **"Where is the source code?"** — `source` returns SourceLink URLs; add member name for line numbers
-- **"Show me the actual source?"** — `source Type --package Foo --cat` fetches and prints source file contents
-- **"Show me something cool"** — `demo` runs curated showcase queries
-
-## Key Patterns
-
-Default output is **markdown** — headings, tables, and field lists that render well in terminals, editors, and LLM contexts. No flags needed:
-
-```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json    # scan members
-dnx dotnet-inspect -y -- type --package System.Text.Json                     # scan types
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # triage changes
-```
-
-Default format is **markdown** — no flags needed. Optional formats: **oneline** (`--oneline`), **plaintext** (`--plaintext`), **json** (`--json`), **mermaid** (`--mermaid`). Verbosity (`-v:q/m/n/d`) controls which sections are included; formatter controls how they render. They compose freely — except `--oneline` and `-v` cannot be combined.
-
-```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -v:d  # detailed (source/IL)
-dnx dotnet-inspect -y -- System.Text.Json -v:n --plaintext                      # all local sections, plaintext
-dnx dotnet-inspect -y -- type --package System.Text.Json --oneline              # compact columnar output
-dnx dotnet-inspect -y -- depends Stream --mermaid                               # standalone mermaid diagram
-dnx dotnet-inspect -y -- depends Stream --markdown --mermaid                    # mermaid embedded in markdown
-```
-
-Use `diff` first when fixing broken code — triage changes, then drill into specifics:
-
-```bash
-dnx dotnet-inspect -y -- diff --package System.CommandLine@2.0.0-beta4.22272.1..2.0.3  # what changed?
-dnx dotnet-inspect -y -- member Command --package System.CommandLine@2.0.3               # new API surface
-```
-
-### Find -> member workflow
-
-Use `find` to discover the type, then carry forward the exact source information into `member`.
-
-```bash
-dnx dotnet-inspect -y -- find RegexOptions \
-  --package Microsoft.NETCore.App.Ref@11.0.0-preview.3.26179.102 --oneline
-```
-
-The result row tells you:
-
-- the owning **library** (for example `System.Text.RegularExpressions`)
-- the resolved **package version** to keep pinned in follow-up commands
-
-Then inspect the type with the same `package@version`, adding `--library` for multi-library packages:
-
-```bash
-dnx dotnet-inspect -y -- member RegexOptions \
-  --package Microsoft.NETCore.App.Ref@11.0.0-preview.3.26179.102 \
-  --library System.Text.RegularExpressions
-```
-
-For framework libraries (`System.*`, `Microsoft.AspNetCore.*`), prefer `--platform <LibraryName>` when possible. Use `--package` when you specifically need a NuGet package or custom-feed workflow.
-
-## Platform Diffs & Release Notes
-
-For framework libraries (System.*, Microsoft.AspNetCore.*), use `--platform` instead of `--package`. This is the primary workflow for .NET release notes — diff each framework library between preview versions:
-
-```bash
-dnx dotnet-inspect -y -- diff --platform System.Runtime@P2..P3 --additive        # what's new?
-dnx dotnet-inspect -y -- diff --platform System.Net.Http@P2..P3 --additive       # per-library
-dnx dotnet-inspect -y -- diff --platform System.Text.Json@9.0.0..10.0.0          # across major versions
-```
-
-**Multi-library packages:** `diff --package` works across all libraries in a package (e.g., `Microsoft.Azure.SignalR` with multiple DLLs). For framework ref packages like `Microsoft.NETCore.App.Ref`, prefer `--platform` per-library since it resolves from installed packs.
-
-**Nightly/preview packages from custom feeds:** Use `--source <feed-url>` directly with a pinned `package@version`, then carry the same source/version into follow-up commands:
-
-```bash
-FEED="https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json"
-VER="11.0.0-preview.3.26179.102"
-
-dnx dotnet-inspect -y -- find RegexOptions \
-  --package Microsoft.NETCore.App.Ref@${VER} --source "$FEED" --oneline
-
-dnx dotnet-inspect -y -- member RegexOptions \
-  --package Microsoft.NETCore.App.Ref@${VER} --source "$FEED" \
-  --library System.Text.RegularExpressions
-```
-
-## Version Resolution (Docker-style)
-
-Version queries use Docker-like semantics: cached packages are served in under 15ms, network calls cost 1–4 seconds. Three flags, three behaviors:
-
-| Flag | Behavior | Network | Like Docker... |
-| ---- | -------- | ------- | -------------- |
-| `--version` (bare) | **Local** — returns the version from local cache | Only on cache miss | `docker run nginx` |
-| `--latest-version` | **Remote** — queries nuget.org for the absolute latest | Always | `docker pull nginx` |
-| `--versions` | **Remote** — returns every published version | Always | `docker image ls --all` |
-
-`--version` and bare-name inspection share the same cache. If `Foo --version` returns `2.0.3`, then `Foo` (or `package Foo`) will inspect that same `2.0.3` — no surprises, no extra network call. This is the fast path for most tasks.
-
-`--latest-version` and `--versions` always query nuget.org, so they reflect the latest published state. Use `--latest-version` when you need to confirm the newest version, e.g., before a dependency upgrade.
-
-```bash
-dnx dotnet-inspect -y -- Foo --version           # what's in the cache? (fast, local)
-dnx dotnet-inspect -y -- Foo --latest-version     # what's on nuget.org? (always network)
-dnx dotnet-inspect -y -- Foo --versions           # list all published versions
-dnx dotnet-inspect -y -- Foo --versions 5         # list latest 5 versions
-dnx dotnet-inspect -y -- Foo --versions --preview # include prerelease versions
-```
-
-The same flags work on the `package` subcommand:
-
-```bash
-dnx dotnet-inspect -y -- package Foo --version           # same local cache check
-dnx dotnet-inspect -y -- package Foo --latest-version     # always queries nuget.org
-dnx dotnet-inspect -y -- package Foo --versions           # list all versions
-```
-
-Version pinning with `@version` syntax:
-
-```bash
-dnx dotnet-inspect -y -- Foo@2.0.3                # pinned — no network if cached
-dnx dotnet-inspect -y -- Foo@latest               # always checks nuget.org
-dnx dotnet-inspect -y -- Foo                      # prefer cache, refresh on TTL expiry
-```
-
-**Use `--version` (not `--latest-version`) as the default.** It's fast and returns the same version that bare-name commands will use. Only reach for `--latest-version` when you need the absolute latest from nuget.org.
-
-## Structured Queries (like Go templates, without a DSL)
-
-Discover the schema, then select and project — no template language needed:
-
-```bash
-dnx dotnet-inspect -y -- System.Text.Json -D                          # list sections
-dnx dotnet-inspect -y -- System.Text.Json -D --effective              # sections with data (dry run)
-dnx dotnet-inspect -y -- library System.Text.Json -D --tree           # full schema tree
-dnx dotnet-inspect -y -- System.Text.Json -S Symbols                  # render one section
-dnx dotnet-inspect -y -- System.Net.Security -S "Async*"             # async methods (Runtime vs State Machine)
-dnx dotnet-inspect -y -- System.Text.Json -S Symbols --fields "PDB*"  # project specific fields
-dnx dotnet-inspect -y -- type System.Text.Json --columns Kind,Type    # project specific columns
-```
-
-## Mermaid Diagrams
-
-The `depends` command supports `--mermaid` for Mermaid diagram output. Two modes:
-
-| Flags | Output | Use case |
-| ----- | ------ | -------- |
-| `--mermaid` | Standalone mermaid (`graph TD`) | Pipe to `mmdc`, embed in tooling |
-| `--markdown --mermaid` | Mermaid fenced blocks inside markdown | Render in GitHub, VS Code, docs |
-
-```bash
-dnx dotnet-inspect -y -- depends Stream --mermaid                               # type hierarchy as mermaid
-dnx dotnet-inspect -y -- depends Stream --markdown --mermaid                    # embedded in markdown
-dnx dotnet-inspect -y -- depends --library System.Text.Json --mermaid           # assembly reference graph
-dnx dotnet-inspect -y -- depends --package Markout --mermaid                    # package dependency graph
-```
-
-## Search Scope
-
-Search commands (`find`, `extensions`, `implements`, `depends`) use scope flags:
-
-- **(no flags)** — all platform frameworks (runtime, aspnetcore, netstandard)
-- **`--platform`** — all platform frameworks
-- **`--extensions`** — curated Microsoft.Extensions.* packages
-- **`--aspnetcore`** — curated Microsoft.AspNetCore.* packages
-- **`--package Foo`** — specific NuGet package (combinable with scope flags)
-
-`type`, `member`, `library`, `diff` accept `--platform <name>` as a string for a specific platform library.
-
-## Command Reference
-
-| Command | Purpose |
-| ------- | ------- |
-| `type` | **Discover types** — terse output, no docs, use `--shape` for hierarchy |
-| `member` | **Inspect members** — docs on by default, supports dotted syntax (`-m Type.Member`) |
-| `find` | Search for types by glob or fuzzy match across any scope |
-| `diff` | Compare API surfaces between versions — breaking/additive classification |
-| `extensions` | Find extension methods/properties for a type (`--reachable` for transitive) |
-| `implements` | Find types implementing an interface or extending a base class |
-| `depends` | Walk dependency graphs upward — type hierarchy, package deps, or library refs |
-| `package` | Package metadata, files, versions, dependencies, `search` for NuGet discovery |
-| `library` | Library metadata, symbols, references, SourceLink audit |
-| `source` | **SourceLink URLs** — type-level or member-level (with line numbers), `--cat` to fetch content, `--verify` to check URLs |
-| `demo` | Run curated showcase queries — list, invoke, or feeling-lucky |
-
-## Filtering and Limiting
-
-```bash
-dnx dotnet-inspect -y -- type System.Text.Json -k enum               # filter by kind (type and member commands)
-dnx dotnet-inspect -y -- type System.Text.Json -t "*Converter*"      # glob filter on type names
-dnx dotnet-inspect -y -- member System.Text.Json JsonDocument -m Parse  # filter by member name
-dnx dotnet-inspect -y -- type System.Text.Json -5                    # first 5 lines (like head -5)
-dnx dotnet-inspect -y -- type System.Text.Json --tail 10             # last 10 lines (like tail -10)
-```
-
-**Do not pipe output through `head`, `tail`, or `Select-Object`.** Use built-in `--head` / `--tail`:
-
-- **`-n N`, `--head N`, or `-N`** — first N lines (like `head`). Keeps headers, truncates cleanly.
-- **`--tail N`** — last N lines (like `tail`). Buffers output, emits only the final N lines.
-- **`-m N`** (numeric) — item limit (members per kind section).
-- **`-k Kind`** — filter by kind: `class/struct/interface/enum/delegate` (type) or `method/property/field/event/constructor` (type single-type view, member).
-- **`-S Section`** — show only a specific section (glob-capable).
-
-## Key Syntax
-
-- **Generic types** need quotes: `'Option<T>'`, `'IEnumerable<T>'`
-- **Use `<T>` not `<>`** for generic types — `"Option<>"` resolves to the abstract base, `'Option<T>'` resolves to the concrete generic with constructors
-- **`type` uses `-t`** for type filtering, **`member` uses `-m`** for member filtering (not `--filter`)
-- **Dotted syntax** for `member`: `-m JsonSerializer.Deserialize` or `-m System.Text.Json.JsonSerializer.Deserialize`
-- **Diff ranges** use `..`: `--package System.Text.Json@9.0.0..10.0.0`
-- **Derived types** only show their own members — query the base type too
-
-## Installation
-
-Use `dnx` (like `npx`). Always use `-y` and `--` to prevent interactive prompts:
+Invoke through `dnx` unless the tool is already installed:
 
 ```bash
 dnx dotnet-inspect -y -- <command>
 ```
+
+Default output is Markdown. Use `--oneline` to scan, `--json` for structured data, `--count` to count one selected table section, and `-v:d` when you need source/decompiled C#/IL detail.
+
+## Workflow map
+
+| Goal | Start with | Drill in |
+| ---- | ---------- | -------- |
+| Find the right API | `find Pattern --oneline` | `type Type --package Foo`, then `member Type --package Foo`. |
+| Fix upgrade breaks | `diff --package Foo@old..new --breaking` | Inspect replacement members with `member`. |
+| Learn what changed | `diff --package Foo@old..new --additive` or `diff --platform Lib@old..new` | Use `-t Type` to narrow. |
+| Locate source | `source Type --package Foo` | Add `-m Member` or use `member Type Member:1 -v:d`. |
+| Audit package/library contents | `package Foo`, `library Foo` | Add `-S Section`, `--fields`, `--source-link-audit`, or `--count`. |
+| Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
+| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N` | Prefer built-in limits over shell pipes. |
+
+## API lookup workflow
+
+Use `find` when you do not know the package, library, or exact namespace.
+
+```bash
+dnx dotnet-inspect -y -- find JsonSerializer --oneline
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
+```
+
+Carry resolved context forward. For multi-library packages, include the `--library` value shown by `find`. For platform APIs, prefer `--platform <LibraryName>` when you want installed framework behavior.
+
+Use `type` for type shape and summaries; use `member` for signatures, overloads, docs, and implementation detail. Add `--show-index` when you need stable `Name:N` overload selectors.
+
+## Upgrade and compatibility workflow
+
+Start with `diff`, then inspect the affected API.
+
+```bash
+dnx dotnet-inspect -y -- diff --package System.Text.Json@9.0.0..10.0.0 --breaking
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json@10.0.0
+```
+
+Use `--breaking` for migration work, `--additive` for release-note work, and `-t TypeName` to narrow noisy diffs. Obsolete members are shown by default with an obsolete marker/message when available.
+
+For .NET platform APIs, compare individual framework libraries:
+
+```bash
+dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
+```
+
+## Source and implementation workflow
+
+Use `source` for SourceLink URLs or source text. Use `member -v:d` when you need a selected member's source, lowered C#, raw IL, or annotated IL.
+
+```bash
+dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --oneline
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -v:d
+```
+
+For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
+
+## Package and library audit workflow
+
+Use `package` for NuGet metadata and package layout. Use `library` for assembly identity, references, symbols, SourceLink, resources, async methods, and public key token.
+
+```bash
+dnx dotnet-inspect -y -- package System.Text.Json --versions
+dnx dotnet-inspect -y -- library System.Text.Json --source-link-audit
+dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
+```
+
+`package` supports custom feeds (`--source`, `--add-source`, `--nugetconfig`) and local `.nupkg` files. `library -S "Async*"` classifies async methods as runtime async or classic state-machine async.
+
+## Output and query workflow
+
+Discover sections, then select or project fields.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -S Methods --columns "Name;Signature;Obsolete"
+dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
+```
+
+For `type` and `member`, `-D` reports the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. `-S`, `--columns`, and `--fields` accept comma-separated or semicolon-separated lists. Use `--count` only when exactly one selected section should produce a row count.
+
+## Relationship workflow
+
+```bash
+dnx dotnet-inspect -y -- depends Stream
+dnx dotnet-inspect -y -- extensions HttpClient --reachable
+dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.Json
+```
+
+Scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+
+## Syntax guardrails
+
+- Quote generic type names: `'Option<T>'`, `'INumber<TSelf>'`.
+- Use `<T>` rather than `<>` for generic type queries.
+- `type` uses `-t` for type filters; `member` uses `-m` for member filters.
+- Dotted member syntax works: `-m JsonSerializer.Deserialize`.
+- Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`.
+- Use `--all` for non-public, hidden, and extra members; obsolete members are already shown by default.
