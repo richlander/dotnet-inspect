@@ -66,7 +66,7 @@ dotnet-inspect System.CommandLine --version
 ```
 
 ```expect
-2.0.3
+2.0.8
 ```
 
 ```query
@@ -88,7 +88,7 @@ dotnet-inspect System.CommandLine --latest-version
 ```
 
 ```expect
-2.0.3
+2.0.8
 ```
 
 ```query
@@ -102,7 +102,7 @@ dotnet-inspect System.CommandLine@latest --version
 ```
 
 ```expect
-2.0.3
+2.0.8
 ```
 
 ```query
@@ -134,8 +134,8 @@ dotnet-inspect System.CommandLine --versions
 ```
 
 ```expect
-2.0.3
-2.0.2
+2.0.8
+2.0.7
 ```
 
 ```query

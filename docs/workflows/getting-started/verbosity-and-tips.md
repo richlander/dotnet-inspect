@@ -53,7 +53,7 @@ dotnet-inspect System.CommandLine
 
 ```expect
 # System.CommandLine
-Version: 2.0.2
+Version: 2.0.8
 ## Package
 | Field | Value |
 ```
@@ -105,7 +105,7 @@ dotnet-inspect System.CommandLine -v:q
 
 ```expect
 # System.CommandLine
-Version: 2.0.2
+Version: 2.0.8
 ```
 
 ```expect-not

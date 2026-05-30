@@ -68,7 +68,7 @@ dotnet-inspect System.CommandLine --latest-version
 ```
 
 ```expect
-2.0.3
+2.0.8
 ```
 
 ```perf
@@ -88,8 +88,8 @@ dotnet-inspect System.CommandLine --versions
 ```
 
 ```expect
-2.0.3
-2.0.2
+2.0.8
+2.0.7
 ```
 
 ```perf
@@ -109,7 +109,7 @@ dotnet-inspect System.CommandLine@latest --version
 ```
 
 ```expect
-2.0.3
+2.0.8
 ```
 
 ```perf
