@@ -28,6 +28,19 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
 | Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N` | Prefer built-in limits over shell pipes. |
 
+## Modern .NET and preview workflow
+
+LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspection over web search.
+
+| Question | Use | Watch for |
+| -------- | --- | --------- |
+| Which APIs use runtime async vs compiler state machines? | `library --platform Lib --framework runtime@<version> -S "Async*"` | `Kind` distinguishes runtime async from state-machine async; use `--count` only for totals. |
+| Is this a framework assembly or standalone package? | `library --platform Lib --framework runtime@<version>` or direct DLL path | Many BCL assemblies are runtime-pack/platform libraries, not independent NuGet packages. |
+| Did new extension members appear? | `extensions Type --reachable` | Includes extension methods and C# extension properties. |
+| Did compiler/runtime lowering change? | `member Type Member:1 -v:d` | Inspect Source, Lowered C#, IL, and annotated IL before inferring behavior. |
+
+For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest.
+
 ## API lookup workflow
 
 Use `find` when you do not know the package, library, or exact namespace.
