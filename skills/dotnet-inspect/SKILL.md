@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.8.0
+version: 0.8.1
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Use for factual answers about package contents, API signatures, compatibility changes, relationships, SourceLink, and assembly metadata.
 ---
 
@@ -28,6 +28,19 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
 | Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N` | Prefer built-in limits over shell pipes. |
 
+## Modern .NET and preview workflow
+
+LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspection over web search.
+
+| Feature | Description | Use | Watch for |
+| ------- | ----------- | --- | --------- |
+| Runtime async | .NET 11+ libraries may use runtime async instead of compiler-generated state machines. | `library --platform Lib --framework runtime@<version> -S "Async*"` | `Kind` distinguishes runtime async from state-machine async; use `--count` only for totals. |
+| Runtime-pack assemblies | Many BCL libraries ship only as installed platform/runtime-pack assemblies, not standalone packages. | `library --platform Lib --framework runtime@<version>` or direct DLL path | Prefer platform/direct DLL inspection when package lookup is misleading. |
+| Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
+| Lowering changes | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -v:d` | Inspect Source, Lowered C#, IL, and annotated IL before inferring behavior. |
+
+For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest.
+
 ## API lookup workflow
 
 Use `find` when you do not know the package, library, or exact namespace.
@@ -37,7 +50,7 @@ dnx dotnet-inspect -y -- find JsonSerializer --oneline
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 ```
 
-Carry resolved context forward. For multi-library packages, include the `--library` value shown by `find`. For platform APIs, prefer `--platform <LibraryName>` when you want installed framework behavior.
+Carry resolved context forward. Bare names use the router: platform-looking names are tried as installed platform libraries first, then fall back to NuGet packages if platform resolution fails. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
 
 Use `type` for type shape and summaries; use `member` for signatures, overloads, docs, and implementation detail. Add `--show-index` when you need stable `Name:N` overload selectors.
 
