@@ -31,7 +31,7 @@ dnx dotnet-inspect -y -- <command>
 
 ### Bare Names
 
-A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the best source. Platform libraries (`System.*`, `Microsoft.AspNetCore`) resolve to the installed SDK by default. Other names resolve to NuGet packages. Use explicit `package` or `library --package` to override.
+A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the best source. Platform libraries (`System.*`, `Microsoft.AspNetCore`) resolve to the installed SDK by default — including runtime-only implementation assemblies such as `System.Private.CoreLib` that have no NuGet package. Other names resolve to NuGet packages. Use explicit `package` or `library --package` to override.
 
 ### Common Flags
 
@@ -98,6 +98,7 @@ dotnet-inspect library --package System.Text.Json -s         # List 13 available
 dotnet-inspect library --package System.Text.Json --source-link-audit  # SourceLink audit
 dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies   # Dependency tree (visual)
 dotnet-inspect library System.Text.Json --references -s Lib*           # Direct references
+dotnet-inspect library System.Net.Security -S "Async*"                 # Async methods (Runtime vs State Machine)
 dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 ```
 
