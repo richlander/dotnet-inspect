@@ -100,6 +100,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void Router_WithCompactFlag_ParsesCorrectly()
+    {
+        var args = CommandLineBuilder.PreprocessArgs(["System.Text.Json.JsonSerializer", "--json", "--compact"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void PackageCommand_WithDependencies_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "--dependencies"]);

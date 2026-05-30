@@ -22,7 +22,8 @@ public static class RouterOptionsParser
         Option<int?> VersionsOption,
         Option<bool> PrereleaseOption,
         Option<bool> OneLineOption,
-        Option<bool> NoHeaderOption);
+        Option<bool> NoHeaderOption,
+        Option<bool> CompactOption);
 
     /// <summary>
     /// Result of parsing router command options.

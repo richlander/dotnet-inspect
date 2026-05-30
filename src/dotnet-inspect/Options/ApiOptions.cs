@@ -62,12 +62,28 @@ public record ApiOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Effective { get; init; }
+    public bool Schema { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+
+    /// <summary>
+    /// True when discovery (-D) should resolve and load the source to report only the
+    /// sections/columns that actually have data (effective discovery). For type/member
+    /// queries this is the default; <c>--schema</c> opts out to the cheap, offline static
+    /// schema listing. The legacy <c>--effective</c> flag is now redundant but still honored.
+    /// </summary>
+    public bool EffectiveDiscovery => Discover != null && !Schema;
 
     /// <summary>
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).
     /// </summary>
     public bool VerbosityEnabled => !OneLine && !JsonOutput;
+
+    /// <summary>
+    /// True when the user is performing a section/projection query (-S/--columns/--fields).
+    /// Such queries produce a focused section view, not the default tree shape.
+    /// </summary>
+    public bool HasSectionQuery =>
+        Select is { Length: > 0 } || Columns is { Length: > 0 } || Fields is { Length: > 0 };
 
     /// <summary>
     /// Returns the appropriate Markout formatter for the current output format.

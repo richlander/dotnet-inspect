@@ -50,9 +50,12 @@ public static class RouterCommandDefinition
         routerPrereleaseOption.Aliases.Add("--prerelease");
         routerCommand.Options.Add(routerPrereleaseOption);
 
+        var routerCompactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        routerCommand.Options.Add(routerCompactOption);
+
         var commandArgs = new RouterOptionsParser.RouterCommandArgs(
             packageNameArg, routerVersionOption, routerLatestVersionOption, routerVersionsOption,
-            routerPrereleaseOption, routerOneLineOption, routerNoHeaderOption);
+            routerPrereleaseOption, routerOneLineOption, routerNoHeaderOption, routerCompactOption);
 
         routerCommand.SetAction(async (parseResult, ct) =>
         {
@@ -81,7 +84,7 @@ public static class RouterCommandDefinition
                     return await AssemblyCommand.ExecuteAsync(route.Options);
 
                 case RouterOptionsParser.RouteToPlatformAssembly route:
-                    return await ExecutePlatformAssemblyAsync(route, opts, parseResult);
+                    return await ExecutePlatformAssemblyAsync(route, opts, parseResult, commandArgs);
 
                 case RouterOptionsParser.HandleVersionQuery query:
                     return await ExecuteVersionQueryAsync(query, opts, parseResult, routerVersionsOption);
@@ -103,7 +106,8 @@ public static class RouterCommandDefinition
     private static async Task<int> ExecutePlatformAssemblyAsync(
         RouterOptionsParser.RouteToPlatformAssembly route,
         SharedOptions opts,
-        ParseResult parseResult)
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
     {
         bool verbose = route.Options.Verbose;
         Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
@@ -143,6 +147,7 @@ public static class RouterCommandDefinition
                 OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
                 FormatExplicitlySet = route.Options.FormatExplicitlySet,
                 NoHeader = route.NoHeader,
+                CompactJson = parseResult.GetValue(commandArgs.CompactOption),
                 Verbose = route.Options.Verbose,
                 Verbosity = route.Verbosity,
                 IncludeSections = null,
@@ -152,6 +157,7 @@ public static class RouterCommandDefinition
                 Columns = route.Options.Columns,
                 Fields = route.Options.Fields,
                 Effective = route.Options.Effective,
+                Schema = opts.ParseSchema(parseResult),
                 SourceOptions = route.Options.SourceOptions,
                 TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
@@ -284,6 +290,7 @@ public static class RouterCommandDefinition
             OneLineExplicitlySet = parseResult.GetResult(commandArgs.OneLineOption) is { Implicit: false },
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult, commandArgs.OneLineOption),
             NoHeader = parseResult.GetValue(commandArgs.NoHeaderOption),
+            CompactJson = parseResult.GetValue(commandArgs.CompactOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             Discover = opts.ParseDiscover(parseResult),
@@ -292,6 +299,7 @@ public static class RouterCommandDefinition
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
+            Schema = opts.ParseSchema(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };

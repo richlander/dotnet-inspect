@@ -34,7 +34,8 @@ public class SharedOptions
     public Option<string?> Select { get; }
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
-    public Option<bool> Effective { get; } = new("--effective") { Description = "Show sections with data (runs full pipeline)" };
+    public Option<bool> Effective { get; } = new("--effective") { Description = "Discover only sections with data (default for type/member -D; opt-in for package/assembly)" };
+    public Option<bool> Schema { get; } = new("--schema") { Description = "With type/member -D: show the full static schema without resolving/loading source (offline)" };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
 
     // NuGet source options
@@ -127,6 +128,7 @@ public class SharedOptions
         command.Options.Add(Columns);
         command.Options.Add(Fields);
         command.Options.Add(Effective);
+        command.Options.Add(Schema);
         command.Options.Add(Tree);
     }
 
@@ -295,6 +297,19 @@ public class SharedOptions
     }
 
     public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
+
+    /// <summary>
+    /// Resolves the <c>--schema</c> opt-out for type/member discovery. When both
+    /// <c>--schema</c> and the deprecated <c>--effective</c> are passed explicitly,
+    /// <c>--schema</c> wins and a warning is emitted.
+    /// </summary>
+    public bool ParseSchema(ParseResult parseResult)
+    {
+        var schema = parseResult.GetValue(Schema);
+        if (schema && IsDiscoveryMode(parseResult) && parseResult.GetResult(Effective) is { Implicit: false })
+            Console.Error.WriteLine("Warning: --schema and --effective conflict; using --schema (static schema listing).");
+        return schema;
+    }
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {

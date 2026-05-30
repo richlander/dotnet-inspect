@@ -59,7 +59,7 @@ public static class DiscoverOutput
     /// </summary>
     public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false, int verbosity = 0,
-        string? rootLabel = null)
+        string? rootLabel = null, DocumentSchema? fullSchema = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -71,8 +71,205 @@ public static class DiscoverOutput
             else
                 filtered.AddSection(name);
         }
+
+        // For a specific section query, distinguish a valid section that simply has no data for
+        // this input from a genuinely unknown section. The full schema lets us recognize the
+        // former and report it clearly instead of the misleading "Section not found".
+        if (discover is { Length: > 0 } && fullSchema != null)
+        {
+            var remaining = FilterEmptyEffectiveSections(discover, filtered, fullSchema);
+            if (remaining == null)
+                return 0;
+            discover = remaining;
+        }
+
         return Execute(discover, filtered, tree, markdown, json, verbosity, rootLabel);
     }
+
+    /// <summary>
+    /// Splits requested discovery sections into those still worth resolving and those that are
+    /// valid in the full schema but have no data under <c>--effective</c>. For the latter a
+    /// "has no data for this type" note is written (clearer than "Section not found", since the
+    /// section is real — just empty for this input). Truly unknown names are kept so the normal
+    /// discovery resolver can report them with suggestions. Returns the names to still resolve,
+    /// or <c>null</c> when every requested section was valid-but-empty (fully handled via notes).
+    /// </summary>
+    private static string[]? FilterEmptyEffectiveSections(
+        string[] discover, DocumentSchema effective, DocumentSchema fullSchema)
+    {
+        var remaining = new List<string>();
+        bool emittedNote = false;
+        foreach (var name in discover)
+        {
+            var (effMatches, _) = SelectResolver.ResolveSingle(name, effective.SectionNames, singleGlob: true);
+            if (effMatches.Count >= 1)
+            {
+                remaining.Add(name);
+                continue;
+            }
+
+            var (fullMatches, _) = SelectResolver.ResolveSingle(name, fullSchema.SectionNames, singleGlob: true);
+            if (fullMatches.Count >= 1)
+            {
+                foreach (var match in fullMatches)
+                    Console.Error.WriteLine($"note: section '{match}' has no data for this type");
+                emittedNote = true;
+            }
+            else
+            {
+                remaining.Add(name);
+            }
+        }
+
+        return remaining.Count == 0 && emittedNote ? null : remaining.ToArray();
+    }
+
+    /// <summary>
+    /// Restricts effective section names to those the discovery schema can represent.
+    /// The single-type member pipeline reports decompiler code sections (Source, IL,
+    /// IL (Annotated), Lowered C#) as renderable whenever the type has methods, but these
+    /// are member-detail sections produced only for a specific member selection — they are
+    /// not part of the type schema. Dropping them keeps <c>-D --effective</c> consistent
+    /// with <c>-D</c> and ensures every listed section is queryable via <c>-D &lt;Section&gt;</c>.
+    /// </summary>
+    public static List<string> RestrictToSchemaSections(List<string> effectiveSections, DocumentSchema schema)
+        => effectiveSections.Where(s => schema.GetSection(s) != null).ToList();
+
+    /// <summary>
+    /// Restricts effective sections to those that actually produced rendered output in the
+    /// supplied markdown rendering of the same view. A tabular schema section whose
+    /// <c>CanRender</c> probe passed but which rendered no table for this input is dropped,
+    /// since it has no data to query. This catches sections whose <c>CanRender</c> is a coarse
+    /// proxy — e.g. "Custom Attributes", gated on "the type has methods" but only populated
+    /// when a specific member's attributes are read (the member-detail path) — so
+    /// <c>--effective</c> reflects real data rather than mere potential.
+    /// Only tabular sections (those with schema columns) are subject to the drop; non-tabular
+    /// sections are left untouched because their content may not render as a markdown table.
+    /// This measures renderability in the current type effective-discovery render path
+    /// (RenderTypeSectionsMarkdown); a section populated only in another command path is
+    /// intentionally treated as having no data here.
+    /// </summary>
+    public static List<string> RestrictToRenderedSections(
+        List<string> effectiveSections, DocumentSchema schema, string rendered)
+    {
+        var renderedTables = ParseSectionHeaders(rendered);
+        return effectiveSections.Where(name =>
+        {
+            var section = schema.GetSection(name);
+            bool tabular = section is { Items.Length: > 0 };
+            return !tabular || renderedTables.ContainsKey(name);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Returns a copy of the schema with the named column removed from every section.
+    /// Used to hide the Select overload-index column from plain discovery unless --show-index
+    /// produced it (the column only renders for members when an overload index is shown).
+    /// </summary>
+    public static DocumentSchema WithoutColumn(DocumentSchema schema, string columnName)
+    {
+        var filtered = new DocumentSchema();
+        foreach (var name in schema.SectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (section == null) { filtered.AddSection(name); continue; }
+
+            var items = section.Items
+                .Where(i => !string.Equals(i.Name, columnName, StringComparison.OrdinalIgnoreCase))
+                .Select(i => i.Name)
+                .ToArray();
+
+            if (items.Length > 0)
+                filtered.Add(name, section.ItemKind, items);
+            else
+                filtered.AddSection(name);
+        }
+        return filtered;
+    }
+
+    /// <summary>
+    /// Filters a schema's section columns to only those that actually render, given a
+    /// markdown rendering of the same view. Used by --effective discovery so the reported
+    /// columns match what the user would see at their current verbosity/options (e.g. the
+    /// Select overload-index column is dropped unless --show-index produced it, summary
+    /// columns replace detailed columns at Minimal verbosity, etc.).
+    /// Matches against section-scoped markdown table headers, not the rendered body, to
+    /// avoid false positives from column names appearing in member names or signatures.
+    /// </summary>
+    public static DocumentSchema FilterSchemaToRenderedHeaders(
+        List<string> effectiveSections, DocumentSchema schema, string rendered)
+    {
+        var headersBySection = ParseSectionHeaders(rendered);
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
+        {
+            var section = schema.GetSection(name);
+            if (section == null) { filtered.AddSection(name); continue; }
+
+            // No table rendered for this section (e.g. a non-tabular section such as Source/IL,
+            // or one not produced by the member renderer): preserve the original schema columns
+            // rather than stripping them — we only narrow columns for sections we actually rendered.
+            if (!headersBySection.TryGetValue(name, out var headerCells))
+            {
+                if (section.Items.Length > 0)
+                    filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
+                else
+                    filtered.AddSection(name);
+                continue;
+            }
+
+            var effectiveItems = section.Items
+                .Where(item => headerCells.Contains(item.Name))
+                .Select(item => item.Name)
+                .ToArray();
+
+            if (effectiveItems.Length > 0)
+                filtered.Add(name, section.ItemKind, effectiveItems);
+            else
+                filtered.AddSection(name);
+        }
+        return filtered;
+    }
+
+    /// <summary>
+    /// Parses a rendered markdown document into a map of section heading text → the set of
+    /// column header cells from the first table under that heading.
+    /// </summary>
+    private static Dictionary<string, HashSet<string>> ParseSectionHeaders(string rendered)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var lines = rendered.Split('\n');
+        string? current = null;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var trimmed = lines[i].Trim();
+            if (trimmed.StartsWith('#'))
+            {
+                current = trimmed.TrimStart('#').Trim();
+                continue;
+            }
+
+            // A table header is a pipe row immediately followed by a separator row.
+            if (current != null && !result.ContainsKey(current)
+                && trimmed.StartsWith('|') && i + 1 < lines.Length
+                && IsSeparatorRow(lines[i + 1]))
+            {
+                result[current] = new HashSet<string>(ParseRowCells(trimmed), StringComparer.OrdinalIgnoreCase);
+            }
+        }
+        return result;
+    }
+
+    private static bool IsSeparatorRow(string line)
+    {
+        var trimmed = line.Trim();
+        if (!trimmed.StartsWith('|'))
+            return false;
+        return trimmed.All(c => c is '|' or '-' or ':' or ' ');
+    }
+
+    private static IEnumerable<string> ParseRowCells(string row)
+        => row.Trim().Trim('|').Split('|').Select(c => c.Trim()).Where(c => c.Length > 0);
 
     private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema)
     {

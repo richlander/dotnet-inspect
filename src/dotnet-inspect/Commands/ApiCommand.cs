@@ -43,7 +43,7 @@ public class ApiCommand
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
-            Effective = options.Effective, SourceOptions = options.SourceOptions,
+            Effective = options.Effective, Schema = options.Schema, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
         })
     };
@@ -64,12 +64,18 @@ public class ApiCommand
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.AllSectionNames : typePipeline.AllSectionNames;
 
-        // Discovery mode: -D/--discover lists schema unless --effective is requested.
-        if (options.Discover != null && !options.Effective)
+        // Discovery mode: -D/--discover lists effective sections (resolves source) by
+        // default; --schema opts out to the cheap, offline static schema listing.
+        if (options.Discover != null && !options.EffectiveDiscovery)
         {
             var schema = singleTypeMode
                 ? ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema()
                 : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+
+            // Restrict plain discovery to columns/sections queryable under the active options.
+            if (singleTypeMode)
+                schema = ToQueryableSchema(schema, options);
+
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
         }
@@ -377,6 +383,33 @@ public class ApiCommand
         }
     }
 
+    /// <summary>
+    /// Writes a stderr note when sections explicitly requested via -S matched the schema
+    /// but produced no data for this type (e.g. the enum-only "Values" section on a class).
+    /// This distinguishes "valid but empty" from a typo (which yields a "not found" error)
+    /// and from a silent empty render. Only meaningful for section-rendering output, so the
+    /// caller must skip JSON (ignores -S), shape, and one-line output.
+    /// </summary>
+    internal static void WarnEmptySelectedSections(ApiType type, ApiOptions options, SectionPipeline<ApiType> pipeline)
+    {
+        if (options.IncludeSections is not { Count: > 0 })
+            return;
+
+        var filtered = BuildFilteredTypeForSections(type, options);
+        var (empty, _) = pipeline.GetEmptySections(filtered, options.Verbosity, options.IncludeSections);
+        if (empty.Count == 0)
+            return;
+
+        bool filtersActive = options.MemberFilter.Count > 0 || options.KindFilter.Count > 0
+            || options.UnsafeOnly || options.Limit.HasValue;
+        var suffix = filtersActive ? " after filters" : "";
+
+        if (empty.Count == 1)
+            Console.Error.WriteLine($"Note: section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+        else
+            Console.Error.WriteLine($"Note: {empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
+    }
+
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
     {
         var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
@@ -554,8 +587,10 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    internal static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
+    internal static void WriteTypeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
+        var sink = output ?? Console.Out;
+
         if (options is TypeOptions { ShapeOutput: true })
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter);
@@ -618,12 +653,12 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            MarkoutSerializer.Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), ApiViewContext.Default, writerOpts);
+            MarkoutSerializer.Serialize(oneLineView, sink, new Markout.OneLineFormatter(showHeader: !options.NoHeader), ApiViewContext.Default, writerOpts);
         }
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var writer = new Markout.MarkoutWriter(Console.Out, options.CreateFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
             ApiViewContext.Default.Serialize(view, writer);
 
             if (view.MemberCode != null)
@@ -631,6 +666,97 @@ public class ApiCommand
 
             writer.Flush();
         }
+    }
+
+    /// <summary>
+    /// Restricts a plain-discovery schema to the columns queryable under the active options.
+    /// The view schema is a union of all rendering variants, so it advertises columns that only
+    /// specific options surface. When the enabling option is off, the column is not queryable
+    /// (e.g. <c>--columns Select</c> does nothing), so it is hidden from discovery to keep what
+    /// is listed consistent with what the user can actually project. This is the option/contract
+    /// level gate (data-independent); the data-level gate is <c>--effective</c>.
+    /// </summary>
+    /// <remarks>
+    /// Currently the only option-gated column is the <c>Select</c> overload-index column, which
+    /// is surfaced only by <c>member --show-index</c>. Add future gated columns here.
+    /// </remarks>
+    internal static DocumentSchema ToQueryableSchema(DocumentSchema schema, ApiOptions options)
+    {
+        if (options is not MemberOptions { ShowSelect: true })
+            schema = DiscoverOutput.WithoutColumn(schema, "Select");
+        return schema;
+    }
+
+    /// <summary>
+    /// Executes effective discovery (<c>-D --effective</c>) for a single type. Shared by the
+    /// type and member commands so both paths apply identical queryability filtering:
+    /// <list type="bullet">
+    /// <item>Section gate: <see cref="DiscoverOutput.RestrictToSchemaSections"/> drops pipeline
+    /// sections absent from the type schema (the member-detail code sections Source/IL/...),
+    /// then <see cref="DiscoverOutput.RestrictToRenderedSections"/> drops schema sections that
+    /// render no data for this type (e.g. Custom Attributes when the type has no attributes),
+    /// so every listed section is queryable via <c>-D &lt;Section&gt;</c> and actually has data.</item>
+    /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedHeaders"/> renders the
+    /// type at the active options and keeps only columns that appear, dropping columns the
+    /// active options never surface (e.g. Select without --show-index) and columns with no data
+    /// (e.g. Obsolete when no member is obsolete).</item>
+    /// </list>
+    /// This keeps effective discovery consistent with what the user can actually query and see.
+    /// </summary>
+    internal static int ExecuteEffectiveDiscovery(
+        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options)
+    {
+        var fullSchema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+        var filteredType = BuildFilteredTypeForSections(apiType, options);
+        var effective = memberPipeline.GetEffectiveSections(filteredType, Verbosity.Detailed, options.IncludeSections);
+        effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
+        var rendered = RenderTypeSectionsMarkdown(filteredType, options);
+        effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
+        var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
+        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
+            tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+            verbosity: (int)options.Verbosity, fullSchema: fullSchema);
+    }
+
+    /// <summary>
+    /// Renders the type's member/enum sections to a markdown string for effective-column
+    /// discovery. Replicates <see cref="WriteTypeOutput"/>'s verbosity branching so the
+    /// rendered table headers reflect exactly which columns the user would actually see
+    /// (e.g. summary columns at Minimal, full member columns at Detailed, the Select column
+    /// only with --show-index). Projection (--columns/--fields) is intentionally dropped so
+    /// the result reflects all renderable columns, not a user-narrowed subset.
+    /// </summary>
+    internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options)
+    {
+        var renderOptions = options with
+        {
+            Columns = null,
+            Fields = null,
+            PlainText = false,
+            JsonOutput = false,
+            OneLine = false,
+        };
+
+        var view = ApiOutputFormatter.BuildTypeView(type, null, null, null, null, null, renderOptions);
+
+        if (type.Kind == "enum")
+            ApiOutputFormatter.PopulateEnumValues(view, type, renderOptions);
+
+        bool isMember = renderOptions is MemberOptions;
+        if (view.EnumValues == null && view.EnumValuesWithDocs == null)
+        {
+            if (renderOptions.Verbosity == Verbosity.Minimal && !isMember)
+                ApiOutputFormatter.PopulateMemberSummarySections(view, type, renderOptions);
+            else
+                ApiOutputFormatter.PopulateMemberSections(view, type, renderOptions);
+        }
+
+        var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, renderOptions);
+        var sw = new StringWriter();
+        var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), writerOptions);
+        ApiViewContext.Default.Serialize(view, writer);
+        writer.Flush();
+        return sw.ToString();
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
@@ -647,7 +773,12 @@ public class ApiCommand
         if (options.Limit.HasValue && members.Count > options.Limit.Value)
             members = members.Take(options.Limit.Value).ToList();
 
-        if (members != type.Members)
+        // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
+        if (options.IncludeSections is { Count: > 0 } sections)
+        {
+            outputType = ProjectTypeToSections(type, members, sections);
+        }
+        else if (members != type.Members)
         {
             outputType = new ApiType
             {
@@ -673,6 +804,67 @@ public class ApiCommand
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
+
+    /// <summary>
+    /// Maps each member section name to the predicate that selects its members.
+    /// </summary>
+    private static readonly Dictionary<string, Func<ApiMember, bool>> MemberSectionPredicates =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [SectionNames.Values] = m => m.Kind == "field" && m.EnumValue.HasValue,
+            [SectionNames.Fields] = m => m.Kind == "field" && !m.EnumValue.HasValue,
+            [SectionNames.Properties] = m => m.Kind == "property",
+            [SectionNames.Methods] = m => m.Kind == "method",
+            [SectionNames.Constructors] = m => m.Kind == "constructor",
+            [SectionNames.Events] = m => m.Kind == "event",
+        };
+
+    /// <summary>
+    /// Builds a copy of <paramref name="type"/> scoped to the requested sections: members are
+    /// restricted to the selected member sections, and the Baseclass / Interfaces / Type
+    /// Parameters facets are retained only when their section is selected. Identity fields
+    /// (namespace, name, kind) are always preserved.
+    /// </summary>
+    private static ApiType ProjectTypeToSections(ApiType type, IEnumerable<ApiMember> members, HashSet<string> sections)
+    {
+        var predicates = MemberSectionPredicates
+            .Where(kv => sections.Contains(kv.Key))
+            .Select(kv => kv.Value)
+            .ToList();
+
+        var scopedMembers = predicates.Count > 0
+            ? members.Where(m => predicates.Any(p => p(m))).ToList()
+            : [];
+
+        return new ApiType
+        {
+            Namespace = type.Namespace,
+            Name = type.Name,
+            Kind = type.Kind,
+            IsSealed = type.IsSealed,
+            IsAbstract = type.IsAbstract,
+            IsStatic = type.IsStatic,
+            BaseType = sections.Contains(SectionNames.Baseclass) && IsRenderableBaseType(type.BaseType) ? type.BaseType : null,
+            Interfaces = sections.Contains(SectionNames.TypeInterfaces) ? type.Interfaces : [],
+            TypeParameters = sections.Contains(SectionNames.TypeParameters) ? type.TypeParameters : [],
+            Members = scopedMembers,
+            SourceFilePath = type.SourceFilePath,
+            SourceUrl = type.SourceUrl,
+            GitHubBrowseUrl = type.GitHubBrowseUrl,
+            SourceLineNumber = type.SourceLineNumber,
+            Documentation = type.Documentation
+        };
+    }
+
+    /// <summary>
+    /// Mirrors the Baseclass section's CanRender: a base type is meaningful only when it is
+    /// present and not one of the implicit roots (Object/ValueType/Enum).
+    /// </summary>
+    private static bool IsRenderableBaseType(string? baseType)
+        => !string.IsNullOrEmpty(baseType)
+           && baseType is not ("System.Object" or "System.ValueType" or "System.Enum");
+
+
 
     // ===== Parameter Type Matching Helpers =====
 

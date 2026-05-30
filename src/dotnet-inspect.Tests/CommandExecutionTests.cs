@@ -133,13 +133,170 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverMethods_Works()
+    public async Task Type_SingleType_NoQuery_DefaultsToShape()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer"
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // Default single-type invocation renders the tree shape.
+        Assert.Contains("├─", output);
+        Assert.Contains("Inherits", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Methods"]
+            Select = ["Properties"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // Selection produces a focused section view, not the tree shape.
+        Assert.Contains("## Properties", output);
+        Assert.DoesNotContain("├─", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Properties"],
+            Columns = ["Name"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Properties", output);
+        Assert.Contains("| Name |", output);
+        Assert.DoesNotContain("Return Type", output);
+        Assert.DoesNotContain("├─", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ExplicitShapeWithSelect_WarnsAndKeepsShape()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            ShapeOutput = true,
+            ShapeExplicitlySet = true,
+            Select = ["Properties"]
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("--shape does not support", error);
+        Assert.Contains("├─", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectEmptySection_WritesNote()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Values"]  // enum-only section; JsonSerializer is a class
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("section 'Values' has no data", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectPopulatedSection_NoEmptyNote()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods"]
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("has no data", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_JsonWithSelect_ScopesToSection()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            JsonOutput = true,
+            Select = ["Properties"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        using var doc = JsonDocument.Parse(output);
+        var members = doc.RootElement.GetProperty("members");
+        Assert.True(members.GetArrayLength() > 0);
+        foreach (var m in members.EnumerateArray())
+            Assert.Equal("property", m.GetProperty("kind").GetString());
+        // Non-selected facets are scoped out.
+        Assert.Empty(doc.RootElement.GetProperty("interfaces").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Type_SingleType_JsonWithSelectEmptySection_EmptyMembersAndNote()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            JsonOutput = true,
+            Select = ["Values"]
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        using var doc = JsonDocument.Parse(output);
+        Assert.Empty(doc.RootElement.GetProperty("members").EnumerateArray());
+        Assert.Contains("section 'Values' has no data", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverMethods_Schema_ListsAllColumns()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Methods"],
+            Schema = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -148,6 +305,48 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Name", output);
         Assert.Contains("Signature", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_Discover_DefaultsToEffective_DropsEmptySections()
+    {
+        // -D with no --schema now defaults to effective discovery: it resolves the source
+        // and lists only sections that actually have data (the empty-section footgun fix).
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Methods | section |", output);
+        // JsonSerializer has no custom attributes, so effective-by-default must drop it.
+        Assert.DoesNotContain("| Custom Attributes | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverSchema_ListsAllStaticSections()
+    {
+        // --schema opts back out to the cheap, offline static schema listing, which
+        // includes sections that may have no data (e.g. Custom Attributes, Fields).
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [],
+            Schema = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.Contains("| Fields | section |", output);
     }
 
     [Fact]
@@ -167,6 +366,304 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Methods | section |", output);
         Assert.DoesNotContain("| Fields | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverEffective_ExcludesMemberDetailCodeSections()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [],
+            Effective = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Properties | section |", output);
+        Assert.Contains("| Methods | section |", output);
+        // Code sections (Source, IL, IL (Annotated), Lowered C#) are member-detail
+        // sections not present in the type schema. They must not appear in effective
+        // discovery, since they are not queryable via -D <Section>.
+        Assert.DoesNotContain("| Source | section |", output);
+        Assert.DoesNotContain("| IL | section |", output);
+        Assert.DoesNotContain("| IL (Annotated) | section |", output);
+        Assert.DoesNotContain("| Lowered C# | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverEffective_ExcludesEmptyCustomAttributesSection()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [],
+            Effective = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Methods | section |", output);
+        // Custom Attributes is in the type schema, but its CanRender probe is a coarse
+        // "type has methods" proxy; the section only has data when a specific member's
+        // attributes are read. JsonSerializer has none, so effective discovery must not list it.
+        Assert.DoesNotContain("| Custom Attributes | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_DiscoverEmptySection_Effective_ReportsNoDataNote()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Custom Attributes"],
+            Effective = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        // A valid-but-empty section reports a clear "no data" note rather than the
+        // misleading "Section not found", and exits 0.
+        Assert.Equal(0, exit);
+        Assert.Contains("section 'Custom Attributes' has no data", error);
+        Assert.DoesNotContain("not found", error);
+        Assert.DoesNotContain("| Name | column |", output);
+    }
+
+    [Fact]
+    public async Task Type_DiscoverUnknownSection_Effective_ReportsNotFound()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Bogus"],
+            Effective = true
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        // A genuinely unknown section still reports "not found" (with suggestions) and exits 1.
+        Assert.Equal(1, exit);
+        Assert.Contains("Section 'Bogus' not found", error);
+    }
+
+    [Fact]
+    public async Task Type_DiscoverSection_WithoutEffective_HidesSelectColumn()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Properties"],
+            Schema = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // The Select overload-index column only renders with --show-index, so plain
+        // single-type discovery hides it while still listing the real columns.
+        Assert.DoesNotContain("| Select | column |", output);
+        Assert.Contains("| Name | column |", output);
+    }
+
+    [Fact]
+    public async Task Member_DiscoverSection_ShowIndex_ListsSelectColumn()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Properties"],
+            ShowSelect = true,
+            Schema = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // With --show-index the Select column does render, so discovery must list it.
+        Assert.Contains("| Select | column |", output);
+    }
+
+    [Fact]
+    public async Task Member_DiscoverEffective_HidesSelectColumn()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Methods"],
+            Effective = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // Without --show-index the Select column is not queryable, so effective
+        // discovery must not list it (regression: member effective used to leak it).
+        Assert.DoesNotContain("| Select | column |", output);
+        Assert.Contains("| Name | column |", output);
+    }
+
+    [Fact]
+    public async Task Member_DiscoverEffective_ShowIndex_ListsSelectColumn()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Methods"],
+            Effective = true,
+            ShowSelect = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // With --show-index the Select column renders, so effective discovery lists it.
+        Assert.Contains("| Select | column |", output);
+    }
+
+    [Fact]
+    public async Task Type_SelectWithUnknownColumn_WarnsNotFound()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Properties"],
+            Columns = ["Bogus"]
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("column 'Bogus' not found in section 'Properties'", error);
+    }
+
+    [Fact]
+    public async Task Type_SelectWithSelectColumn_WarnsNoData()
+    {
+        // Select is valid in the schema but only renders with --show-index, so on the
+        // plain type path it produces no data and must be flagged (not silently ignored).
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Properties"],
+            Columns = ["Select"]
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("no data: Select", error);
+    }
+
+    [Fact]
+    public async Task Type_SelectWithColumnNotShownAtVerbosity_WarnsNoData()
+    {
+        // Signature is a valid Properties column but only renders at Detailed verbosity;
+        // at the default verbosity it is absent and must be flagged.
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Properties"],
+            Columns = ["Signature"]
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("no data: Signature", error);
+    }
+
+    [Fact]
+    public async Task Type_SelectWithValidColumn_NoWarning()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Properties"],
+            Columns = ["Name"]
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Name |", output);
+        Assert.DoesNotContain("not found", error);
+        Assert.DoesNotContain("no data", error);
+    }
+
+    [Fact]
+    public async Task Type_DiscoverSection_Effective_DropsSelectColumn()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Properties"],
+            Effective = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        // Effective discovery reports only columns that actually render. Select is hidden
+        // without --show-index, so it must not appear.
+        Assert.DoesNotContain("| Select | column |", output);
+        Assert.Contains("| Name | column |", output);
+    }
+
+    [Fact]
+    public async Task Type_DiscoverSection_Effective_ReflectsVerbosityColumns()
+    {
+        // At default (Minimal) verbosity, Properties renders the summary row (Return Type/Accessors).
+        var minimal = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = ["Properties"],
+            Effective = true
+        };
+        var (exitMin, minOutput, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(minimal));
+
+        Assert.Equal(0, exitMin);
+        Assert.Contains("| Return Type | column |", minOutput);
+        Assert.DoesNotContain("| Signature | column |", minOutput);
+
+        // At Detailed verbosity, Properties renders the full member row (Signature, no Return Type).
+        var detailed = minimal with { Verbosity = Verbosity.Detailed };
+        var (exitDet, detOutput, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(detailed));
+
+        Assert.Equal(0, exitDet);
+        Assert.Contains("| Signature | column |", detOutput);
+        Assert.DoesNotContain("| Return Type | column |", detOutput);
     }
 
     [Fact]

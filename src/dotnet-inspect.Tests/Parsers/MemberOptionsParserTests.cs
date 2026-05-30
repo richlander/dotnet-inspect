@@ -317,4 +317,22 @@ public class MemberOptionsParserTests
 
         Assert.True(options.Effective);
     }
+
+    [Fact]
+    public async Task Discover_DefaultsToEffectiveDiscovery()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-D");
+
+        Assert.False(options.Schema);
+        Assert.True(options.EffectiveDiscovery);
+    }
+
+    [Fact]
+    public async Task SchemaFlag_OptsOutOfEffectiveDiscovery()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-D", "--schema");
+
+        Assert.True(options.Schema);
+        Assert.False(options.EffectiveDiscovery);
+    }
 }
