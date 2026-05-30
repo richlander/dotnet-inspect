@@ -133,6 +133,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(extractResourcesOption);
         assemblyCommand.Options.Add(asmNoHeaderOption);
         opts.AddAllOptionsTo(assemblyCommand);
+        opts.AddCountOptionTo(assemblyCommand);
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -187,6 +188,7 @@ public static class InspectionCommandDefinitions
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
+                Count = parseResult.GetValue(opts.Count),
                 NoHeader = parseResult.GetValue(asmNoHeaderOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)

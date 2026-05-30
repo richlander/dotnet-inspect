@@ -24,6 +24,7 @@ public class SharedOptions
     // Output control options
     public Option<int?> Limit { get; }
     public Option<int?> Tail { get; }
+    public Option<bool> Count { get; } = new("--count") { Description = "With a single selected section, output the number of table rows" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
@@ -130,6 +131,14 @@ public class SharedOptions
         command.Options.Add(Effective);
         command.Options.Add(Schema);
         command.Options.Add(Tree);
+    }
+
+    /// <summary>
+    /// Adds the count output option to commands that support sectioned tables.
+    /// </summary>
+    public void AddCountOptionTo(Command command)
+    {
+        command.Options.Add(Count);
     }
 
     /// <summary>

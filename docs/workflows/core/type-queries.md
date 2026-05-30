@@ -476,7 +476,7 @@ Methods
 ### 10b. Filter to specific sections
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -v:d -s Interfaces,Baseclass -n 15
+dotnet-inspect type --package System.CommandLine Command -v:d -S Interfaces,Baseclass -n 15
 ```
 
 ```expect
@@ -527,7 +527,7 @@ more members
 > Goal: View where source code for a type can be found.
 
 ```bash
-dotnet-inspect type --package System.CommandLine Command -v:d -s "Remote Source" -n 10
+dotnet-inspect type --package System.CommandLine Command -v:d -S "Remote Source" -n 10
 ```
 
 ```expect

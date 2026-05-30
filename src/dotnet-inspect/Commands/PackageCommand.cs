@@ -49,6 +49,9 @@ public class PackageCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
+        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            return 1;
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -299,7 +302,11 @@ public class PackageCommand
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
-            if (options.OneLine)
+            if (options.Count)
+            {
+                Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
+            }
+            else if (options.OneLine)
             {
                 // Multi-section check: narrow to main section or error if user explicitly selected multiple sections
                 var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);

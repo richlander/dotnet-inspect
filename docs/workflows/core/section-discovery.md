@@ -1,8 +1,8 @@
 # Section Discovery
 
-> The `-s` flag (with no argument) lists available sections for any asset. The sections vary by source — platform assemblies expose different sections than NuGet packages. Section discovery must work consistently across all asset resolution paths: bare name, `--platform`, `--package`, `library`, and `package`.
+> The `-S` flag (with no argument) lists available sections for any asset. With a value, it selects sections by name or wildcard. The lowercase `-s` alias still works, but workflows use `-S` as the canonical spelling. Sections vary by source — platform assemblies expose different sections than NuGet packages. Section discovery must work consistently across all asset resolution paths: bare name, `--platform`, `--package`, `library`, and `package`.
 
-Ref: [PR #107](https://github.com/richlander/dotnet-inspect/pull/107) — fixed `-s` discovery for the `--platform` path.
+Ref: [PR #107](https://github.com/richlander/dotnet-inspect/pull/107) — fixed section discovery for the `--platform` path.
 
 ## Preconditions
 
@@ -33,7 +33,7 @@ What sections are available when inspecting System.Collections?
 ```
 
 ```bash
-dotnet-inspect System.Collections -s
+dotnet-inspect System.Collections -S
 ```
 
 ```expect
@@ -45,7 +45,7 @@ Type Forwarders
 ### Using `library --platform`
 
 ```bash
-dotnet-inspect library --platform System.Collections -s
+dotnet-inspect library --platform System.Collections -S
 ```
 
 ```expect
@@ -65,7 +65,7 @@ What sections can I see for System.CommandLine?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine -s
+dotnet-inspect System.CommandLine -S
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Package Dependencies
 ### Using `package`
 
 ```bash
-dotnet-inspect package System.CommandLine -s
+dotnet-inspect package System.CommandLine -S
 ```
 
 ```expect
@@ -91,7 +91,7 @@ Package Dependencies
 ### Platform path
 
 ```bash
-dotnet-inspect library --platform System.Collections -s
+dotnet-inspect library --platform System.Collections -S
 ```
 
 ```expect
@@ -103,7 +103,7 @@ Type Forwarders
 ### Package path
 
 ```bash
-dotnet-inspect library --package System.Collections -s
+dotnet-inspect library --package System.Collections -S
 ```
 
 ```expect
@@ -118,12 +118,12 @@ Type Forwarders
 
 ## Select a specific section
 
-> Goal: `-s [name]` renders only that section's content, not the full output.
+> Goal: `-S [name]` renders only that section's content, not the full output.
 
 ### Platform section
 
 ```bash
-dotnet-inspect library --platform System.Collections -s "Custom Attributes"
+dotnet-inspect library --platform System.Collections -S "Custom Attributes"
 ```
 
 ```expect
@@ -139,7 +139,7 @@ dotnet-inspect library --platform System.Collections -s "Custom Attributes"
 ### Package section
 
 ```bash
-dotnet-inspect library --package System.Collections -s "Library Info"
+dotnet-inspect library --package System.Collections -S "Library Info"
 ```
 
 ```expect
@@ -149,4 +149,49 @@ dotnet-inspect library --package System.Collections -s "Library Info"
 
 ```expect-not
 ## Custom Attributes
+```
+
+## Count a specific section
+
+> Goal: `--count` with one selected section returns only the number of table rows.
+
+```bash
+dotnet-inspect System.Text.Json -S "Async*" --count
+```
+
+```query
+awk '/^[0-9]+$/ && $1 > 0 { print "positive" }'
+```
+
+```expect
+positive
+```
+
+```expect-not
+#
+|
+Tips:
+```
+
+## Discover effective type/member schemas
+
+> Goal: `-D` on type/member queries reports the effective queryable schema by default; `--schema` opts back into the static schema.
+
+```bash
+dotnet-inspect member JsonSerializer --platform System.Text.Json -D Methods
+```
+
+```expect
+Methods
+Name
+Signature
+```
+
+```bash
+dotnet-inspect member JsonSerializer --platform System.Text.Json -D Methods --schema
+```
+
+```expect
+Methods
+Obsolete
 ```

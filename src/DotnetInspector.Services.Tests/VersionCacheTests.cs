@@ -10,6 +10,7 @@ namespace DotnetInspector.Services.Tests;
 /// Tests for version resolution caching in PackageExtractor.
 /// Validates cache-first behavior for nuget.org, multi-source support, TTL expiry, and skipCache.
 /// </summary>
+[Collection(CoreCacheCollection.Name)]
 public class VersionCacheTests : IDisposable
 {
     private const string VersionCacheCategory = "versions";

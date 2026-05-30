@@ -1,13 +1,13 @@
 ---
 id: verbosity-and-tips
-description: Verbosity levels and contextual tips behavior
-commands: [-v, -s]
-areas: [output, verbosity, tips]
+description: Verbosity levels, section selection, row counts, and contextual tips behavior
+commands: [-v, -S, --count]
+areas: [output, verbosity, sections, count, tips]
 ---
 
 # Verbosity and Tips
 
-> The tool has three verbosity levels and a tips system. Verbosity controls how much content is shown. Tips are contextual suggestions written to `stderr` that guide the next step.
+> The tool has three verbosity levels, section selection, row counts, and a tips system. Verbosity controls how much content is shown. Tips are contextual suggestions written to `stderr` that guide the next step.
 
 Verbosity levels:
 
@@ -19,7 +19,7 @@ Verbosity levels:
 
 The `member` command follows the same scale: quiet shows the heading-only summary, default shows full signatures with docs, detailed adds Source/Lowered C#/IL.
 
-Section selection (`-s`) lists available sections or filters to specific ones. Tips are suppressed when sections are selected.
+Section selection (`-S`, with lowercase `-s` as an alias) lists available sections or filters to specific ones. Tips are suppressed when sections are selected. `--count` with exactly one selected section returns a single integer.
 
 ## Preconditions
 
@@ -199,7 +199,7 @@ grep '^## '
 
 ## 7. List available sections
 
-> Goal: `-s` with no argument lists section names. No tips.
+> Goal: `-S` with no argument lists section names. No tips.
 
 ### 7a. Package
 
@@ -208,7 +208,7 @@ What sections are available for System.CommandLine?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine -s
+dotnet-inspect System.CommandLine -S
 ```
 
 ```expect
@@ -232,7 +232,7 @@ What sections are available for System.Text.Json?
 ```
 
 ```bash
-dotnet-inspect System.Text.Json -s
+dotnet-inspect System.Text.Json -S
 ```
 
 ```expect
@@ -251,7 +251,7 @@ grep 'Extension Methods'
 
 ## 8. Select a specific section
 
-> Goal: `-s [name]` shows only that section. No tips.
+> Goal: `-S [name]` shows only that section. No tips.
 
 ### 8a. Package section
 
@@ -260,7 +260,7 @@ Show me just the Package section for System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect System.CommandLine -s Package
+dotnet-inspect System.CommandLine -S Package
 ```
 
 ```expect
@@ -285,7 +285,7 @@ Show me the extension methods for System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json -s "Extension Methods"
+dotnet-inspect System.Text.Json -S "Extension Methods"
 ```
 
 ```expect
@@ -301,4 +301,30 @@ Tips:
 ```query
 grep '^## '
 grep '| Name'
+```
+
+## 9. Count a specific section
+
+> Goal: `--count` returns one integer for a single selected section. No tips.
+
+```prompt
+How many async methods are in System.Text.Json?
+```
+
+```bash
+dotnet-inspect System.Text.Json -S "Async*" --count
+```
+
+```query
+awk '/^[0-9]+$/ && $1 > 0 { print "positive" }'
+```
+
+```expect
+positive
+```
+
+```expect-not
+#
+|
+Tips:
 ```

@@ -138,6 +138,7 @@ public static class RouterOptionsParser
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
                     Effective = parseResult.GetValue(opts.Effective),
+                    Count = parseResult.GetValue(opts.Count),
                 };
                 return new RouteToAssemblyFile(assemblyOptions);
             }
@@ -205,6 +206,7 @@ public static class RouterOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
+            Count = parseResult.GetValue(opts.Count),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             ForceLatest = forceLatest || showLatestVersion
         };
@@ -252,6 +254,7 @@ public static class RouterOptionsParser
             Fields = opts.ParseFields(parseResult),
             NoHeader = parseResult.GetValue(args.NoHeaderOption),
             Effective = parseResult.GetValue(opts.Effective),
+            Count = parseResult.GetValue(opts.Count),
         };
     }
 }

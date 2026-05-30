@@ -1,7 +1,7 @@
 ---
 id: lap-around
 description: The big walkthrough — all the major commands in one doc
-commands: [type, member, library, package, find, implements, depends, extensions, diff, samples, demo]
+commands: [type, member, library, package, find, implements, depends, extensions, diff, source, demo]
 areas: [routing, resolution, output, discovery, inspection, source]
 ---
 
@@ -119,7 +119,7 @@ In modern .NET, many types in System.Collections are actually defined in System.
 The library command exposes the forwarding table:
 
 ```bash
-dotnet-inspect library System.Collections -v:d -s "Type Forwarders" -n 15
+dotnet-inspect library System.Collections -v:d -S "Type Forwarders" -n 15
 ```
 
 ```expect
@@ -183,7 +183,7 @@ Create
 ```
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -v:d -s Source
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -v:d -S Source
 ```
 
 ```expect
@@ -203,29 +203,38 @@ The four code sections for any SourceLink-enabled method:
 | **IL** | Raw IL disassembly with resolved tokens |
 | **IL (Annotated)** | IL with pre-execution stack state |
 
-## 5. Samples
+## 5. Source URLs
 
-Some packages link to code samples via XML doc metadata. This is a capability to develop more in future.
+The `source` command resolves SourceLink URLs for types and members.
 
 ```bash
-dotnet-inspect samples Newtonsoft.Json JObject --list
+dotnet-inspect source JsonSerializer --platform System.Text.Json --oneline
 ```
 
 ```expect
-Parsing a JSON Object from Text
+JsonSerializer.Helpers.cs
 ```
 
-Print them to console:
+Fetch source text when the URL is the desired artifact:
 
 ```bash
-dotnet-inspect samples Newtonsoft.Json JObject
+dotnet-inspect source JsonSerializer --platform System.Text.Json --cat -n 20
 ```
 
 ```expect
-JObject.Parse
+public static partial class JsonSerializer
 ```
 
-Note: The targeted workflow for samples covers `--file` for local files. This section exercises the remote SourceLink-based fetching with Newtonsoft.Json.
+For stack-trace style diagnostics, `source --il-offset` maps a MethodDef token plus IL offset to source.
+
+```bash
+dotnet-inspect source --platform System.Text.Json --il-offset 0x06000001+0x0 --json
+```
+
+```expect
+"token": "0x6000001"
+"line":
+```
 
 ## 6. Package anatomy
 
@@ -274,7 +283,7 @@ System.Text.Encodings.Web
 There are resources in some assemblies that can be extracted with `dotnet-inspect`:
 
 ```bash
-dotnet-inspect library --package System.Text.Json -s Resour*
+dotnet-inspect library --package System.Text.Json -S Resour*
 ```
 
 ```expect
@@ -295,7 +304,7 @@ Extracted 2 resource(s)
 Quick way to check if a pinned version has known CVEs:
 
 ```bash
-dotnet-inspect package System.Text.Json@8.0.0 -v:d -s Vulnerabilities
+dotnet-inspect package System.Text.Json@8.0.0 -v:d -S Vulnerabilities
 ```
 
 ```expect
@@ -426,7 +435,7 @@ across
 The `--json` flag turns any command into structured data for pipelines. This is the primary scripting surface.
 
 ```bash
-dotnet-inspect library Aspire.Hosting -s Ex* --json | python3 -c "
+dotnet-inspect library Aspire.Hosting -S Ex* --json | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 types = [e['extended_type'] for e in d.get('extension_methods', [])]
