@@ -252,7 +252,7 @@ public static class MemberCommand
                     effectiveOptions = effectiveOptions with { MethodSource = methodSource };
             }
 
-            if (effectiveOptions.Effective && effectiveOptions.Discover != null)
+            if (effectiveOptions.EffectiveDiscovery)
             {
                 return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
             }

@@ -289,13 +289,14 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverMethods_Works()
+    public async Task Type_SingleType_DiscoverMethods_Schema_ListsAllColumns()
     {
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Methods"]
+            Discover = ["Methods"],
+            Schema = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -304,6 +305,48 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Name", output);
         Assert.Contains("Signature", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_Discover_DefaultsToEffective_DropsEmptySections()
+    {
+        // -D with no --schema now defaults to effective discovery: it resolves the source
+        // and lists only sections that actually have data (the empty-section footgun fix).
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Methods | section |", output);
+        // JsonSerializer has no custom attributes, so effective-by-default must drop it.
+        Assert.DoesNotContain("| Custom Attributes | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverSchema_ListsAllStaticSections()
+    {
+        // --schema opts back out to the cheap, offline static schema listing, which
+        // includes sections that may have no data (e.g. Custom Attributes, Fields).
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [],
+            Schema = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.Contains("| Fields | section |", output);
     }
 
     [Fact]
@@ -421,7 +464,8 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Properties"]
+            Discover = ["Properties"],
+            Schema = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -442,7 +486,8 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Discover = ["Properties"],
-            ShowSelect = true
+            ShowSelect = true,
+            Schema = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(

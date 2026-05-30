@@ -86,7 +86,7 @@ public static class TypeCommand
                 if (pdbLookupPath != null && listOptions.ShowDocs)
                     SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, listOptions, logger);
 
-                if (options.Effective && options.Discover != null)
+                if (options.EffectiveDiscovery)
                 {
                     ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
@@ -202,7 +202,7 @@ public static class TypeCommand
                             SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
                     }
 
-                    if (effectiveOptions.Effective && effectiveOptions.Discover != null)
+                    if (effectiveOptions.EffectiveDiscovery)
                     {
                         return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
                     }

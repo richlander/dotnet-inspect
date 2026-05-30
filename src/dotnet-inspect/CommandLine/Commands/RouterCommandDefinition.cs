@@ -157,6 +157,7 @@ public static class RouterCommandDefinition
                 Columns = route.Options.Columns,
                 Fields = route.Options.Fields,
                 Effective = route.Options.Effective,
+                Schema = opts.ParseSchema(parseResult),
                 SourceOptions = route.Options.SourceOptions,
                 TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
@@ -298,6 +299,7 @@ public static class RouterCommandDefinition
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
+            Schema = opts.ParseSchema(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };

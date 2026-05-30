@@ -43,7 +43,7 @@ public class ApiCommand
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
-            Effective = options.Effective, SourceOptions = options.SourceOptions,
+            Effective = options.Effective, Schema = options.Schema, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
         })
     };
@@ -64,8 +64,9 @@ public class ApiCommand
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.AllSectionNames : typePipeline.AllSectionNames;
 
-        // Discovery mode: -D/--discover lists schema unless --effective is requested.
-        if (options.Discover != null && !options.Effective)
+        // Discovery mode: -D/--discover lists effective sections (resolves source) by
+        // default; --schema opts out to the cheap, offline static schema listing.
+        if (options.Discover != null && !options.EffectiveDiscovery)
         {
             var schema = singleTypeMode
                 ? ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema()

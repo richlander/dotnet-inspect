@@ -201,6 +201,7 @@ public static class MemberOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Effective = parseResult.GetValue(opts.Effective),
+            Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
