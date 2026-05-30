@@ -227,10 +227,11 @@ public static class AssemblyDetailScanner
             }
         }
 
-        // Extension types, P/Invoke, unsafe: iterate TypeDefs once
+        // Extension types, P/Invoke, unsafe, async: iterate TypeDefs once
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
-            if (flags.HasExtensionTypes && flags.HasPInvokeImports && flags.HasUnsafeCode)
+            if (flags.HasExtensionTypes && flags.HasPInvokeImports && flags.HasUnsafeCode
+                && flags.HasRuntimeAsync && flags.HasStateMachineAsync)
                 break;
 
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -245,12 +246,18 @@ public static class AssemblyDetailScanner
                     flags.HasExtensionTypes = true;
             }
 
-            // P/Invoke and unsafe: check methods
-            if (!flags.HasPInvokeImports || !flags.HasUnsafeCode)
+            // Async detection matches MethodClassificationScanner's public-surface filter:
+            // skip compiler-generated types (names starting with '<').
+            bool considerAsync = (!flags.HasRuntimeAsync || !flags.HasStateMachineAsync)
+                                 && !reader.GetString(typeDef.Name).StartsWith('<');
+
+            // P/Invoke, unsafe, async: check methods
+            if (!flags.HasPInvokeImports || !flags.HasUnsafeCode || considerAsync)
             {
                 foreach (var methodHandle in typeDef.GetMethods())
                 {
-                    if (flags.HasPInvokeImports && flags.HasUnsafeCode)
+                    if (flags.HasPInvokeImports && flags.HasUnsafeCode
+                        && flags.HasRuntimeAsync && flags.HasStateMachineAsync)
                         break;
 
                     var method = reader.GetMethodDefinition(methodHandle);
@@ -270,11 +277,35 @@ public static class AssemblyDetailScanner
                         // Skip methods with undecodable signatures
                         catch { }
                     }
+
+                    if (considerAsync && (!flags.HasRuntimeAsync || !flags.HasStateMachineAsync)
+                        && IsPublicNonAccessor(reader, method))
+                    {
+                        const MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000;
+                        if (!flags.HasRuntimeAsync && (method.ImplAttributes & AsyncImplFlag) != 0)
+                            flags.HasRuntimeAsync = true;
+                        else if (!flags.HasStateMachineAsync
+                            && (AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices.AsyncStateMachineAttribute")
+                                || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute")))
+                            flags.HasStateMachineAsync = true;
+                    }
                 }
             }
         }
 
         return flags;
+    }
+
+    private static bool IsPublicNonAccessor(MetadataReader reader, MethodDefinition method)
+    {
+        if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+            return false;
+
+        string name = reader.GetString(method.Name);
+        return !name.StartsWith("get_", StringComparison.Ordinal)
+            && !name.StartsWith("set_", StringComparison.Ordinal)
+            && !name.StartsWith("add_", StringComparison.Ordinal)
+            && !name.StartsWith("remove_", StringComparison.Ordinal);
     }
 }
 
@@ -289,6 +320,12 @@ public class PresenceFlags
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
+
+    /// <summary>Whether the assembly has any public runtime-async methods (impl flag 0x2000).</summary>
+    public bool HasRuntimeAsync { get; set; }
+
+    /// <summary>Whether the assembly has any public classic state-machine async methods.</summary>
+    public bool HasStateMachineAsync { get; set; }
 }
 
 

@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Services;
 
@@ -590,15 +591,22 @@ public static class PlatformResolver
             }
 
             var assemblyPath = FindAssemblyCaseInsensitive(refPath!, assemblyName);
-            if (assemblyPath == null)
-            {
-                return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
-            }
 
             // Get framework short name
-            var frameworkName = frameworkSpec.Contains('@') 
-                ? frameworkSpec[..frameworkSpec.LastIndexOf('@')] 
+            var frameworkName = frameworkSpec.Contains('@')
+                ? frameworkSpec[..frameworkSpec.LastIndexOf('@')]
                 : frameworkSpec;
+
+            if (assemblyPath == null)
+            {
+                // Runtime-only implementation assemblies (e.g. System.Private.CoreLib)
+                // live in the shared runtime but have no ref-pack counterpart.
+                var rtOnly = ResolveRuntimeAssembly(assemblyName, frameworkSpec);
+                if (rtOnly.AssemblyPath != null)
+                    return rtOnly;
+
+                return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
+            }
 
             // For unversioned specs, prefer runtime when it has an equal or newer version
             if (!frameworkSpec.Contains('@'))
@@ -647,6 +655,15 @@ public static class PlatformResolver
             }
 
             return (assemblyPath, framework.ShortName, framework.LatestVersion, null);
+        }
+
+        // Fallback: runtime-only implementation assemblies (e.g. System.Private.CoreLib)
+        // live in the shared runtime but have no ref-pack counterpart.
+        foreach (var shortName in new[] { "runtime", "aspnetcore" })
+        {
+            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            if (rt.AssemblyPath != null)
+                return rt;
         }
 
         return (null, null, null, $"Library '{assemblyName}' not found in any installed framework");
@@ -832,26 +849,15 @@ public static class PlatformResolver
         return null;
     }
 
-    private static Version ParseVersion(string versionString)
+    private static NuGetVersion ParseVersion(string versionString)
     {
-        // Handle versions like "9.0.12" and "10.0.0-preview.5.25277.114"
-        var dashIndex = versionString.IndexOf('-');
-        var cleanVersion = dashIndex > 0 ? versionString[..dashIndex] : versionString;
-        
-        // Pad to at least 3 parts
-        var parts = cleanVersion.Split('.');
-        while (parts.Length < 3)
-        {
-            cleanVersion += ".0";
-            parts = cleanVersion.Split('.');
-        }
-
-        if (Version.TryParse(cleanVersion, out var version))
-        {
-            return version;
-        }
-
-        return new Version(0, 0, 0);
+        // Use full SemVer parsing so prerelease labels are ordered correctly.
+        // Stripping the prerelease suffix would collapse builds that share a
+        // base version (e.g. "11.0.0-preview.3.x" and "11.0.0-preview.4.x")
+        // into the same value, making "latest" selection arbitrary.
+        return NuGetVersion.TryParse(versionString, out var version)
+            ? version
+            : new NuGetVersion(0, 0, 0);
     }
 
     /// <summary>

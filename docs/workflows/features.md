@@ -111,6 +111,7 @@
 | Extension Methods section | 7ee18e9 | 0.2.x | List extension methods in library |
 | Unsafe Methods section | 8ab7a7d | 0.2.x | List unsafe methods |
 | P/Invoke Methods section | 8ab7a7d | 0.2.x | List P/Invoke methods |
+| Async Methods section | — | 0.3.x | List async methods, classified as runtime (net11) or state-machine async |
 | Type Forwarders section | 881706e | 0.2.x | Show type forwarding |
 | Resources section | 881706e | 0.2.x | List embedded resources |
 | `--extract-resources` | — | 0.3.x | Extract embedded resources to directory |

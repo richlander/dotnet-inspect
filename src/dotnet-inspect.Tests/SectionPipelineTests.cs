@@ -207,7 +207,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(12, pipeline.AllSectionNames.Length);
+        Assert.Equal(13, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -443,6 +443,21 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("P/Invoke Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_AsyncMethods_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasRuntimeAsync = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Async Methods", effective);
     }
 
     [Fact]

@@ -36,6 +36,7 @@ Query .NET library APIs — the same commands work across NuGet packages, platfo
 - **"This code uses an old API — fix it"** — `diff` the old..new version, then `member` to see the new API
 - **"What extends this type?"** — `extensions` finds extension methods/properties (`--reachable` for transitive)
 - **"What implements this interface?"** — `implements` finds concrete types
+- **"Which methods are async — and runtime or state-machine?"** — `library X -S "Async*"` lists async methods, classifying each as `Runtime` (.NET 11 runtime async) or `State Machine` (classic compiler async)
 - **"What does this type depend on?"** — `depends` walks type hierarchy, package deps, or library refs
 - **"Show dependencies as a diagram"** — `depends --mermaid` for standalone mermaid, `--markdown --mermaid` for embedded
 - **"Where is the source code?"** — `source` returns SourceLink URLs; add member name for line numbers
@@ -174,6 +175,7 @@ dnx dotnet-inspect -y -- System.Text.Json -D                          # list sec
 dnx dotnet-inspect -y -- System.Text.Json -D --effective              # sections with data (dry run)
 dnx dotnet-inspect -y -- library System.Text.Json -D --tree           # full schema tree
 dnx dotnet-inspect -y -- System.Text.Json -S Symbols                  # render one section
+dnx dotnet-inspect -y -- System.Net.Security -S "Async*"             # async methods (Runtime vs State Machine)
 dnx dotnet-inspect -y -- System.Text.Json -S Symbols --fields "PDB*"  # project specific fields
 dnx dotnet-inspect -y -- type System.Text.Json --columns Kind,Type    # project specific columns
 ```

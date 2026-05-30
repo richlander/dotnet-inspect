@@ -71,6 +71,8 @@ internal static class LibraryMetadataService
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
+            inspection.HasRuntimeAsync = presenceFlags.HasRuntimeAsync;
+            inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
@@ -413,6 +415,26 @@ internal static class LibraryMetadataService
 
             inspection.UnsafeMethods = unsafe_.Count > 0 ? unsafe_ : null;
             inspection.PInvokeMethods = pinvoke.Count > 0 ? pinvoke : null;
+
+            var async = classified
+                .Where(m => m.Classification is MethodClassification.RuntimeAsync
+                                             or MethodClassification.StateMachineAsync)
+                .Select(m => new AsyncMethodSummary
+                {
+                    MethodName = m.MethodName,
+                    DeclaringType = m.DeclaringType,
+                    Signature = m.Signature,
+                    Kind = m.Classification == MethodClassification.RuntimeAsync
+                        ? "Runtime"
+                        : "State Machine"
+                })
+                // Runtime async first (sorts before "State Machine"), then by type/name.
+                .OrderBy(m => m.Kind, StringComparer.Ordinal)
+                .ThenBy(m => m.DeclaringType)
+                .ThenBy(m => m.MethodName)
+                .ToList();
+
+            inspection.AsyncMethods = async.Count > 0 ? async : null;
         }
         catch (Exception ex)
         {

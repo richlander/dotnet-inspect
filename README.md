@@ -31,7 +31,7 @@ dnx dotnet-inspect -y -- <command>
 
 ### Bare Names
 
-A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the best source. Platform libraries (`System.*`, `Microsoft.AspNetCore`) resolve to the installed SDK by default. Other names resolve to NuGet packages. Use explicit `package` or `library --package` to override.
+A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the best source. Platform libraries (`System.*`, `Microsoft.AspNetCore`) resolve to the installed SDK by default — including runtime-only implementation assemblies such as `System.Private.CoreLib` that have no NuGet package. Other names resolve to NuGet packages. Use explicit `package` or `library --package` to override.
 
 ### Common Flags
 
@@ -42,8 +42,9 @@ A bare name like `dotnet-inspect System.Text.Json` uses a router to pick the bes
 | `--platform` | Search all platform frameworks (find, extensions, implements) |
 | `--json` | JSON output |
 | `--mermaid` | Mermaid diagram output (`depends` command) |
-| `-s Name` | Include section (glob-capable: `-s Ext*`) |
-| `-x Name` | Exclude section |
+| `-D [Name]` | Discover schema — bare lists sections, `-D Section` lists its columns/fields |
+| `-s Name` / `-S Name` | Select section(s) by name (glob-capable: `-S Ext*`); bare lists sections |
+| `--columns Names` / `--fields Names` | Project specific columns/fields within a selected section |
 | `--shape` | Type shape diagram (hierarchy + members) — `type` command |
 | `--all` | Include non-public, hidden, and obsolete members |
 | `--docs` / `--no-docs` | Control XML docs — `member` has docs on by default |
@@ -98,6 +99,7 @@ dotnet-inspect library --package System.Text.Json -s         # List 13 available
 dotnet-inspect library --package System.Text.Json --source-link-audit  # SourceLink audit
 dotnet-inspect library Microsoft.Extensions.AI.OpenAI --dependencies   # Dependency tree (visual)
 dotnet-inspect library System.Text.Json --references -s Lib*           # Direct references
+dotnet-inspect library System.Net.Security -S "Async*"                 # Async methods (Runtime vs State Machine)
 dotnet-inspect library --package System.Text.Json --extract-resources resources/  # Extract resources
 ```
 
@@ -248,7 +250,7 @@ dotnet-inspect -v:q                                 # Command names only (onelin
 
 **Verbosity** (`-v`): q(uiet) → m(inimal) → n(ormal) → d(etailed). Controls which sections are included.
 
-**Sections**: Use `-s Name` to include or `-x Name` to exclude sections by name. Bare `-s` lists available sections. Supports glob patterns (`-s Ext*`).
+**Sections**: Use `-S Name` (alias `-s`) to select one or more sections by name; a bare `-S` lists available sections. Supports glob patterns (`-S Ext*`) and comma/semicolon-separated lists. Use `-D` to discover the schema (sections, then a section's columns/fields), and `--columns`/`--fields` to project specific columns or fields within a section.
 
 **JSON**: `--json` for full JSON, `--json --compact` for minified.
 

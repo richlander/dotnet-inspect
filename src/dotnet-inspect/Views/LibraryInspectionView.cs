@@ -167,6 +167,13 @@ public class LibraryInspectionView
         _data.PInvokeMethods?.Select(m => new PInvokeMethodRow(m.MethodName, m.DeclaringType, m.ModuleName ?? "", m.Signature)).ToList();
 
     [MarkoutIgnore]
+    public bool HasAsyncMethods => _data.AsyncMethods is { Count: > 0 };
+
+    [MarkoutSection(Name = "Async Methods", ShowWhenProperty = nameof(HasAsyncMethods))]
+    public List<AsyncMethodRow>? AsyncMethodsSection =>
+        _data.AsyncMethods?.Select(m => new AsyncMethodRow(m.MethodName, m.DeclaringType, m.Kind, m.Signature)).ToList();
+
+    [MarkoutIgnore]
     public bool HasResources => _data.Resources is { Count: > 0 };
 
     [MarkoutSection(Name = "Resources", ShowWhenProperty = nameof(HasResources))]
@@ -310,6 +317,13 @@ public record PInvokeMethodRow(
     string Name,
     [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
     string Module,
+    string Signature);
+
+[MarkoutSerializable]
+public record AsyncMethodRow(
+    string Name,
+    [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
+    string Kind,
     string Signature);
 
 [MarkoutSerializable]

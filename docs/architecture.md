@@ -238,6 +238,34 @@ for (int i = 0; i < ilBytes.Length - 1; i++)
 
 This approach is significantly more expensive (requires reading IL for every method) and would slow down API extraction. The current signature-based approach is a pragmatic choice that covers the most common use case: finding methods that expose pointers in their public API.
 
+### Async Method Detection
+
+The **Async Methods** section lists public async methods and classifies each as one of two kinds:
+
+- **Runtime** — runtime async ("async v2"), introduced in .NET 11. The compiler emits the
+  method with the `MethodImplAttributes.Async` flag (`0x2000`) and no state machine; the
+  runtime drives the continuation. Enabled by compiling with `<Features>runtime-async=on</Features>`
+  on `net11.0`. All .NET 11 framework assemblies are compiled this way.
+- **State Machine** — classic compiler-generated async ("async v1"). The compiler rewrites
+  the method into a state machine and marks it with `AsyncStateMachineAttribute` (or
+  `AsyncIteratorStateMachineAttribute` for `async` iterators).
+
+The two are mutually exclusive. Detection reads metadata directly — no IL scan required:
+
+```csharp
+// Runtime async: method implementation flag 0x2000
+bool isRuntimeAsync = (method.ImplAttributes & (MethodImplAttributes)0x2000) != 0;
+
+// State-machine async: AsyncStateMachineAttribute / AsyncIteratorStateMachineAttribute
+```
+
+Like the Unsafe and P/Invoke sections, detection is **public-surface only** (skips
+accessors and compiler-generated `<...>` types), so it surfaces the async API a caller sees.
+
+> Note: runtime async is a *compiler* opt-in. A method compiled with `runtime-async=on`
+> emits the `0x2000` flag regardless of body shape (loops, `try`/`catch`/`finally`,
+> `await using`, `await foreach`, `ConfigureAwait(false)` all classify as Runtime).
+
 ### SourceLink Resolution
 
 SourceLink information is embedded in PDBs (portable or embedded) as custom debug information with GUID `CC110556-A091-4D38-9FEC-25AB9A351A6A`.

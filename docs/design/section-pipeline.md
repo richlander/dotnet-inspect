@@ -100,6 +100,7 @@ Multiple sections can share a scanner key. For example:
 | ------- | ----------- |
 | Unsafe Methods | `ClassifiedMethods` |
 | P/Invoke Methods | `ClassifiedMethods` |
+| Async Methods | `ClassifiedMethods` |
 
 The `ClassifiedMethods` scanner runs once and populates both lists. `GetRequiredScanners` deduplicates keys, so requesting both sections does not scan twice.
 
@@ -107,7 +108,7 @@ Sections with a `null` scanner key have their data collected unconditionally as 
 
 ## Library Sections
 
-The library command currently has 14 registered sections:
+The library command currently has 15 registered sections:
 
 | Section | MinVerbosity | Scanner Key |
 | ------- | ------------ | ----------- |
@@ -120,6 +121,7 @@ The library command currently has 14 registered sections:
 | Extension Methods | Detailed | `ExtensionMethods` |
 | Unsafe Methods | Detailed | `ClassifiedMethods` |
 | P/Invoke Methods | Detailed | `ClassifiedMethods` |
+| Async Methods | Detailed | `ClassifiedMethods` |
 | Resources | Detailed | `Resources` |
 | Custom Attributes | Detailed | `CustomAttributes` |
 | Type Forwarders | Detailed | `TypeForwarders` |
