@@ -145,6 +145,30 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void ResolveAssembly_RuntimeOnlyImplementationAssembly_ResolvesFromSharedRuntime()
+    {
+        // Runtime-only implementation assemblies (e.g. System.Private.CoreLib) exist
+        // in the shared runtime but have no ref-pack counterpart. They must still
+        // resolve (as Platform) rather than falling through to a NuGet lookup.
+        if (PlatformResolver.GetSharedDirectory() is not { } sharedDir
+            || !Directory.Exists(Path.Combine(sharedDir, "Microsoft.NETCore.App")))
+        {
+            Assert.Skip("No shared Microsoft.NETCore.App runtime installed.");
+            return;
+        }
+
+        var (assemblyPath, framework, version, error) =
+            PlatformResolver.ResolveAssembly("System.Private.CoreLib");
+
+        Assert.Null(error);
+        Assert.NotNull(assemblyPath);
+        Assert.EndsWith("System.Private.CoreLib.dll", assemblyPath);
+        Assert.Contains(Path.Combine("shared", "Microsoft.NETCore.App"), assemblyPath);
+        Assert.Equal("runtime", framework);
+        Assert.NotNull(version);
+    }
+
+    [Fact]
     public void ResolveFramework_UnknownFramework_ReturnsError()
     {
         var (refPath, version, error) = PlatformResolver.ResolveFramework("unknownframework");

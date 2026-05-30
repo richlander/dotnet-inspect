@@ -591,15 +591,22 @@ public static class PlatformResolver
             }
 
             var assemblyPath = FindAssemblyCaseInsensitive(refPath!, assemblyName);
-            if (assemblyPath == null)
-            {
-                return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
-            }
 
             // Get framework short name
-            var frameworkName = frameworkSpec.Contains('@') 
-                ? frameworkSpec[..frameworkSpec.LastIndexOf('@')] 
+            var frameworkName = frameworkSpec.Contains('@')
+                ? frameworkSpec[..frameworkSpec.LastIndexOf('@')]
                 : frameworkSpec;
+
+            if (assemblyPath == null)
+            {
+                // Runtime-only implementation assemblies (e.g. System.Private.CoreLib)
+                // live in the shared runtime but have no ref-pack counterpart.
+                var rtOnly = ResolveRuntimeAssembly(assemblyName, frameworkSpec);
+                if (rtOnly.AssemblyPath != null)
+                    return rtOnly;
+
+                return (null, null, null, $"Library '{assemblyName}' not found in {frameworkSpec}");
+            }
 
             // For unversioned specs, prefer runtime when it has an equal or newer version
             if (!frameworkSpec.Contains('@'))
@@ -648,6 +655,15 @@ public static class PlatformResolver
             }
 
             return (assemblyPath, framework.ShortName, framework.LatestVersion, null);
+        }
+
+        // Fallback: runtime-only implementation assemblies (e.g. System.Private.CoreLib)
+        // live in the shared runtime but have no ref-pack counterpart.
+        foreach (var shortName in new[] { "runtime", "aspnetcore" })
+        {
+            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            if (rt.AssemblyPath != null)
+                return rt;
         }
 
         return (null, null, null, $"Library '{assemblyName}' not found in any installed framework");
