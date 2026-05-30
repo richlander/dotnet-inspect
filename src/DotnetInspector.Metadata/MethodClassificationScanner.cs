@@ -21,7 +21,19 @@ public record ClassifiedMethodInfo(
 public enum MethodClassification
 {
     Unsafe,
-    PInvoke
+    PInvoke,
+
+    /// <summary>
+    /// Runtime async method (.NET 11+): MethodImplAttributes.Async (0x2000) flag set,
+    /// suspension handled by the runtime with no compiler-generated state machine.
+    /// </summary>
+    RuntimeAsync,
+
+    /// <summary>
+    /// Classic compiler state-machine async method: carries
+    /// AsyncStateMachineAttribute or AsyncIteratorStateMachineAttribute.
+    /// </summary>
+    StateMachineAsync
 }
 
 /// <summary>
@@ -88,6 +100,15 @@ public static class MethodClassificationScanner
                     continue; // P/Invoke methods are also "unsafe" but classify as P/Invoke
                 }
 
+                // Check async (runtime async vs classic state-machine async)
+                var asyncClassification = ClassifyAsync(reader, method);
+                if (asyncClassification is { } asyncKind)
+                {
+                    var signature = FormatSignature(reader, typeDef, method);
+                    results.Add(new ClassifiedMethodInfo(
+                        methodName, fullTypeName, ns, signature, asyncKind));
+                }
+
                 // Check unsafe (pointer types in signature)
                 try
                 {
@@ -109,6 +130,26 @@ public static class MethodClassificationScanner
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Classifies a method as runtime async or classic state-machine async, or null
+    /// if it is not an async method. Runtime async (.NET 11+) is identified by the
+    /// MethodImplAttributes.Async (0x2000) flag; classic async by the compiler-emitted
+    /// AsyncStateMachineAttribute / AsyncIteratorStateMachineAttribute.
+    /// </summary>
+    private static MethodClassification? ClassifyAsync(MetadataReader reader, MethodDefinition method)
+    {
+        const MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000;
+        if ((method.ImplAttributes & AsyncImplFlag) != 0)
+            return MethodClassification.RuntimeAsync;
+
+        var attributes = method.GetCustomAttributes();
+        if (AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.AsyncStateMachineAttribute")
+            || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"))
+            return MethodClassification.StateMachineAsync;
+
+        return null;
     }
 
     private static bool HasPointerType(MethodSignature<string> signature)

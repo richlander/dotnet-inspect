@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Runtime async (compiler "async v2") is only valid on net11.0. Enable it there.
+       This lives in Directory.Build.targets (not .props) because TargetFramework is
+       not yet set when .props files are imported, so a net11.0 condition would never
+       match there. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <Features>$(Features);runtime-async=on</Features>
+  </PropertyGroup>
+
+</Project>

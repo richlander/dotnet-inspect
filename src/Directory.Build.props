@@ -1,5 +1,10 @@
 <Project>
 
+  <!-- NOTE: The root Directory.Build.targets supplies <Features>runtime-async=on</Features>
+       for net11.0 builds. This src tree has no Directory.Build.targets, so the root one is
+       picked up. If a Directory.Build.targets is ever added under src/, it MUST import the
+       root targets, or runtime async will be silently disabled for net11.0 src builds. -->
+
   <PropertyGroup>
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net10.0</DefaultTargetFramework>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

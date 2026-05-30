@@ -161,6 +161,12 @@ public class LibraryInspection
     public List<ClassifiedMethodSummary>? PInvokeMethods { get; set; }
 
     /// <summary>
+    /// Public async methods, classified as runtime async or classic state-machine async.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AsyncMethodSummary>? AsyncMethods { get; set; }
+
+    /// <summary>
     /// Manifest resources embedded in this assembly.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -198,6 +204,14 @@ public class LibraryInspection
     /// <summary>Whether the assembly contains any methods with unsafe (pointer) signatures.</summary>
     [JsonIgnore]
     public bool HasUnsafeCode { get; set; }
+
+    /// <summary>Whether the assembly contains any public runtime-async methods (impl flag 0x2000).</summary>
+    [JsonIgnore]
+    public bool HasRuntimeAsync { get; set; }
+
+    /// <summary>Whether the assembly contains any public classic state-machine async methods.</summary>
+    [JsonIgnore]
+    public bool HasStateMachineAsync { get; set; }
 
     /// <summary>Whether the assembly has manifest resources.</summary>
     [JsonIgnore]
@@ -240,6 +254,20 @@ public record class ClassifiedMethodSummary
     public string Signature { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ModuleName { get; init; }
+}
+
+/// <summary>
+/// Summary of an async method, including whether it is runtime async or classic
+/// state-machine async.
+/// </summary>
+public record class AsyncMethodSummary
+{
+    public string MethodName { get; init; } = "";
+    public string DeclaringType { get; init; } = "";
+    public string Signature { get; init; } = "";
+
+    /// <summary>"Runtime" for runtime async, "State Machine" for classic compiler async.</summary>
+    public string Kind { get; init; } = "";
 }
 
 /// <summary>

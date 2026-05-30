@@ -31,6 +31,7 @@ public static class LibrarySections
             .Add<ExtensionMethods>()
             .Add<UnsafeMethods>()
             .Add<PInvokeMethods>()
+            .Add<AsyncMethods>()
             .Add<Resources>()
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
@@ -130,6 +131,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
             => model.PInvokeMethods is { Count: > 0 } || model.HasPInvokeImports;
+    }
+
+    public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Async Methods";
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => ScannerClassifiedMethods;
+        public static bool CanRender(LibraryInspection model)
+            => model.AsyncMethods is { Count: > 0 }
+               || model.HasRuntimeAsync || model.HasStateMachineAsync;
     }
 
     public sealed class Resources : ISectionDescriptor<LibraryInspection>
