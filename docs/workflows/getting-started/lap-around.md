@@ -167,7 +167,7 @@ dotnet-inspect member Markout MarkoutWriter -v:q
 ```expect
 # Markout.MarkoutWriter
 Kind: class
-Methods: 35
+Methods: 36
 ```
 
 For code, use `--show-index` to see addressing hints, then drill into a specific overload:
@@ -308,7 +308,7 @@ dotnet-inspect package System.Text.Json@8.0.0 -v:d -S Vulnerabilities
 ```
 
 ```expect
-Vulnerabilities: 2
+## Vulnerabilities
 CVE-2024-30105
 CVE-2024-43485
 ```
@@ -406,7 +406,7 @@ IDistributedApplicationBuilder
 ### Package search
 
 ```bash
-dotnet-inspect package search 'Azure.AI' -n 5
+dotnet-inspect package search 'Azure.AI' --take 5
 ```
 
 ```expect

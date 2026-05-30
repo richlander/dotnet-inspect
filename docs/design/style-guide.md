@@ -72,10 +72,10 @@ Fields describe "what this thing is"; tables list "what this thing contains".
 
 Fields always appear in a consistent order. Empty/null fields are omitted.
 
-The `**Samples:**` field is a count indicator. To view full sample details including URLs and region hints, use the `samples` command:
+The `**Samples:**` field is a count indicator. To view sample details including URLs and descriptions, use the `source` command at detailed verbosity and select the Samples section:
 
 ```bash
-dotnet-inspect samples TreeNode --package Markout
+dotnet-inspect source TreeNode --package Markout -v:d -S Samples --tips q
 ```
 
 ### 4. H2 Sections
