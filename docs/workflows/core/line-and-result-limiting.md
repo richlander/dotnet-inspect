@@ -43,7 +43,7 @@ dotnet-inspect System.Text.Json -n 4
 
 ```expect
 # System.Text.Json.dll
-Name: System.Text.Json
+## Library Info
 ```
 
 ```query
@@ -92,12 +92,13 @@ Show me just 3 types from System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -t 3 -v:q
+dotnet-inspect type System.Text.Json -t 3 --tips q
 ```
 
 ```expect
-Types: 80
-and 77 more types
+Types:
+JsonNamingPolicy
+JsonCommentHandling
 ```
 
 ```expect-not
@@ -111,15 +112,16 @@ Tips:
 ### 3a. Using `type -t pattern`
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" -v:q
+dotnet-inspect type System.Text.Json -t "Json*" --tips q
 ```
 
 ```expect
 # System.Text.Json
+JsonSerializer
 ```
 
 ```expect-not
-and 77 more types
+SortedSet
 Tips:
 ```
 
@@ -130,15 +132,20 @@ Tips:
 ### 4a. Using `find -t N`
 
 ```bash
-dotnet-inspect find "Chat*" -t 3 -v:q
+dotnet-inspect find "Json*" -t 3 -v:q
 ```
 
 ```expect
-Showing: 3
+# Find: Json*
+JsonContent
 ```
 
 ```query
-grep -c '|' | head -1
+grep -c '^| Json'
+```
+
+```expect
+3
 ```
 
 ```expect-not
@@ -157,7 +164,8 @@ dotnet-inspect member System.Text.Json JsonSerializer -m 3
 
 ```expect
 # System.Text.Json.JsonSerializer
-more members
+IsReflectionEnabledByDefault
+Deserialize
 ```
 
 ```expect-not
@@ -171,7 +179,7 @@ Tips:
 ### 6a. Using positional member name
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize --tips q
 ```
 
 ```expect
@@ -180,7 +188,7 @@ Deserialize
 ```
 
 ```expect-not
-Serialize
+| Serialize |
 Tips:
 ```
 
@@ -195,9 +203,9 @@ dotnet-inspect System.CommandLine --versions 3
 ```
 
 ```expect
-2.0.3
-2.0.2
-2.0.1
+2.0.8
+2.0.7
+2.0.6
 ```
 
 ```query

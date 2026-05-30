@@ -109,9 +109,6 @@ dotnet-inspect library --package System.Collections -S
 ```expect
 Library Info
 Custom Attributes
-```
-
-```expect-not
 Resources
 Type Forwarders
 ```
@@ -144,7 +141,7 @@ dotnet-inspect library --package System.Collections -S "Library Info"
 
 ```expect
 ## Library Info
-| Property | Value |
+| Field | Value |
 ```
 
 ```expect-not
@@ -182,7 +179,6 @@ dotnet-inspect member JsonSerializer --platform System.Text.Json -D Methods
 ```
 
 ```expect
-Methods
 Name
 Signature
 ```
@@ -192,6 +188,5 @@ dotnet-inspect member JsonSerializer --platform System.Text.Json -D Methods --sc
 ```
 
 ```expect
-Methods
 Obsolete
 ```
