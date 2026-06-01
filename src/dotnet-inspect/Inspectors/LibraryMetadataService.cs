@@ -57,6 +57,9 @@ internal static class LibraryMetadataService
                 return nativeAudit;
             }
 
+            var needsAuditSignals = options.Audit
+                || scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+
             var inspection = new LibraryInspection
             {
                 FileName = Path.GetFileName(path),
@@ -64,7 +67,7 @@ internal static class LibraryMetadataService
                 UseDependenciesView = options.IncludeDependencies
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
 
             // Populate cheap presence flags for fast -s discovery
             var presenceFlags = pdbContext.ScanPresenceFlags();
@@ -123,9 +126,19 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            // Skip PDB download for quiet/minimal verbosity (no SourceLink info displayed)
-            bool skipPdbDownload = options.Verbosity < Options.Verbosity.Detailed;
+            // Detailed views keep their historical PDB enrichment; audit uses explicit --symbols/--source opt-ins.
+            bool skipPdbDownload = !options.SourceLinkAudit && !options.AllowSymbolDownloads && options.Verbosity < Options.Verbosity.Detailed;
             await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, skipPdbDownload: skipPdbDownload);
+
+            if (needsAuditSignals)
+                AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+
+            if (options.SourceLinkAudit && service.HasSourceLink && pdbContext.HasPdb)
+            {
+                await SourceAuditService.PopulateAsync(service, inspection, httpClient, logger);
+                if (needsAuditSignals)
+                    AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+            }
 
             return inspection;
         }
@@ -189,19 +202,31 @@ internal static class LibraryMetadataService
         }
 
         // Determine reason for missing SourceLink
-        if (!inspection.HasSourceLink)
+        if (inspection.HasSourceLink)
+        {
+            inspection.SourceLinkUnavailableReason = null;
+        }
+        else
         {
             if (inspection.WindowsPdbDetected)
             {
                 inspection.SourceLinkUnavailableReason = "Windows PDB";
             }
-            else if (inspection.PdbLocation == null && inspection.PdbPath != null)
+            else if (!pdbContext.HasPdb && skipPdbDownload && inspection.PdbPath != null)
+            {
+                inspection.SourceLinkUnavailableReason = "PDB not checked";
+            }
+            else if (!pdbContext.HasPdb && inspection.PdbPath != null)
+            {
+                inspection.SourceLinkUnavailableReason = "external PDB not found";
+            }
+            else if (!pdbContext.HasPdb)
             {
                 inspection.SourceLinkUnavailableReason = "no symbols";
             }
-            else if (!inspection.HasEmbeddedPdb && inspection.PdbPath != null)
+            else
             {
-                inspection.SourceLinkUnavailableReason = "external PDB not found";
+                inspection.SourceLinkUnavailableReason = "PDB checked; no SourceLink data";
             }
         }
 

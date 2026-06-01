@@ -23,9 +23,10 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
-        string? nupkgPath = null)
+        string? nupkgPath = null,
+        bool fetchMetadata = false)
     {
-        bool fetchMetadata = !isLocalFile && verbosity >= Verbosity.Detailed;
+        fetchMetadata = !isLocalFile && (fetchMetadata || verbosity >= Verbosity.Detailed);
 
         // Try package index cache (skips all filesystem scanning)
         if (!isLocalFile)

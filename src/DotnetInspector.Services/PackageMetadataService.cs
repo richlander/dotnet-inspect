@@ -6,7 +6,7 @@ namespace DotnetInspector.Services;
 
 /// <summary>
 /// Fetches NuGet metadata: publish date, downloads, deprecation, vulnerabilities, and package size.
-/// Results are cached on disk with a 1-hour TTL for the default (bare name) case.
+/// Results are cached on disk with a 1-hour TTL.
 /// </summary>
 public static class PackageMetadataService
 {
@@ -15,9 +15,18 @@ public static class PackageMetadataService
     /// </summary>
     public static async Task<DateTimeOffset?> GetPublishedDateAsync(HttpClient client, string packageName, string version, Action<string>? log)
     {
+        var normalizedName = packageName.ToLowerInvariant();
+        var cacheKey = $"{normalizedName}@{version}";
+        var cached = MetadataFieldCache.TryGet(cacheKey);
+        if (cached != null)
+        {
+            log?.Invoke("Using cached publish date metadata");
+            return cached.Published;
+        }
+
         try
         {
-            string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{packageName.ToLowerInvariant()}/{version}.json";
+            string registrationUrl = $"https://api.nuget.org/v3/registration5-semver1/{normalizedName}/{version}.json";
             log?.Invoke($"Fetching package metadata from: {registrationUrl}");
 
             string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, registrationUrl).ConfigureAwait(false);
@@ -30,6 +39,7 @@ public static class PackageMetadataService
                 if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
                 {
                     log?.Invoke($"Package published: {published:yyyy-MM-dd}");
+                    MetadataFieldCache.Set(cacheKey, new PackageMetadata { Published = published });
                     return published;
                 }
             }

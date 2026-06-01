@@ -56,7 +56,6 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--readme` | README content | Raw readme text from the package |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
-| `--audit` | Build provenance | SourceLink, determinism, signatures |
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
@@ -107,9 +106,10 @@ When a lens has multiple possible rendering modes, the default should be the mos
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
-| `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--library`, `--audit` |
+| `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--library` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--oneline` |
-| `library` | Library info, PE headers | `--audit`, `--sourcelink`, `--references` |
+| `library` | Library info, PE headers | `--sourcelink`, `--references` |
+| `audit` | Package/library audit signals | `-v:d`, `--full`, `--symbols`, `--source-audit`, `--nuget` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
 | `diff` | Change summary | `--oneline`, `--name-only` |

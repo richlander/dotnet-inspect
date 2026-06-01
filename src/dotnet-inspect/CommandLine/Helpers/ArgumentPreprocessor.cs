@@ -22,7 +22,7 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "package", "library", "api", "type", "member", "diff", "find", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "completion", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "audit", "package", "library", "api", "type", "member", "diff", "find", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "completion", "demo", "perf", "perf-test", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>

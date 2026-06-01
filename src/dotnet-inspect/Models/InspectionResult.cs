@@ -152,6 +152,11 @@ public class InspectionResult
     public SignatureVerificationResult? SignatureResult { get; set; }
 
     /// <summary>
+    /// Metadata and registry audit signals. These are observations, not a trust verdict.
+    /// </summary>
+    public List<AuditSignal>? AuditSignals { get; set; }
+
+    /// <summary>
     /// Whether the package has a valid signature (author or repository).
     /// </summary>
     [JsonIgnore]

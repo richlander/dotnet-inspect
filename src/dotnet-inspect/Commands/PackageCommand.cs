@@ -49,6 +49,9 @@ public class PackageCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
+        if (options.Audit)
+            options = options with { IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { PackageSections.Audit } };
+
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
 
@@ -252,14 +255,15 @@ public class PackageCommand
                 extractPath, packageName, version, isLocalFile,
                 isLocalFile ? packageArgs[0] : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
-                resolution.NupkgPath);
+                resolution.NupkgPath,
+                fetchMetadata: options.NuGetAudit);
 
             // Apply package size (not cached in index — comes from nupkg file)
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
             // Verify package signature if nupkg is available
-            if (resolution.NupkgPath != null && options.Verbosity >= Verbosity.Normal)
+            if (resolution.NupkgPath != null && (options.Verbosity >= Verbosity.Normal || options.Audit))
             {
                 logger.Log($"Verifying package signature: {Path.GetFileName(resolution.NupkgPath)}");
                 result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
@@ -269,6 +273,9 @@ public class PackageCommand
 
             // Filter output based on options
             FilterResultForOutput(result, options);
+
+            if (options.Audit)
+                await AuditSignalBuilder.PopulatePackageAuditAsync(result, options.NuGetAudit, client, logger);
 
             // Output results
             if (effectiveDiscovery)

@@ -17,7 +17,8 @@ public static class LibrarySections
     public const string ScannerResources = "Resources";
     public const string ScannerCustomAttributes = "CustomAttributes";
     public const string ScannerTypeForwarders = "TypeForwarders";
-    public const string ScannerAudit = "Audit";
+    public const string ScannerSymbols = "Symbols";
+    public const string ScannerAuditSignals = "AuditSignals";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -25,6 +26,9 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
             .Add<Symbols>()
+            .Add<Audit>()
+            .Add<SourceLinkAudit>()
+            .Add<MissingSourceFiles>()
             .Add<LibraryReferences>()
             .Add<LibraryReferencesTransitive>()
             .Add<Dependencies>()
@@ -51,7 +55,9 @@ public static class LibrarySections
             .Add(ScannerCustomAttributes, ctx =>
                 LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
-                LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerAuditSignals, ctx =>
+                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Primary section =====
@@ -70,11 +76,38 @@ public static class LibrarySections
     {
         public static string Name => "Symbols";
         public static bool IsExpensive => true;
-        public static string? ScannerKey => ScannerAudit;
+        public static string? ScannerKey => ScannerSymbols;
         public static bool CanRender(LibraryInspection model) => true;
     }
 
     // ===== Normal sections (offline, cheap) =====
+
+    public sealed class Audit : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Audit";
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => ScannerAuditSignals;
+        public static bool CanRender(LibraryInspection model)
+            => model.AuditSignals is { Count: > 0 };
+    }
+
+    public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "SourceLink Audit";
+        public static bool IsExpensive => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
+    }
+
+    public sealed class MissingSourceFiles : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Missing Source Files";
+        public static bool IsExpensive => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => model.MissingSourceFiles is { Count: > 0 };
+    }
 
     public sealed class LibraryReferences : ISectionDescriptor<LibraryInspection>
     {

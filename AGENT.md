@@ -38,6 +38,17 @@ dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
 
 Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
 
+## Output Verbosity Contract
+
+Commands that render sections should follow this verbosity model:
+
+- `-v:q`: compact fields only; include high-value fields only.
+- `-v:m`: one section only, plus an optional text line; include the high-value section only. The section must include all high-value fields and may include other fields.
+- `-v:n`: multiple sections are allowed; include all sections that are not network-bound.
+- `-v:d`: include all sections.
+
+New sections must not appear in the default `-v:m` view unless they are the command's single high-value section. Focused flags such as `--audit` may explicitly select their section and promote verbosity as needed.
+
 ## Git Commits
 
 Never amend commits. Always create new commits instead of using `git commit --amend`.

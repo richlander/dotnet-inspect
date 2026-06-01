@@ -16,6 +16,7 @@ public static class PackageSectionDescriptors
         return new SectionPipeline<InspectionResult>()
             .Add<Summary>()
             .Add<PackageInfo>()
+            .Add<Audit>()
             .Add<Statistics>()
             .Add<Signing>()
             .Add<PackageDependencies>()
@@ -41,6 +42,15 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
+    }
+
+    public sealed class Audit : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.Audit;
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.AuditSignals is { Count: > 0 };
     }
 
     // ===== Expensive sections (require network) =====

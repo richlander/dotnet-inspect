@@ -140,6 +140,18 @@ public static class PlatformResolver
             yield return Path.Combine(dotnetRoot, "shared");
         }
 
+        var currentRuntimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
+        var currentFrameworkDirectory = string.IsNullOrEmpty(currentRuntimeDirectory)
+            ? null
+            : Path.GetDirectoryName(currentRuntimeDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (currentFrameworkDirectory != null &&
+            Path.GetFileName(currentFrameworkDirectory).Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase))
+        {
+            var currentSharedDirectory = Path.GetDirectoryName(currentFrameworkDirectory);
+            if (!string.IsNullOrEmpty(currentSharedDirectory))
+                yield return currentSharedDirectory;
+        }
+
         // Check /etc/dotnet/install_location on non-Windows (distro-configured path)
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -515,10 +527,11 @@ public static class PlatformResolver
         HttpClient httpClient,
         Action<string>? log = null,
         string? frameworkSpec = null,
-        bool useRuntimeAssemblies = false)
+        bool useRuntimeAssemblies = false,
+        string? platformVersion = null)
     {
         // Try resolving from already-installed packs first (SDK + app cache, no network)
-        var local = ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies);
+        var local = ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies, platformVersion: platformVersion);
         if (local.AssemblyPath != null)
         {
             log?.Invoke($"Resolved from installed packs: {local.Framework} {local.Version}");
@@ -540,7 +553,7 @@ public static class PlatformResolver
             {
             }
 
-            return ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies);
+            return ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies, platformVersion: platformVersion);
         }
 
         return local;
@@ -551,14 +564,16 @@ public static class PlatformResolver
     /// Callers must ensure ref packs are already downloaded, or use <see cref="ResolveAssemblyAsync"/>.
     /// </summary>
     /// <param name="assemblyName">The assembly name (with or without .dll extension)</param>
-    /// <param name="frameworkSpec">Optional framework specifier (e.g., "runtime", "runtime@9.0.12")</param>
+    /// <param name="frameworkSpec">Optional framework family specifier (e.g., "runtime", "aspnetcore")</param>
     /// <param name="packsDirectory">Optional override for packs directory</param>
     /// <param name="useRuntimeAssemblies">If true, resolve to runtime assemblies (with PDBs) instead of ref assemblies</param>
+    /// <param name="platformVersion">Optional shared runtime version. With runtime assemblies and no framework, searches runtime then aspnetcore.</param>
     public static (string? AssemblyPath, string? Framework, string? Version, string? Error) ResolveAssembly(
         string assemblyName,
         string? frameworkSpec = null,
         string? packsDirectory = null,
-        bool useRuntimeAssemblies = false)
+        bool useRuntimeAssemblies = false,
+        string? platformVersion = null)
     {
         // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
         // and provide a helpful error message
@@ -566,7 +581,7 @@ public static class PlatformResolver
             .FirstOrDefault(kv => string.Equals(kv.Value, assemblyName, StringComparison.OrdinalIgnoreCase));
         if (frameworkMatch.Key != null)
         {
-            return (null, null, null, $"'{assemblyName}' is a framework, not a library. Use '--framework {frameworkMatch.Key}' to select the framework, or 'find <pattern> --platform' to search across all platform libraries.");
+            return (null, null, null, $"'{assemblyName}' is a framework, not a library. Use '--framework {frameworkMatch.Key}' only to restrict a library lookup to that framework family, or 'find <pattern> --platform' to search across platform libraries.");
         }
 
         // Ensure .dll extension
@@ -578,7 +593,7 @@ public static class PlatformResolver
         // For runtime assemblies, use the shared directory
         if (useRuntimeAssemblies)
         {
-            return ResolveRuntimeAssembly(assemblyName, frameworkSpec);
+            return ResolveRuntimeAssembly(assemblyName, frameworkSpec, platformVersion);
         }
 
         // If framework specified, search only that framework (across all packs dirs)
@@ -675,8 +690,12 @@ public static class PlatformResolver
     /// </summary>
     private static (string? AssemblyPath, string? Framework, string? Version, string? Error) ResolveRuntimeAssembly(
         string assemblyName,
-        string? frameworkSpec)
+        string? frameworkSpec,
+        string? platformVersion = null)
     {
+        if (string.IsNullOrEmpty(frameworkSpec) && !string.IsNullOrEmpty(platformVersion))
+            return ResolveRuntimeAssemblyAcrossFrameworks(assemblyName, platformVersion);
+
         var sharedDir = GetSharedDirectory();
         if (sharedDir == null)
         {
@@ -699,6 +718,13 @@ public static class PlatformResolver
             {
                 frameworkName = frameworkSpec;
             }
+        }
+
+        if (!string.IsNullOrEmpty(platformVersion))
+        {
+            if (requestedVersion != null && !requestedVersion.Equals(platformVersion, StringComparison.OrdinalIgnoreCase))
+                return (null, null, null, "Specify the platform version either with --version or as --framework name@version, not both.");
+            requestedVersion ??= platformVersion;
         }
 
         // Map short name to shared directory name
@@ -755,6 +781,24 @@ public static class PlatformResolver
         }
 
         return (assemblyPath, frameworkName, version, null);
+    }
+
+    private static (string? AssemblyPath, string? Framework, string? Version, string? Error) ResolveRuntimeAssemblyAcrossFrameworks(
+        string assemblyName,
+        string platformVersion)
+    {
+        List<string> errors = [];
+        foreach (var frameworkName in new[] { "runtime", "aspnetcore" })
+        {
+            var result = ResolveRuntimeAssembly(assemblyName, frameworkName, platformVersion);
+            if (result.AssemblyPath != null)
+                return result;
+            if (!string.IsNullOrWhiteSpace(result.Error))
+                errors.Add(result.Error);
+        }
+
+        return (null, null, null,
+            $"Library '{assemblyName}' not found in installed runtime frameworks for version '{platformVersion}'. Checked runtime, aspnetcore.");
     }
 
     /// <summary>

@@ -56,6 +56,9 @@ public class AssemblyCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
+        if (options.Audit && options.IncludeSections is not { Count: > 0 })
+            options = options with { IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Audit" } };
+
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
 
@@ -119,7 +122,9 @@ public class AssemblyCommand
                     options.PlatformAssembly,
                     context.HttpClient,
                     logger.Log,
-                    options.PlatformFramework);
+                    options.PlatformFramework,
+                    useRuntimeAssemblies: true,
+                    platformVersion: options.PlatformVersion);
 
                 if (error != null)
                 {

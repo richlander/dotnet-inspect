@@ -76,6 +76,9 @@ public static class CommandLineBuilder
         // Assembly command
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateAssemblyCommand(opts));
 
+        // Audit command
+        rootCommand.Subcommands.Add(AuditCommandDefinitions.CreateAuditCommand(opts));
+
         // Cache command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCacheCommand(opts));
 

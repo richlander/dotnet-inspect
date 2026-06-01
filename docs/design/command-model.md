@@ -14,40 +14,38 @@ dotnet-inspect works with .NET libraries. There are three ways to specify where 
 | `platform X` | Local SDK/runtime | `platform System.Text.Json` |
 | `library ./path` | Local file | `library ./bin/MyLib.dll` |
 
-These commands accept the same inspection flags (`--audit`, `--sourcelink`, `--api`, etc.) because they all ultimately inspect libraries.
+These commands expose library/package inspection views. Use the top-level `audit` command when the goal is provenance, compatibility, or supply-chain signal reporting.
 
-### Inspection Flags
+### Inspection commands
 
-Once you've specified a source, flags control what information to show:
+Use inspection commands for detailed exploration:
 
-| Flag | Shows |
-| ------ | ------- |
-| `--library` | Library metadata (version, TFM, architecture) |
-| `--sourcelink` | SourceLink presence and URL (fast, no verification) |
-| `--audit` | Full provenance verification (SourceLink reachability, determinism) |
-| `--api` | Public API surface |
+| Command | Shows |
+| ------- | ----- |
+| `package` | Package metadata, versions, dependencies, files, TFMs. |
+| `library` | Library metadata, symbols, SourceLink, references, resources. |
+| `type`/`member` | API shape, docs, source, decompiled C#, and IL. |
+| `audit` | Package/library audit signals. |
 
 ### The `audit` Command
 
-`audit` is an opinionated command for provenance verification. It:
+`audit` is an opinionated command for signal reporting. It:
 
 - Auto-detects input type (package name, file path, nupkg, directory)
-- Always runs strict verification (no flags needed)
-- Uses verbosity as the sole control mechanism
+- Reports metadata-only signals by default
+- Uses `--full`/`--all` for broad opt-in enrichment and `-v:d` for detailed expensive sections
 
 ```bash
-dotnet inspect audit Markout@0.1.4           # package
-dotnet inspect audit ./bin/MyLib.dll         # file
-dotnet inspect audit ./artifacts/*.nupkg     # nupkg files
+dotnet inspect audit Markout@0.1.4           # package metadata signals
+dotnet inspect audit System.Text.Json        # platform library metadata signals
+dotnet inspect audit ./bin/MyLib.dll         # local file metadata signals
+dotnet inspect audit System.Text.Json --full
+dotnet inspect audit System.Text.Json --all
+dotnet inspect audit System.Text.Json -v:d
+dotnet inspect audit package Markout --full
 ```
 
-| Verbosity | Output |
-| ----------- | -------- |
-| `-v:q` | One-line pass/fail for each check |
-| `-v:n` | Audit table with source coverage summary |
-| `-v:d` | Full details including missing source files |
-
-`audit` returns non-zero exit code if any check fails, making it suitable for CI gates.
+`--full` (alias: `--all`) enables broad target-appropriate audit scope. For libraries, that means symbol/PDB acquisition. For packages, it means NuGet registry signals. `-v:d` adds detailed audit sections; for libraries that includes SourceLink Audit, which verifies every tracked source URL and may be expensive for large assemblies. `--source-audit` (alias: `--source`), `--symbols`, and `--nuget` remain available for narrower control.
 
 ## Command Patterns
 
@@ -58,7 +56,7 @@ Start with a package, drill down into details:
 ```bash
 dotnet inspect package Newtonsoft.Json           # metadata
 dotnet inspect package Newtonsoft.Json --library # library info
-dotnet inspect package Newtonsoft.Json --audit    # provenance check
+dotnet inspect audit package Newtonsoft.Json     # audit signals
 dotnet inspect package Newtonsoft.Json --api      # public API
 ```
 
@@ -69,7 +67,7 @@ Inspect libraries from the local .NET SDK/runtime:
 ```bash
 dotnet inspect platform                          # list frameworks
 dotnet inspect platform System.Text.Json         # inspect library
-dotnet inspect platform System.Text.Json --audit # provenance check
+dotnet inspect audit System.Text.Json            # platform audit signals
 ```
 
 ### File-centric workflow
@@ -78,7 +76,7 @@ Inspect local library files:
 
 ```bash
 dotnet inspect library ./bin/MyLib.dll          # basic info
-dotnet inspect library ./bin/MyLib.dll --audit  # provenance check
+dotnet inspect audit ./bin/MyLib.dll            # audit signals
 ```
 
 ### Quick audit workflow
@@ -100,9 +98,9 @@ Some commands are aliases or have equivalent forms:
 dotnet inspect platform System.Text.Json
 dotnet inspect library System.Text.Json --platform
 
-# These are equivalent  
+# Use explicit package audit when package routing matters
 dotnet inspect audit Markout@0.1.4
-dotnet inspect package Markout@0.1.4 --audit
+dotnet inspect audit package Markout@0.1.4
 ```
 
 ## Stability Guarantees
@@ -133,4 +131,4 @@ Current deprecations:
 | Deprecated             | Use Instead                   | Removal Target |
 | ---------------------- | ----------------------------- | -------------- |
 | `package X --metadata` | `library X`                   | 0.3.0          |
-| `--strict`             | `--audit` (now always strict) | 0.3.0          |
+| `--strict`             | `audit` (signal report)       | 0.3.0          |

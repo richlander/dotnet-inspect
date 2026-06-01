@@ -8,6 +8,7 @@ public static class PackageSections
 {
     public const string Summary = "Summary";
     public const string Package = "Package";
+    public const string Audit = "Audit";
     public const string Statistics = "Statistics";
     public const string PackageDependencies = "Package Dependencies";
     public const string Files = "Files";

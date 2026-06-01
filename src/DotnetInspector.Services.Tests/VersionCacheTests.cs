@@ -128,6 +128,18 @@ public class VersionCacheTests : IDisposable
     // --- GetVersionsAsync ---
 
     [Fact]
+    public async Task ResolveVersionPattern_WithCachedVersionList_ReturnsCachedMatch()
+    {
+        var versions = "1.0.0\n2.0.0-beta.1\n2.0.0\n2.1.0";
+        CoreCache.Set(VersionCacheCategory, "testpackage-all", versions, extension: "txt");
+
+        var result = await PackageExtractor.ResolveVersionPatternAsync(
+            FailingClient, "TestPackage", "2.0.*", [NuGetOrgSource], log: null);
+
+        Assert.Equal("2.0.0", result);
+    }
+
+    [Fact]
     public async Task GetVersions_WithCachedVersionList_ReturnsCachedValues()
     {
         var versions = "1.0.0\n1.1.0\n2.0.0";

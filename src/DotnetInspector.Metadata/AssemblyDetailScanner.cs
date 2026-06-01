@@ -22,6 +22,23 @@ public record TypeForwarderInfo(
     string TargetAssembly);
 
 /// <summary>
+/// Metadata audit signals found in assembly/module/member metadata.
+/// </summary>
+public record AssemblyAuditMetadata
+{
+    public bool? IsTrimmable { get; init; }
+    public bool? IsAotCompatible { get; init; }
+    public int? MemorySafetyRulesVersion { get; init; }
+    public bool HasDisableRuntimeMarshalling { get; init; }
+    public int RequiresUnsafeCount { get; init; }
+    public int RequiresUnreferencedCodeCount { get; init; }
+    public int RequiresDynamicCodeCount { get; init; }
+    public int RequiresAssemblyFilesCount { get; init; }
+    public int DynamicDependencyCount { get; init; }
+    public int PInvokeMethodCount { get; init; }
+}
+
+/// <summary>
 /// Scans assemblies for custom attributes and type forwarders.
 /// </summary>
 public static class AssemblyDetailScanner
@@ -54,6 +71,7 @@ public static class AssemblyDetailScanner
                 string? value = TryGetAttributeDisplayValue(reader, attr);
                 results.Add(new AssemblyAttributeInfo(shortName, "Assembly", value));
             }
+
         }
 
         // Module-level attributes
@@ -71,6 +89,118 @@ public static class AssemblyDetailScanner
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Extracts audit-relevant assembly, module, and member metadata.
+    /// </summary>
+    public static AssemblyAuditMetadata ScanAuditMetadata(PEReader peReader)
+    {
+        if (!peReader.HasMetadata)
+            return new AssemblyAuditMetadata();
+
+        var reader = peReader.GetMetadataReader();
+        bool? isTrimmable = null;
+        bool? isAotCompatible = null;
+        int? memorySafetyRulesVersion = null;
+        bool hasDisableRuntimeMarshalling = false;
+        int requiresUnsafeCount = 0;
+        int requiresUnreferencedCodeCount = 0;
+        int requiresDynamicCodeCount = 0;
+        int requiresAssemblyFilesCount = 0;
+        int dynamicDependencyCount = 0;
+        int pInvokeMethodCount = 0;
+
+        void inspect(CustomAttributeHandleCollection handles)
+        {
+            foreach (var handle in handles)
+            {
+                var attr = reader.GetCustomAttribute(handle);
+                var name = AssemblyInspector.GetAttributeName(reader, attr);
+                if (name == null)
+                    continue;
+
+                switch (name)
+                {
+                    case "System.Reflection.AssemblyMetadataAttribute":
+                        var metadata = TryGetAssemblyMetadataValue(reader, attr);
+                        if (metadata is { } metadataValue)
+                        {
+                            if (metadataValue.Key == "IsTrimmable")
+                                isTrimmable = ParseBool(metadataValue.Value);
+                            else if (metadataValue.Key == "IsAotCompatible")
+                                isAotCompatible = ParseBool(metadataValue.Value);
+                        }
+                        break;
+
+                    case "System.Runtime.CompilerServices.MemorySafetyRulesAttribute":
+                        memorySafetyRulesVersion = TryGetInt32CtorArgument(reader, attr);
+                        break;
+
+                    case "System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute":
+                        hasDisableRuntimeMarshalling = true;
+                        break;
+
+                    case "System.Diagnostics.CodeAnalysis.RequiresUnsafeAttribute":
+                        requiresUnsafeCount++;
+                        break;
+
+                    case "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute":
+                        requiresUnreferencedCodeCount++;
+                        break;
+
+                    case "System.Diagnostics.CodeAnalysis.RequiresDynamicCodeAttribute":
+                        requiresDynamicCodeCount++;
+                        break;
+
+                    case "System.Diagnostics.CodeAnalysis.RequiresAssemblyFilesAttribute":
+                        requiresAssemblyFilesCount++;
+                        break;
+
+                    case "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute":
+                        dynamicDependencyCount++;
+                        break;
+                }
+            }
+        }
+
+        if (reader.IsAssembly)
+            inspect(reader.GetAssemblyDefinition().GetCustomAttributes());
+
+        inspect(reader.GetModuleDefinition().GetCustomAttributes());
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            inspect(type.GetCustomAttributes());
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
+                    pInvokeMethodCount++;
+                inspect(method.GetCustomAttributes());
+            }
+            foreach (var fieldHandle in type.GetFields())
+                inspect(reader.GetFieldDefinition(fieldHandle).GetCustomAttributes());
+            foreach (var propertyHandle in type.GetProperties())
+                inspect(reader.GetPropertyDefinition(propertyHandle).GetCustomAttributes());
+            foreach (var eventHandle in type.GetEvents())
+                inspect(reader.GetEventDefinition(eventHandle).GetCustomAttributes());
+        }
+
+        return new AssemblyAuditMetadata
+        {
+            IsTrimmable = isTrimmable,
+            IsAotCompatible = isAotCompatible,
+            MemorySafetyRulesVersion = memorySafetyRulesVersion,
+            HasDisableRuntimeMarshalling = hasDisableRuntimeMarshalling,
+            RequiresUnsafeCount = requiresUnsafeCount,
+            RequiresUnreferencedCodeCount = requiresUnreferencedCodeCount,
+            RequiresDynamicCodeCount = requiresDynamicCodeCount,
+            RequiresAssemblyFilesCount = requiresAssemblyFilesCount,
+            DynamicDependencyCount = dynamicDependencyCount,
+            PInvokeMethodCount = pInvokeMethodCount
+        };
     }
 
     /// <summary>
@@ -176,6 +306,45 @@ public static class AssemblyDetailScanner
         {
             return null;
         }
+    }
+
+    private static (string Key, string Value)? TryGetAssemblyMetadataValue(MetadataReader reader, CustomAttribute attr)
+    {
+        try
+        {
+            var blob = reader.GetBlobReader(attr.Value);
+            if (blob.Length < 2) return null;
+            blob.ReadUInt16();
+            var key = blob.ReadSerializedString();
+            var value = blob.ReadSerializedString();
+            return key != null && value != null ? (key, value) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int? TryGetInt32CtorArgument(MetadataReader reader, CustomAttribute attr)
+    {
+        try
+        {
+            var blob = reader.GetBlobReader(attr.Value);
+            if (blob.Length < 6) return null;
+            blob.ReadUInt16();
+            return blob.ReadInt32();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool? ParseBool(string value)
+    {
+        if (bool.TryParse(value, out var result))
+            return result;
+        return null;
     }
 
     /// <summary>
@@ -327,5 +496,3 @@ public class PresenceFlags
     /// <summary>Whether the assembly has any public classic state-machine async methods.</summary>
     public bool HasStateMachineAsync { get; set; }
 }
-
-

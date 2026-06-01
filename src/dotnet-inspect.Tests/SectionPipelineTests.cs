@@ -207,7 +207,9 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(13, pipeline.AllSectionNames.Length);
+        Assert.Equal(16, pipeline.AllSectionNames.Length);
+        Assert.Contains("SourceLink Audit", pipeline.AllSectionNames);
+        Assert.Contains("Missing Source Files", pipeline.AllSectionNames);
     }
 
     [Fact]
@@ -219,6 +221,22 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
         Assert.Contains("Library Info", effective);
+    }
+
+    [Fact]
+    public void LibraryPipeline_AuditDoesNotShowAtMinimal()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            AuditSignals = [new AuditSignal("Audit", "Scope", "Metadata", "test")]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Library Info", effective);
+        Assert.DoesNotContain("Audit", effective);
     }
 
     [Fact]
@@ -241,6 +259,16 @@ public class SectionPipelineTests
         var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Custom Attributes" });
 
         Assert.Equal(Verbosity.Normal, verbosity);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceLinkAuditRequiresDetailed()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "SourceLink Audit" });
+
+        Assert.Equal(Verbosity.Detailed, verbosity);
     }
 
     // ===== Scanner tests =====
@@ -530,7 +558,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(9, pipeline.AllSectionNames.Length);
+        Assert.Equal(10, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -580,6 +608,23 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Vulnerabilities", effective);
         // Files is Detailed
         Assert.DoesNotContain("Files", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_AuditDoesNotShowAtMinimal()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            AuditSignals = [new AuditSignal("Audit", "Scope", "Metadata", "test")]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Package", effective);
+        Assert.DoesNotContain("Audit", effective);
     }
 
     [Fact]
@@ -739,10 +784,11 @@ public class SectionPipelineTests
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Dep2", Version = "2.0" }],
             Files = ["lib/net8.0/test.dll"],
-            SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" }
+            SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" },
+            AuditSignals = [new AuditSignal("Audit", "Scope", "Metadata", "test")]
         };
 
-        // At Detailed with all data populated, all 7 sections render
+        // At Detailed with all data populated, all registered package sections render.
         var include = pipeline.ComputeIncludeSections(model, Verbosity.Detailed);
 
         Assert.Null(include);

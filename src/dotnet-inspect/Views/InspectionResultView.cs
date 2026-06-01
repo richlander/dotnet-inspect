@@ -35,6 +35,13 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.Package)]
     public List<MarkoutField> Metadata => GetMetadataFields();
 
+    [MarkoutIgnore]
+    public bool HasAuditSignals => _data.AuditSignals is { Count: > 0 };
+
+    [MarkoutSection(Name = PackageSections.Audit, ShowWhenProperty = nameof(HasAuditSignals))]
+    public List<AuditSignalRow>? AuditSection =>
+        _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
+
     public string? Authors => _data.Authors;
     public string? License => _data.License;
     public string? Repository => _data.Repository;
@@ -317,6 +324,7 @@ public class SigningSection
 [MarkoutContext(typeof(ResourceRow))]
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
+[MarkoutContext(typeof(AuditSignalRow))]
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]

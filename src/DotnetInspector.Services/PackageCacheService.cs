@@ -9,6 +9,18 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class PackageCacheService
 {
+    private static readonly Dictionary<string, string> CategoryDisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["packages"] = "Packages",
+        ["packs"] = "Platform packs",
+        ["sources"] = "Sources",
+        ["symbols"] = "Symbols",
+        ["symbol-misses"] = "Symbol misses",
+        ["source-audit"] = "Source audit",
+        ["versions"] = "Versions",
+        ["metadata"] = "Metadata"
+    };
+
     /// <summary>
     /// Per-category cache statistics.
     /// </summary>
@@ -31,15 +43,15 @@ public static class PackageCacheService
 
         if (Directory.Exists(basePath))
         {
-            foreach (var (name, subdir) in new[] { ("Packages", "packages"), ("Sources", "sources"), ("Symbols", "symbols") })
+            foreach (var path in Directory.EnumerateDirectories(basePath).OrderBy(Path.GetFileName))
             {
-                var path = Path.Combine(basePath, subdir);
-                if (Directory.Exists(path))
-                {
-                    var (size, count) = GetDirectoryStats(path);
-                    categories.Add(new CacheCategoryInfo(name, size, count));
-                    totalSize += size;
-                }
+                var subdir = Path.GetFileName(path);
+                var name = CategoryDisplayNames.TryGetValue(subdir, out var displayName)
+                    ? displayName
+                    : subdir;
+                var (size, count) = GetDirectoryStats(path);
+                categories.Add(new CacheCategoryInfo(name, size, count));
+                totalSize += size;
             }
         }
 

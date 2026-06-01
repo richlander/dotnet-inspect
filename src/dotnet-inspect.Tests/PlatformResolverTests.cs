@@ -221,6 +221,23 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void ResolveAssembly_RuntimeVersionWithoutFramework_SearchesRuntimeFamilies()
+    {
+        var currentRuntimeVersion = Path.GetFileName(Path.GetDirectoryName(typeof(object).Assembly.Location))!;
+
+        var (path, framework, version, error) = PlatformResolver.ResolveAssembly(
+            "System.Text.Json",
+            useRuntimeAssemblies: true,
+            platformVersion: currentRuntimeVersion);
+
+        Assert.Null(error);
+        Assert.NotNull(path);
+        Assert.Equal(currentRuntimeVersion, version);
+        Assert.Equal("runtime", framework);
+        Assert.Contains($"{Path.DirectorySeparatorChar}shared{Path.DirectorySeparatorChar}", path);
+    }
+
+    [Fact]
     public void ResolveAssembly_NetstandardWithRuntimeFlag_ReturnsError()
     {
         // netstandard doesn't have runtime assemblies (ref-only)
@@ -428,6 +445,27 @@ public class PlatformResolverTests
             {
                 Assert.True(Directory.Exists(result), $"Returned packs directory should exist: {result}");
             }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", originalDotnetRoot);
+        }
+    }
+
+    [Fact]
+    public void GetSharedDirectory_WhenDotnetRootNotSet_UsesCurrentRuntime()
+    {
+        var originalDotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", null);
+
+            var result = PlatformResolver.GetSharedDirectory();
+
+            Assert.NotNull(result);
+            Assert.True(Directory.Exists(result), $"Returned shared directory should exist: {result}");
+            Assert.True(Directory.Exists(Path.Combine(result!, "Microsoft.NETCore.App")),
+                $"Returned shared directory should contain Microsoft.NETCore.App: {result}");
         }
         finally
         {

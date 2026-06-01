@@ -444,20 +444,18 @@ public static class PackageExtractor
         NuGet.Versioning.NuGetVersion? best = null;
         string? bestOriginal = null;
 
-        foreach (var source in sources)
-        {
-            var versions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
-            if (versions == null) continue;
+        var versions = await GetAllVersionsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (versions == null)
+            return null;
 
-            foreach (var ver in versions)
+        foreach (var ver in versions)
+        {
+            if (ver.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed)
+                && (best == null || parsed > best))
             {
-                if (ver.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed)
-                    && (best == null || parsed > best))
-                {
-                    best = parsed;
-                    bestOriginal = ver;
-                }
+                best = parsed;
+                bestOriginal = ver;
             }
         }
 
@@ -664,6 +662,32 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
+        var allVersions = await GetAllVersionsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (allVersions == null)
+            return null;
+
+        var filtered = includePrerelease
+            ? allVersions
+            : allVersions.Where(v => !v.Contains('-')).ToList();
+
+        // Newest first, with optional limit
+        List<string> result = [];
+        for (int i = filtered.Count - 1; i >= 0; i--)
+        {
+            result.Add(filtered[i]);
+            if (limit.HasValue && result.Count >= limit.Value)
+                break;
+        }
+
+        return result;
+    }
+
+    private static async Task<List<string>?> GetAllVersionsWithCacheAsync(
+        HttpClient client,
+        string normalizedName,
+        List<NuGetSource> sources,
+        Action<string>? log)
+    {
         // Cache nuget.org results even when additional custom sources are configured.
         bool canCache = sources.Any(s => s.IsNuGetOrg);
         List<string>? allVersions = null;
@@ -695,20 +719,7 @@ public static class PackageExtractor
                 return null;
         }
 
-        var filtered = includePrerelease
-            ? allVersions
-            : allVersions.Where(v => !v.Contains('-')).ToList();
-
-        // Newest first, with optional limit
-        List<string> result = [];
-        for (int i = filtered.Count - 1; i >= 0; i--)
-        {
-            result.Add(filtered[i]);
-            if (limit.HasValue && result.Count >= limit.Value)
-                break;
-        }
-
-        return result;
+        return allVersions;
     }
 
     /// <summary>

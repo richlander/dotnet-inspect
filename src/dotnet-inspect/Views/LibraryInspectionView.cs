@@ -94,6 +94,13 @@ public class LibraryInspectionView
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
     };
 
+    [MarkoutIgnore]
+    public bool HasAuditSignals => _data.AuditSignals is { Count: > 0 };
+
+    [MarkoutSection(Name = "Audit", ShowWhenProperty = nameof(HasAuditSignals))]
+    public List<AuditSignalRow>? AuditSection =>
+        _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
+
     [MarkoutSection(Name = "Symbols")]
     public SymbolsSection? SymbolsSection => new SymbolsSection
     {
@@ -112,6 +119,18 @@ public class LibraryInspectionView
         RepositoryUrl = _data.RepositoryUrl,
         Warning = _data.WindowsPdbDetected ? "Windows PDB format is not supported by this tool" : null,
         Recommendation = _data.WindowsPdbDetected ? "Consider asking the package maintainer to publish Portable PDBs" : null,
+    };
+
+    [MarkoutIgnore]
+    public bool HasSourceLinkAudit => _data.AllSourcesAccessible.HasValue || _data.TotalSourceFiles > 0;
+
+    [MarkoutSection(Name = "SourceLink Audit", ShowWhenProperty = nameof(HasSourceLinkAudit))]
+    public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
+    {
+        Status = _data.AllSourcesAccessible == true ? "Complete" : "Partial",
+        SourceFiles = $"{_data.AccessibleSourceFiles}/{_data.TotalSourceFiles} accessible or embedded",
+        Embedded = _data.EmbeddedSourceFiles,
+        Missing = _data.MissingSourceFiles?.Count ?? 0
     };
 
     [MarkoutIgnore]
@@ -343,6 +362,13 @@ public record TypeForwarderRow(
     [property: MarkoutPropertyName("Type")] string TypeName,
     [property: MarkoutPropertyName("Target Assembly")] string TargetAssembly);
 
+[MarkoutSerializable]
+public record AuditSignalRow(
+    string Area,
+    string Signal,
+    string Value,
+    string Evidence);
+
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class LibraryInfoSection
@@ -392,3 +418,12 @@ public class SymbolsSection
     public string? Recommendation { get; init; }
 }
 
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class SourceLinkAuditSection
+{
+    public string Status { get; init; } = "";
+    public string SourceFiles { get; init; } = "";
+    public int Embedded { get; init; }
+    public int Missing { get; init; }
+}

@@ -8,12 +8,24 @@ namespace DotnetInspector.Tests;
 /// Tests for cache management command.
 /// </summary>
 [Collection("Console")]
-public class CacheCommandTests
+public class CacheCommandTests : IDisposable
 {
+    private readonly string _cacheBasePath = Path.Combine(
+        Path.GetTempPath(),
+        "dotnet-inspect-cache-command-tests-" + Guid.NewGuid().ToString("N"));
+    private readonly string _appName = "dotnet-inspect-cache-command-tests-" + Guid.NewGuid().ToString("N");
+
     public CacheCommandTests()
     {
-        NuGetCache.Initialize("dotnet-inspect");
+        NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
     }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_cacheBasePath))
+            Directory.Delete(_cacheBasePath, recursive: true);
+    }
+
     [Fact]
     public async Task ExecuteAsync_ShowsInfo_ReturnsZero()
     {

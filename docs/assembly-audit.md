@@ -1,6 +1,16 @@
-# Library Audit
+# Audit
 
-The `library --audit` command inspects a library's build quality and provenance. This document explains each field and what the values mean.
+The `audit` command reports package and library signals. It is an evidence report, not a safety or trust verdict.
+
+```bash
+dotnet-inspect audit System.Text.Json
+dotnet-inspect audit System.Text.Json --full
+dotnet-inspect audit System.Text.Json --all
+dotnet-inspect audit System.Text.Json -v:d
+dotnet-inspect audit package System.Text.Json --full
+```
+
+By default, `audit` uses metadata only. `--full` (alias: `--all`) enables broad target-appropriate enrichment: libraries acquire symbols/PDBs and packages add NuGet registry-backed signals. `-v:d` adds detailed audit sections, including SourceLink Audit, which verifies every tracked source URL and can be expensive for large assemblies. `--source-audit` remains as an explicit alias for that check; use `--symbols` or `--nuget` when you need narrower control.
 
 ## Build Audit Fields
 

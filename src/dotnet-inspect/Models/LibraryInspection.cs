@@ -185,6 +185,12 @@ public class LibraryInspection
     public List<CustomAttributeSummary>? CustomAttributes { get; set; }
 
     /// <summary>
+    /// Metadata audit signals. These are observations, not a trust verdict.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AuditSignal>? AuditSignals { get; set; }
+
+    /// <summary>
     /// Type forwarders defined in this assembly.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -255,6 +261,11 @@ public record class ClassifiedMethodSummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ModuleName { get; init; }
 }
+
+/// <summary>
+/// Summary of a dependency age window.
+/// </summary>
+public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic

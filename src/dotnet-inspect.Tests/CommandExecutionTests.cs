@@ -45,6 +45,16 @@ public class CommandExecutionTests
         NuGetCache.Initialize("dotnet-inspect");
     }
 
+    private static Task<(int Exit, string Output, string Error)> RunAppAsync(params string[] args)
+    {
+        return ConsoleCapture.RunAsync(async () =>
+        {
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
+    }
+
     // ── api command ──────────────────────────────────────────────────
 
     [Fact]
@@ -861,6 +871,148 @@ public class CommandExecutionTests
         Assert.Contains("dotnet-inspect.Tests", output);
     }
 
+    [Fact]
+    public async Task Assembly_Audit_ShowsMetadataSignalsOnly()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            Audit = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Audit", output);
+        Assert.Contains("IsTrimmable", output);
+        Assert.Contains("IsAotCompatible", output);
+        Assert.Contains("Direct assembly references", output);
+        Assert.DoesNotContain("| Dependencies | Direct assembly references | 0 |", output);
+        Assert.Contains("not a security or trust assessment", output);
+        Assert.DoesNotContain("## Library Info", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Assembly_AuditSectionSelection_PopulatesReferenceSignals()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Audit" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Direct assembly references", output);
+        Assert.DoesNotContain("| Dependencies | Direct assembly references | 0 |", output);
+    }
+
+    [Fact]
+    public async Task Assembly_Audit_LocalUnsafeAssembly_FocusesOnNewMemorySafetyModel()
+    {
+        var options = new AssemblyOptions
+        {
+            AssemblyName = TestAssemblyPath,
+            Audit = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Memory safety | Memory safety model | Not marked |", output);
+        Assert.Contains("| Memory safety | RequiresUnsafe members | 0 | RequiresUnsafeAttribute |", output);
+        Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.Contains("| Interop | P/Invoke methods | 2 | all PInvokeImpl metadata |", output);
+    }
+
+    [Fact]
+    public async Task AuditCommand_Library_ShowsAuditOnly()
+    {
+        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Audit", output);
+        Assert.DoesNotContain("Source audit", output);
+        Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task AuditCommand_Platform_DefaultDoesNotDownloadPdb()
+    {
+        var (exit, output, _) = await RunAppAsync("audit", "System.Text.Json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Audit", output);
+        Assert.Contains("PDB not checked", output);
+    }
+
+    [Fact]
+    public async Task AuditCommand_LibraryFull_ChecksSymbolsWithoutSourceAudit()
+    {
+        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath, "--full");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Audit", output);
+        Assert.DoesNotContain("PDB not checked", output);
+        Assert.DoesNotContain("Source audit", output);
+        Assert.Contains("Metadata + symbol signals", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task AuditCommand_LibraryAll_IsAliasForFull()
+    {
+        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath, "--all");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Audit", output);
+        Assert.DoesNotContain("PDB not checked", output);
+        Assert.DoesNotContain("Source audit", output);
+        Assert.Contains("Metadata + symbol signals", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task AuditCommand_LibraryDetailed_IncludesSourceLinkAuditSection()
+    {
+        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath, "-v:d");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Audit", output);
+        Assert.Contains("## SourceLink Audit", output);
+        Assert.Contains("Source Files", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformVersion_UsesPlatformRuntimeRoute()
+    {
+        var currentRuntimeVersion = Path.GetFileName(Path.GetDirectoryName(typeof(object).Assembly.Location))!;
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "--version", currentRuntimeVersion, "-v:q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Source: Platform", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task AuditCommand_PlatformVersion_DoesNotFallbackToPackageVersion()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "audit", "System.Text.Json", "--version", "0.0.0-definitely-not-installed");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Use 'audit package <package> --version <version>'", error);
+    }
+
     // ── package command ──────────────────────────────────────────────
 
     [Fact]
@@ -876,5 +1028,94 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.NotEmpty(error);
+    }
+
+    [Fact]
+    public async Task Package_Audit_ShowsMetadataSignalsOnly()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var options = new InspectionOptions
+            {
+                PackageArgs = [packagePath],
+                Audit = true
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(options));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Audit", output);
+            Assert.Contains("Target frameworks", output);
+            Assert.Contains("Assemblies", output);
+            Assert.Contains("Direct dependencies", output);
+            Assert.Contains("Metadata signals only", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AuditCommand_Package_ShowsAuditOnly()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("audit", "package", packagePath);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Audit", output);
+            Assert.Contains("Metadata signals only", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AuditCommand_PackageFull_EnablesNuGetAudit()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("audit", packagePath, "--full");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Audit", output);
+            Assert.Contains("Known vulnerabilities", output);
+            Assert.Contains("Metadata + NuGet registry signals", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AuditCommand_PackageAll_IsAliasForFull()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("audit", "package", packagePath, "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Audit", output);
+            Assert.Contains("Known vulnerabilities", output);
+            Assert.Contains("Metadata + NuGet registry signals", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 }

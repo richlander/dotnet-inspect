@@ -117,7 +117,8 @@ public static class InspectionCommandDefinitions
         var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree (tip: use 'depends --library' instead)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
-        var asmFrameworkOption = new Option<string?>("--framework") { Description = "Platform framework (runtime, aspnetcore). Use @version for specific version" };
+        var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
+        var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
         var asmNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
@@ -129,6 +130,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
+        assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(extractResourcesOption);
         assemblyCommand.Options.Add(asmNoHeaderOption);
@@ -145,6 +147,8 @@ public static class InspectionCommandDefinitions
             string? assemblyPath = null;
             string? packagePath = explicitPackage;
             string? platformAssembly = explicitPlatform;
+            var requestedFramework = parseResult.GetValue(asmFrameworkOption);
+            var requestedPlatformVersion = parseResult.GetValue(asmVersionOption);
 
             if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
@@ -155,8 +159,14 @@ public static class InspectionCommandDefinitions
                     // Platform-preferred routing for System.*/Microsoft.* bare names
                     bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = verbose ? msg => Console.Error.WriteLine(msg) : null;
-                    var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(source, HttpClientFactory.Shared, log);
+                    var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
+                        source, HttpClientFactory.Shared, log,
+                        requestedFramework,
+                        platformVersion: requestedPlatformVersion,
+                        useRuntimeAssemblies: true);
                     if (error == null && asmPath != null)
+                        platformAssembly = source;
+                    else if (!string.IsNullOrEmpty(requestedFramework) || !string.IsNullOrEmpty(requestedPlatformVersion))
                         platformAssembly = source;
                     else
                         packagePath = source;
@@ -176,7 +186,8 @@ public static class InspectionCommandDefinitions
                 IncludeDependencies = showDependencies,
                 PackagePath = packagePath,
                 PlatformAssembly = platformAssembly,
-                PlatformFramework = parseResult.GetValue(asmFrameworkOption),
+                PlatformFramework = requestedFramework,
+                PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Markdown = parseResult.GetValue(opts.Markdown),

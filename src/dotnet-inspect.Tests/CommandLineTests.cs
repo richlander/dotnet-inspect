@@ -82,6 +82,30 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void AuditCommand_WithSourceAuditFlag_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json", "--source-audit"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void AuditCommand_WithSourceAlias_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json", "--source"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void AuditCommand_WithDetailedVerbosity_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json", "-v:d"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void PackageCommand_WithLimit_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "--versions", "-n", "5"]);

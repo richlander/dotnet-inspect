@@ -172,6 +172,16 @@ public record InspectionOptions
     public bool Count { get; init; }
 
     /// <summary>
+    /// Show a focused metadata audit section. This is signal-based, not a trust verdict.
+    /// </summary>
+    public bool Audit { get; init; }
+
+    /// <summary>
+    /// Expand package audit with NuGet registry data, vulnerabilities, transitive dependencies, and dependency ages.
+    /// </summary>
+    public bool NuGetAudit { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;

@@ -16,6 +16,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(InspectionResult))]
 [JsonSerializable(typeof(LibraryInspection))]
 [JsonSerializable(typeof(LibraryInspection[]))]
+[JsonSerializable(typeof(AuditSignal))]
+[JsonSerializable(typeof(List<AuditSignal>))]
 [JsonSerializable(typeof(RidPackageReference))]
 public partial class JsonContext : JsonSerializerContext
 {

@@ -50,6 +50,33 @@ version or check for newly published security advisories.
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs/{pack}/{version}/` | Permanent | dotnet-inspect |
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
+| Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
+| Source audit markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
+
+## Network download/cache behavior
+
+Network calls use the cache behavior below. Negative cache entries are written
+only for definitive 404/not-found responses; transient failures, timeouts,
+offline mode, and unsupported local feed URLs are not cached as misses.
+
+| Download or check | Cache behavior |
+| --- | --- |
+| Pinned package `.nupkg` extraction | Uses NuGet global cache or app package cache permanently; downloads only when missing. |
+| Bare package version resolution | Uses disk scan first, then the version-resolution cache with a 1-hour TTL, then NuGet. |
+| Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
+| `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
+| Package index scan | Cached permanently for extracted package contents. |
+| Package metadata | Cached for 1 hour in the metadata cache. |
+| Dependency publish dates | Reuses the package metadata cache, so dependency-age audit does not refetch known publish dates. |
+| Successful symbol-server PDB downloads | Cached permanently under `packages/symbols/servers/`. |
+| Symbol-server PDB 404s | Cached as misses for 1 day, so detailed audit does not retry unavailable PDBs on every run. |
+| Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
+| Missing `.snupkg` URLs and `.snupkg` files without the requested PDB | Cached as misses for 1 day. The `.snupkg` archive itself is not retained. |
+| SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
+| `source --cat` raw source downloads | Not cached by this command path. |
+| `source --verify` URL checks | Not cached by this command path. |
+| Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
+| GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
 ## Design rationale
 

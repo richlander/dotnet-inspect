@@ -24,7 +24,7 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Fix upgrade breaks | `diff --package Foo@old..new --breaking` | Inspect replacement members with `member`. |
 | Learn what changed | `diff --package Foo@old..new --additive` or `diff --platform Lib@old..new` | Use `-t Type` to narrow. |
 | Locate source | `source Type --package Foo` | Add `-m Member` or use `member Type Member:1 -v:d`. |
-| Audit package/library contents | `package Foo`, `library Foo` | Add `-S Section`, `--fields`, `--source-link-audit`, or `--count`. |
+| Audit package/library contents | `audit Foo` | Add `--full`/`--all` for broad expansion and `-v:d` for detailed sections; use `--symbols` or `--nuget` only to fine-tune. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
 | Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N` | Prefer built-in limits over shell pipes. |
 
@@ -34,8 +34,9 @@ LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspect
 
 | Feature | Description | Use | Watch for |
 | ------- | ----------- | --- | --------- |
-| Runtime async | .NET 11+ libraries may use runtime async instead of compiler-generated state machines. | `library --platform Lib --framework runtime@<version> -S "Async*"` | `Kind` distinguishes runtime async from state-machine async; use `--count` only for totals. |
-| Runtime-pack assemblies | Many BCL libraries ship only as installed platform/runtime-pack assemblies, not standalone packages. | `library --platform Lib --framework runtime@<version>` or direct DLL path | Prefer platform/direct DLL inspection when package lookup is misleading. |
+| Runtime async | .NET 11+ libraries may use runtime async instead of compiler-generated state machines. | `library --platform Lib --version <version> -S "Async*"` | `Kind` distinguishes runtime async from state-machine async; use `--count` only for totals. |
+| Runtime-pack assemblies | Many BCL libraries ship only as installed platform/runtime-pack assemblies, not standalone packages. | `library --platform Lib --version <version>` or direct DLL path | Prefer platform/direct DLL inspection when package lookup is misleading. |
+| Memory-safety metadata | Newer compilers may stamp updated memory-safety rules and caller-unsafe members in metadata. | `audit Lib --version <version>` | Compare `MemorySafetyRules` v2+ with the `RequiresUnsafe` member count; unsafe signatures and P/Invoke remain separate signals. |
 | Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
 | Lowering changes | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -v:d` | Inspect Source, Lowered C#, IL, and annotated IL before inferring behavior. |
 
@@ -84,15 +85,18 @@ For crash/stack diagnostics that include a MethodDef token plus IL offset, `sour
 
 ## Package and library audit workflow
 
-Use `package` for NuGet metadata and package layout. Use `library` for assembly identity, references, symbols, SourceLink, resources, async methods, and public key token.
+Use `audit` for metadata-only signals. It reports observations, not a safety or trust verdict. Add `--full` (or alias `--all`) when broad network-backed expansion is appropriate; use `-v:d` for detailed audit sections such as exhaustive SourceLink coverage.
 
 ```bash
-dnx dotnet-inspect -y -- package System.Text.Json --versions
-dnx dotnet-inspect -y -- library System.Text.Json --source-link-audit
-dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
+dnx dotnet-inspect -y -- audit System.Text.Json
+dnx dotnet-inspect -y -- audit System.Text.Json --full
+dnx dotnet-inspect -y -- audit System.Text.Json -v:d
+dnx dotnet-inspect -y -- audit package System.Text.Json --full
 ```
 
-`package` supports custom feeds (`--source`, `--add-source`, `--nugetconfig`) and local `.nupkg` files. `library -S "Async*"` classifies async methods as runtime async or classic state-machine async.
+Library audit includes assembly metadata such as SourceLink presence, determinism, public key token, trim/AOT markers, updated memory-safety model, `RequiresUnsafe` member count, unsafe signatures, P/Invoke, and direct references. For libraries, `--full` allows symbol/PDB acquisition but does not exhaustively verify every source document. Use `-v:d` (or explicit `--source-audit`) when validating all SourceLink-tracked source URLs; it may be expensive for large assemblies.
+
+Package audit includes TFMs, assemblies, RID/native assets, readme/license/repository, direct dependencies, and package signature. For packages, `--full` enables registry-backed signals such as vulnerabilities, dependency closure, dependency depth, package age, and direct dependency age; `--nuget` is the narrower equivalent. Custom feeds (`--nuget-source`, `--add-source`, `--nugetconfig`) and local `.nupkg` files are supported.
 
 ## Output and query workflow
 
@@ -123,4 +127,4 @@ Scopes include installed platform libraries by default, `--package Foo`, curated
 - `type` uses `-t` for type filters; `member` uses `-m` for member filters.
 - Dotted member syntax works: `-m JsonSerializer.Deserialize`.
 - Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`.
-- Use `--all` for non-public, hidden, and extra members; obsolete members are already shown by default.
+- In API/member queries, use `--all` for non-public, hidden, and extra members; obsolete members are already shown by default.

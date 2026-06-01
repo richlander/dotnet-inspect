@@ -41,10 +41,14 @@ public record AssemblyOptions
     public string? PlatformAssembly { get; init; }
 
     /// <summary>
-    /// Platform framework (runtime, aspnetcore, netstandard).
-    /// Use @version for specific version (e.g., runtime@9.0.12).
+    /// Optional platform framework family (runtime, aspnetcore, netstandard).
     /// </summary>
     public string? PlatformFramework { get; init; }
+
+    /// <summary>
+    /// Platform shared runtime version. Searches runtime frameworks in priority order when framework is not specified.
+    /// </summary>
+    public string? PlatformVersion { get; init; }
 
     /// <summary>
     /// Target framework moniker to select assembly from package.
@@ -133,6 +137,21 @@ public record AssemblyOptions
     /// Output the number of rendered table rows for a single selected section.
     /// </summary>
     public bool Count { get; init; }
+
+    /// <summary>
+    /// Show a focused metadata audit section. This is signal-based, not a trust verdict.
+    /// </summary>
+    public bool Audit { get; init; }
+
+    /// <summary>
+    /// Allow remote PDB/symbol acquisition for audit enrichment.
+    /// </summary>
+    public bool AllowSymbolDownloads { get; init; }
+
+    /// <summary>
+    /// Expand the audit with SourceLink source-file accessibility verification.
+    /// </summary>
+    public bool SourceLinkAudit { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.
