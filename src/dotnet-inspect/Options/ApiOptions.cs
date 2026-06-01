@@ -135,6 +135,10 @@ public record MemberOptions : ApiOptions
     public bool ShowSelect { get; init; }
     public string? DllPath { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
+
+    /// <summary>On-disk path to an acquired portable PDB, used by the decompiler (--index code
+    /// sections) to resolve real local-variable names instead of synthesized <c>V_n</c> slots.</summary>
+    public string? PdbPath { get; init; }
 }
 
 /// <summary>

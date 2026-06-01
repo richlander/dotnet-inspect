@@ -3024,6 +3024,9 @@ public static class CSharpEmitter
             // Merge emission-context expectedType with AST-level ExpectedType (from BuildCall annotations)
             string? resolvedType = expectedType ?? expr.ExpectedType;
 
+            // A bool-typed parameter/target means 0/1 integer literals are really false/true.
+            boolCtx = boolCtx || resolvedType is "bool" or "System.Boolean" or "Boolean";
+
             // Enum constant resolution for integer literals with known parameter types
             if (IsLdcI4(expr.OpCode) && resolvedType is not null
                 && TryResolveEnumName(resolvedType, GetI4Value(expr), out string? enumName))
@@ -3445,9 +3448,28 @@ public static class CSharpEmitter
         {
             if (isBaseCall)
                 _sb.Append("base");
+            else if (IsRuntimeAwaitCall(receiver))
+            {
+                // `(await GetThingAsync()).Member` — the await result is the receiver, so it
+                // must be parenthesized; `await GetThingAsync().Member` would bind differently.
+                _sb.Append('(');
+                EmitExpression(receiver);
+                _sb.Append(')');
+            }
             else
                 EmitExpression(receiver);
         }
+
+        /// <summary>
+        /// True for a runtime-async await helper call: a static call to
+        /// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> with a single awaitable
+        /// argument. Covers every overload (Task/ValueTask, configured, and the generic
+        /// value-returning forms) because the operand carries no parameter or generic-arg text.
+        /// </summary>
+        static bool IsRuntimeAwaitCall(ILAstExpression expr) =>
+            expr.IsStaticCall
+            && expr.Arguments.Count == 1
+            && expr.Operand is "System.Runtime.CompilerServices.AsyncHelpers::Await";
 
         void EmitCallExpression(ILAstExpression expr)
         {
@@ -3455,6 +3477,22 @@ public static class CSharpEmitter
             if (methodName is null)
             {
                 _sb.Append("/* call */");
+                return;
+            }
+
+            // Runtime async (.NET 11+ "async v2"): the compiler lowers `await x` to a call
+            // to System.Runtime.CompilerServices.AsyncHelpers.Await(x) instead of emitting a
+            // state machine. Render it back as `await x` for a faithful, readable view.
+            if (IsRuntimeAwaitCall(expr))
+            {
+                _sb.Append("await ");
+                var awaited = expr.Arguments[0];
+                // The await operand binds as a unary prefix; parenthesize lower-precedence
+                // operands (binary expressions) so `await a + b` doesn't read as `(await a) + b`.
+                bool wrap = IsBinaryOp(awaited.OpCode);
+                if (wrap) _sb.Append('(');
+                EmitExpression(awaited);
+                if (wrap) _sb.Append(')');
                 return;
             }
 

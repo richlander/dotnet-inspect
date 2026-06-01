@@ -493,7 +493,9 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    internal static async Task<MethodSourceContext?> ResolveMethodSourceAsync(
+    internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
+
+    internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger)
     {
@@ -514,17 +516,21 @@ public class ApiCommand
                     isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
             }
 
+            // Capture the acquired portable PDB path now so the decompiler can reuse it for local
+            // names even when SourceLink/source resolution below fails (PDB available, source not).
+            string? pdbPath = context.PortablePdbPath;
+
             if (!service.HasPdb || !service.HasSourceLink)
-                return null;
+                return new ResolvedMethodSource(null, pdbPath);
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly: true);
             if (methodInfo?.SourceUrl == null)
-                return null;
+                return new ResolvedMethodSource(null, pdbPath);
 
             var fetcher = new SourceFetcher(httpClient);
             var content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
             if (content == null)
-                return null;
+                return new ResolvedMethodSource(null, pdbPath);
 
             var lines = content.Split('\n');
             int startLine = methodInfo.StartLine;
@@ -586,12 +592,12 @@ public class ApiCommand
             var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
             var sourceCode = string.Join('\n', dedented).TrimEnd();
 
-            return new MethodSourceContext(sourceCode, methodInfo.SourceUrl);
+            return new ResolvedMethodSource(new MethodSourceContext(sourceCode, methodInfo.SourceUrl), pdbPath);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
-            return null;
+            return new ResolvedMethodSource(null, null);
         }
     }
 
@@ -645,7 +651,7 @@ public class ApiCommand
                     .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
                     .ToList();
                 if (methods.Count > 0)
-                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath, mo4.OverloadIndex.Value - 1);
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath, mo4.OverloadIndex.Value - 1, mo4.PdbPath);
             }
 
             // Source code (already resolved in command layer)

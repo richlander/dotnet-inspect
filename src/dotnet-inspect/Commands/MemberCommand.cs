@@ -242,14 +242,17 @@ public static class MemberCommand
             if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null)
             {
                 var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
-                var methodSource = await ApiCommand.ResolveMethodSourceAsync(
+                var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, apiType.FullName,
                     effectiveOptions.MemberFilter.First(),
                     effectiveOptions.OverloadIndex.Value - 1,
                     effectiveOptions, context.HttpClient, logger);
 
-                if (methodSource != null)
-                    effectiveOptions = effectiveOptions with { MethodSource = methodSource };
+                effectiveOptions = effectiveOptions with
+                {
+                    MethodSource = resolved.Source,
+                    PdbPath = resolved.PdbPath
+                };
             }
 
             if (effectiveOptions.EffectiveDiscovery)

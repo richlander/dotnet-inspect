@@ -141,6 +141,16 @@ public sealed class MethodBodyContext
         var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext);
         var paramNames = ReadParameterNames(reader, method);
 
+        // Runtime async (.NET 11+ "async v2"): a method carrying MethodImplAttributes.Async
+        // (0x2000) has no compiler state machine; its IL `ret` yields the *unwrapped* awaited
+        // value, not the Task/ValueTask declared in metadata. Map the effective IL return type
+        // accordingly (Task/ValueTask -> void; Task<T>/ValueTask<T> -> T) so stack simulation
+        // and emitted `return` statements stay balanced.
+        const System.Reflection.MethodImplAttributes AsyncImplFlag = (System.Reflection.MethodImplAttributes)0x2000;
+        string effectiveReturnType = (method.ImplAttributes & AsyncImplFlag) != 0
+            ? UnwrapRuntimeAsyncReturnType(sig.ReturnType)
+            : sig.ReturnType;
+
         // Read PDB local variable names if available
         IReadOnlyList<string?>? localNames = null;
         if (pdbReader != null && !methodHandle.IsNil)
@@ -154,45 +164,98 @@ public sealed class MethodBodyContext
             reader,
             sig.ParameterTypes.Length,
             !method.Attributes.HasFlag(System.Reflection.MethodAttributes.Static),
-            sig.ReturnType != "System.Void" && sig.ReturnType != "void",
+            effectiveReturnType != "System.Void" && effectiveReturnType != "void",
             [.. sig.ParameterTypes],
             paramNames,
-            sig.ReturnType,
+            effectiveReturnType,
             declaringType,
             genericContext,
             localNames);
     }
 
     /// <summary>
-    /// Convenience: find a method by type/name and create context.
-    /// Tries to read local variable names from embedded PDB if available.
+    /// Unwraps a runtime-async method's declared return type to the type its IL actually
+    /// returns: <c>Task</c>/<c>ValueTask</c> become <c>void</c>, and <c>Task&lt;T&gt;</c>/
+    /// <c>ValueTask&lt;T&gt;</c> become <c>T</c>. Other return types are returned unchanged.
     /// </summary>
-    public static MethodBodyContext? Create(PEReader peReader, string typeName, string methodName, int overloadIndex = 0, bool publicOnly = false)
+    internal static string UnwrapRuntimeAsyncReturnType(string returnType)
+    {
+        if (returnType is "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask")
+            return "System.Void";
+
+        foreach (var wrapper in new[] { "System.Threading.Tasks.Task<", "System.Threading.Tasks.ValueTask<" })
+        {
+            if (returnType.StartsWith(wrapper, StringComparison.Ordinal)
+                && returnType.EndsWith(">", StringComparison.Ordinal))
+                return returnType[wrapper.Length..^1];
+        }
+
+        return returnType;
+    }
+
+    /// <summary>
+    /// Convenience: find a method by type/name and create context.
+    /// Reads local variable names from the embedded PDB when present; otherwise, when an
+    /// <paramref name="externalPdbPath"/> to a portable PDB is supplied (e.g. one the CLI
+    /// downloaded from a symbol server for platform assemblies), reads local names from there.
+    /// </summary>
+    public static MethodBodyContext? Create(PEReader peReader, string typeName, string methodName, int overloadIndex = 0, bool publicOnly = false, string? externalPdbPath = null)
     {
         var reader = peReader.GetMetadataReader();
         MetadataReader? pdbReader = TryGetEmbeddedPdbReader(peReader);
 
-        foreach (var typeDefHandle in reader.TypeDefinitions)
+        // Fall back to an external portable PDB (e.g. acquired from a symbol server) when the
+        // assembly has no embedded PDB. Local names are materialized eagerly inside Create, so the
+        // provider/stream can be disposed as soon as the matching context has been built.
+        FileStream? pdbStream = null;
+        MetadataReaderProvider? externalProvider = null;
+        try
         {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            if (reader.GetFullTypeName(typeDef) != typeName)
-                continue;
-
-            int matchCount = 0;
-            foreach (var methodHandle in typeDef.GetMethods())
+            if (pdbReader is null && !string.IsNullOrEmpty(externalPdbPath) && File.Exists(externalPdbPath))
             {
-                var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != methodName)
-                    continue;
-                if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
-                    continue;
-                if (matchCount == overloadIndex)
-                    return Create(peReader, reader, method, pdbReader, methodHandle);
-                matchCount++;
+                try
+                {
+                    pdbStream = File.OpenRead(externalPdbPath);
+                    externalProvider = MetadataReaderProvider.FromPortablePdbStream(pdbStream);
+                    pdbReader = externalProvider.GetMetadataReader();
+                }
+                catch
+                {
+                    externalProvider?.Dispose();
+                    externalProvider = null;
+                    pdbStream?.Dispose();
+                    pdbStream = null;
+                    pdbReader = null;
+                }
             }
-        }
 
-        return null;
+            foreach (var typeDefHandle in reader.TypeDefinitions)
+            {
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                if (reader.GetFullTypeName(typeDef) != typeName)
+                    continue;
+
+                int matchCount = 0;
+                foreach (var methodHandle in typeDef.GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(methodHandle);
+                    if (reader.GetString(method.Name) != methodName)
+                        continue;
+                    if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
+                        continue;
+                    if (matchCount == overloadIndex)
+                        return Create(peReader, reader, method, pdbReader, methodHandle);
+                    matchCount++;
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            externalProvider?.Dispose();
+            pdbStream?.Dispose();
+        }
     }
 
     static IReadOnlyList<string> ReadParameterNames(MetadataReader reader, MethodDefinition method)
