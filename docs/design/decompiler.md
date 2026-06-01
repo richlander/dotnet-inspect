@@ -278,7 +278,8 @@ use cases (LLM troubleshooting, codegen analysis, runtime diagnostics) better
 than sugar-recovered "idiomatic" C# would.
 
 What "lowered" means:
-- `stloc.0` → `V_0 = expr;`, not recovering original variable names
+- `stloc.0` → `V_0 = expr;`, using PDB local names when available (embedded, or an
+  external/downloaded portable PDB) and falling back to synthesized `V_n` slots otherwise
 - Branches → `goto` / `if (...) goto`, not recovering `foreach`/`using`
 - `call get_Property()` stays as a method call, not `obj.Property`
 - `box` / `unbox.any` visible as casts with annotations
@@ -293,6 +294,7 @@ What "lowered" means:
 | Array access     | `ldelem`/`stelem` → `arr[i]`                      |
 | Object creation  | `newobj` → `new Type(args)`                       |
 | Control flow     | `br`/`brtrue` → `goto` / `if (...) goto`          |
+| Runtime async    | `AsyncHelpers.Await(x)` → `await x` (v2)          |
 
 | Component       | Purpose                                             |
 | --------------- | --------------------------------------------------- |

@@ -529,6 +529,14 @@ public class CSharpEmitterTests
         Assert.Contains("(ushort)", code);
     }
 
+    [Fact]
+    public void BoolParameter_ZeroLiteral_RendersFalse()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.PassesBoolFalse));
+        Assert.Contains("AcceptsBool(false)", code);
+        Assert.DoesNotContain("AcceptsBool(0)", code);
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)
@@ -542,5 +550,56 @@ public class CSharpEmitterTests
             methodName);
         Assert.NotNull(context);
         return CSharpEmitter.Emit(context);
+    }
+
+    static string EmitMethod(string methodName, string? externalPdbPath)
+    {
+        var assemblyPath = typeof(CfgSampleClass).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var context = MethodBodyContext.Create(
+            peReader,
+            typeof(CfgSampleClass).FullName!,
+            methodName,
+            externalPdbPath: externalPdbPath);
+        Assert.NotNull(context);
+        return CSharpEmitter.Emit(context);
+    }
+
+    // The test assembly ships a standalone (non-embedded) portable PDB, so without it the
+    // decompiler falls back to synthesized V_n locals, and with it real source names appear.
+    static string TestAssemblyPdbPath() =>
+        Path.ChangeExtension(typeof(CfgSampleClass).Assembly.Location, ".pdb");
+
+    [Fact]
+    public void ExternalPdb_SuppliesLocalVariableNames()
+    {
+        var pdbPath = TestAssemblyPdbPath();
+        Assert.SkipUnless(File.Exists(pdbPath), $"standalone PDB not found at {pdbPath}");
+
+        string withPdb = EmitMethod(nameof(CfgSampleClass.LoopSum), pdbPath);
+
+        // LoopSum declares `int sum` and `int i`; the acquired PDB should restore those names.
+        Assert.Contains("sum", withPdb);
+        Assert.DoesNotContain("V_0", withPdb);
+    }
+
+    [Fact]
+    public void WithoutPdb_FallsBackToSyntheticLocalNames()
+    {
+        // No embedded PDB and no external path: locals render as V_n, never crashing.
+        string noPdb = EmitMethod(nameof(CfgSampleClass.LoopSum));
+
+        Assert.Contains("V_0", noPdb);
+        Assert.DoesNotContain("int sum", noPdb);
+    }
+
+    [Fact]
+    public void ExternalPdb_NonexistentPath_FallsBackGracefully()
+    {
+        // A bogus external path must not throw; it falls back to synthesized names.
+        string output = EmitMethod(nameof(CfgSampleClass.LoopSum), "/no/such/file.pdb");
+
+        Assert.Contains("V_0", output);
     }
 }

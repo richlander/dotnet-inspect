@@ -417,20 +417,71 @@ public partial class ILDisassemblerComparisonTests
 
     static bool CanRunILAsm()
     {
+        // The ildasm/ilasm global tools target a specific .NET runtime and may be present on PATH
+        // yet unable to execute (e.g. they exit ~150 when that runtime is absent). A process that
+        // merely *starts* is not enough — probe a real round-trip of the test assembly and only
+        // treat the tools as usable on a clean, output-producing exit. Otherwise the comparison
+        // tests must Assert.Skip rather than fail.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"il-probe-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var probeIl = Path.Combine(tempDir, "probe.il");
+            var probeDll = Path.Combine(tempDir, "probe.dll");
+
+            if (!TryRunTool("ildasm", [TestDll, $"-output={probeIl}", "-utf8"]) || !File.Exists(probeIl))
+                return false;
+
+            if (!TryRunTool("ilasm", [probeIl, "-dll", $"-output={probeDll}", "-quiet"]) || !File.Exists(probeDll))
+                return false;
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
+            catch { /* best-effort cleanup */ }
+        }
+    }
+
+    /// <summary>
+    /// Runs an external tool to completion, returning true only on a clean (exit code 0) run.
+    /// Never throws and never blocks indefinitely; any failure to start, time out, or non-zero
+    /// exit is reported as false so callers can fall back to skipping.
+    /// </summary>
+    static bool TryRunTool(string fileName, IReadOnlyList<string> arguments)
+    {
         try
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "ildasm",
+                FileName = fileName,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
             };
+            foreach (var arg in arguments)
+                psi.ArgumentList.Add(arg);
 
             using var process = Process.Start(psi);
             if (process is null) return false;
-            process.WaitForExit(TimeSpan.FromSeconds(10));
-            return true;
+
+            // Drain both streams to avoid deadlock on tools that write a lot to stderr.
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                return false;
+            }
+            stdout.GetAwaiter().GetResult();
+            stderr.GetAwaiter().GetResult();
+
+            return process.ExitCode == 0;
         }
         catch
         {

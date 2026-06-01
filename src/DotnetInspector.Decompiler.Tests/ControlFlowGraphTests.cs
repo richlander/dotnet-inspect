@@ -503,6 +503,10 @@ public class CfgSampleClass
     }
 
     public static ulong ULongNegOne() => unchecked((ulong)-1);
+
+    public static void AcceptsBool(bool flag) { }
+
+    public static void PassesBoolFalse() => AcceptsBool(false);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

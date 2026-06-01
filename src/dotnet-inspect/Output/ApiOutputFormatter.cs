@@ -626,7 +626,7 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, string? pdbPath = null)
     {
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
@@ -649,7 +649,7 @@ public static class ApiOutputFormatter
             try
             {
                 var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
                 if (context != null)
                 {
                     var lowered = Decompiler.CSharpEmitter.Emit(context);
@@ -672,7 +672,7 @@ public static class ApiOutputFormatter
             try
             {
                 var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
                 if (context != null)
                 {
                     var annotated = Decompiler.AnnotatedILEmitter.Emit(

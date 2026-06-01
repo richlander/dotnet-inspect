@@ -58,6 +58,13 @@ public class PdbContext : IDisposable
     public bool HasReproducibleFlag { get; private set; }
     public bool HasEmbeddedPdb { get; private set; }
     public string? CodeViewPdbPath { get; private set; }
+
+    /// <summary>
+    /// On-disk path to a successfully loaded *portable* PDB file (standalone or downloaded from a
+    /// symbol server), or null for embedded/Windows/no PDB. Lets callers (e.g. the decompiler)
+    /// reuse the acquired symbols for local-variable names after this context is disposed.
+    /// </summary>
+    public string? PortablePdbPath { get; private set; }
     public bool? HasNormalizedPaths { get; private set; }
     public List<string>? NonNormalizedPaths { get; private set; }
 
@@ -166,6 +173,7 @@ public class PdbContext : IDisposable
             HasPdb = true;
             PdbFormat = "Portable";
             PdbLocation = pdbLocation ?? "Standalone";
+            PortablePdbPath = pdbFilePath;
             SymbolServer = symbolServer;
 
             SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);

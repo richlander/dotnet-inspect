@@ -213,13 +213,13 @@ public static class ILAstBuilder
             case ILOpCode.Ldc_r4:
             {
                 float val = BitConverter.Int32BitsToSingle((int)reader.ReadILUInt32());
-                return MakeLiteral(opcode, val.ToString("R"), StackValueKind.Float, offset);
+                return MakeLiteral(opcode, val.ToString("R", System.Globalization.CultureInfo.InvariantCulture), StackValueKind.Float, offset);
             }
 
             case ILOpCode.Ldc_r8:
             {
                 double val = BitConverter.Int64BitsToDouble((long)reader.ReadILUInt64());
-                return MakeLiteral(opcode, val.ToString("R"), StackValueKind.Float, offset);
+                return MakeLiteral(opcode, val.ToString("R", System.Globalization.CultureInfo.InvariantCulture), StackValueKind.Float, offset);
             }
 
             case ILOpCode.Ldnull:
