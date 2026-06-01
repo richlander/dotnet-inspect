@@ -688,38 +688,57 @@ public static class PackageExtractor
         List<NuGetSource> sources,
         Action<string>? log)
     {
-        // Cache nuget.org results even when additional custom sources are configured.
-        bool canCache = sources.Any(s => s.IsNuGetOrg);
-        List<string>? allVersions = null;
+        // Cache only nuget.org's own version list (keyed by package name); custom/private
+        // sources must always be queried so a pattern can resolve to a version that exists
+        // only on a secondary feed.
+        bool canCacheNuGetOrg = sources.Any(s => s.IsNuGetOrg);
+        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool anyFound = false;
 
-        if (canCache)
+        foreach (var source in sources)
         {
-            var cached = CoreCache.TryGet(VersionCacheCategory, $"{normalizedName}-all", VersionCacheTtl, extension: "txt");
-            if (cached != null)
-            {
-                log?.Invoke("Using cached version list");
-                allVersions = [.. cached.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
-            }
-        }
+            List<string>? versions = null;
 
-        if (allVersions == null)
-        {
-            foreach (var source in sources)
+            if (source.IsNuGetOrg && canCacheNuGetOrg)
             {
-                allVersions = await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
-                if (allVersions != null)
+                var cached = CoreCache.TryGet(VersionCacheCategory, $"{normalizedName}-all", VersionCacheTtl, extension: "txt");
+                if (cached != null)
                 {
-                    if (canCache && source.IsNuGetOrg)
-                        CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', allVersions), extension: "txt");
-                    break;
+                    log?.Invoke("Using cached version list");
+                    versions = [.. cached.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
                 }
             }
 
-            if (allVersions == null)
-                return null;
+            versions ??= await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            if (versions == null)
+                continue;
+
+            anyFound = true;
+            merged.UnionWith(versions);
+
+            // Persist nuget.org's list (not the merged set) so private-feed versions don't
+            // pollute the shared, name-keyed cache.
+            if (source.IsNuGetOrg && canCacheNuGetOrg)
+                CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', versions), extension: "txt");
         }
 
-        return allVersions;
+        if (!anyFound)
+            return null;
+
+        // Sort ascending by SemVer (newest last) so callers that assume ordered input
+        // (e.g. GetVersionsAsync) stay correct across merged feeds; unparseable entries sort last.
+        var parseable = new List<(NuGet.Versioning.NuGetVersion Parsed, string Original)>();
+        var unparseable = new List<string>();
+        foreach (var v in merged)
+        {
+            if (NuGet.Versioning.NuGetVersion.TryParse(v, out var parsed))
+                parseable.Add((parsed, v));
+            else
+                unparseable.Add(v);
+        }
+
+        parseable.Sort((a, b) => a.Parsed.CompareTo(b.Parsed));
+        return [.. parseable.Select(p => p.Original), .. unparseable];
     }
 
     /// <summary>

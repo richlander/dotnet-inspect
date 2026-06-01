@@ -226,6 +226,26 @@ public class VersionCacheTests : IDisposable
         Assert.Null(result);
     }
 
+    [Fact]
+    public async Task ResolveVersionPattern_WithNuGetOrgCached_AlsoQueriesCustomSource()
+    {
+        // nuget.org's list is cached and contains no match for the pattern; the only matching
+        // version lives on a secondary (custom) feed. Cross-source merging must still find it.
+        // Regression guard: a first-source-wins shortcut would never query the custom feed.
+        CoreCache.Set(VersionCacheCategory, "mergepackage-all", "1.0.0\n2.0.0", extension: "txt");
+
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: "https://custom.feed/v3/index.json",
+            flatContainerBase: "https://custom.feed/flat/",
+            packageId: "mergepackage",
+            versions: ["9.9.9-custom.1"]));
+
+        var result = await PackageExtractor.ResolveVersionPatternAsync(
+            client, "MergePackage", "9.9.*", [NuGetOrgSource, CustomSource], log: null);
+
+        Assert.Equal("9.9.9-custom.1", result);
+    }
+
     /// <summary>
     /// HTTP handler that throws on any request — used to prove cache prevented network access.
     /// </summary>
@@ -235,6 +255,40 @@ public class VersionCacheTests : IDisposable
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             throw new HttpRequestException($"Network access not allowed in test: {request.RequestUri}");
+        }
+    }
+
+    /// <summary>
+    /// Minimal V3 feed handler: serves a service index pointing at a flat-container base, and a
+    /// flat-container version list for one package. Any other URL returns 404.
+    /// </summary>
+    private sealed class CustomFeedHandler(
+        string serviceIndexUrl, string flatContainerBase, string packageId, string[] versions)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = null;
+
+            if (string.Equals(url, serviceIndexUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                body = $$"""
+                {"resources":[{"@id":"{{flatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
+                """;
+            }
+            else if (string.Equals(url, $"{flatContainerBase}{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                body = $$"""
+                {"versions":[{{string.Join(",", versions.Select(v => $"\"{v}\""))}}]}
+                """;
+            }
+
+            var response = body != null
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
+            return Task.FromResult(response);
         }
     }
 }
