@@ -10,6 +10,8 @@ public sealed class SectionEntry<TModel>
 {
     public required string Name { get; init; }
     public required bool IsExpensive { get; init; }
+    public bool ExplicitOnly { get; init; }
+    public SectionCapabilities Capabilities { get; init; }
     public required string? ScannerKey { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
@@ -37,6 +39,8 @@ public sealed class SectionPipeline<TModel>
         {
             Name = TDescriptor.Name,
             IsExpensive = TDescriptor.IsExpensive,
+            ExplicitOnly = TDescriptor.ExplicitOnly,
+            Capabilities = TDescriptor.Capabilities,
             ScannerKey = TDescriptor.ScannerKey,
             CanRender = TDescriptor.CanRender,
         });
@@ -45,6 +49,25 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>All registered section names, in registration order.</summary>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
+
+    /// <summary>
+    /// Maps each section name to a short cost-tier annotation for discovery output:
+    /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
+    /// in a default flow), <c>"expensive"</c> for sections that touch the network or do heavy work
+    /// and so only appear at Detailed verbosity. Cheap default sections are omitted (no annotation).
+    /// </summary>
+    public Dictionary<string, string> GetCostAnnotations()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var e in _entries)
+        {
+            if (e.ExplicitOnly)
+                map[e.Name] = "opt-in";
+            else if (e.IsExpensive)
+                map[e.Name] = "expensive";
+        }
+        return map;
+    }
 
     /// <summary>
     /// Returns the names of sections that would produce output for the given model,
@@ -199,9 +222,13 @@ public sealed class SectionPipeline<TModel>
     private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
         HashSet<string>? include)
     {
-        // Explicit include overrides verbosity
+        // Explicit include overrides verbosity (and is the only way to select ExplicitOnly sections)
         if (include is { Count: > 0 })
             return include.Contains(entry.Name);
+
+        // Not explicitly included: ExplicitOnly sections are never auto-selected by verbosity
+        if (entry.ExplicitOnly)
+            return false;
 
         // Verbosity-based selection using position and IsExpensive
         return verbosity switch
@@ -209,7 +236,42 @@ public sealed class SectionPipeline<TModel>
             Verbosity.Quiet => index == 0 && entry.Name == "Summary", // Include headless summary at quiet
             Verbosity.Minimal => index <= GetPrimaryThreshold(),
             Verbosity.Normal => !entry.IsExpensive,
-            _ => true, // Detailed: all sections
+            _ => true, // Detailed: all non-ExplicitOnly sections
         };
+    }
+
+    /// <summary>
+    /// Returns the names of requested sections (selection only — independent of <c>CanRender</c>)
+    /// that declare any of the given <paramref name="capabilities"/> AND are authorized to use them.
+    /// Authorization rule (keys off the user's verbosity, never an internally force-bumped value):
+    /// <list type="bullet">
+    ///   <item><b>MayDownloadPdb</b>: section is in the explicit include set OR <paramref name="userVerbosity"/> &gt;= Detailed.</item>
+    ///   <item><b>MayFetchSources</b>: section is in the explicit include set (never by verbosity).</item>
+    /// </list>
+    /// Selection (not <c>CanRender</c>) is used deliberately so the work that *produces* a section's
+    /// data can run before that data exists.
+    /// </summary>
+    public HashSet<string> GetAuthorizedSections(SectionCapabilities capabilities,
+        Verbosity userVerbosity, HashSet<string>? include)
+    {
+        HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
+        bool explicitInclude = include is { Count: > 0 };
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            var entry = _entries[i];
+            if ((entry.Capabilities & capabilities) == 0)
+                continue;
+            if (!IsRequested(entry, i, userVerbosity, include))
+                continue;
+
+            bool inInclude = explicitInclude && include!.Contains(entry.Name);
+            // MayFetchSources requires explicit include; MayDownloadPdb also allowed at -v:d.
+            bool wantsFetch = (capabilities & SectionCapabilities.MayFetchSources) != 0;
+            bool authorized = inInclude
+                || (!wantsFetch && userVerbosity >= Verbosity.Detailed);
+            if (authorized)
+                result.Add(entry.Name);
+        }
+        return result;
     }
 }

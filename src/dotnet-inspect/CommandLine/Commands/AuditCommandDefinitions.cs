@@ -25,11 +25,6 @@ public static class AuditCommandDefinitions
         };
         targetArg.DefaultValueFactory = _ => null;
 
-        var fullOption = new Option<bool>("--full") { Description = "Enable broad target-appropriate audit expansion" };
-        fullOption.Aliases.Add("--all");
-        var symbolsOption = new Option<bool>("--symbols") { Description = "Allow PDB/symbol acquisition" };
-        var sourceAuditOption = new Option<bool>("--source-audit") { Description = "Verify every SourceLink source URL (expensive; implies --symbols)" };
-        sourceAuditOption.Aliases.Add("--source");
         var nugetOption = new Option<bool>("--nuget") { Description = "Expand package audit with NuGet registry signals" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select package/library TFM (e.g., net8.0)" };
@@ -41,9 +36,6 @@ public static class AuditCommandDefinitions
         };
 
         auditCommand.Arguments.Add(targetArg);
-        auditCommand.Options.Add(fullOption);
-        auditCommand.Options.Add(symbolsOption);
-        auditCommand.Options.Add(sourceAuditOption);
         auditCommand.Options.Add(nugetOption);
         auditCommand.Options.Add(frameworkOption);
         auditCommand.Options.Add(tfmOption);
@@ -64,20 +56,13 @@ public static class AuditCommandDefinitions
                 Console.Error.WriteLine("Error: Audit target required.");
                 Console.Error.WriteLine("Examples:");
                 Console.Error.WriteLine("  dotnet-inspect audit System.Text.Json");
-                Console.Error.WriteLine("  dotnet-inspect audit System.Text.Json --full");
-                Console.Error.WriteLine("  dotnet-inspect audit package Markout --full");
+                Console.Error.WriteLine("  dotnet-inspect audit System.Text.Json -v:d");
+                Console.Error.WriteLine("  dotnet-inspect audit package Markout --nuget");
                 return 1;
             }
 
-            var auditOptions = ParseAuditOptions(parseResult, opts, fullOption, symbolsOption, sourceAuditOption, nugetOption,
+            var auditOptions = ParseAuditOptions(parseResult, opts, nugetOption,
                 frameworkOption, tfmOption, versionOption, nugetSourceOption);
-
-            if (auditOptions.NuGet && (auditOptions.Symbols || auditOptions.SourceAudit))
-            {
-                Console.Error.WriteLine("Error: --nuget audits package registry data and cannot be combined with --symbols or --source-audit.");
-                Console.Error.WriteLine("Use 'audit library <target> --source-audit' for SourceLink verification.");
-                return 1;
-            }
 
             if (auditOptions.NuGet)
                 return await ExecutePackageAuditAsync(target, auditOptions);
@@ -106,20 +91,6 @@ public static class AuditCommandDefinitions
                     Console.Error.WriteLine("Use 'audit package <package> --version <version>' for package audit.");
                     return 1;
                 }
-
-                if (auditOptions.Symbols || auditOptions.SourceAudit)
-                {
-                    Console.Error.WriteLine($"Error: '{target}' did not resolve to an installed platform library; --symbols and --source-audit require a library target.");
-                    Console.Error.WriteLine("Use 'audit package <package> --full' for package registry audit.");
-                    return 1;
-                }
-            }
-
-            if (auditOptions.Symbols || auditOptions.SourceAudit)
-            {
-                Console.Error.WriteLine($"Error: '{target}' did not resolve to a library target; --symbols and --source-audit require a library target.");
-                Console.Error.WriteLine("Use 'audit package <package> --full' for package registry audit.");
-                return 1;
             }
 
             return await ExecutePackageAuditAsync(target, auditOptions);
@@ -132,8 +103,6 @@ public static class AuditCommandDefinitions
     {
         var packageCommand = new Command("package", "Audit a NuGet package");
         var packageArg = new Argument<string>("package") { Description = "Package name, package@version, or .nupkg path" };
-        var fullOption = new Option<bool>("--full") { Description = "Enable broad package audit expansion" };
-        fullOption.Aliases.Add("--all");
         var nugetOption = new Option<bool>("--nuget") { Description = "Expand with NuGet registry signals" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select package TFM (e.g., net8.0)" };
         var versionOption = new Option<string?>("--version") { Description = "Package version" };
@@ -144,7 +113,6 @@ public static class AuditCommandDefinitions
         };
 
         packageCommand.Arguments.Add(packageArg);
-        packageCommand.Options.Add(fullOption);
         packageCommand.Options.Add(nugetOption);
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(versionOption);
@@ -155,7 +123,7 @@ public static class AuditCommandDefinitions
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
-            var auditOptions = ParseAuditOptions(parseResult, opts, fullOption, null, null, nugetOption,
+            var auditOptions = ParseAuditOptions(parseResult, opts, nugetOption,
                 null, tfmOption, versionOption, nugetSourceOption);
             return await ExecutePackageAuditAsync(parseResult.GetValue(packageArg)!, auditOptions);
         });
@@ -167,11 +135,6 @@ public static class AuditCommandDefinitions
     {
         var libraryCommand = new Command("library", "Audit a .NET library");
         var sourceArg = new Argument<string>("source") { Description = "Library file, platform library, package name, or package@version" };
-        var fullOption = new Option<bool>("--full") { Description = "Enable broad library audit expansion" };
-        fullOption.Aliases.Add("--all");
-        var symbolsOption = new Option<bool>("--symbols") { Description = "Allow PDB/symbol acquisition" };
-        var sourceAuditOption = new Option<bool>("--source-audit") { Description = "Verify every SourceLink source URL (expensive; implies --symbols)" };
-        sourceAuditOption.Aliases.Add("--source");
         var frameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var versionOption = new Option<string?>("--version") { Description = "Platform runtime version" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library TFM (e.g., net8.0)" };
@@ -182,9 +145,6 @@ public static class AuditCommandDefinitions
         };
 
         libraryCommand.Arguments.Add(sourceArg);
-        libraryCommand.Options.Add(fullOption);
-        libraryCommand.Options.Add(symbolsOption);
-        libraryCommand.Options.Add(sourceAuditOption);
         libraryCommand.Options.Add(frameworkOption);
         libraryCommand.Options.Add(versionOption);
         libraryCommand.Options.Add(tfmOption);
@@ -195,7 +155,7 @@ public static class AuditCommandDefinitions
 
         libraryCommand.SetAction(async (parseResult, ct) =>
         {
-            var auditOptions = ParseAuditOptions(parseResult, opts, fullOption, symbolsOption, sourceAuditOption, null,
+            var auditOptions = ParseAuditOptions(parseResult, opts, null,
                 frameworkOption, tfmOption, versionOption, nugetSourceOption);
             var source = parseResult.GetValue(sourceArg)!;
             var target = await ResolveLibraryTargetAsync(source, auditOptions);
@@ -222,25 +182,16 @@ public static class AuditCommandDefinitions
     private static AuditOptions ParseAuditOptions(
         ParseResult parseResult,
         SharedOptions opts,
-        Option<bool>? fullOption,
-        Option<bool>? symbolsOption,
-        Option<bool>? sourceAuditOption,
         Option<bool>? nugetOption,
         Option<string?>? frameworkOption,
         Option<string?>? tfmOption,
         Option<string?>? versionOption,
         Option<string[]> nugetSourceOption)
     {
-        var full = fullOption != null && parseResult.GetValue(fullOption);
-        var sourceAudit = sourceAuditOption != null && parseResult.GetValue(sourceAuditOption);
-        var symbols = sourceAudit || (symbolsOption != null && parseResult.GetValue(symbolsOption));
         var nuget = nugetOption != null && parseResult.GetValue(nugetOption);
         var verbosity = opts.ParseVerbosity(parseResult);
 
         return new AuditOptions(
-            Full: full,
-            Symbols: symbols,
-            SourceAudit: sourceAudit,
             NuGet: nuget,
             Framework: frameworkOption == null ? null : parseResult.GetValue(frameworkOption),
             Tfm: tfmOption == null ? null : parseResult.GetValue(tfmOption),
@@ -302,10 +253,11 @@ public static class AuditCommandDefinitions
 
     private static async Task<int> ExecuteLibraryAuditAsync(LibraryAuditTarget target, AuditOptions audit)
     {
-        audit = ExpandForLibrary(audit);
-
+        // Curated audit selection. Provenance is the point of an audit, so the Audit section is
+        // always included (which authorizes its PDB download). At Detailed verbosity the curated set
+        // expands to the network-fast provenance sections; Source Integrity stays opt-in via library -S.
         var includeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Audit" };
-        if (audit.SourceAudit)
+        if (audit.Verbosity >= Verbosity.Detailed)
         {
             includeSections.Add("SourceLink Audit");
             includeSections.Add("Missing Source Files");
@@ -329,9 +281,7 @@ public static class AuditCommandDefinitions
             Verbosity = audit.Verbosity,
             IncludeSections = includeSections,
             SourceOptions = audit.SourceOptions,
-            Audit = true,
-            AllowSymbolDownloads = audit.Symbols,
-            SourceLinkAudit = audit.SourceAudit
+            Audit = true
         };
 
         return await AssemblyCommand.ExecuteAsync(options);
@@ -339,8 +289,6 @@ public static class AuditCommandDefinitions
 
     private static Task<int> ExecutePackageAuditAsync(string package, AuditOptions audit)
     {
-        audit = ExpandForPackage(audit);
-
         var packageArgs = string.IsNullOrWhiteSpace(audit.Version)
             ? new[] { package }
             : new[] { package, audit.Version! };
@@ -367,23 +315,7 @@ public static class AuditCommandDefinitions
     private static bool LooksLikePackageFile(string target) =>
         target.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
-    private static AuditOptions ExpandForLibrary(AuditOptions audit)
-    {
-        var detailed = audit.Verbosity >= Verbosity.Detailed;
-        return audit with
-        {
-            Symbols = audit.Symbols || audit.Full || detailed,
-            SourceAudit = audit.SourceAudit || detailed
-        };
-    }
-
-    private static AuditOptions ExpandForPackage(AuditOptions audit) =>
-        audit.Full ? audit with { NuGet = true } : audit;
-
     private sealed record AuditOptions(
-        bool Full,
-        bool Symbols,
-        bool SourceAudit,
         bool NuGet,
         string? Framework,
         string? Tfm,

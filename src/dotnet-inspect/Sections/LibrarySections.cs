@@ -29,6 +29,7 @@ public static class LibrarySections
             .Add<Audit>()
             .Add<SourceLinkAudit>()
             .Add<MissingSourceFiles>()
+            .Add<SourceIntegrity>()
             .Add<LibraryReferences>()
             .Add<LibraryReferencesTransitive>()
             .Add<Dependencies>()
@@ -76,6 +77,7 @@ public static class LibrarySections
     {
         public static string Name => "Symbols";
         public static bool IsExpensive => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => ScannerSymbols;
         public static bool CanRender(LibraryInspection model) => true;
     }
@@ -86,6 +88,7 @@ public static class LibrarySections
     {
         public static string Name => "Audit";
         public static bool IsExpensive => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
@@ -95,6 +98,11 @@ public static class LibrarySections
     {
         public static string Name => "SourceLink Audit";
         public static bool IsExpensive => true;
+        // Opt-in only: issues one HEAD per source file, which scales with source count and is too
+        // slow for the default -v:d flow. The Audit section's PDB-derived SourceLink row covers
+        // provenance without this per-file network fan-out.
+        public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
@@ -104,9 +112,23 @@ public static class LibrarySections
     {
         public static string Name => "Missing Source Files";
         public static bool IsExpensive => true;
+        // Opt-in only: derived from the same per-file HEAD pass as SourceLink Audit.
+        public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.MissingSourceFiles is { Count: > 0 };
+    }
+
+    public sealed class SourceIntegrity : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Source Integrity";
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
     public sealed class LibraryReferences : ISectionDescriptor<LibraryInspection>

@@ -40,13 +40,15 @@ public class AssemblyCommand
             {
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-                    verbosity: (int)options.Verbosity);
+                    verbosity: (int)options.Verbosity,
+                    sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
         }
 
         // --effective with -D: run pipeline at Detailed to show sections with data
         bool effectiveDiscovery = options.Effective && options.Discover != null;
         var userVerbosity = options.Verbosity; // preserve for display formatting
+        options = options with { UserVerbosityOverride = userVerbosity };
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
@@ -161,7 +163,7 @@ public class AssemblyCommand
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
-                return 0;
+                return IntegrityExitCode(inspection);
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -219,7 +221,7 @@ public class AssemblyCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options, logger);
 
-                return 0;
+                return IntegrityExitCode([.. inspections]);
             }
             else
             {
@@ -255,7 +257,7 @@ public class AssemblyCommand
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
-                return 0;
+                return IntegrityExitCode(inspection);
             }
         }
         catch (Exception ex)
@@ -278,6 +280,21 @@ public class AssemblyCommand
                 }
             }
         }
+    }
+
+    private static int IntegrityExitCode(params LibraryInspection[] inspections)
+    {
+        bool mismatch = false;
+        foreach (var insp in inspections)
+        {
+            if (insp.SourceIntegrityMismatches is { Count: > 0 } list)
+            {
+                mismatch = true;
+                foreach (var file in list)
+                    Console.Error.WriteLine($"Source integrity mismatch: {file}");
+            }
+        }
+        return mismatch ? 1 : 0;
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,

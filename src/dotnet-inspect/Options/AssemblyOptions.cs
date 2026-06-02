@@ -102,6 +102,16 @@ public record AssemblyOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Normal;
 
     /// <summary>
+    /// The user's originally requested verbosity, before any internal force-bumping for
+    /// <c>-S</c>/<c>-D --effective</c>. Capability authorization (network work) keys off this so
+    /// a forced Detailed bump never silently authorizes downloads. Defaults to <see cref="Verbosity"/>.
+    /// </summary>
+    public Verbosity? UserVerbosityOverride { get; init; }
+
+    /// <summary>Effective user verbosity (falls back to <see cref="Verbosity"/> when not set).</summary>
+    public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
+
+    /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
     public HashSet<string>? IncludeSections { get; init; }
@@ -142,16 +152,6 @@ public record AssemblyOptions
     /// Show a focused metadata audit section. This is signal-based, not a trust verdict.
     /// </summary>
     public bool Audit { get; init; }
-
-    /// <summary>
-    /// Allow remote PDB/symbol acquisition for audit enrichment.
-    /// </summary>
-    public bool AllowSymbolDownloads { get; init; }
-
-    /// <summary>
-    /// Expand the audit with SourceLink source-file accessibility verification.
-    /// </summary>
-    public bool SourceLinkAudit { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.

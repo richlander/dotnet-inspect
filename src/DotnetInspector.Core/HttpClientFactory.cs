@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 
 namespace DotnetInspector.Core;
 
@@ -72,6 +73,94 @@ public static class HttpClientFactory
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
         client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
         return client;
+    }
+
+    /// <summary>
+    /// Creates an HttpClient hardened against SSRF for fetching content from URLs that originate
+    /// in untrusted artifacts (e.g. SourceLink URLs embedded in a PDB). Every TCP connection —
+    /// including redirect hops — is validated to resolve to a public IP address, and automatic
+    /// redirects are capped. Offline mode and the DEBUG network guard are still honored.
+    /// </summary>
+    public static HttpClient CreateUntrustedFetchClient(TimeSpan? timeout = null)
+    {
+        HttpMessageHandler handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5,
+            ConnectCallback = SsrfGuardedConnectAsync,
+        };
+
+        if (_offline)
+            handler = new OfflineHandler(handler);
+
+        if (InfoTracker.Enabled)
+            handler = new CountingHandler(handler);
+
+        handler = new NetworkGuardHandler(handler);
+
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
+        return client;
+    }
+
+    private static async ValueTask<Stream> SsrfGuardedConnectAsync(
+        SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+    {
+        var endpoint = context.DnsEndPoint;
+        var addresses = await Dns.GetHostAddressesAsync(endpoint.Host, cancellationToken).ConfigureAwait(false);
+        if (addresses.Length == 0)
+            throw new HttpRequestException($"Could not resolve host: {endpoint.Host}");
+
+        foreach (var address in addresses)
+        {
+            if (IsNonPublic(address))
+                throw new HttpRequestException(
+                    $"Blocked request to non-public address: {endpoint.Host} resolves to {address}");
+        }
+
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(addresses, endpoint.Port, cancellationToken).ConfigureAwait(false);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Returns true for loopback, link-local, private, CGNAT, multicast, and unspecified addresses.</summary>
+    private static bool IsNonPublic(IPAddress ip)
+    {
+        if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
+            return true;
+
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast || ip.IsIPv6UniqueLocal)
+                return true;
+            if (ip.IsIPv4MappedToIPv6)
+                return IsNonPublic(ip.MapToIPv4());
+            return false;
+        }
+
+        byte[] b = ip.GetAddressBytes();
+        return b[0] switch
+        {
+            0 => true,                              // 0.0.0.0/8
+            10 => true,                             // 10.0.0.0/8
+            127 => true,                            // loopback
+            169 when b[1] == 254 => true,           // link-local
+            172 when b[1] >= 16 && b[1] <= 31 => true, // 172.16.0.0/12
+            192 when b[1] == 168 => true,           // 192.168.0.0/16
+            100 when b[1] >= 64 && b[1] <= 127 => true, // CGNAT 100.64.0.0/10
+            >= 224 => true,                         // multicast / reserved
+            _ => false,
+        };
     }
 }
 

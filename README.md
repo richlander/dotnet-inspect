@@ -57,15 +57,13 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 
 ## Audit signals
 
-`audit` is a signal report, not a safety certification. By default it reports facts discoverable from package and assembly metadata. Use `--full` (alias: `--all`) for broad target-appropriate enrichment. Use `-v:d` when you want detailed audit sections, including exhaustive SourceLink coverage.
+`audit` is a signal report, not a safety certification. Cost is governed by verbosity and explicit section selection: `audit X` reports metadata signals plus the provenance Audit section (which acquires a missing PDB to resolve SourceLink). The per-source-file reachability pass (SourceLink Audit, Missing Source Files) is opt-in — included by `audit X -v:d` or selected explicitly with `-S` — because its cost scales with source-file count. The slow, exhaustive content check (Source Integrity) is opt-in only.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
-| `audit X` | Metadata | Package or library metadata signals only; no network enrichment. |
-| `audit X --full` | Broad target-appropriate scope | Libraries allow symbol/PDB enrichment; packages include NuGet registry and dependency expansion. |
-| `audit X -v:d` | Detailed library audit | Audit plus SourceLink Audit section; verifies tracked source-file URLs and embedded-source coverage. |
-| `audit X --source-audit` | Explicit SourceLink verification | Alias: `--source`; equivalent to the detailed library source coverage check. |
-| `audit X --symbols` | Symbol/PDB enrichment | Library audit plus PDB acquisition for SourceLink presence and deterministic evidence without source URL verification. |
+| `audit X` | Metadata + provenance | Package or library metadata signals plus the Audit section; a missing library PDB is acquired to resolve SourceLink. |
+| `audit X -v:d` | Detailed library audit | Adds SourceLink Audit and Missing Source Files (opt-in per-file pass); verifies tracked source-file URLs are reachable (HTTP HEAD) and reports embedded-source coverage. |
+| `library X -S "Source Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `audit package X --nuget` | NuGet registry expansion | Package audit plus known vulnerabilities, resolved dependency closure, max dependency depth, package age, and direct dependency age. |
 
 ## Output and querying
@@ -90,9 +88,9 @@ For `type` and `member`, `-D` reports the effective schema by default: only sect
 
 ```bash
 dotnet-inspect audit System.Text.Json
-dotnet-inspect audit System.Text.Json --full
 dotnet-inspect audit System.Text.Json -v:d
-dotnet-inspect audit package System.Text.Json --full
+dotnet-inspect library System.Text.Json -S "Source Integrity"
+dotnet-inspect audit package System.Text.Json --nuget
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect type --package System.Text.Json --oneline
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

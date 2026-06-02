@@ -943,32 +943,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task AuditCommand_Platform_DefaultDoesNotDownloadPdb()
+    public async Task AuditCommand_Platform_DownloadsPdbByDefault()
     {
         var (exit, output, _) = await RunAppAsync("audit", "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Audit", output);
-        Assert.Contains("PDB not checked", output);
-    }
-
-    [Fact]
-    public async Task AuditCommand_LibraryFull_ChecksSymbolsWithoutSourceAudit()
-    {
-        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath, "--full");
-
-        Assert.Equal(0, exit);
-        Assert.Contains("## Audit", output);
+        // Audit curates the Audit section, which authorizes PDB acquisition: SourceLink resolves.
         Assert.DoesNotContain("PDB not checked", output);
-        Assert.DoesNotContain("Source audit", output);
-        Assert.Contains("Metadata + symbol signals", output);
-        Assert.DoesNotContain("Tip:", error);
     }
 
     [Fact]
-    public async Task AuditCommand_LibraryAll_IsAliasForFull()
+    public async Task AuditCommand_Library_ChecksSymbolsByDefault()
     {
-        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath, "--all");
+        var (exit, output, error) = await RunAppAsync("audit", "library", TestAssemblyPath);
 
         Assert.Equal(0, exit);
         Assert.Contains("## Audit", output);
@@ -1080,32 +1068,12 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task AuditCommand_PackageFull_EnablesNuGetAudit()
+    public async Task AuditCommand_PackageNuGet_EnablesNuGetAudit()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("audit", packagePath, "--full");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("## Audit", output);
-            Assert.Contains("Known vulnerabilities", output);
-            Assert.Contains("Metadata + NuGet registry signals", output);
-            Assert.DoesNotContain("Tip:", error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task AuditCommand_PackageAll_IsAliasForFull()
-    {
-        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync("audit", "package", packagePath, "--all");
+            var (exit, output, error) = await RunAppAsync("audit", packagePath, "--nuget");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Audit", output);

@@ -24,7 +24,7 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Fix upgrade breaks | `diff --package Foo@old..new --breaking` | Inspect replacement members with `member`. |
 | Learn what changed | `diff --package Foo@old..new --additive` or `diff --platform Lib@old..new` | Use `-t Type` to narrow. |
 | Locate source | `source Type --package Foo` | Add `-m Member` or use `member Type Member:1 -v:d`. |
-| Audit package/library contents | `audit Foo` | Add `--full`/`--all` for broad expansion and `-v:d` for detailed sections; use `--symbols` or `--nuget` only to fine-tune. |
+| Audit package/library contents | `audit Foo` | `audit Foo` resolves SourceLink; add `-v:d` for fast provenance sections, `-S "Source Integrity"` for slow content verification, `--nuget` for package registry signals. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
 | Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N` | Prefer built-in limits over shell pipes. |
 
@@ -85,18 +85,18 @@ For crash/stack diagnostics that include a MethodDef token plus IL offset, `sour
 
 ## Package and library audit workflow
 
-Use `audit` for metadata-only signals. It reports observations, not a safety or trust verdict. Add `--full` (or alias `--all`) when broad network-backed expansion is appropriate; use `-v:d` for detailed audit sections such as exhaustive SourceLink coverage.
+Use `audit` for metadata and provenance signals. It reports observations, not a safety or trust verdict. Cost follows verbosity and explicit selection: `audit X` reports metadata plus the Audit section (acquiring a missing PDB to resolve SourceLink); `audit X -v:d` adds the per-source-file reachability pass (SourceLink Audit, Missing Source Files), which is otherwise opt-in via `-S`. The exhaustive content check is the opt-in `Source Integrity` section.
 
 ```bash
 dnx dotnet-inspect -y -- audit System.Text.Json
-dnx dotnet-inspect -y -- audit System.Text.Json --full
 dnx dotnet-inspect -y -- audit System.Text.Json -v:d
-dnx dotnet-inspect -y -- audit package System.Text.Json --full
+dnx dotnet-inspect -y -- library System.Text.Json -S "Source Integrity"
+dnx dotnet-inspect -y -- audit package System.Text.Json --nuget
 ```
 
-Library audit includes assembly metadata such as SourceLink presence, determinism, public key token, trim/AOT markers, updated memory-safety model, `RequiresUnsafe` member count, unsafe signatures, P/Invoke, and direct references. For libraries, `--full` allows symbol/PDB acquisition but does not exhaustively verify every source document. Use `-v:d` (or explicit `--source-audit`) when validating all SourceLink-tracked source URLs; it may be expensive for large assemblies.
+Library audit includes assembly metadata such as SourceLink presence, determinism, public key token, trim/AOT markers, updated memory-safety model, `RequiresUnsafe` member count, unsafe signatures, P/Invoke, and direct references. `audit X` resolves SourceLink by acquiring a missing PDB. The per-source-file reachability pass — SourceLink Audit and Missing Source Files, which issue one HTTP HEAD per tracked source URL — is opt-in: `audit X -v:d` includes it, or select it explicitly with `-S "SourceLink Audit"`. It does not run in a plain `library X -v:d` flow because its cost scales with source-file count. To verify source *content*, select `library X -S "Source Integrity"`: it downloads each tracked source file and compares its hash to the PDB checksum, exiting non-zero on mismatch. It is slow for large assemblies and never runs in a default flow.
 
-Package audit includes TFMs, assemblies, RID/native assets, readme/license/repository, direct dependencies, and package signature. For packages, `--full` enables registry-backed signals such as vulnerabilities, dependency closure, dependency depth, package age, and direct dependency age; `--nuget` is the narrower equivalent. Custom feeds (`--nuget-source`, `--add-source`, `--nugetconfig`) and local `.nupkg` files are supported.
+Package audit includes TFMs, assemblies, RID/native assets, readme/license/repository, direct dependencies, and package signature. For packages, `--nuget` enables registry-backed signals such as vulnerabilities, dependency closure, dependency depth, package age, and direct dependency age. Custom feeds (`--nuget-source`, `--add-source`, `--nugetconfig`) and local `.nupkg` files are supported.
 
 ## Output and query workflow
 

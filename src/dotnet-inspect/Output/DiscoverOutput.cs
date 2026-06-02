@@ -18,7 +18,7 @@ public static class DiscoverOutput
     /// </summary>
     public static int Execute(string[]? discover, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false, int verbosity = 0,
-        string? rootLabel = null)
+        string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree && discover is { Length: > 0 } && ResolvedSectionCount(discover, schema) > 1)
@@ -29,9 +29,9 @@ public static class DiscoverOutput
             tree = true;
 
         if (tree)
-            return WriteTree(discover, schema, rootLabel);
+            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations);
 
-        var rows = GetDiscoveryRows(discover, schema);
+        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations);
         if (rows == null)
             return 1;
 
@@ -271,13 +271,14 @@ public static class DiscoverOutput
     private static IEnumerable<string> ParseRowCells(string row)
         => row.Trim().Trim('|').Split('|').Select(c => c.Trim()).Where(c => c.Length > 0);
 
-    private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema)
+    private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
         // Bare -D: list sections
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
-            return items.Select(i => new DiscoveryRow(i.Name, i.Kind)).ToList();
+            return items.Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations))).ToList();
         }
 
         // -D SectionName: list items within section
@@ -346,7 +347,19 @@ public static class DiscoverOutput
         return null;
     }
 
-    private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null)
+    /// <summary>
+    /// Appends a cost-tier annotation to a section's kind label, e.g. <c>"section"</c> →
+    /// <c>"section (expensive)"</c>, when <paramref name="annotations"/> has an entry for the
+    /// section name. Cheap default sections (no entry) are returned unchanged.
+    /// </summary>
+    private static string AnnotateKind(string kind, string name,
+        IReadOnlyDictionary<string, string>? annotations)
+        => annotations != null && annotations.TryGetValue(name, out var tier)
+            ? $"{kind} ({tier})"
+            : kind;
+
+    private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -392,7 +405,11 @@ public static class DiscoverOutput
                     foreach (var item in section.Items)
                         children.Add(new TreeNode($"{item.Name} ({item.Kind})"));
                 }
-                nodes.Add(new TreeNode(sectionName) { Children = children });
+                var label = sectionCostAnnotations != null
+                    && sectionCostAnnotations.TryGetValue(sectionName, out var tier)
+                        ? $"{sectionName} ({tier})"
+                        : sectionName;
+                nodes.Add(new TreeNode(label) { Children = children });
             }
         }
 

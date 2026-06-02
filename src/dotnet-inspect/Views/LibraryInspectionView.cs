@@ -90,6 +90,7 @@ public class LibraryInspectionView
         FileSize = _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null,
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
+        AsyncKind = ResolveAsyncKind(),
         Source = _data.Source,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
     };
@@ -139,6 +140,19 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "Missing Source Files", ShowWhenProperty = nameof(HasMissingSourceFiles))]
     public List<string>? MissingSourceFilesSection =>
         _data.MissingSourceFiles?.Take(10).Select(f => $"`{f}`").ToList();
+
+    [MarkoutIgnore]
+    public bool HasSourceIntegrity => _data.SourceIntegrityChecked;
+
+    [MarkoutSection(Name = "Source Integrity", ShowWhenProperty = nameof(HasSourceIntegrity))]
+    public SourceIntegritySection? SourceIntegritySection => !HasSourceIntegrity ? null : new SourceIntegritySection
+    {
+        Status = _data.SourceIntegrityMismatched > 0 ? "Mismatch"
+            : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified",
+        Verified = _data.SourceIntegrityVerified,
+        Mismatched = _data.SourceIntegrityMismatched,
+        Unverifiable = _data.SourceIntegrityUnverifiable
+    };
 
     [MarkoutIgnore]
     public bool UseDependenciesView => _data.UseDependenciesView;
@@ -250,6 +264,20 @@ public class LibraryInspectionView
 
         return "";
     }
+
+    /// <summary>
+    /// Classifies the assembly's public async surface: "Runtime" (impl-flag async only),
+    /// "State machine" (compiler state-machine async only), "Mixed" (both), or "None" when the
+    /// assembly exposes no public async methods. Scope matches the "Async Methods" section
+    /// (public, non-accessor methods).
+    /// </summary>
+    private string ResolveAsyncKind() => (_data.HasRuntimeAsync, _data.HasStateMachineAsync) switch
+    {
+        (true, true) => "Mixed",
+        (true, false) => AsyncMethodSummary.RuntimeKind,
+        (false, true) => AsyncMethodSummary.StateMachineKind,
+        _ => "None",
+    };
 
     private static string FormatSize(int bytes) => bytes switch
     {
@@ -392,6 +420,7 @@ public class LibraryInfoSection
     public string? FileSize { get; init; }
     public string? Types { get; init; }
     public string? Methods { get; init; }
+    public string? AsyncKind { get; init; }
     public string? Source { get; init; }
     public string? Modified { get; init; }
 }
@@ -426,4 +455,14 @@ public class SourceLinkAuditSection
     public string SourceFiles { get; init; } = "";
     public int Embedded { get; init; }
     public int Missing { get; init; }
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class SourceIntegritySection
+{
+    public string Status { get; init; } = "";
+    public int Verified { get; init; }
+    public int Mismatched { get; init; }
+    public int Unverifiable { get; init; }
 }

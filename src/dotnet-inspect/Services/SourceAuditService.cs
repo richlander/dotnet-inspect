@@ -11,6 +11,10 @@ internal static class SourceAuditService
 {
     private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromDays(1);
 
+    // Mutable (non commit-pinned) source URLs may change behind the same URL, so their positive
+    // ("accessible") result is only trusted for a bounded window rather than cached forever.
+    private static readonly TimeSpan MutablePositiveCacheTtl = TimeSpan.FromDays(1);
+
     public static async Task PopulateAsync(
         SourceLinkService service,
         LibraryInspection inspection,
@@ -43,7 +47,13 @@ internal static class SourceAuditService
         List<SourceDocument> uncachedDocs = [];
         foreach (var doc in urlDocs)
         {
-            if (CoreCache.TryGet("source-audit", doc.ResolvedUrl!, extension: "ok") != null)
+            // Permanent positive cache only for commit-pinned URLs; mutable URLs expire after a day.
+            bool immutable = SourceLinkUrls.IsImmutable(doc.ResolvedUrl!);
+            string? positiveHit = immutable
+                ? CoreCache.TryGet("source-audit", doc.ResolvedUrl!, extension: "ok")
+                : CoreCache.TryGet("source-audit", doc.ResolvedUrl!, MutablePositiveCacheTtl, extension: "ok");
+
+            if (positiveHit != null)
             {
                 Interlocked.Increment(ref accessibleCount);
             }

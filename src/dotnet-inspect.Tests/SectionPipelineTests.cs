@@ -207,9 +207,10 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(16, pipeline.AllSectionNames.Length);
+        Assert.Equal(17, pipeline.AllSectionNames.Length);
         Assert.Contains("SourceLink Audit", pipeline.AllSectionNames);
         Assert.Contains("Missing Source Files", pipeline.AllSectionNames);
+        Assert.Contains("Source Integrity", pipeline.AllSectionNames);
     }
 
     [Fact]
@@ -221,6 +222,62 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
         Assert.Contains("Library Info", effective);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceIntegrityNeverAutoSelectedByVerbosity()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            SourceIntegrityChecked = true
+        };
+
+        // Even at Detailed, an ExplicitOnly section must not be auto-selected.
+        var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        Assert.DoesNotContain("Source Integrity", detailed);
+
+        // It renders only when explicitly included.
+        var included = pipeline.GetEffectiveSections(model, Verbosity.Normal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Source Integrity" });
+        Assert.Contains("Source Integrity", included);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceIntegrityAuthorizedOnlyByExplicitSelection()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Source Integrity" };
+
+        // MayFetchSources is authorized only via explicit include, never by verbosity.
+        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, Verbosity.Detailed, null));
+        Assert.Contains("Source Integrity",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, Verbosity.Normal, include));
+    }
+
+    [Fact]
+    public void LibraryPipeline_PdbDownloadAuthorizedByDetailedOrInclude()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        // Audit declares MayDownloadPdb: not authorized at Normal without include...
+        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Normal, null));
+
+        // ...authorized at Detailed (verbosity ceiling)...
+        Assert.Contains("Audit",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Detailed, null));
+
+        // ...and authorized at Normal when explicitly included.
+        Assert.Contains("Audit",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Normal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Audit" }));
+
+        // Source Integrity also declares MayDownloadPdb but is ExplicitOnly: the verbosity ceiling
+        // must NOT authorize it without an explicit include (regression guard for the ordering of
+        // ExplicitOnly filtering vs. capability authorization).
+        Assert.DoesNotContain("Source Integrity",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Detailed, null));
     }
 
     [Fact]
