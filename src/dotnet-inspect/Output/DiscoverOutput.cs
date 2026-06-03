@@ -274,11 +274,16 @@ public static class DiscoverOutput
     private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
-        // Bare -D: list sections
+        // Bare -D: list sections (regular alpha, then opt-in alpha)
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
-            return items.Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations))).ToList();
+            return items
+                .Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations)))
+                .OrderBy(r => sectionCostAnnotations != null
+                    && sectionCostAnnotations.TryGetValue(r.Name, out var t) && t == "opt-in" ? 1 : 0)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         // -D SectionName: list items within section
@@ -395,8 +400,12 @@ public static class DiscoverOutput
         }
         else
         {
-            // Full tree: sections → items
-            foreach (var sectionName in schema.SectionNames)
+            // Full tree: sections → items (regular alpha, then opt-in alpha)
+            var orderedSections = schema.SectionNames
+                .OrderBy(n => sectionCostAnnotations != null
+                    && sectionCostAnnotations.TryGetValue(n, out var t) && t == "opt-in" ? 1 : 0)
+                .ThenBy(n => n, StringComparer.OrdinalIgnoreCase);
+            foreach (var sectionName in orderedSections)
             {
                 var children = new List<TreeNode>();
                 var section = schema.GetSection(sectionName);
