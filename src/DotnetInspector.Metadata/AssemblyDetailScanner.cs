@@ -56,37 +56,37 @@ public static class AssemblyDetailScanner
 
         var reader = peReader.GetMetadataReader();
 
-        // Assembly-level attributes
-        if (reader.IsAssembly)
+        const string assemblyMetadataAttributeName = "System.Reflection.AssemblyMetadataAttribute";
+
+        void addAttributes(CustomAttributeHandleCollection handles, string target)
         {
-            var assemblyDef = reader.GetAssemblyDefinition();
-            foreach (var attrHandle in assemblyDef.GetCustomAttributes())
+            foreach (var attrHandle in handles)
             {
                 var attr = reader.GetCustomAttribute(attrHandle);
                 string? name = AssemblyInspector.GetAttributeName(reader, attr);
                 if (name == null || IsWellKnownMetadataAttribute(name))
                     continue;
 
+                if (name == assemblyMetadataAttributeName)
+                {
+                    var metadata = TryGetAssemblyMetadataValue(reader, attr);
+                    if (metadata is { } kv)
+                        results.Add(new AssemblyAttributeInfo($"AssemblyMetadata({kv.Key})", target, kv.Value));
+                    continue;
+                }
+
                 string shortName = GetShortAttributeName(name);
                 string? value = TryGetAttributeDisplayValue(reader, attr);
-                results.Add(new AssemblyAttributeInfo(shortName, "Assembly", value));
+                results.Add(new AssemblyAttributeInfo(shortName, target, value));
             }
-
         }
+
+        // Assembly-level attributes
+        if (reader.IsAssembly)
+            addAttributes(reader.GetAssemblyDefinition().GetCustomAttributes(), "Assembly");
 
         // Module-level attributes
-        var moduleDef = reader.GetModuleDefinition();
-        foreach (var attrHandle in moduleDef.GetCustomAttributes())
-        {
-            var attr = reader.GetCustomAttribute(attrHandle);
-            string? name = AssemblyInspector.GetAttributeName(reader, attr);
-            if (name == null || IsWellKnownMetadataAttribute(name))
-                continue;
-
-            string shortName = GetShortAttributeName(name);
-            string? value = TryGetAttributeDisplayValue(reader, attr);
-            results.Add(new AssemblyAttributeInfo(shortName, "Module", value));
-        }
+        addAttributes(reader.GetModuleDefinition().GetCustomAttributes(), "Module");
 
         return results;
     }
@@ -245,10 +245,11 @@ public static class AssemblyDetailScanner
     public static long GetFileSize(string path) => new FileInfo(path).Length;
 
     /// <summary>
-    /// Attributes already surfaced in Library Info — skip in custom attributes section.
+    /// Attributes surfaced in Library Info or that are compiler/runtime infrastructure noise.
     /// </summary>
     private static bool IsWellKnownMetadataAttribute(string name) => name switch
     {
+        // Already surfaced in Library Info
         "System.Runtime.Versioning.TargetFrameworkAttribute" => true,
         "System.Reflection.AssemblyFileVersionAttribute" => true,
         "System.Reflection.AssemblyInformationalVersionAttribute" => true,
@@ -258,7 +259,6 @@ public static class AssemblyDetailScanner
         "System.Reflection.AssemblyDescriptionAttribute" => true,
         "System.Reflection.AssemblyConfigurationAttribute" => true,
         "System.Reflection.AssemblyTitleAttribute" => true,
-        "System.Reflection.AssemblyMetadataAttribute" => true,
         // Compiler-generated noise
         "System.Runtime.CompilerServices.CompilationRelaxationsAttribute" => true,
         "System.Runtime.CompilerServices.RuntimeCompatibilityAttribute" => true,
@@ -267,6 +267,12 @@ public static class AssemblyDetailScanner
         "System.Runtime.CompilerServices.NullablePublicOnlyAttribute" => true,
         "System.Runtime.CompilerServices.NullableContextAttribute" => true,
         "System.Runtime.CompilerServices.NullableAttribute" => true,
+        // Runtime/compiler infrastructure — not developer decisions
+        "System.Runtime.CompilerServices.ExtensionAttribute" => true,
+        "System.Runtime.CompilerServices.SkipLocalsInitAttribute" => true,
+        "System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute" => true,
+        "System.Reflection.Metadata.MetadataUpdateHandlerAttribute" => true,
+        "System.CLSCompliantAttribute" => true,
         _ => false
     };
 
