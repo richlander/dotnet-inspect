@@ -601,7 +601,11 @@ public static class ApiSurfaceExtractor
                 accessorStr = "{ get; }"; // Fallback
         }
 
-        return $"{treeSignature.ReturnType.Render()} {name} {accessorStr}";
+        var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(reader, prop.GetCustomAttributes())
+            ? "required "
+            : "";
+
+        return $"{requiredPrefix}{treeSignature.ReturnType.Render()} {name} {accessorStr}";
     }
 
     /// <summary>
