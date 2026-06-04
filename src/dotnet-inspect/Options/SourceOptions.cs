@@ -52,11 +52,6 @@ public record SourceOptions
     public bool Verify { get; init; }
 
     /// <summary>
-    /// Full source audit: verify all PDB source files are accessible (not just type-level).
-    /// </summary>
-    public bool Audit { get; init; }
-
-    /// <summary>
     /// Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption).
     /// </summary>
     public bool BrowsableUrls { get; init; }

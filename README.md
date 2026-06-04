@@ -20,7 +20,7 @@ dnx dotnet-inspect -y -- <command>
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Platform libraries | `library System.Private.CoreLib`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
+| Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
@@ -29,8 +29,8 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
-| Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, NuGet config support. |
-| Library audit | `library` | Assembly identity, public key token, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
+| Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
+| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
@@ -41,8 +41,8 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 
 | Command | Purpose |
 | ------- | ------- |
-| `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, vulnerabilities. |
-| `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods. |
+| `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
+| `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, source, decompiled C#, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. |
@@ -53,6 +53,17 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `source X` | Resolve SourceLink URLs or map method token + IL offset to source. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the embedded LLM skill definition. |
+
+## Signals
+
+`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink Availability`, `SourceLink Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink Integrity`) is opt-in only.
+
+| Command | Scope | Signals |
+| ------- | ----- | ------- |
+| `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
+| `library X -S "Signals,SourceLink Availability,SourceLink Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
+| `library X -S "SourceLink Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 
 ## Output and querying
 
@@ -67,15 +78,19 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S "Async*" --count
+dotnet-inspect library System.Text.Json -S Signals
 ```
 
-For `type` and `member`, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
+For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections.
 
 ## Common examples
 
 ```bash
+dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
+dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
-dotnet-inspect library System.Text.Json --source-link-audit
 dotnet-inspect type --package System.Text.Json --oneline
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -v:d

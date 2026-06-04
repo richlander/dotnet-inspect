@@ -1,5 +1,4 @@
 using System.IO.Compression;
-
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -102,7 +101,8 @@ public class SymbolPackageDownloader(HttpClient client)
 
         try
         {
-            using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log).ConfigureAwait(false);
+            var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, url, log: log).ConfigureAwait(false);
+            using var response = httpResult.Response;
             if (response == null || !response.IsSuccessStatusCode)
             {
                 log?.Invoke("MSDL: symbol not found");
@@ -167,9 +167,12 @@ public class SymbolPackageDownloader(HttpClient client)
         {
             try
             {
-                using var response = await HttpRetryHelper.GetWithRetryAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
+                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
+                using var response = httpResult.Response;
                 if (response is not { IsSuccessStatusCode: true })
+                {
                     continue;
+                }
 
                 log?.Invoke($"Found symbol package at: {snupkgUrl}");
                 var result = await ExtractPdbFromSymbolPackage(
@@ -274,9 +277,12 @@ public class SymbolPackageDownloader(HttpClient client)
 
             try
             {
-                using var response = await HttpRetryHelper.GetWithRetryAsync(_client, url, log: log).ConfigureAwait(false);
+                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, url, log: log).ConfigureAwait(false);
+                using var response = httpResult.Response;
                 if (response == null || !response.IsSuccessStatusCode)
+                {
                     continue;
+                }
 
                 Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
 
@@ -364,4 +370,5 @@ public class SymbolPackageDownloader(HttpClient client)
     {
         return Path.Combine(_cachePath, "servers", pdbName, symbolKey, pdbName);
     }
+
 }

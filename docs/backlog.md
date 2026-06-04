@@ -18,24 +18,22 @@ Default output: a table with Type, Source URL, and Resolution (SourceLink/Inferr
 
 This replaces the current behaviour where Source, Source Resolution, and Partial Type fields appear in the default `api` view. Those fields now only appear with `--docs`. A dedicated command surfaces this information more intentionally and avoids the network cost of SourceLink resolution in the default API view.
 
-Could also integrate with the audit command to show SourceLink coverage as part of provenance checks.
+Could also integrate with Signals to show SourceLink coverage as part of provenance checks.
 
-## Audit Command
+## Signals Section
 
-A dedicated `audit` subcommand for streamlined package provenance checks:
+Dedicated Signals sections provide streamlined package and library signal reporting:
 
 ```bash
-dotnet-inspect audit Markout@0.1.4                      # NuGet package
-dotnet-inspect audit System.Text.Json                   # platform assembly
-dotnet-inspect audit ./bin/MyLib.dll                    # local file
-dotnet-inspect audit Markout@0.1.3 Markout@0.1.4        # batch/compare
+dotnet-inspect package Markout@0.1.4 -S Signals   # NuGet package
+dotnet-inspect library System.Text.Json -S Signals # platform assembly
+dotnet-inspect library ./bin/MyLib.dll -S Signals # local file
 ```
 
-Currently requires `assembly --package X --audit` which isn't intuitive to discover. A top-level `audit` command would:
+Future ideas:
 
-- Provide a clear entry point for security/provenance workflows
 - Support batch mode for auditing multiple versions at once
-- Surface SourceLink, determinism, and PDB status in one view
+- Add compare mode for two audited versions
 
 Feedback: "Took a couple attempts to find the right command - I first tried `package X --assembly`"
 

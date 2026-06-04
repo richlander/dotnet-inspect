@@ -12,6 +12,11 @@ public static class AttributeReader
     private const string ExtensionAttributeName = "System.Runtime.CompilerServices.ExtensionAttribute";
     private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
+    private const string RequiredMemberAttributeName = "System.Runtime.CompilerServices.RequiredMemberAttribute";
+    private const string CompilerFeatureRequiredAttributeName = "System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute";
+    private const string RequiredMembersFeatureName = "RequiredMembers";
+    private const string RequiredMembersConstructorObsoleteMessage =
+        "Constructors of types with required members are not supported in this version of your compiler.";
 
     /// <summary>
     /// Checks if the member has the [Extension] attribute.
@@ -45,7 +50,8 @@ public static class AttributeReader
             }
             else if (attrTypeName == ObsoleteAttributeName)
             {
-                return true;
+                if (!IsRequiredMembersCompatibilityObsolete(reader, attributes, attr))
+                    return true;
             }
         }
         return false;
@@ -78,10 +84,49 @@ public static class AttributeReader
             if (attrTypeName == ObsoleteAttributeName)
             {
                 message = TryGetAttributeDisplayValue(reader, attr);
+                if (IsRequiredMembersCompatibilityObsolete(reader, attributes, attr))
+                {
+                    message = null;
+                    return false;
+                }
+
                 return true;
             }
         }
         message = null;
+        return false;
+    }
+
+    public static bool HasRequiredMemberAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => HasAttribute(reader, attributes, RequiredMemberAttributeName);
+
+    private static bool IsRequiredMembersCompatibilityObsolete(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        CustomAttribute obsoleteAttribute)
+    {
+        var message = TryGetAttributeDisplayValue(reader, obsoleteAttribute);
+        return string.Equals(message, RequiredMembersConstructorObsoleteMessage, StringComparison.Ordinal)
+            && HasCompilerFeatureRequiredAttribute(reader, attributes, RequiredMembersFeatureName);
+    }
+
+    private static bool HasCompilerFeatureRequiredAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        string featureName)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            if (attrTypeName != CompilerFeatureRequiredAttributeName)
+                continue;
+
+            var value = TryGetAttributeDisplayValue(reader, attr);
+            if (string.Equals(value, featureName, StringComparison.Ordinal))
+                return true;
+        }
+
         return false;
     }
 

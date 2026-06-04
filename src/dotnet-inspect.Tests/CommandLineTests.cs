@@ -82,6 +82,14 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void AuditCommand_IsNoLongerRegistered()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json"]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
     public void PackageCommand_WithLimit_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json", "--versions", "-n", "5"]);

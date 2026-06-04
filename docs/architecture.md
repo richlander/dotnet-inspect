@@ -245,8 +245,10 @@ The **Async Methods** section lists public async methods and classifies each as 
 - **Runtime** — runtime async ("async v2"), introduced in .NET 11. The compiler emits the
   method with the `MethodImplAttributes.Async` flag (`0x2000`) and no state machine; the
   runtime drives the continuation. Enabled by compiling with `<Features>runtime-async=on</Features>`
-  on `net11.0`. All .NET 11 framework assemblies are compiled this way.
-- **State Machine** — classic compiler-generated async ("async v1"). The compiler rewrites
+  on `net11.0`. Adoption is selective: in .NET 11 Preview 4, `System.Private.CoreLib` uses
+  runtime async (mixed with some state-machine methods), while many framework assemblies
+  (e.g. `System.Text.Json`) still compile their async methods as state machines.
+- **State machine** — classic compiler-generated async ("async v1"). The compiler rewrites
   the method into a state machine and marks it with `AsyncStateMachineAttribute` (or
   `AsyncIteratorStateMachineAttribute` for `async` iterators).
 
@@ -261,6 +263,12 @@ bool isRuntimeAsync = (method.ImplAttributes & (MethodImplAttributes)0x2000) != 
 
 Like the Unsafe and P/Invoke sections, detection is **public-surface only** (skips
 accessors and compiler-generated `<...>` types), so it surfaces the async API a caller sees.
+
+The **Library Info** section also carries a roll-up **Async Kind** row summarizing the whole
+assembly's public async surface: `Runtime`, `State machine`, `Mixed` (both kinds present), or
+`None` (no public async methods). It reuses the same cheap, always-computed presence flags
+(`HasRuntimeAsync`/`HasStateMachineAsync`) gathered in the single metadata pass, so it adds no
+extra scanning cost.
 
 > Note: runtime async is a *compiler* opt-in. A method compiled with `runtime-async=on`
 > emits the `0x2000` flag regardless of body shape (loops, `try`/`catch`/`finally`,

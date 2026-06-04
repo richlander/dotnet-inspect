@@ -45,7 +45,7 @@ Runtime assemblies are the actual implementation. They:
 Commands that use runtime assemblies:
 
 - `library` - Full library inspection (always uses runtime for `--platform`)
-- Any command with `--audit` flag
+- `library -S Signals` - library signals for platform-looking targets
 - PDB/SourceLink resolution for `--docs`, `--samples`, or source URL extraction
 
 ## Hybrid Resolution Pattern
@@ -189,19 +189,20 @@ Both ref and runtime assemblies support version specifiers:
 # Latest version (default)
 dotnet-inspect api --platform System.Text.Json
 
-# Specific framework version
-dotnet-inspect api --platform System.Text.Json --framework runtime@9.0.12
+# Specific shared runtime version (library/audit)
+dotnet-inspect library --platform System.Text.Json --version 9.0.12
 
-# ASP.NET Core framework
+# Optional framework family restriction
 dotnet-inspect api --platform Microsoft.AspNetCore.Mvc --framework aspnetcore
 ```
 
 The resolver:
 
-1. Parses `framework@version` syntax
+1. Parses an optional framework family (`runtime`, `aspnetcore`, `netstandard`)
 2. Lists installed versions (sorted descending)
-3. Matches requested version prefix or uses latest
-4. Returns full path to library
+3. Matches `--version` or uses latest
+4. Searches runtime before aspnetcore when only `--version` is specified for runtime-library lookup
+5. Returns the full path to the library
 
 ## Troubleshooting
 
@@ -221,7 +222,7 @@ The library may only exist in a specific framework:
 - ASP.NET types → `aspnetcore`
 - .NET Standard facades → `netstandard`
 
-Use `--framework` to specify the correct framework.
+Use `--framework` only when you need to restrict lookup to a specific framework family.
 
 ### Version Mismatch
 

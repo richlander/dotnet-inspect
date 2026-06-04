@@ -17,6 +17,7 @@ public static class NuspecParser
 
         XDocument doc = XDocument.Load(nuspecPath);
         XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        result.ManifestVersion = GetManifestVersion(ns);
 
         var metadata = doc.Root?.Element(ns + "metadata");
         if (metadata == null) return result;
@@ -117,5 +118,22 @@ public static class NuspecParser
         }
 
         return result;
+    }
+
+    private static string GetManifestVersion(XNamespace ns)
+    {
+        var uri = ns.NamespaceName;
+        if (string.IsNullOrWhiteSpace(uri))
+            return "nuspec";
+
+        const string prefix = "http://schemas.microsoft.com/packaging/";
+        const string suffix = "/nuspec.xsd";
+        if (uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && uri.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return uri[prefix.Length..^suffix.Length];
+        }
+
+        return uri;
     }
 }

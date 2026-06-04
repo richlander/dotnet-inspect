@@ -109,7 +109,7 @@ The team ships packages containing dozens of assemblies. CI pipelines need to ve
 
 ```bash
 # Audit all assemblies in a package with pass/fail summary
-dotnet-inspect audit Microsoft.NETCore.App.Runtime.linux-x64@10.0.0 --batch
+dotnet-inspect library Microsoft.NETCore.App.Runtime.linux-x64@10.0.0 -S Signals --batch
 
 # Output:
 # | Assembly | SourceLink | Deterministic | Signed |
@@ -120,7 +120,7 @@ dotnet-inspect audit Microsoft.NETCore.App.Runtime.linux-x64@10.0.0 --batch
 # 147/147 passed
 ```
 
-The current `audit` command works per-assembly. A batch mode with a summary table and exit code would integrate into CI pipelines for release validation.
+Signals currently work per-assembly. A batch mode with a summary table and exit code would integrate into CI pipelines for release validation.
 
 ## ReadyToRun Assembly Inspection
 

@@ -44,9 +44,9 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | Level | Sections |
 | ----- | -------- |
 | `-v:q` | Title and fields only |
-| `-v:m` | Metadata |
-| `-v:n` | Metadata, Statistics, Package Dependencies, Vulnerabilities |
-| `-v:d` | Metadata, Statistics, Package Dependencies, Vulnerabilities, RID Packages, Runtime Dependencies |
+| `-v:m` | Package Info |
+| `-v:n` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Target Frameworks |
+| `-v:d` | Dependencies, Files, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
 
 **Mode-switch flags (lenses):**
 
@@ -56,7 +56,6 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--readme` | README content | Raw readme text from the package |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
-| `--audit` | Build provenance | SourceLink, determinism, signatures |
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
@@ -107,9 +106,9 @@ When a lens has multiple possible rendering modes, the default should be the mos
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
-| `package` | Metadata, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `--library`, `--audit` |
+| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `-S Signals` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--oneline` |
-| `library` | Library info, PE headers | `--audit`, `--sourcelink`, `--references` |
+| `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
 | `diff` | Change summary | `--oneline`, `--name-only` |

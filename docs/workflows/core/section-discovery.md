@@ -69,8 +69,8 @@ dotnet-inspect System.CommandLine -S
 ```
 
 ```expect
-Package
-Package Dependencies
+Package Info
+Dependencies
 ```
 
 ### Using `package`
@@ -80,8 +80,8 @@ dotnet-inspect package System.CommandLine -S
 ```
 
 ```expect
-Package
-Package Dependencies
+Package Info
+Dependencies
 ```
 
 ## Platform and package sections differ for the same name
@@ -133,7 +133,7 @@ dotnet-inspect library --platform System.Collections -S "Custom Attributes"
 ## Type Forwarders
 ```
 
-### Package section
+### Package Info section
 
 ```bash
 dotnet-inspect library --package System.Collections -S "Library Info"

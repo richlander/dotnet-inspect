@@ -14,40 +14,34 @@ dotnet-inspect works with .NET libraries. There are three ways to specify where 
 | `platform X` | Local SDK/runtime | `platform System.Text.Json` |
 | `library ./path` | Local file | `library ./bin/MyLib.dll` |
 
-These commands accept the same inspection flags (`--audit`, `--sourcelink`, `--api`, etc.) because they all ultimately inspect libraries.
+These commands expose library/package inspection views. Use `-S Signals` when the goal is provenance, compatibility, or supply-chain signal reporting.
 
-### Inspection Flags
+### Inspection commands
 
-Once you've specified a source, flags control what information to show:
+Use inspection commands for detailed exploration:
 
-| Flag | Shows |
-| ------ | ------- |
-| `--library` | Library metadata (version, TFM, architecture) |
-| `--sourcelink` | SourceLink presence and URL (fast, no verification) |
-| `--audit` | Full provenance verification (SourceLink reachability, determinism) |
-| `--api` | Public API surface |
+| Command | Shows |
+| ------- | ----- |
+| `package` | Package metadata, versions, dependencies, files, TFMs. |
+| `library` | Library metadata, symbols, SourceLink, references, resources. |
+| `type`/`member` | API shape, docs, source, decompiled C#, and IL. |
 
-### The `audit` Command
+### Signals
 
-`audit` is an opinionated command for provenance verification. It:
+`Signals` is the opinionated section for signal reporting. It:
 
-- Auto-detects input type (package name, file path, nupkg, directory)
-- Always runs strict verification (no flags needed)
-- Uses verbosity as the sole control mechanism
+- Reports package/library metadata and provenance observations
+- Uses section selection for broad opt-in enrichment
+- Keeps high-cost source reachability and integrity work in explicit SourceLink sections
 
 ```bash
-dotnet inspect audit Markout@0.1.4           # package
-dotnet inspect audit ./bin/MyLib.dll         # file
-dotnet inspect audit ./artifacts/*.nupkg     # nupkg files
+dotnet inspect package Markout@0.1.4 -S Signals       # package metadata signals
+dotnet inspect library System.Text.Json -S Signals    # platform library metadata signals
+dotnet inspect library ./bin/MyLib.dll -S Signals     # local file metadata signals
+dotnet inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
 ```
 
-| Verbosity | Output |
-| ----------- | -------- |
-| `-v:q` | One-line pass/fail for each check |
-| `-v:n` | Audit table with source coverage summary |
-| `-v:d` | Full details including missing source files |
-
-`audit` returns non-zero exit code if any check fails, making it suitable for CI gates.
+High-cost audit work is exposed as opt-in sections rather than broad flags. For packages, select `Signals` for package and registry-backed signals. For libraries, select `SourceLink Availability`, `SourceLink Missing Files`, or `SourceLink Integrity` for per-source-file network/content checks.
 
 ## Command Patterns
 
@@ -58,7 +52,7 @@ Start with a package, drill down into details:
 ```bash
 dotnet inspect package Newtonsoft.Json           # metadata
 dotnet inspect package Newtonsoft.Json --library # library info
-dotnet inspect package Newtonsoft.Json --audit    # provenance check
+dotnet inspect package Newtonsoft.Json -S Signals # signals
 dotnet inspect package Newtonsoft.Json --api      # public API
 ```
 
@@ -69,7 +63,7 @@ Inspect libraries from the local .NET SDK/runtime:
 ```bash
 dotnet inspect platform                          # list frameworks
 dotnet inspect platform System.Text.Json         # inspect library
-dotnet inspect platform System.Text.Json --audit # provenance check
+dotnet inspect library System.Text.Json -S Signals # platform library signals
 ```
 
 ### File-centric workflow
@@ -78,7 +72,7 @@ Inspect local library files:
 
 ```bash
 dotnet inspect library ./bin/MyLib.dll          # basic info
-dotnet inspect library ./bin/MyLib.dll --audit  # provenance check
+dotnet inspect library ./bin/MyLib.dll -S Signals # signals
 ```
 
 ### Quick audit workflow
@@ -86,7 +80,7 @@ dotnet inspect library ./bin/MyLib.dll --audit  # provenance check
 For CI or quick checks:
 
 ```bash
-dotnet inspect audit Markout@0.1.4 -v:q
+dotnet inspect package Markout@0.1.4 -S Signals -v:q
 # SourceLink: passed
 # Deterministic: passed
 ```
@@ -100,16 +94,15 @@ Some commands are aliases or have equivalent forms:
 dotnet inspect platform System.Text.Json
 dotnet inspect library System.Text.Json --platform
 
-# These are equivalent  
-dotnet inspect audit Markout@0.1.4
-dotnet inspect package Markout@0.1.4 --audit
+# Use explicit package signals when package routing matters
+dotnet inspect package Markout@0.1.4 -S Signals
 ```
 
 ## Stability Guarantees
 
 The following are considered stable and will not change without a major version bump:
 
-1. **Command names**: `package`, `platform`, `library`, `audit`, `api`, `find`, `type`, `diff`
+1. **Command names**: `package`, `platform`, `library`, `api`, `find`, `type`, `diff`
 2. **Input syntax**: Package references use `name@version` format
 3. **Exit codes**: Zero for success, non-zero for failure
 4. **JSON output**: Schema for `--json` output is stable per command
@@ -133,4 +126,4 @@ Current deprecations:
 | Deprecated             | Use Instead                   | Removal Target |
 | ---------------------- | ----------------------------- | -------------- |
 | `package X --metadata` | `library X`                   | 0.3.0          |
-| `--strict`             | `--audit` (now always strict) | 0.3.0          |
+| `--strict`             | Signals section               | 0.3.0          |

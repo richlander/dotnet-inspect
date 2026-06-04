@@ -15,9 +15,23 @@ public interface ISectionDescriptor<TModel>
     /// <summary>
     /// Whether this section requires expensive operations (network access or
     /// heavyweight computation like decompilation). Expensive sections are
-    /// only shown at <see cref="Verbosity.Detailed"/>.
+    /// only shown at <see cref="Verbosity.Detailed"/>. Note: "expensive" means
+    /// "show late", not "touches network" — e.g. decompiler sections are expensive but local.
     /// </summary>
     static abstract bool IsExpensive { get; }
+
+    /// <summary>
+    /// When true, this section is never auto-selected by any verbosity (not even
+    /// <see cref="Verbosity.Detailed"/>); it renders only when explicitly requested via
+    /// <c>-S</c>/<c>-D</c>. Use for slow, opt-in work the default flow must never trigger.
+    /// </summary>
+    static virtual bool ExplicitOnly => false;
+
+    /// <summary>
+    /// Optional network/work capabilities this section may use to enrich itself, independent of
+    /// its render behavior. Drives optional work (PDB download, source fetch) only when authorized.
+    /// </summary>
+    static virtual SectionCapabilities Capabilities => SectionCapabilities.None;
 
     /// <summary>
     /// Scanner key identifying the data collection step this section requires.

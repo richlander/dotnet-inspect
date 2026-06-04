@@ -57,6 +57,8 @@ internal static class LibraryMetadataService
                 return nativeAudit;
             }
 
+            var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+
             var inspection = new LibraryInspection
             {
                 FileName = Path.GetFileName(path),
@@ -64,7 +66,7 @@ internal static class LibraryMetadataService
                 UseDependenciesView = options.IncludeDependencies
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies);
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
 
             // Populate cheap presence flags for fast -s discovery
             var presenceFlags = pdbContext.ScanPresenceFlags();
@@ -123,9 +125,37 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            // Skip PDB download for quiet/minimal verbosity (no SourceLink info displayed)
-            bool skipPdbDownload = options.Verbosity < Options.Verbosity.Detailed;
-            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, skipPdbDownload: skipPdbDownload);
+            // Decide network work from section selection + capability authorization (keyed off the
+            // user's original verbosity, never an internally force-bumped value). PDB download and
+            // source verification are authorized only when a selected section declares the capability.
+            var pipeline = LibrarySections.CreatePipeline();
+            var include = options.IncludeSections;
+            var pdbSections = pipeline.GetAuthorizedSections(
+                SectionCapabilities.MayDownloadPdb, options.UserVerbosity, include);
+            bool allowPdbDownload = pdbSections.Count > 0;
+            bool runHeadAudit = pipeline.GetAuthorizedSections(
+                SectionCapabilities.MayAuditSources, options.UserVerbosity, include).Count > 0;
+            bool runIntegrity = pipeline.GetAuthorizedSections(
+                SectionCapabilities.MayFetchSources, options.UserVerbosity, include).Count > 0;
+
+            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, allowPdbDownload: allowPdbDownload);
+
+            if (needsAuditSignals)
+                AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+
+            if (runHeadAudit && service.HasSourceLink && pdbContext.HasPdb)
+            {
+                await SourceAuditService.PopulateAsync(service, inspection, httpClient, logger);
+                if (needsAuditSignals)
+                    AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+            }
+
+            if (runIntegrity && service.HasSourceLink && pdbContext.HasPdb)
+            {
+                await SourceIntegrityService.PopulateAsync(service, inspection, logger);
+                if (needsAuditSignals)
+                    AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+            }
 
             return inspection;
         }
@@ -149,7 +179,7 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        bool skipPdbDownload = false)
+        bool allowPdbDownload = false)
     {
         var pdbContext = service.Context;
 
@@ -168,8 +198,8 @@ internal static class LibraryMetadataService
             inspection.PdbLocation = pdbContext.PdbLocation;
         }
 
-        // If no local PDB, try downloading (unless skipped for perf)
-        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && !skipPdbDownload)
+        // If no local PDB, try downloading (only when a selected section authorizes remote acquisition)
+        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && allowPdbDownload)
         {
             await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
 
@@ -189,19 +219,31 @@ internal static class LibraryMetadataService
         }
 
         // Determine reason for missing SourceLink
-        if (!inspection.HasSourceLink)
+        if (inspection.HasSourceLink)
+        {
+            inspection.SourceLinkUnavailableReason = null;
+        }
+        else
         {
             if (inspection.WindowsPdbDetected)
             {
                 inspection.SourceLinkUnavailableReason = "Windows PDB";
             }
-            else if (inspection.PdbLocation == null && inspection.PdbPath != null)
+            else if (!pdbContext.HasPdb && !allowPdbDownload && inspection.PdbPath != null)
+            {
+                inspection.SourceLinkUnavailableReason = "PDB not checked";
+            }
+            else if (!pdbContext.HasPdb && inspection.PdbPath != null)
+            {
+                inspection.SourceLinkUnavailableReason = "external PDB not found";
+            }
+            else if (!pdbContext.HasPdb)
             {
                 inspection.SourceLinkUnavailableReason = "no symbols";
             }
-            else if (!inspection.HasEmbeddedPdb && inspection.PdbPath != null)
+            else
             {
-                inspection.SourceLinkUnavailableReason = "external PDB not found";
+                inspection.SourceLinkUnavailableReason = "PDB checked; no SourceLink data";
             }
         }
 
@@ -425,10 +467,10 @@ internal static class LibraryMetadataService
                     DeclaringType = m.DeclaringType,
                     Signature = m.Signature,
                     Kind = m.Classification == MethodClassification.RuntimeAsync
-                        ? "Runtime"
-                        : "State Machine"
+                        ? AsyncMethodSummary.RuntimeKind
+                        : AsyncMethodSummary.StateMachineKind
                 })
-                // Runtime async first (sorts before "State Machine"), then by type/name.
+                // Runtime async first (sorts before "State machine"), then by type/name.
                 .OrderBy(m => m.Kind, StringComparer.Ordinal)
                 .ThenBy(m => m.DeclaringType)
                 .ThenBy(m => m.MethodName)

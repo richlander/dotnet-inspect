@@ -387,6 +387,41 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RequiredMemberConstructor_IgnoresCompilerCompatibilityObsolete()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleRequiredHost");
+        Assert.NotNull(testType);
+
+        var constructor = testType.Members.FirstOrDefault(m => m.Kind == "constructor");
+        Assert.NotNull(constructor);
+        Assert.False(constructor.IsObsolete);
+        Assert.Null(constructor.ObsoleteMessage);
+    }
+
+    [Fact]
+    public void Extract_RequiredProperty_RendersRequiredModifier()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+
+        var testType = surface.Types.FirstOrDefault(t => t.Name == "SampleRequiredHost");
+        Assert.NotNull(testType);
+
+        var property = testType.Members.FirstOrDefault(m => m.Name == "Active");
+        Assert.NotNull(property);
+        Assert.Equal("required bool Active { get; set; }", property.Signature);
+    }
+
+    [Fact]
     public void Extract_EditorBrowsableNever_StillVisibleWithIncludeAll()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -430,6 +465,11 @@ public class SampleObsoleteHost
 
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public void HiddenMethod() { }
+}
+
+public class SampleRequiredHost
+{
+    public required bool Active { get; set; }
 }
 
 /// <summary>

@@ -41,10 +41,14 @@ public record AssemblyOptions
     public string? PlatformAssembly { get; init; }
 
     /// <summary>
-    /// Platform framework (runtime, aspnetcore, netstandard).
-    /// Use @version for specific version (e.g., runtime@9.0.12).
+    /// Optional platform framework family (runtime, aspnetcore, netstandard).
     /// </summary>
     public string? PlatformFramework { get; init; }
+
+    /// <summary>
+    /// Platform shared runtime version. Searches runtime frameworks in priority order when framework is not specified.
+    /// </summary>
+    public string? PlatformVersion { get; init; }
 
     /// <summary>
     /// Target framework moniker to select assembly from package.
@@ -98,6 +102,16 @@ public record AssemblyOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Normal;
 
     /// <summary>
+    /// The user's originally requested verbosity, before any internal force-bumping for
+    /// <c>-S</c>/<c>-D</c>. Capability authorization (network work) keys off this so
+    /// a forced Detailed bump never silently authorizes downloads. Defaults to <see cref="Verbosity"/>.
+    /// </summary>
+    public Verbosity? UserVerbosityOverride { get; init; }
+
+    /// <summary>Effective user verbosity (falls back to <see cref="Verbosity"/> when not set).</summary>
+    public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
+
+    /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
     public HashSet<string>? IncludeSections { get; init; }
@@ -125,9 +139,9 @@ public record AssemblyOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
-    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// Show static discovery schema instead of target-effective discovery.
     /// </summary>
-    public bool Effective { get; init; }
+    public bool Schema { get; init; }
 
     /// <summary>
     /// Output the number of rendered table rows for a single selected section.

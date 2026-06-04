@@ -12,8 +12,15 @@ public record CodeViewInfo(Guid Guid, int Age, string PdbFileName, bool IsPortab
 
 /// <summary>
 /// Source document info for strict verification (no SRM types in signature).
+/// <paramref name="Checksum"/> is the document hash recorded in the PDB and
+/// <paramref name="ChecksumAlgorithm"/> its algorithm name (e.g. "SHA256"); both may be null.
 /// </summary>
-public record SourceDocument(string FilePath, bool IsEmbedded, string? ResolvedUrl);
+public record SourceDocument(
+    string FilePath,
+    bool IsEmbedded,
+    string? ResolvedUrl,
+    byte[]? Checksum = null,
+    string? ChecksumAlgorithm = null);
 
 /// <summary>
 /// Wraps PE + PDB readers, exposes high-level operations with no SRM in public signatures.
@@ -319,8 +326,28 @@ public class PdbContext : IDisposable
             }
 
             string? resolvedUrl = _resolver?.ApplySourceLinkMapping(filePath);
-            yield return new SourceDocument(filePath, isEmbedded, resolvedUrl);
+
+            byte[]? checksum = null;
+            string? checksumAlgorithm = null;
+            if (!document.Hash.IsNil)
+            {
+                checksum = _pdbReader.GetBlobBytes(document.Hash);
+                checksumAlgorithm = MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm));
+            }
+
+            yield return new SourceDocument(filePath, isEmbedded, resolvedUrl, checksum, checksumAlgorithm);
         }
+    }
+
+    // Well-known source document hash algorithm GUIDs (System.Reflection.Metadata).
+    private static readonly Guid s_hashSha1 = new("ff1816ec-aa5e-4d10-87f7-6f4963833460");
+    private static readonly Guid s_hashSha256 = new("8829d00f-11b8-4213-878b-770e8597ac16");
+
+    private static string? MapHashAlgorithm(Guid algorithm)
+    {
+        if (algorithm == s_hashSha256) return "SHA256";
+        if (algorithm == s_hashSha1) return "SHA1";
+        return null;
     }
 
     /// <summary>

@@ -1,9 +1,11 @@
 using DotnetInspector.Models;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -69,6 +71,142 @@ public class InspectionResultTests
         var result = new InspectionResult { TargetFrameworks = null };
 
         Assert.Null(result.Tfm);
+    }
+
+    [Fact]
+    public void PackageInfo_RendersHighestTfmAndTfmCount()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TargetFrameworks = ["net8.0", "net10.0", "netstandard2.0"]
+        };
+
+        var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
+
+        Assert.Contains("| Highest TFM | net10.0 |", output);
+        Assert.Contains("| TFM Count | 3 |", output);
+        Assert.Contains("## Target Frameworks", output);
+        Assert.Contains("| TFM |", output);
+        Assert.DoesNotContain("| TFM | net10.0 |", output);
+        Assert.DoesNotContain("| Target Frameworks | 3 |", output);
+    }
+
+    [Fact]
+    public void Manifest_RendersManifestVersionWhenPresent()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            ManifestVersion = "2013/05"
+        };
+
+        var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
+
+        Assert.Contains("| Info | Manifest Version | 2013/05 | n/a |", output);
+    }
+
+    [Theory]
+    [InlineData("net6.0", "No")]
+    [InlineData("net8.0", "Yes")]
+    [InlineData("net10.0", "Yes")]
+    [InlineData("netstandard2.0", "Yes")]
+    [InlineData("netstandard2.1", "Yes")]
+    [InlineData("netstandard1.6", "No")]
+    [InlineData("net472", "No")]
+    public async Task PackageSignals_SupportedTfm_IsBooleanFromHighestTfm(string tfm, string expected)
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TargetFrameworks = [tfm]
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, new HttpClient(), new VerboseLogger(false));
+
+        var signal = Assert.Single(result.AuditSignals!, s => s.Signal == "Supported TFM");
+        Assert.Equal(expected, signal.Value);
+        Assert.Equal(tfm, signal.Evidence);
+    }
+
+    [Fact]
+    public async Task PackageSignals_Symbols_ReportsMsdlPdbSource()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            BinarySignals = new PackageBinarySignals
+            {
+                TotalBinaries = 5,
+                SymbolsAvailable = 5,
+                SourceLinkAvailable = 5,
+                MsdlPdbs = 5,
+                MsdlSourceLinkPdbs = 5
+            }
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, new HttpClient(), new VerboseLogger(false));
+
+        var symbols = Assert.Single(result.AuditSignals!, s => s.Signal == "Symbols");
+        Assert.Equal("Yes (5/5)", symbols.Value);
+        Assert.Equal("msdl.microsoft.com PDBs", symbols.Evidence);
+
+        var sourceLink = Assert.Single(result.AuditSignals!, s => s.Signal == "SourceLink");
+        Assert.Equal("SourceLink data in msdl.microsoft.com PDBs", sourceLink.Evidence);
+    }
+
+    [Fact]
+    public async Task PackageSignals_Symbols_ReportsMixedPdbSources()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            BinarySignals = new PackageBinarySignals
+            {
+                TotalBinaries = 4,
+                SymbolsAvailable = 4,
+                EmbeddedPdbs = 1,
+                InPackagePdbs = 1,
+                SnupkgPdbs = 1,
+                MsdlPdbs = 1
+            }
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, new HttpClient(), new VerboseLogger(false));
+
+        var symbols = Assert.Single(result.AuditSignals!, s => s.Signal == "Symbols");
+        Assert.Equal("embedded PDBs (1), in-package PDBs (1), .snupkg PDBs (1), msdl.microsoft.com PDBs (1)", symbols.Evidence);
+    }
+
+    [Fact]
+    public async Task PackageSignals_Symbols_ReportsNoPdbsWhenUnavailable()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            BinarySignals = new PackageBinarySignals
+            {
+                TotalBinaries = 5,
+                SymbolsAvailable = 0,
+                SourceLinkAvailable = 0
+            }
+        };
+
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, new HttpClient(), new VerboseLogger(false));
+
+        var symbols = Assert.Single(result.AuditSignals!, s => s.Signal == "Symbols");
+        Assert.Equal("No (0/5)", symbols.Value);
+        Assert.Equal("no PDBs available", symbols.Evidence);
     }
 
     [Fact]

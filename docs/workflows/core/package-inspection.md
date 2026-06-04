@@ -58,7 +58,7 @@ dotnet-inspect package System.CommandLine -v:d -n 20
 
 ```expect
 # System.CommandLine
-## Package
+## Package Info
 | Property | Value |
 Version
 TFM

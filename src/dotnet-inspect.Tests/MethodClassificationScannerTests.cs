@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using DotnetInspector.Metadata;
@@ -40,6 +41,18 @@ public class MethodClassificationScannerTests
         var method = pinvoke.First(m => m.MethodName == "GetCurrentProcessId");
         Assert.Equal("DotnetInspector.Tests.SamplePInvokeClass", method.DeclaringType);
         Assert.Equal("kernel32.dll", method.ModuleName);
+    }
+
+    [Fact]
+    public void ScanAuditMetadata_CountsAllPInvokeMethods()
+    {
+        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var metadata = AssemblyDetailScanner.ScanAuditMetadata(peReader);
+
+        Assert.True(metadata.PInvokeMethodCount >= 2);
     }
 
     [Fact]
@@ -168,6 +181,9 @@ public static partial class SamplePInvokeClass
 {
     [DllImport("kernel32.dll")]
     public static extern int GetCurrentProcessId();
+
+    [DllImport("kernel32.dll")]
+    internal static extern int GetCurrentThreadId();
 }
 
 /// <summary>

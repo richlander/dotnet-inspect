@@ -86,18 +86,20 @@ dotnet-inspect library System.Text.Json -v:q
 Source: Platform
 ```
 
+Use `--version <runtime-version>` when you need a specific installed shared runtime version; dotnet-inspect searches runtime frameworks in priority order.
+
 ## 2. SourceLink audit
 
 > Goal: Verify all source files are accessible via SourceLink URLs.
 
-### 2a. Run full audit
+### 2a. Run source audit
 
 ```bash
-dotnet-inspect library --package System.CommandLine --source-link-audit
+dotnet-inspect library System.CommandLine -S "Signals,SourceLink Availability,SourceLink Missing Files"
 ```
 
 ```expect
-## Source Link Audit
+## SourceLink Availability
 | Property | Value |
 Status
 files accessible
@@ -111,11 +113,11 @@ Tips:
 ### 2b. Audit with large file count
 
 ```bash
-dotnet-inspect library Newtonsoft.Json --source-link-audit
+dotnet-inspect library Newtonsoft.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
 ```
 
 ```expect
-## Source Link Audit
+## SourceLink Availability
 | Property | Value |
 Status
 files accessible
@@ -157,7 +159,7 @@ dotnet-inspect library --package System.CommandLine --references -n 40
 ```
 
 ```expect
-## Library References
+## References
 | Name | Version | Public Key Token |
 System.Collections
 System.Runtime

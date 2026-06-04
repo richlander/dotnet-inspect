@@ -173,6 +173,7 @@ public static class ToolsAnalyzer
             var root = doc.Root;
 
             string? version = root?.Attribute("Version")?.Value;
+            result.ManifestVersion = version;
             if (version == "2")
             {
                 result.ToolFormat = "DotNetCliTool Version=\"2\" (RID-specific)";

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -23,9 +24,10 @@ internal static class PackageInspector
         VerboseLogger logger,
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
-        string? nupkgPath = null)
+        string? nupkgPath = null,
+        bool fetchMetadata = false)
     {
-        bool fetchMetadata = !isLocalFile && verbosity >= Verbosity.Detailed;
+        fetchMetadata = !isLocalFile && (fetchMetadata || verbosity >= Verbosity.Detailed);
 
         // Try package index cache (skips all filesystem scanning)
         if (!isLocalFile)
@@ -52,6 +54,7 @@ internal static class PackageInspector
         if (nuspec != null)
         {
             result.PackageName = nuspec.PackageName ?? result.PackageName;
+            result.ManifestVersion = nuspec.ManifestVersion;
             result.Version = nuspec.Version ?? result.Version;
             result.Description = nuspec.Description;
             result.Authors = nuspec.Authors;
@@ -101,6 +104,9 @@ internal static class PackageInspector
         // Analyze content directories and count assemblies
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
+        PopulateLibraryFiles(extractPath, result);
+        result.BinarySignals = await ScanBinarySignalsAsync(
+            extractPath, packageName, version, httpClient, logger, acquirePdb: false);
 
         // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
         if (hasToolsDir)
@@ -154,6 +160,124 @@ internal static class PackageInspector
         }
     }
 
+    internal static async Task<PackageBinarySignals?> ScanBinarySignalsAsync(
+        string extractPath,
+        string? packageName,
+        string? packageVersion,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool acquirePdb)
+    {
+        var dlls = TfmSelector.GetPackageDlls(extractPath)
+            .Where(f => !f.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (dlls.Count == 0)
+            return null;
+
+        int symbols = 0;
+        int sourceLink = 0;
+        int embeddedPdbs = 0;
+        int inPackagePdbs = 0;
+        int snupkgPdbs = 0;
+        int msdlPdbs = 0;
+        int otherPdbs = 0;
+        int embeddedSourceLinkPdbs = 0;
+        int inPackageSourceLinkPdbs = 0;
+        int snupkgSourceLinkPdbs = 0;
+        int msdlSourceLinkPdbs = 0;
+        int otherSourceLinkPdbs = 0;
+        foreach (var dll in dlls)
+        {
+            try
+            {
+                using var service = SourceLinkService.Open(dll);
+                if (acquirePdb && service.NeedsPdb)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        service.Context, httpClient, packageName, packageVersion,
+                        isPlatformAssembly: false, logger.Log).ConfigureAwait(false);
+                }
+
+                if (service.HasPdb)
+                {
+                    symbols++;
+                    switch (GetPackagePdbSource(service.Context))
+                    {
+                        case PackagePdbSource.Embedded:
+                            embeddedPdbs++;
+                            if (service.HasSourceLink) embeddedSourceLinkPdbs++;
+                            break;
+                        case PackagePdbSource.InPackage:
+                            inPackagePdbs++;
+                            if (service.HasSourceLink) inPackageSourceLinkPdbs++;
+                            break;
+                        case PackagePdbSource.Snupkg:
+                            snupkgPdbs++;
+                            if (service.HasSourceLink) snupkgSourceLinkPdbs++;
+                            break;
+                        case PackagePdbSource.Msdl:
+                            msdlPdbs++;
+                            if (service.HasSourceLink) msdlSourceLinkPdbs++;
+                            break;
+                        default:
+                            otherPdbs++;
+                            if (service.HasSourceLink) otherSourceLinkPdbs++;
+                            break;
+                    }
+                }
+                if (service.HasSourceLink)
+                    sourceLink++;
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"Warning: Error scanning binary signals in {Path.GetFileName(dll)}: {ex.Message}");
+            }
+        }
+
+        return new PackageBinarySignals
+        {
+            TotalBinaries = dlls.Count,
+            SymbolsAvailable = symbols,
+            SourceLinkAvailable = sourceLink,
+            EmbeddedPdbs = embeddedPdbs,
+            InPackagePdbs = inPackagePdbs,
+            SnupkgPdbs = snupkgPdbs,
+            MsdlPdbs = msdlPdbs,
+            OtherPdbs = otherPdbs,
+            EmbeddedSourceLinkPdbs = embeddedSourceLinkPdbs,
+            InPackageSourceLinkPdbs = inPackageSourceLinkPdbs,
+            SnupkgSourceLinkPdbs = snupkgSourceLinkPdbs,
+            MsdlSourceLinkPdbs = msdlSourceLinkPdbs,
+            OtherSourceLinkPdbs = otherSourceLinkPdbs
+        };
+    }
+
+    private enum PackagePdbSource
+    {
+        Embedded,
+        InPackage,
+        Snupkg,
+        Msdl,
+        Other
+    }
+
+    private static PackagePdbSource GetPackagePdbSource(PdbContext context)
+    {
+        if (context.HasEmbeddedPdb || context.PdbLocation?.Equals("Embedded", StringComparison.OrdinalIgnoreCase) == true)
+            return PackagePdbSource.Embedded;
+
+        if (context.SymbolServer?.Equals("msdl.microsoft.com", StringComparison.OrdinalIgnoreCase) == true)
+            return PackagePdbSource.Msdl;
+
+        if (context.SymbolServer?.Equals("nuget.org", StringComparison.OrdinalIgnoreCase) == true)
+            return PackagePdbSource.Snupkg;
+
+        if (context.PdbLocation?.Equals("Standalone", StringComparison.OrdinalIgnoreCase) == true)
+            return PackagePdbSource.InPackage;
+
+        return PackagePdbSource.Other;
+    }
+
     private static void ApplyMetadata(InspectionResult result, PackageMetadata metadata)
     {
         result.Published = metadata.Published;
@@ -200,6 +324,21 @@ internal static class PackageInspector
         {
             result.Files = files;
         }
+    }
+
+    private static void PopulateLibraryFiles(string extractPath, InspectionResult result)
+    {
+        var libDir = Path.Combine(extractPath, "lib");
+        if (!Directory.Exists(libDir))
+            return;
+
+        var files = Directory.GetFiles(libDir, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(extractPath, f).Replace('\\', '/'))
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (files.Count > 0)
+            result.LibraryFiles = files;
     }
 
     /// <summary>

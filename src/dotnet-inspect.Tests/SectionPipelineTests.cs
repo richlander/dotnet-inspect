@@ -207,7 +207,10 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(13, pipeline.AllSectionNames.Length);
+        Assert.Equal(16, pipeline.AllSectionNames.Length);
+        Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
+        Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
+        Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
     }
 
     [Fact]
@@ -219,6 +222,91 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
         Assert.Contains("Library Info", effective);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceIntegrityNeverAutoSelectedByVerbosity()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            SourceIntegrityChecked = true
+        };
+
+        // Even at Detailed, an ExplicitOnly section must not be auto-selected.
+        var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        Assert.DoesNotContain("SourceLink Integrity", detailed);
+
+        // It renders only when explicitly included.
+        var included = pipeline.GetEffectiveSections(model, Verbosity.Normal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink Integrity" });
+        Assert.Contains("SourceLink Integrity", included);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceIntegrityAuthorizedOnlyByExplicitSelection()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink Integrity" };
+
+        // MayFetchSources is authorized only via explicit include, never by verbosity.
+        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, Verbosity.Detailed, null));
+        Assert.Contains("SourceLink Integrity",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, Verbosity.Normal, include));
+    }
+
+    [Fact]
+    public void LibraryPipeline_PdbDownloadAuthorizedByDetailedOrInclude()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        // Signals declares MayDownloadPdb: not authorized at Normal without include...
+        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Normal, null));
+
+        // ...authorized at Detailed (verbosity ceiling)...
+        Assert.Contains("Signals",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Detailed, null));
+
+        // ...and authorized at Normal when explicitly included.
+        Assert.Contains("Signals",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Normal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }));
+
+        // SourceLink Integrity also declares MayDownloadPdb but is ExplicitOnly: the verbosity ceiling
+        // must NOT authorize it without an explicit include (regression guard for the ordering of
+        // ExplicitOnly filtering vs. capability authorization).
+        Assert.DoesNotContain("SourceLink Integrity",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Detailed, null));
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceAuditAuthorizedBySignals()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
+
+        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayAuditSources, Verbosity.Normal, null));
+        Assert.Contains("Signals",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayAuditSources, Verbosity.Normal, include));
+        Assert.Contains("Signals",
+            pipeline.GetAuthorizedSections(SectionCapabilities.MayAuditSources, Verbosity.Detailed, null));
+    }
+
+    [Fact]
+    public void LibraryPipeline_SignalsDoesNotShowAtMinimal()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            AuditSignals = [new AuditSignal("Provenance", "SourceLink", "Present", "test")]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+
+        Assert.Contains("Library Info", effective);
+        Assert.DoesNotContain("Signals", effective);
     }
 
     [Fact]
@@ -241,6 +329,16 @@ public class SectionPipelineTests
         var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Custom Attributes" });
 
         Assert.Equal(Verbosity.Normal, verbosity);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceLinkAvailabilityRequiresDetailed()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "SourceLink Availability" });
+
+        Assert.Equal(Verbosity.Detailed, verbosity);
     }
 
     // ===== Scanner tests =====
@@ -530,7 +628,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(9, pipeline.AllSectionNames.Length);
+        Assert.Equal(12, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -540,12 +638,15 @@ public class SectionPipelineTests
         var names = pipeline.AllSectionNames;
 
         Assert.Contains("Summary", names);
-        Assert.Contains("Package", names);
+        Assert.Contains("Package Info", names);
+        Assert.Contains("Signals", names);
+        Assert.Contains("Target Frameworks", names);
+        Assert.Contains("Library Files", names);
         Assert.Contains("Statistics", names);
-        Assert.Contains("Package Dependencies", names);
+        Assert.Contains("Dependencies", names);
         Assert.Contains("Files", names);
         Assert.Contains("Vulnerabilities", names);
-        Assert.Contains("RID Packages", names);
+        Assert.Contains("Manifest", names);
         Assert.Contains("Runtime Dependencies", names);
     }
 
@@ -571,11 +672,13 @@ public class SectionPipelineTests
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
         // Package is always renderable at Minimal
-        Assert.Contains("Package", effective);
+        Assert.Contains("Package Info", effective);
         // Statistics requires TotalDownloads (Normal verbosity anyway)
         Assert.DoesNotContain("Statistics", effective);
-        // Package Dependencies requires DependencyGroups (Normal verbosity anyway)
-        Assert.DoesNotContain("Package Dependencies", effective);
+        // Target Frameworks requires target framework data
+        Assert.DoesNotContain("Target Frameworks", effective);
+        // Dependencies requires DependencyGroups (Normal verbosity anyway)
+        Assert.DoesNotContain("Dependencies", effective);
         // Vulnerabilities is Detailed
         Assert.DoesNotContain("Vulnerabilities", effective);
         // Files is Detailed
@@ -583,7 +686,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsRidPackagesWhenPresent()
+    public void PackagePipeline_SignalsDoesNotShowAtMinimal()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        Assert.Contains("Package Info", effective);
+        Assert.Contains("Package Info", effective);
+        Assert.DoesNotContain("Signals", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_Normal_ShowsManifestWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -595,7 +715,7 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        Assert.Contains("RID Packages", effective);
+        Assert.Contains("Manifest", effective);
     }
 
     [Fact]
@@ -659,7 +779,7 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        Assert.Contains("Package Dependencies", effective);
+        Assert.Contains("Dependencies", effective);
     }
 
     [Fact]
@@ -720,32 +840,36 @@ public class SectionPipelineTests
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
 
-        var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Package" });
+        var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Package Info" });
 
         Assert.Equal(Verbosity.Quiet, required);
     }
 
     [Fact]
-    public void PackagePipeline_ComputeIncludeSections_NullWhenAllRenderable()
+    public void PackagePipeline_ComputeIncludeSections_FiltersExplicitOnlySections()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
         {
             PackageName = "Test",
             Version = "1.0.0",
+            TargetFrameworks = ["net8.0"],
             TotalDownloads = 1000,
             DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }],
             Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }],
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Dep2", Version = "2.0" }],
+            LibraryFiles = ["lib/net8.0/test.dll"],
             Files = ["lib/net8.0/test.dll"],
-            SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" }
+            SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" },
+            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
         };
 
-        // At Detailed with all data populated, all 7 sections render
+        // At Detailed with all default-renderable data populated, explicit-only Signals stays filtered.
         var include = pipeline.ComputeIncludeSections(model, Verbosity.Detailed);
 
-        Assert.Null(include);
+        Assert.NotNull(include);
+        Assert.DoesNotContain("Signals", include);
     }
 
     // ===== API type-list pipeline tests =====

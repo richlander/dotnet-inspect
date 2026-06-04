@@ -16,6 +16,12 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public static class HttpRetryHelper
 {
+    public readonly record struct HttpRetryResult(HttpResponseMessage? Response, HttpStatusCode? StatusCode)
+    {
+        public bool IsSuccess => Response is not null;
+        public bool IsNotFound => StatusCode == HttpStatusCode.NotFound;
+    }
+
     /// <summary>
     /// Default number of retries for transient failures.
     /// </summary>
@@ -86,7 +92,7 @@ public static class HttpRetryHelper
     /// <summary>
     /// Core retry loop that handles transient failures with exponential backoff.
     /// </summary>
-    private static async Task<HttpResponseMessage?> ExecuteWithRetryAsync(
+    private static async Task<HttpRetryResult> ExecuteWithRetryAsync(
         Func<CancellationToken, Task<HttpResponseMessage>> requestFactory,
         string url,
         string methodName,
@@ -104,7 +110,7 @@ public static class HttpRetryHelper
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return response;
+                    return new HttpRetryResult(response, response.StatusCode);
                 }
 
                 var statusCode = response.StatusCode;
@@ -113,14 +119,14 @@ public static class HttpRetryHelper
                 // Not found is not retryable
                 if (statusCode == HttpStatusCode.NotFound)
                 {
-                    return null;
+                    return new HttpRetryResult(null, statusCode);
                 }
 
                 // Check if retryable
                 if (!IsRetryableStatus(statusCode))
                 {
                     log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
-                    return null;
+                    return new HttpRetryResult(null, statusCode);
                 }
 
                 log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {url}");
@@ -132,7 +138,7 @@ public static class HttpRetryHelper
                 if (!isRetryable)
                 {
                     log?.Invoke($"HTTP {methodName} error (not retryable): {ex.Message}");
-                    return null;
+                    return new HttpRetryResult(null, null);
                 }
 
                 log?.Invoke($"Socket error {socketError} (retryable): {url}");
@@ -144,12 +150,12 @@ public static class HttpRetryHelper
                 // so a local folder NuGet source listed in NuGet.Config can't crash
                 // remote queries. Issue #310.
                 log?.Invoke($"HTTP {methodName} unsupported URL (not retryable): {ex.Message}");
-                return null;
+                return new HttpRetryResult(null, null);
             }
             catch (DotnetInspector.Core.OfflineException)
             {
                 log?.Invoke($"Network access is disabled (--offline mode).");
-                return null;
+                return new HttpRetryResult(null, null);
             }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -165,7 +171,7 @@ public static class HttpRetryHelper
             if (attempts++ >= retryCount)
             {
                 log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
-                return null;
+                return new HttpRetryResult(null, null);
             }
 
             // Exponential backoff with jitter
@@ -185,7 +191,22 @@ public static class HttpRetryHelper
     /// <param name="cancellationToken">Cancellation token</param>
     /// <param name="auth">Optional authentication header for authenticated feeds</param>
     /// <returns>Response if successful, null if failed or not found</returns>
-    public static Task<HttpResponseMessage?> GetWithRetryAsync(
+    public static async Task<HttpResponseMessage?> GetWithRetryAsync(
+        HttpClient client,
+        string url,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null)
+    {
+        var result = await GetWithRetryResultAsync(client, url, retryCount, log, cancellationToken, auth).ConfigureAwait(false);
+        return result.Response;
+    }
+
+    /// <summary>
+    /// Executes an HTTP GET with retry logic and returns status information for non-success responses.
+    /// </summary>
+    public static Task<HttpRetryResult> GetWithRetryResultAsync(
         HttpClient client,
         string url,
         int retryCount = DefaultRetryCount,
@@ -273,7 +294,21 @@ public static class HttpRetryHelper
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Response if successful, null if failed or not found</returns>
-    public static Task<HttpResponseMessage?> HeadWithRetryAsync(
+    public static async Task<HttpResponseMessage?> HeadWithRetryAsync(
+        HttpClient client,
+        string url,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await HeadWithRetryResultAsync(client, url, retryCount, log, cancellationToken).ConfigureAwait(false);
+        return result.Response;
+    }
+
+    /// <summary>
+    /// Executes an HTTP HEAD request with retry logic and returns status information for non-success responses.
+    /// </summary>
+    public static Task<HttpRetryResult> HeadWithRetryResultAsync(
         HttpClient client,
         string url,
         int retryCount = DefaultRetryCount,

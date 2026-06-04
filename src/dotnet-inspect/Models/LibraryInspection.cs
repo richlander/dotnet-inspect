@@ -136,6 +136,42 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? AllSourcesAccessible { get; set; }
 
+    /// <summary>
+    /// Whether a SourceLink Integrity pass (GET + checksum verification) was run.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SourceIntegrityChecked { get; set; }
+
+    /// <summary>
+    /// Number of source documents whose content hash matched the PDB checksum.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SourceIntegrityVerified { get; set; }
+
+    /// <summary>
+    /// Number of source documents whose content hash did NOT match the PDB checksum.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SourceIntegrityMismatched { get; set; }
+
+    /// <summary>
+    /// Number of source documents whose content hash matched the PDB checksum after normalizing line endings.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SourceIntegrityLineEndingNormalized { get; set; }
+
+    /// <summary>
+    /// Number of source documents that could not be fetched or had no usable checksum.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SourceIntegrityUnverifiable { get; set; }
+
+    /// <summary>
+    /// File paths whose content hash did not match the recorded PDB checksum.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? SourceIntegrityMismatches { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
 
@@ -183,6 +219,12 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<CustomAttributeSummary>? CustomAttributes { get; set; }
+
+    /// <summary>
+    /// Metadata audit signals. These are observations, not a trust verdict.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AuditSignal>? AuditSignals { get; set; }
 
     /// <summary>
     /// Type forwarders defined in this assembly.
@@ -257,16 +299,27 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
+/// Summary of a dependency age window.
+/// </summary>
+public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
+
+/// <summary>
 /// Summary of an async method, including whether it is runtime async or classic
 /// state-machine async.
 /// </summary>
 public record class AsyncMethodSummary
 {
+    /// <summary>Kind value for runtime async ("async v2").</summary>
+    public const string RuntimeKind = "Runtime";
+
+    /// <summary>Kind value for classic compiler state-machine async ("async v1").</summary>
+    public const string StateMachineKind = "State machine";
+
     public string MethodName { get; init; } = "";
     public string DeclaringType { get; init; } = "";
     public string Signature { get; init; } = "";
 
-    /// <summary>"Runtime" for runtime async, "State Machine" for classic compiler async.</summary>
+    /// <summary>"Runtime" for runtime async, "State machine" for classic compiler async.</summary>
     public string Kind { get; init; } = "";
 }
 

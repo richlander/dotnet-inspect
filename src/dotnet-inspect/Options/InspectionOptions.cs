@@ -162,9 +162,9 @@ public record InspectionOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
-    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// Show static discovery schema instead of target-effective discovery.
     /// </summary>
-    public bool Effective { get; init; }
+    public bool Schema { get; init; }
 
     /// <summary>
     /// Output the number of rendered table rows for a single selected section.

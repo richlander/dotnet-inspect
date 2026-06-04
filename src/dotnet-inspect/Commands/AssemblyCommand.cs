@@ -27,26 +27,30 @@ public class AssemblyCommand
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
         var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
+            || !string.IsNullOrEmpty(options.PackagePath)
+            || !string.IsNullOrEmpty(options.PlatformAssembly);
 
-        // Discovery mode: -D/--discover lists schema
+        // Static discovery mode: -D --schema lists schema without resolving/loading the library.
         if (options.Discover != null)
         {
-            if (options.Effective)
+            if (!options.Schema && hasInputSource)
             {
-                // Need to run pipeline to determine effective sections — handled after data collection below
-                // For now, fall through to --effective with bare -D
+                // Need to run pipeline to determine effective sections — handled after data collection below.
             }
             else
             {
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-                    verbosity: (int)options.Verbosity);
+                    verbosity: (int)options.Verbosity,
+                    sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
         }
 
-        // --effective with -D: run pipeline at Detailed to show sections with data
-        bool effectiveDiscovery = options.Effective && options.Discover != null;
+        // -D defaults to effective discovery for target-based commands.
+        bool effectiveDiscovery = options.Discover != null && !options.Schema && hasInputSource;
         var userVerbosity = options.Verbosity; // preserve for display formatting
+        options = options with { UserVerbosityOverride = userVerbosity };
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
@@ -119,7 +123,9 @@ public class AssemblyCommand
                     options.PlatformAssembly,
                     context.HttpClient,
                     logger.Log,
-                    options.PlatformFramework);
+                    options.PlatformFramework,
+                    useRuntimeAssemblies: true,
+                    platformVersion: options.PlatformVersion);
 
                 if (error != null)
                 {
@@ -156,7 +162,7 @@ public class AssemblyCommand
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options, logger);
-                return 0;
+                return IntegrityExitCode(inspection);
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -214,7 +220,7 @@ public class AssemblyCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options, logger);
 
-                return 0;
+                return IntegrityExitCode([.. inspections]);
             }
             else
             {
@@ -250,7 +256,7 @@ public class AssemblyCommand
                 WarnEmptySections(inspection, options, pipeline);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options, logger);
-                return 0;
+                return IntegrityExitCode(inspection);
             }
         }
         catch (Exception ex)
@@ -275,6 +281,11 @@ public class AssemblyCommand
         }
     }
 
+    private static int IntegrityExitCode(params LibraryInspection[] inspections)
+    {
+        return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
+    }
+
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
     {
@@ -292,7 +303,7 @@ public class AssemblyCommand
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-            verbosity: (int)userVerbosity, rootLabel: rootLabel);
+            verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap);
     }
 
     // ── Effective sections cache ──

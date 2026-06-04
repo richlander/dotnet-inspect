@@ -110,7 +110,8 @@
 | RID-specific support | d234f64 | 0.1.0 | Handle runtime-specific packages |
 | Symbol package support | 9ad5c92 | 0.1.7 | Download and inspect symbol packages |
 | Windows PDB detection | 9ad5c92 | 0.1.7 | Identify Windows PDB format |
-| `--source-link-audit` | 9549c7a | 0.1.7 | Full SourceLink verification |
+| Signals section | 9549c7a | 0.1.7 | Broad target-appropriate signal expansion |
+| SourceLink sections | 9549c7a | 0.1.7 | Detailed SourceLink sections, including source URL verification |
 | `--references` flag | 09c4473 | 0.1.x | Show library references |
 | `--transitive` flag | 09c4473 | 0.1.x | Show transitive references |
 | Extension Methods section | 7ee18e9 | 0.2.x | List extension methods in library |

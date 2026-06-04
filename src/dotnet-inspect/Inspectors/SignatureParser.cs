@@ -14,6 +14,9 @@ internal static class SignatureParser
         if (string.IsNullOrEmpty(signature))
             return "";
 
+        if (signature.StartsWith("required ", StringComparison.Ordinal))
+            signature = signature["required ".Length..];
+
         // Find first space that's not inside generics
         int depth = 0;
         for (int i = 0; i < signature.Length; i++)

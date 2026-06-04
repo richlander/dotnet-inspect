@@ -40,9 +40,37 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalLibPackage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var net8Dir = Path.Combine(packageRoot, "lib", "net8.0");
+        var net10Dir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(net8Dir);
+        Directory.CreateDirectory(net10Dir);
+        File.Copy(TestAssemblyPath, Path.Combine(net8Dir, "Older.dll"));
+        File.Copy(TestAssemblyPath, Path.Combine(net10Dir, "Latest.One.dll"));
+        File.Copy(TestAssemblyPath, Path.Combine(net10Dir, "Latest.Two.dll"));
+        File.WriteAllText(Path.Combine(net10Dir, "Latest.One.xml"), "<doc />");
+
+        var packagePath = Path.Combine(tempDir, "Test.LibraryFiles.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     public CommandExecutionTests()
     {
         NuGetCache.Initialize("dotnet-inspect");
+    }
+
+    private static Task<(int Exit, string Output, string Error)> RunAppAsync(params string[] args)
+    {
+        return ConsoleCapture.RunAsync(async () =>
+        {
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
     }
 
     // ── api command ──────────────────────────────────────────────────
@@ -357,8 +385,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = [],
-            Effective = true
+            Discover = []
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -376,8 +403,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = [],
-            Effective = true
+            Discover = []
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -402,8 +428,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = [],
-            Effective = true
+            Discover = []
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -424,8 +449,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Custom Attributes"],
-            Effective = true
+            Discover = ["Custom Attributes"]
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -446,8 +470,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Bogus"],
-            Effective = true
+            Discover = ["Bogus"]
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -506,8 +529,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Methods"],
-            Effective = true
+            Discover = ["Methods"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -528,7 +550,6 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Discover = ["Methods"],
-            Effective = true,
             ShowSelect = true
         };
 
@@ -625,8 +646,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Properties"],
-            Effective = true
+            Discover = ["Properties"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -647,8 +667,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Properties"],
-            Effective = true
+            Discover = ["Properties"]
         };
         var (exitMin, minOutput, _) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(minimal));
@@ -861,6 +880,216 @@ public class CommandExecutionTests
         Assert.Contains("dotnet-inspect.Tests", output);
     }
 
+    [Fact]
+    public async Task Assembly_Signals_ShowsMetadataSignalsOnly()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signals", output);
+        Assert.Contains("IsTrimmable", output);
+        Assert.Contains("IsAotCompatible", output);
+        Assert.Contains("Direct assembly references", output);
+        Assert.DoesNotContain("Public key token", output);
+        Assert.DoesNotContain("| Dependencies | Direct assembly references | 0 |", output);
+        Assert.DoesNotContain("| Signals | Scope |", output);
+        Assert.DoesNotContain("## Library Info", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Assembly_SignalsSectionSelection_PopulatesReferenceSignals()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Direct assembly references", output);
+        Assert.DoesNotContain("| Dependencies | Direct assembly references | 0 |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_BareSelect_DefaultsToEffectiveSections()
+    {
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");
+
+        Assert.Equal(0, exit);
+
+        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var names = lines.Select(ExtractSectionName).ToArray();
+
+        Assert.Contains("Symbols", names);
+        Assert.Contains("Signals", names);
+        Assert.DoesNotContain(lines, line => line.Contains("section (expensive)", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("section (opt-in)", StringComparison.Ordinal));
+        Assert.DoesNotContain(names, name => name.StartsWith("SourceLink", StringComparison.Ordinal));
+        Assert.DoesNotContain(names, name => name.Equals("Library References (Transitive)", StringComparison.Ordinal));
+        Assert.Contains("References", names);
+        Assert.DoesNotContain(names, name => name.Equals("Library References", StringComparison.Ordinal));
+
+        static string ExtractSectionName(string line)
+        {
+            var marker = line.IndexOf("  section", StringComparison.Ordinal);
+            return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_BareSelectSchema_GroupsOptInSections()
+    {
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "--schema");
+
+        Assert.Equal(0, exit);
+
+        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var names = lines.Select(ExtractSectionName).ToArray();
+
+        var symbolsIndex = Array.IndexOf(names, "Symbols");
+        var firstOptInIndex = Array.FindIndex(lines, line => line.Contains("section (opt-in)", StringComparison.Ordinal));
+
+        Assert.True(symbolsIndex >= 0);
+        Assert.True(firstOptInIndex >= 0);
+        Assert.True(symbolsIndex < firstOptInIndex);
+
+        var optInNames = lines
+            .Where(line => line.Contains("section (opt-in)", StringComparison.Ordinal))
+            .Select(ExtractSectionName)
+            .ToArray();
+        Assert.Equal(
+            ["SourceLink Availability", "SourceLink Integrity", "SourceLink Missing Files"],
+            optInNames);
+        Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
+
+        static string ExtractSectionName(string line)
+        {
+            var marker = line.IndexOf("  section", StringComparison.Ordinal);
+            return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DetailedOutput_RendersSectionsAlphabetically()
+    {
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-v:d");
+
+        Assert.Equal(0, exit);
+
+        var sectionHeaders = output
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line[3..])
+            .ToArray();
+
+        Assert.NotEmpty(sectionHeaders);
+        Assert.Equal(sectionHeaders.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(), sectionHeaders);
+    }
+
+    [Fact]
+    public async Task Assembly_Signals_LocalUnsafeAssembly_FocusesOnNewMemorySafetyModel()
+    {
+        var options = new AssemblyOptions
+        {
+            AssemblyName = TestAssemblyPath,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Memory safety | Memory safety model | Not marked |", output);
+        Assert.Contains("| Memory safety | RequiresUnsafe members | 0 | RequiresUnsafeAttribute |", output);
+        Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.Contains("| Interop | P/Invoke methods | 2 | all PInvokeImpl metadata |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_Signals_ShowsSignalsOnly()
+    {
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signals", output);
+        Assert.DoesNotContain("Source audit", output);
+        Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformSignals_DownloadsPdbByDefault()
+    {
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "Signals");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signals", output);
+        // Signals authorizes PDB acquisition: SourceLink resolves.
+        Assert.DoesNotContain("PDB not checked", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_Signals_ChecksSymbolsByDefault()
+    {
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signals", output);
+        Assert.DoesNotContain("PDB not checked", output);
+        Assert.DoesNotContain("Source audit", output);
+        Assert.DoesNotContain("| Signals | Scope |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ExplicitSourceLinkAudit_IncludesSourceLinkAuditSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Signals,SourceLink Availability,SourceLink Missing Files");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signals", output);
+        Assert.Contains("## SourceLink Availability", output);
+        Assert.Contains("Source Files", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformVersion_UsesPlatformRuntimeRoute()
+    {
+        var currentRuntimeVersion = Path.GetFileName(Path.GetDirectoryName(typeof(object).Assembly.Location))!;
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "--version", currentRuntimeVersion, "-v:q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Source: Platform", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformVersion_DoesNotFallbackToPackageVersion()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "--version", "0.0.0-definitely-not-installed", "-S", "Signals");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error);
+    }
+
     // ── package command ──────────────────────────────────────────────
 
     [Fact]
@@ -876,5 +1105,271 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.NotEmpty(error);
+    }
+
+    [Fact]
+    public async Task Package_Detailed_DoesNotShowSignalsByDefault()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var options = new InspectionOptions
+            {
+                PackageArgs = [packagePath],
+                Verbosity = Verbosity.Detailed
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(options));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("## Signals", output);
+            Assert.Contains("## Manifest", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Discover_DefaultsToEffectiveSchema()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Package Info", output);
+            Assert.DoesNotContain("Signals", output);
+            Assert.Contains("Manifest", output);
+            Assert.DoesNotContain("Vulnerabilities", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSchema_ListsStaticSchema()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--schema");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Package Info", output);
+            Assert.Contains("Signals", output);
+            Assert.Contains("Manifest", output);
+            Assert.Contains("Vulnerabilities", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_BareSelectSchema_WritesAllSelectorHint()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "--schema");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Signals", output);
+            Assert.Contains("section (opt-in)", output);
+            Assert.Contains("Use -S All to select all sections.", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_SelectAll_IncludesOptInSignals()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "All");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Signals", output);
+            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Manifest_RendersBasicPackageManifestRows()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Manifest");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Manifest", output);
+            Assert.DoesNotContain("| Info | Schema |", output);
+            Assert.Contains("| Info | Package | Test.MultiLib", output);
+            Assert.Contains("| Info | Version | 1.0.0 |", output);
+            Assert.DoesNotContain("| RID Package |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Manifest_RendersToolManifestRows()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "Azure.Mcp", "-S", "Manifest");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Manifest", output);
+        Assert.Contains("| Info | Manifest Version | 2 |", output);
+        Assert.DoesNotContain("| Info | Schema |", output);
+        Assert.Contains("| Info | Commands |", output);
+        Assert.Contains("| RID Package | linux-x64 | Azure.Mcp.linux-x64 | yes |", output);
+        Assert.DoesNotContain("## RID Packages", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Package_LibraryFiles_RendersAllLibFiles()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Library Files");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Library Files", output);
+            Assert.Contains("| TFM | File |", output);
+            Assert.Contains("| net10.0 | lib/net10.0/Latest.One.dll |", output);
+            Assert.Contains("| net10.0 | lib/net10.0/Latest.One.xml |", output);
+            Assert.Contains("| net10.0 | lib/net10.0/Latest.Two.dll |", output);
+            Assert.Contains("| net8.0 | lib/net8.0/Older.dll |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DetailedOutput_RendersSectionsAlphabetically()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("package", packagePath, "-v:d");
+
+            Assert.Equal(0, exit);
+
+            var sectionHeaders = output
+                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line => line[3..])
+                .ToArray();
+
+            Assert.NotEmpty(sectionHeaders);
+            Assert.Equal(sectionHeaders.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(), sectionHeaders);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Signals_ShowsMetadataSignalsOnly()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var options = new InspectionOptions
+            {
+                PackageArgs = [packagePath],
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(options));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Signals", output);
+            Assert.Contains("Supported TFM", output);
+            Assert.Contains("Portable", output);
+            Assert.Contains("README", output);
+            Assert.Contains("License", output);
+            Assert.DoesNotContain("Dependency groups", output);
+            Assert.Contains("Direct dependencies", output);
+            Assert.DoesNotContain("| Signals | Scope |", output);
+            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_Signals_ShowsSignalsOnly()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Signals", output);
+            Assert.DoesNotContain("| Signals | Scope |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Signals_RendersRegistryBackedRows()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Signals", output);
+            Assert.Contains("Known vulnerabilities", output);
+            Assert.Contains("Dependencies with vulnerabilities", output);
+            Assert.Contains("Deprecated dependencies", output);
+            Assert.DoesNotContain("| Signals | Scope |", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 }

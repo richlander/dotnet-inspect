@@ -108,25 +108,26 @@ Sections with a `null` scanner key have their data collected unconditionally as 
 
 ## Library Sections
 
-The library command currently has 15 registered sections:
+The library command currently has 16 registered sections:
 
 | Section | MinVerbosity | Scanner Key |
 | ------- | ------------ | ----------- |
 | Library Info | Minimal | — |
-| References | Minimal | — |
-| Package Dependencies | Normal | — |
-| Symbols | Detailed | — |
-| Assembly Attributes | Normal | — |
-| Target Framework | Normal | — |
-| Extension Methods | Detailed | `ExtensionMethods` |
-| Unsafe Methods | Detailed | `ClassifiedMethods` |
-| P/Invoke Methods | Detailed | `ClassifiedMethods` |
-| Async Methods | Detailed | `ClassifiedMethods` |
-| Resources | Detailed | `Resources` |
-| Custom Attributes | Detailed | `CustomAttributes` |
-| Type Forwarders | Detailed | `TypeForwarders` |
-| Build Audit | Detailed | `Audit` |
-| Transitive References | Detailed | `TransitiveRefs` |
+| Async Methods | Normal | `ClassifiedMethods` |
+| Custom Attributes | Normal | `CustomAttributes` |
+| Dependencies | Normal | `TransitiveRefs` |
+| Extension Methods | Normal | `ExtensionMethods` |
+| Non-normalized Paths | Normal | — |
+| P/Invoke Methods | Normal | `ClassifiedMethods` |
+| References | Normal | — |
+| Resources | Normal | `Resources` |
+| Signals | Normal | `AuditSignals` |
+| Symbols | Normal | `Symbols` |
+| Type Forwarders | Normal | `TypeForwarders` |
+| Unsafe Methods | Normal | `ClassifiedMethods` |
+| SourceLink Availability | Explicit | — |
+| SourceLink Integrity | Explicit | — |
+| SourceLink Missing Files | Explicit | — |
 
 ## Fallback Path
 
@@ -145,7 +146,7 @@ public List<MarkoutField> Summary => GetCompactFields();
 
 A headless section:
 - **Is addressable** — appears in `-S` discovery (`Summary  section`)
-- **Is filterable** — `-S Summary` includes it; `-S Package` omits it
+- **Is filterable** — `-S Summary` includes it; `-S "Package Info"` omits it
 - **Emits no heading** — `WriteSectionStart(headless: true)` calls `UpdateSectionState` for filtering but skips the `##` render
 - **Uses inline rendering** — headless `FieldCollection` sections use `WriteFieldsInline` rather than `WriteFieldsTable`
 
@@ -159,22 +160,26 @@ var includeSections = pipeline.ComputeIncludeSections(
 return new MarkoutWriterOptions { IncludeSections = includeSections };
 ```
 
-When the user runs `-S Package`, the pipeline returns `{"Package"}` — no Summary, so preamble is hidden. In the default view, the pipeline returns `{"Summary", "Package", ...}` — Summary is included, preamble renders.
+When the user runs `-S "Package Info"`, the pipeline returns `{"Package Info"}` — no Summary, so preamble is hidden. In the default view, the pipeline returns `{"Summary", "Package Info", ...}` — Summary is included, preamble renders.
 
 ## Package Sections
 
-The package command has 8 registered sections:
+The package command has 12 registered sections:
 
 | Section | MinVerbosity | Scanner Key | Notes |
 | ------- | ------------ | ----------- | ----- |
 | Summary | Quiet | — | Headless; compact inline fields |
-| Package | Minimal | — | Full metadata field table |
-| RID Packages | Minimal | — | Only when RID-specific packages present |
-| Runtime Dependencies | Minimal | — | Only when runtime deps present |
-| Package Dependencies | Normal | — | Only when dependency groups present |
-| Statistics | Detailed | — | Published date, download counts |
-| Vulnerabilities | Detailed | — | Only when vulnerabilities present |
+| Dependencies | Normal | — | Only when dependency groups present |
 | Files | Detailed | — | Package file listing |
+| Library Files | Normal | — | Files under lib/ across all target frameworks |
+| Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
+| Package Info | Minimal | — | Full metadata field table |
+| Runtime Dependencies | Minimal | — | Only when runtime deps present |
+| Signals | Explicit | — | Opt-in package metadata/assets, dependency, provenance, and NuGet registry observations |
+| Signature | Normal | — | Only when signature information is available |
+| Statistics | Detailed | — | Published date, download counts |
+| Target Frameworks | Normal | — | Explicit package TFM directories |
+| Vulnerabilities | Detailed | — | Only when vulnerabilities present |
 
 ## Format Auto-Promotion
 

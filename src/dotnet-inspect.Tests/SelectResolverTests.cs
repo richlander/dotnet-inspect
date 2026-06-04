@@ -6,9 +6,9 @@ public class SelectResolverTests
 {
     private static readonly string[] TestSections =
     [
-        "Package",
+        "Package Info",
         "Statistics",
-        "Package Dependencies",
+        "Dependencies",
         "Files",
         "Vulnerabilities",
     ];
@@ -25,10 +25,10 @@ public class SelectResolverTests
     [Fact]
     public void ResolveSelect_ExactMatch_ReturnsSections()
     {
-        var result = SelectResolver.ResolveSelectAsSections(["Package"], TestSections);
+        var result = SelectResolver.ResolveSelectAsSections(["Package Info"], TestSections);
 
         Assert.NotNull(result.Sections);
-        Assert.Contains("Package", result.Sections);
+        Assert.Contains("Package Info", result.Sections);
         Assert.Empty(result.Unresolved);
     }
 
@@ -38,9 +38,18 @@ public class SelectResolverTests
         var result = SelectResolver.ResolveSelectAsSections(["Pack*"], TestSections);
 
         Assert.NotNull(result.Sections);
-        Assert.Contains("Package", result.Sections);
-        Assert.Contains("Package Dependencies", result.Sections);
+        Assert.Contains("Package Info", result.Sections);
         Assert.Empty(result.Unresolved);
+    }
+
+    [Fact]
+    public void ResolveSelect_AllSelector_ReturnsAllSections()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["All"], TestSections);
+
+        Assert.NotNull(result.Sections);
+        Assert.Empty(result.Unresolved);
+        Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
     }
 
     [Fact]
@@ -57,10 +66,10 @@ public class SelectResolverTests
     [Fact]
     public void ResolveSelect_PartialMatch_ReturnsSectionsAndUnresolved()
     {
-        var result = SelectResolver.ResolveSelectAsSections(["Package", "Source*"], TestSections);
+        var result = SelectResolver.ResolveSelectAsSections(["Package Info", "Source*"], TestSections);
 
         Assert.NotNull(result.Sections);
-        Assert.Contains("Package", result.Sections);
+        Assert.Contains("Package Info", result.Sections);
         Assert.Single(result.Unresolved);
         Assert.True(result.Unresolved[0].IsGlob);
     }
@@ -73,7 +82,7 @@ public class SelectResolverTests
         Assert.Null(result.Sections);
         Assert.Single(result.Unresolved);
         Assert.False(result.Unresolved[0].IsGlob);
-        Assert.Contains("Package", result.Unresolved[0].Suggestions);
+        Assert.Contains("Package Info", result.Unresolved[0].Suggestions);
     }
 
     [Fact]
@@ -91,7 +100,7 @@ public class SelectResolverTests
     public void WriteUnresolved_PartialMatch_ReturnsFalse()
     {
         var result = new SelectResult(
-            new HashSet<string> { "Package" },
+            new HashSet<string> { "Package Info" },
             [new SelectMiss("Source*", TestSections.ToList(), IsGlob: true)]);
 
         // Partial match: some resolved, some not — should not be a total failure

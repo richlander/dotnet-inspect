@@ -1,9 +1,22 @@
 using System.Text.Json;
+using DotnetInspector.Core;
 
 namespace DotnetInspector.Services.Tests;
 
-public class PackageMetadataServiceTests
+[Collection(CoreCacheCollection.Name)]
+public class PackageMetadataServiceTests : IDisposable
 {
+    public PackageMetadataServiceTests()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        CoreCache.Clear("metadata");
+    }
+
+    public void Dispose()
+    {
+        CoreCache.Clear("metadata");
+    }
+
     [Fact]
     public void ParseDeprecation_WithAllFields()
     {
@@ -118,5 +131,26 @@ public class PackageMetadataServiceTests
         Assert.Null(metadata.Owners);
         Assert.Null(metadata.Deprecation);
         Assert.Null(metadata.Vulnerabilities);
+    }
+
+    [Fact]
+    public async Task GetPublishedDateAsync_WithCachedMetadata_DoesNotFetch()
+    {
+        var published = new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        MetadataFieldCache.Set("testpackage@1.0.0", new PackageMetadata { Published = published });
+
+        var result = await PackageMetadataService.GetPublishedDateAsync(
+            new HttpClient(new FailingHandler()), "TestPackage", "1.0.0", log: null);
+
+        Assert.Equal(published, result);
+    }
+
+    private sealed class FailingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            throw new HttpRequestException($"Network access not allowed in test: {request.RequestUri}");
+        }
     }
 }
