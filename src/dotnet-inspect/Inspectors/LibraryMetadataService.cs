@@ -57,8 +57,7 @@ internal static class LibraryMetadataService
                 return nativeAudit;
             }
 
-            var needsAuditSignals = options.Audit
-                || scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+            var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
 
             var inspection = new LibraryInspection
             {
@@ -134,8 +133,8 @@ internal static class LibraryMetadataService
             var pdbSections = pipeline.GetAuthorizedSections(
                 SectionCapabilities.MayDownloadPdb, options.UserVerbosity, include);
             bool allowPdbDownload = pdbSections.Count > 0;
-            bool runHeadAudit = pdbSections.Contains("SourceLink Audit")
-                || pdbSections.Contains("Missing Source Files");
+            bool runHeadAudit = pipeline.GetAuthorizedSections(
+                SectionCapabilities.MayAuditSources, options.UserVerbosity, include).Count > 0;
             bool runIntegrity = pipeline.GetAuthorizedSections(
                 SectionCapabilities.MayFetchSources, options.UserVerbosity, include).Count > 0;
 
@@ -154,6 +153,8 @@ internal static class LibraryMetadataService
             if (runIntegrity && service.HasSourceLink && pdbContext.HasPdb)
             {
                 await SourceIntegrityService.PopulateAsync(service, inspection, logger);
+                if (needsAuditSignals)
+                    AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }
 
             return inspection;

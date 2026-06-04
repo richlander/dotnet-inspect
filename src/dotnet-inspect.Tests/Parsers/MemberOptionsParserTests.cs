@@ -311,14 +311,6 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task EffectiveFlag_SetsEffectiveMode()
-    {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-D", "--effective");
-
-        Assert.True(options.Effective);
-    }
-
-    [Fact]
     public async Task Discover_DefaultsToEffectiveDiscovery()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-D");

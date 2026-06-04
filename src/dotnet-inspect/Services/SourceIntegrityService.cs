@@ -42,6 +42,7 @@ internal static class SourceIntegrityService
         }
 
         int verified = 0;
+        int lineEndingNormalized = 0;
         int mismatched = 0;
         var mismatches = new ConcurrentBag<string>();
 
@@ -72,6 +73,12 @@ internal static class SourceIntegrityService
                         Interlocked.Increment(ref verified);
                         return;
                     }
+                    if (immutable && CoreCache.TryGet(CacheCategory, cacheKey, extension: "normalized") != null)
+                    {
+                        Interlocked.Increment(ref verified);
+                        Interlocked.Increment(ref lineEndingNormalized);
+                        return;
+                    }
 
                     byte[]? body;
                     try
@@ -91,12 +98,18 @@ internal static class SourceIntegrityService
                         return;
                     }
 
-                    byte[] actual = ComputeHash(doc.ChecksumAlgorithm!, body);
-                    if (actual.AsSpan().SequenceEqual(doc.Checksum))
+                    if (HashMatches(doc.ChecksumAlgorithm!, body, doc.Checksum!))
                     {
                         Interlocked.Increment(ref verified);
                         if (immutable)
                             CoreCache.Set(CacheCategory, cacheKey, "1", extension: "verified");
+                    }
+                    else if (HashMatchesAfterLineEndingNormalization(doc.ChecksumAlgorithm!, body, doc.Checksum!))
+                    {
+                        Interlocked.Increment(ref verified);
+                        Interlocked.Increment(ref lineEndingNormalized);
+                        if (immutable)
+                            CoreCache.Set(CacheCategory, cacheKey, "1", extension: "normalized");
                     }
                     else
                     {
@@ -110,6 +123,7 @@ internal static class SourceIntegrityService
         inspection.SourceIntegrityChecked = true;
         inspection.SourceIntegrityVerified = verified;
         inspection.SourceIntegrityMismatched = mismatched;
+        inspection.SourceIntegrityLineEndingNormalized = lineEndingNormalized;
         inspection.SourceIntegrityUnverifiable = unverifiable;
         inspection.SourceIntegrityMismatches = mismatches.IsEmpty ? null : [.. mismatches.OrderBy(f => f)];
     }
@@ -120,6 +134,55 @@ internal static class SourceIntegrityService
 
     private static string? SafeHost(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : null;
+
+    private static bool HashMatches(string algorithm, byte[] content, byte[] expected)
+        => ComputeHash(algorithm, content).AsSpan().SequenceEqual(expected);
+
+    private static bool HashMatchesAfterLineEndingNormalization(string algorithm, byte[] content, byte[] expected)
+    {
+        if (!content.Contains((byte)'\n') && !content.Contains((byte)'\r'))
+            return false;
+
+        return HashMatches(algorithm, NormalizeLineEndings(content, crlf: false), expected)
+            || HashMatches(algorithm, NormalizeLineEndings(content, crlf: true), expected);
+    }
+
+    private static byte[] NormalizeLineEndings(byte[] content, bool crlf)
+    {
+        List<byte> lf = new(content.Length);
+        for (var i = 0; i < content.Length; i++)
+        {
+            if (content[i] == '\r')
+            {
+                if (i + 1 < content.Length && content[i + 1] == '\n')
+                    continue;
+
+                lf.Add((byte)'\n');
+                continue;
+            }
+
+            lf.Add(content[i]);
+        }
+
+        if (!crlf)
+            return [.. lf];
+
+        List<byte> result = new(lf.Count);
+        foreach (var b in lf)
+        {
+            if (b == '\n')
+            {
+                result.Add((byte)'\r');
+                result.Add((byte)'\n');
+            }
+            else
+            {
+                result.Add(b);
+            }
+        }
+
+        return [.. result];
+    }
 
     private static byte[] ComputeHash(string algorithm, byte[] content) => algorithm switch
     {

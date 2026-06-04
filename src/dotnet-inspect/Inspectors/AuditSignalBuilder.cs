@@ -4,6 +4,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using NuGetFetch;
 
 namespace DotnetInspector.Inspectors;
 
@@ -15,10 +16,14 @@ internal static class AuditSignalBuilder
 
         var sourceLink = FormatSourceLink(inspection);
         Add(signals, "Provenance", "SourceLink", sourceLink.Value, sourceLink.Evidence);
+        var sourceLinkAvailability = FormatSourceLinkAvailability(inspection);
+        Add(signals, "Provenance", "SourceLink availability",
+            sourceLinkAvailability.Value, sourceLinkAvailability.Evidence);
+        var sourceLinkLineEndings = FormatSourceLinkLineEndings(inspection);
+        Add(signals, "Provenance", "SourceLink CR/LF",
+            sourceLinkLineEndings.Value, sourceLinkLineEndings.Evidence);
         Add(signals, "Provenance", "Deterministic", FormatBool(inspection.IsDeterministic),
             "PE debug directory and path normalization");
-        Add(signals, "Provenance", "Public key token", inspection.AssemblyInfo?.PublicKeyToken ?? "None",
-            "assembly identity");
 
         Add(signals, "Dependencies", "Direct assembly references",
             (inspection.AssemblyInfo?.References?.Count ?? 0).ToString(),
@@ -79,160 +84,267 @@ internal static class AuditSignalBuilder
         Add(signals, "Interop", "P/Invoke methods",
             FormatCount(pInvokeMethodCount ?? inspection.PInvokeMethods?.Count ?? 0), "all PInvokeImpl metadata");
 
-        if (inspection.AllSourcesAccessible.HasValue || inspection.TotalSourceFiles > 0)
-        {
-            Add(signals, "Source audit", "Source coverage", inspection.AllSourcesAccessible == true ? "Complete" : "Partial",
-                $"{inspection.AccessibleSourceFiles}/{inspection.TotalSourceFiles} tracked source files accessible or embedded");
-        }
-
-        Add(signals, "Audit", "Scope",
-            FormatLibraryAuditScope(inspection),
-            "not a security or trust assessment");
-
         inspection.AuditSignals = signals;
     }
 
     public static async Task PopulatePackageAuditAsync(
         InspectionResult result,
-        bool includeNuGetAudit,
         HttpClient httpClient,
         VerboseLogger logger)
     {
         List<AuditSignal> signals = [];
 
-        var selectedGroup = result.DependencyGroups is { Count: > 0 }
-            ? DependencyResolutionService.FindBestMatchingTfmGroup(result.DependencyGroups, result.Tfm ?? "")
-            : null;
-        var directDependencies = selectedGroup?.Dependencies ?? [];
+        var directDependencies = GetDirectDependenciesForLatestTfm(result);
 
-        Add(signals, "Package", "Target frameworks",
-            (result.TargetFrameworks?.Count ?? 0).ToString(), "package lib/tools assets");
-        Add(signals, "Package", "Assemblies",
-            result.AssemblyCount.ToString(), "package DLL assets");
-        Add(signals, "Package", "RID-specific assets",
-            FormatBool(result.HasRidSpecificAssets), "runtimes/ assets");
-        Add(signals, "Package", "Native dependencies",
-            FormatBool(result.HasNativeDependencies), "native/runtimes assets");
-        Add(signals, "Package", "Readme", FormatBool(result.HasReadme), "nuspec/package files");
-        Add(signals, "Package", "License",
+        var supportedTfm = FormatSupportedTfm(result);
+        Add(signals, "Compatibility", "Supported TFM", supportedTfm.Value, supportedTfm.Evidence);
+        var portability = FormatPortability(result);
+        Add(signals, "Compatibility", "Portable", portability.Value, portability.Evidence);
+        Add(signals, "Documentation", "README", FormatBool(result.HasReadme), "nuspec/package files");
+        Add(signals, "Legal", "License",
             string.IsNullOrWhiteSpace(result.License) ? "Not declared" : result.License, "nuspec metadata");
-        Add(signals, "Package", "Repository",
-            string.IsNullOrWhiteSpace(result.Repository) ? "Not declared" : result.Repository, "nuspec metadata");
 
-        Add(signals, "Dependencies", "Dependency groups",
-            (result.DependencyGroups?.Count ?? 0).ToString(), "nuspec dependency groups");
+        if (result.BinarySignals is { TotalBinaries: > 0 } binarySignals)
+        {
+            Add(signals, "Provenance", "Symbols",
+                FormatCoverage(binarySignals.SymbolsAvailable, binarySignals.TotalBinaries),
+                FormatPdbSourceEvidence(binarySignals));
+            Add(signals, "Provenance", "SourceLink",
+                FormatCoverage(binarySignals.SourceLinkAvailable, binarySignals.TotalBinaries),
+                FormatSourceLinkEvidence(binarySignals));
+        }
+
         Add(signals, "Dependencies", "Direct dependencies",
-            directDependencies.Count.ToString(), selectedGroup?.TargetFramework ?? result.Tfm ?? "selected TFM");
+            directDependencies.Dependencies.Count.ToString(), directDependencies.Evidence);
 
-        if (result.SignatureResult is { } sig)
+        if (result.Published is { Year: > 1901 } published)
+            Add(signals, "NuGet", "Package age", FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration");
+
+        Add(signals, "NuGet", "Known vulnerabilities",
+            FormatCount(result.Vulnerabilities?.Count ?? 0), "NuGet advisory data");
+
+        var dependencySignals = await GetDependencySignalsAsync(directDependencies.Dependencies, httpClient, logger);
+        Add(signals, "Dependencies", "Dependencies with vulnerabilities",
+            dependencySignals.VulnerableDependencies.ToString(),
+            FormatDependencyRegistryEvidence(dependencySignals));
+        Add(signals, "Dependencies", "Deprecated dependencies",
+            dependencySignals.DeprecatedDependencies.ToString(),
+            FormatDependencyRegistryEvidence(dependencySignals));
+        if (dependencySignals.AgeSummary != null)
         {
-            Add(signals, "Provenance", "Package signature",
-                result.Signed == true ? "Signed" : sig.IsUnsigned ? "Unsigned" : "Unknown",
-                sig.StatusMessage ?? "NuGet package signature");
+            var ageSummary = dependencySignals.AgeSummary;
+            Add(signals, "Dependencies", "Dependency age",
+                $"min {ageSummary.MinDays}d, median {ageSummary.MedianDays}d, max {ageSummary.MaxDays}d",
+                FormatDependencyAgeEvidence(dependencySignals));
         }
-
-        if (includeNuGetAudit)
-        {
-            if (result.Published is { Year: > 1901 } published)
-                Add(signals, "NuGet", "Package age", FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration");
-
-            Add(signals, "NuGet", "Known vulnerabilities",
-                FormatCount(result.Vulnerabilities?.Count ?? 0), "NuGet advisory data");
-
-            var transitive = await ResolveTransitiveDependenciesAsync(directDependencies, result.Tfm, httpClient, logger);
-            if (transitive is { Count: > 0 })
-            {
-                var closure = Flatten(transitive).ToList();
-                Add(signals, "Dependencies", "Resolved dependency closure",
-                    closure.Select(n => n.PackageId).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
-                    "resolved NuGet dependency closure");
-                Add(signals, "Dependencies", "Max dependency depth",
-                    GetMaxDepth(transitive).ToString(), "resolved NuGet dependency closure");
-            }
-
-            var ageSummary = await GetDependencyAgeSummaryAsync(directDependencies, httpClient, logger);
-            if (ageSummary != null)
-            {
-                Add(signals, "NuGet", "Direct dependency age",
-                    $"min {ageSummary.MinDays}d, median {ageSummary.MedianDays}d, max {ageSummary.MaxDays}d",
-                    $"{ageSummary.Count} direct dependencies with published dates");
-            }
-        }
-
-        Add(signals, "Audit", "Scope",
-            includeNuGetAudit ? "Metadata + NuGet registry signals" : "Metadata signals only",
-            "not a security or trust assessment");
 
         result.AuditSignals = signals;
     }
 
-    private static async Task<List<DependencyNode>?> ResolveTransitiveDependenciesAsync(
-        List<PackageDependency> directDependencies,
-        string? tfm,
-        HttpClient httpClient,
-        VerboseLogger logger)
-    {
-        if (directDependencies.Count == 0 || string.IsNullOrWhiteSpace(tfm))
-            return null;
+    private sealed record DependencySignalSummary(
+        int DirectDependencies,
+        int CheckedDependencies,
+        int VulnerableDependencies,
+        int DeprecatedDependencies,
+        DependencyAgeSummary? AgeSummary);
 
-        try
-        {
-            return await DependencyResolutionService.ResolveDependencyTreeAsync(
-                httpClient, directDependencies, tfm, [], logger.Log).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Warning: Error resolving dependency audit: {ex.Message}");
-            return null;
-        }
-    }
-
-    private static async Task<DependencyAgeSummary?> GetDependencyAgeSummaryAsync(
+    private static async Task<DependencySignalSummary> GetDependencySignalsAsync(
         List<PackageDependency> directDependencies,
         HttpClient httpClient,
         VerboseLogger logger)
     {
         List<int> ages = [];
+        int checkedDependencies = 0;
+        int vulnerableDependencies = 0;
+        int deprecatedDependencies = 0;
         foreach (var dep in directDependencies)
         {
             var version = DependencyResolutionService.ResolveVersionFromRange(dep.Version);
             if (version == null)
                 continue;
 
-            var published = await PackageMetadataService.GetPublishedDateAsync(
+            var metadata = await PackageMetadataService.FetchAllMetadataAsync(
                 httpClient, dep.Id, version, logger.Log).ConfigureAwait(false);
-            if (published is not { Year: > 1901 })
-                continue;
+            checkedDependencies++;
 
-            ages.Add(Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - published.Value).TotalDays)));
+            if (metadata.Vulnerabilities is { Count: > 0 })
+                vulnerableDependencies++;
+            if (metadata.Deprecation != null)
+                deprecatedDependencies++;
+            if (metadata.Published is { Year: > 1901 } published)
+                ages.Add(Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - published).TotalDays)));
         }
 
-        if (ages.Count == 0)
-            return null;
-
-        ages.Sort();
-        return new DependencyAgeSummary(
-            ages.Count,
-            ages[0],
-            ages[ages.Count / 2],
-            ages[^1]);
-    }
-
-    private static int GetMaxDepth(List<DependencyNode> nodes)
-        => nodes.Count == 0 ? 0 : nodes.Max(n => 1 + GetMaxDepth(n.Children));
-
-    private static IEnumerable<DependencyNode> Flatten(IEnumerable<DependencyNode> nodes)
-    {
-        foreach (var node in nodes)
+        DependencyAgeSummary? ageSummary = null;
+        if (ages.Count > 0)
         {
-            yield return node;
-            foreach (var child in Flatten(node.Children))
-                yield return child;
+            ages.Sort();
+            ageSummary = new DependencyAgeSummary(
+                ages.Count,
+                ages[0],
+                ages[ages.Count / 2],
+                ages[^1]);
         }
+
+        return new DependencySignalSummary(
+            directDependencies.Count,
+            checkedDependencies,
+            vulnerableDependencies,
+            deprecatedDependencies,
+            ageSummary);
     }
 
     private static void Add(List<AuditSignal> rows, string area, string signal, string value, string evidence)
         => rows.Add(new AuditSignal(area, signal, value, evidence));
+
+    private static string FormatDependencyRegistryEvidence(DependencySignalSummary summary)
+        => summary.DirectDependencies == 0
+            ? "0 direct dependencies"
+            : $"NuGet registry data for {summary.CheckedDependencies}/{summary.DirectDependencies} direct dependencies";
+
+    private static string FormatDependencyAgeEvidence(DependencySignalSummary summary)
+        => summary.AgeSummary is not { } ageSummary
+            ? "no dependency published dates"
+            : ageSummary.Count == summary.DirectDependencies
+                ? $"{ageSummary.Count} direct dependencies"
+                : $"{ageSummary.Count}/{summary.DirectDependencies} direct dependencies with published dates";
+
+    private sealed record DirectDependencySelection(List<PackageDependency> Dependencies, string Evidence);
+
+    private static DirectDependencySelection GetDirectDependenciesForLatestTfm(InspectionResult result)
+    {
+        if (result.DependencyGroups is not { Count: > 0 })
+            return new([], "no dependency groups");
+
+        var group = DependencyResolutionService.FindBestMatchingTfmGroup(
+            result.DependencyGroups, result.Tfm ?? "");
+        if (group == null)
+            return new([], "no dependency group for latest TFM");
+
+        return new(group.Dependencies, group.TargetFramework);
+    }
+
+    private static (string Value, string Evidence) FormatSupportedTfm(InspectionResult result)
+    {
+        if (result.TargetFrameworks is not { Count: > 0 } tfms)
+            return ("No", "no lib/tools target framework assets");
+
+        var orderedTfms = tfms
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(TfmResolver.GetTfmPriority)
+            .ThenBy(tfm => tfm, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var highest = orderedTfms[0];
+        return (FormatBool(IsSupportedTfm(highest)), string.Join(", ", orderedTfms));
+    }
+
+    private static bool IsSupportedTfm(string tfm)
+    {
+        if (TryParseTfmVersion(tfm, "netstandard") is { } netstandard)
+            return netstandard >= new Version(2, 0);
+
+        if (TryParseTfmVersion(tfm, "net") is { } modernNet)
+            return modernNet >= new Version(8, 0);
+
+        return false;
+    }
+
+    private static Version? TryParseTfmVersion(string tfm, string prefix)
+    {
+        if (!tfm.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var suffix = tfm[prefix.Length..];
+        var length = 0;
+        while (length < suffix.Length && (char.IsDigit(suffix[length]) || suffix[length] == '.'))
+            length++;
+
+        if (length == 0)
+            return null;
+
+        var versionText = suffix[..length];
+        // Old .NET Framework TFMs use forms like net462; modern .NET TFMs use net8.0.
+        if (prefix == "net" && !versionText.Contains('.'))
+            return null;
+
+        return Version.TryParse(versionText, out var version) ? version : null;
+    }
+
+    private static string FormatCoverage(int available, int total)
+        => available == total ? $"Yes ({available}/{total})"
+            : available == 0 ? $"No (0/{total})"
+            : $"Partial ({available}/{total})";
+
+    private static string FormatPdbSourceEvidence(PackageBinarySignals signals)
+        => FormatPdbSources(
+            signals.EmbeddedPdbs,
+            signals.InPackagePdbs,
+            signals.SnupkgPdbs,
+            signals.MsdlPdbs,
+            signals.OtherPdbs,
+            signals.SymbolsAvailable,
+            "no PDBs available");
+
+    private static string FormatSourceLinkEvidence(PackageBinarySignals signals)
+    {
+        if (signals.SourceLinkAvailable > 0)
+        {
+            return "SourceLink data in " + FormatPdbSources(
+                signals.EmbeddedSourceLinkPdbs,
+                signals.InPackageSourceLinkPdbs,
+                signals.SnupkgSourceLinkPdbs,
+                signals.MsdlSourceLinkPdbs,
+                signals.OtherSourceLinkPdbs,
+                signals.SourceLinkAvailable,
+                "PDBs");
+        }
+
+        if (signals.SymbolsAvailable > 0)
+            return "checked " + FormatPdbSourceEvidence(signals);
+
+        return "no PDBs available";
+    }
+
+    private static string FormatPdbSources(
+        int embedded,
+        int inPackage,
+        int snupkg,
+        int msdl,
+        int other,
+        int total,
+        string fallback)
+    {
+        List<string> parts = [];
+        AddPdbSourcePart(parts, "embedded PDBs", embedded, total);
+        AddPdbSourcePart(parts, "in-package PDBs", inPackage, total);
+        AddPdbSourcePart(parts, ".snupkg PDBs", snupkg, total);
+        AddPdbSourcePart(parts, "msdl.microsoft.com PDBs", msdl, total);
+        AddPdbSourcePart(parts, "other symbol-server PDBs", other, total);
+        return parts.Count == 0 ? fallback : string.Join(", ", parts);
+    }
+
+    private static void AddPdbSourcePart(List<string> parts, string label, int count, int total)
+    {
+        if (count <= 0)
+            return;
+
+        parts.Add(count == total ? label : $"{label} ({count})");
+    }
+
+    private static (string Value, string Evidence) FormatPortability(InspectionResult result)
+    {
+        if (!result.HasRidSpecificAssets)
+            return ("Yes", "no RID-specific assets");
+
+        bool hasFallback = result.IsFrameworkDependent
+            || result.SupportedRids?.Contains("any", StringComparer.OrdinalIgnoreCase) == true
+            || result.RuntimeIdentifierPackages?.Any(r =>
+                r.RuntimeIdentifier.Equals("any", StringComparison.OrdinalIgnoreCase)) == true;
+
+        return hasFallback
+            ? ("Yes", "RID-specific assets with fallback")
+            : ("No", "RID-specific assets without fallback");
+    }
 
     private static (string Value, string Evidence) FormatSourceLink(LibraryInspection inspection)
     {
@@ -255,21 +367,35 @@ internal static class AuditSignalBuilder
         return ("Not checked", "PDB not checked");
     }
 
-    private static string FormatLibraryAuditScope(LibraryInspection inspection)
+    private static (string Value, string Evidence) FormatSourceLinkAvailability(LibraryInspection inspection)
     {
-        if (inspection.TotalSourceFiles > 0)
-            return "Metadata + SourceLink verification signals";
-
-        if (inspection.HasSourceLink ||
-            !string.IsNullOrWhiteSpace(inspection.PdbFormat) ||
-            !string.IsNullOrWhiteSpace(inspection.PdbLocation) ||
-            !string.IsNullOrWhiteSpace(inspection.SymbolServer) ||
-            inspection.WindowsPdbDetected)
+        if (inspection.AllSourcesAccessible.HasValue || inspection.TotalSourceFiles > 0)
         {
-            return "Metadata + symbol signals";
+            return (inspection.AllSourcesAccessible == true ? "Complete" : "Partial",
+                $"{inspection.AccessibleSourceFiles}/{inspection.TotalSourceFiles} tracked source files available");
         }
 
-        return "Metadata signals only";
+        if (!inspection.HasSourceLink)
+            return ("Not available", "SourceLink data not available");
+
+        return ("Not checked", "SourceLink availability not selected");
+    }
+
+    private static (string Value, string Evidence) FormatSourceLinkLineEndings(LibraryInspection inspection)
+    {
+        if (!inspection.SourceIntegrityChecked)
+            return ("Not checked", "SourceLink Integrity not selected");
+
+        if (inspection.SourceIntegrityLineEndingNormalized > 0)
+        {
+            return ($"Mismatch ({inspection.SourceIntegrityLineEndingNormalized})",
+                "PDB checksums matched after CR/LF normalization");
+        }
+
+        if (inspection.SourceIntegrityMismatched > 0)
+            return ("No", "content mismatches were not explained by CR/LF normalization");
+
+        return ("No", "source bytes matched PDB checksums");
     }
 
     private static string FormatPdbEvidence(LibraryInspection inspection)

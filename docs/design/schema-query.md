@@ -62,8 +62,10 @@ Two paths:
 
 ```csharp
 var schema = new DocumentSchema()
-    .Add("Package", "field", "Version", "Type", "Size", "TFM", "Built", ...)
-    .Add("Package Dependencies", "column", "Target Framework", "Id", "Version")
+    .Add("Package Info", "field", "Version", "Type", "Size", "Highest TFM", "TFM Count", "Built", ...)
+    .Add("Target Frameworks", "column", "TFM")
+    .Add("Library Files", "column", "TFM", "File")
+    .Add("Dependencies", "column", "Target Framework", "Id", "Version")
     .Add("Files", "list", "Path");
 ```
 
@@ -78,8 +80,8 @@ Markout's source generator already walks `[MarkoutSection]` and `[MarkoutField]`
 partial class InspectionResultContext
 {
     public static DocumentSchema Schema { get; } = new DocumentSchema()
-        .Add("Package", "field", "Version", "Type", "Size", ...)
-        .Add("Package Dependencies", "column", "Target Framework", "Id", "Version")
+        .Add("Package Info", "field", "Version", "Type", "Size", ...)
+        .Add("Dependencies", "column", "Target Framework", "Id", "Version")
         ...;
 }
 ```
@@ -95,10 +97,10 @@ Discovery answers "what's here?" at two levels:
 ```csharp
 // Bare discovery: what sections exist?
 var result = schema.Discover();
-// → [("Package", "section"), ("Statistics", "section"), ...]
+// → [("Package Info", "section"), ("Statistics", "section"), ...]
 
 // Deep discovery: what items are in this section?
-var result = schema.Discover("Package");
+var result = schema.Discover("Package Info");
 // → [("Version", "field"), ("Type", "field"), ...]
 ```
 
@@ -110,10 +112,10 @@ Selection resolves a user query to a section:
 
 ```csharp
 var result = schema.Select("Packa");
-// → SelectResult.Miss { Value = "Packa", Suggestions = ["Package"] }
+// → SelectResult.Miss { Value = "Packa", Suggestions = ["Package Info"] }
 
-var result = schema.Select("Package");
-// → SelectResult.Hit { Section = SectionSchema("Package", ...) }
+var result = schema.Select("Package Info");
+// → SelectResult.Hit { Section = SectionSchema("Package Info", ...) }
 
 var result = schema.Select("Stat*");
 // → SelectResult.Hit { Section = SectionSchema("Statistics", ...) }
@@ -175,15 +177,15 @@ var effective = schema.EffectiveFields("Package",
 
 The section-level callback maps directly to `SectionEntry.CanRender`. The field-level callback is harder — it requires mapping field display names to model properties. This is where the source generator helps: it can emit the mapping.
 
-**Realized approach (type discovery).** For single-type discovery (`<Type> -D <Section> --effective`), field-level effectiveness is computed by _rendering_ the section at the user's actual verbosity/options and keeping only the columns that appear in the rendered markdown table headers (`DiscoverOutput.FilterSchemaToRenderedHeaders`). This keeps the effective column list faithful to what the user would actually see — e.g. the show-index-only `Select` column is dropped, and Minimal-verbosity summary columns (`Return Type`/`Accessors`) replace the Detailed `Signature` column. Header-scoped matching (not whole-body substring) avoids false positives from members whose name matches a column (e.g. `Enumerable.Select`). Sections the member renderer does not produce (e.g. `Custom Attributes`, `Source`, `IL`) retain their full schema columns.
+**Realized approach (type discovery).** For single-type discovery (`<Type> -D <Section>`), field-level effectiveness is computed by _rendering_ the section at the user's actual verbosity/options and keeping only the columns that appear in the rendered markdown table headers (`DiscoverOutput.FilterSchemaToRenderedHeaders`). This keeps the effective column list faithful to what the user would actually see — e.g. the show-index-only `Select` column is dropped, and Minimal-verbosity summary columns (`Return Type`/`Accessors`) replace the Detailed `Signature` column. Header-scoped matching (not whole-body substring) avoids false positives from members whose name matches a column (e.g. `Enumerable.Select`). Sections the member renderer does not produce (e.g. `Custom Attributes`, `Source`, `IL`) retain their full schema columns.
 
-**Effective sections are restricted to the schema.** The `ApiType` member pipeline includes member-detail code sections (`Source`, `IL`, `IL (Annotated)`, `Lowered C#`) whose `CanRender` returns true for any type with methods, even though they only render for a specific member selection (`member <Type> <Method>:N`). These sections are _not_ part of the `TypeView` schema, so they cannot be queried via `-D <Section>`. To keep effective discovery consistent with what `-D <Section>` accepts (`-D --effective` ⊆ `-D`), the effective section list is filtered to schema-representable sections via `DiscoverOutput.RestrictToSchemaSections` before rendering. Effective discovery for both the `type` and `member` commands runs through one shared helper (`ApiCommand.ExecuteEffectiveDiscovery`), so the section restriction and the render-probe column narrowing apply uniformly.
+**Effective sections are restricted to the schema.** The `ApiType` member pipeline includes member-detail code sections (`Source`, `IL`, `IL (Annotated)`, `Lowered C#`) whose `CanRender` returns true for any type with methods, even though they only render for a specific member selection (`member <Type> <Method>:N`). These sections are _not_ part of the `TypeView` schema, so they cannot be queried via `-D <Section>`. To keep effective discovery consistent with what `-D <Section>` accepts, the effective section list is filtered to schema-representable sections via `DiscoverOutput.RestrictToSchemaSections` before rendering. Effective discovery for both the `type` and `member` commands runs through one shared helper (`ApiCommand.ExecuteEffectiveDiscovery`), so the section restriction and the render-probe column narrowing apply uniformly.
 
 **Empty sections are dropped via a render-probe.** Some schema sections have a coarse `CanRender` proxy that over-reports. For example, `Custom Attributes` (`MethodAttributes` descriptor) returns true for any type with methods, but its data (`TypeView.MethodAttributeRows`) is only populated on the member-detail/index path — the type-level renderer produces no table for it. To avoid advertising sections that would render nothing, `DiscoverOutput.RestrictToRenderedSections` probes the rendered markdown and drops any _tabular_ schema section that produced no table. This reuses the same rendered output already used for the column render-probe, so "no rendered table" reliably means "no data" for these sections. Non-tabular sections are left untouched.
 
-**Valid-but-empty sections report "no data" (not "not found").** When `-D <Section> --effective` names a section that exists in the full schema but was dropped as empty (e.g. `-D "Custom Attributes" --effective` for a type with no attributes), `DiscoverOutput.FilterEmptyEffectiveSections` emits `note: section '<X>' has no data for this type` on stderr and exits `0`, rather than the misleading `Error: Section '<X>' not found`. A genuinely unknown section still falls through to the resolver's `not found` error (with suggestions) and exit `1`. This path is type/member-only — package/assembly callers pass no full schema and keep prior behavior.
+**Valid-but-empty sections report "no data" (not "not found").** When `-D <Section>` names a section that exists in the full schema but was dropped as empty (e.g. `-D "Custom Attributes"` for a type with no attributes), `DiscoverOutput.FilterEmptyEffectiveSections` emits `note: section '<X>' has no data for this query` on stderr and exits `0`, rather than the misleading `Error: Section '<X>' not found`. A genuinely unknown section still falls through to the resolver's `not found` error (with suggestions) and exit `1`.
 
-**Effective discovery is the default (type/member).** For the `type` and `member` commands, plain `-D`/`-D <Section>` now defaults to _effective_ discovery: it resolves and loads the source and lists only the sections/columns that actually have data. This fixes the footgun where the static schema advertised sections (e.g. `Custom Attributes`) that a given type can never populate. The opt-out is `--schema`, which restores the cheap, offline static schema listing (no source resolution, no NuGet download). The legacy `--effective` flag is now redundant (it is already the default) but still accepted for back-compat; passing `--effective --schema` together resolves to `--schema` with a warning. This default flip is scoped to `ApiOptions` (type/member) only — `package`/`assembly` discovery remains static-by-default with `--effective` as the opt-in, because their effective path runs a full-package inspection and would regress cost/offline behavior. The gate is the computed `ApiOptions.EffectiveDiscovery` (`Discover != null && !Schema`). The "no source" case for type/member can't regress because the parser early-returns a static `Discovery` result before any source is required.
+**Effective discovery is the default for target-based queries.** Plain `-D`/`-D <Section>` and bare `-S` default to _effective_ discovery: they resolve and load the source and list only the sections/columns that actually have data. This fixes the footgun where the static schema advertised sections (e.g. `Custom Attributes` or `Manifest`) that a given target can never populate. The opt-out is `--schema`, which restores the cheap, offline static schema listing (no source resolution, no NuGet download) and shows every selectable section, including opt-in sections and cost annotations.
 
 **Plain (static schema) discovery.** Static single-type discovery (`<Type> -D <Section> --schema`, or bare `<Type> -D` with no resolvable source) lists the static schema, but option-gated columns are dropped so that what is listed matches what the user can actually project. This is centralized in `ApiCommand.ToQueryableSchema`, the option/contract-level queryability gate (data-independent, the counterpart to the data-level effective gate). Today the only option-gated column is the `Select` overload-index column, which only renders with `--show-index` (`member`-only); it is hidden via `DiscoverOutput.WithoutColumn` unless `ShowSelect` is set, and reappears for `member <Type> -D <Section> --show-index`.
 

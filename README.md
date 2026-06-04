@@ -43,7 +43,6 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
-| `audit X` | Report package/library audit signals with explicit network scope flags. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, source, decompiled C#, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. |
@@ -55,16 +54,16 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the embedded LLM skill definition. |
 
-## Audit signals
+## Signals
 
-`audit` is a signal report, not a safety certification. Cost is governed by verbosity and explicit section selection: `audit X` reports metadata signals plus the provenance Audit section (which acquires a missing PDB to resolve SourceLink). The per-source-file reachability pass (SourceLink Audit, Missing Source Files) is opt-in — included by `audit X -v:d` or selected explicitly with `-S` — because its cost scales with source-file count. The slow, exhaustive content check (Source Integrity) is opt-in only.
+`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink Availability`, `SourceLink Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink Integrity`) is opt-in only.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
-| `audit X` | Metadata + provenance | Package or library metadata signals plus the Audit section; a missing library PDB is acquired to resolve SourceLink. |
-| `audit X -v:d` | Detailed library audit | Adds SourceLink Audit and Missing Source Files (opt-in per-file pass); verifies tracked source-file URLs are reachable (HTTP HEAD) and reports embedded-source coverage. |
-| `library X -S "Source Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `audit package X --nuget` | NuGet registry expansion | Package audit plus known vulnerabilities, resolved dependency closure, max dependency depth, package age, and direct dependency age. |
+| `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
+| `library X -S "Signals,SourceLink Availability,SourceLink Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
+| `library X -S "SourceLink Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 
 ## Output and querying
 
@@ -79,18 +78,18 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S "Async*" --count
-dotnet-inspect audit System.Text.Json
+dotnet-inspect library System.Text.Json -S Signals
 ```
 
-For `type` and `member`, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
+For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections.
 
 ## Common examples
 
 ```bash
-dotnet-inspect audit System.Text.Json
-dotnet-inspect audit System.Text.Json -v:d
-dotnet-inspect library System.Text.Json -S "Source Integrity"
-dotnet-inspect audit package System.Text.Json --nuget
+dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
+dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect type --package System.Text.Json --oneline
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

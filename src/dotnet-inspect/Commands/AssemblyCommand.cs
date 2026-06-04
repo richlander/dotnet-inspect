@@ -27,14 +27,16 @@ public class AssemblyCommand
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
         var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
+            || !string.IsNullOrEmpty(options.PackagePath)
+            || !string.IsNullOrEmpty(options.PlatformAssembly);
 
-        // Discovery mode: -D/--discover lists schema
+        // Static discovery mode: -D --schema lists schema without resolving/loading the library.
         if (options.Discover != null)
         {
-            if (options.Effective)
+            if (!options.Schema && hasInputSource)
             {
-                // Need to run pipeline to determine effective sections — handled after data collection below
-                // For now, fall through to --effective with bare -D
+                // Need to run pipeline to determine effective sections — handled after data collection below.
             }
             else
             {
@@ -45,8 +47,8 @@ public class AssemblyCommand
             }
         }
 
-        // --effective with -D: run pipeline at Detailed to show sections with data
-        bool effectiveDiscovery = options.Effective && options.Discover != null;
+        // -D defaults to effective discovery for target-based commands.
+        bool effectiveDiscovery = options.Discover != null && !options.Schema && hasInputSource;
         var userVerbosity = options.Verbosity; // preserve for display formatting
         options = options with { UserVerbosityOverride = userVerbosity };
         if (effectiveDiscovery)
@@ -57,9 +59,6 @@ public class AssemblyCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
-
-        if (options.Audit && options.IncludeSections is not { Count: > 0 })
-            options = options with { IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Audit" } };
 
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
@@ -284,17 +283,7 @@ public class AssemblyCommand
 
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
     {
-        bool mismatch = false;
-        foreach (var insp in inspections)
-        {
-            if (insp.SourceIntegrityMismatches is { Count: > 0 } list)
-            {
-                mismatch = true;
-                foreach (var file in list)
-                    Console.Error.WriteLine($"Source integrity mismatch: {file}");
-            }
-        }
-        return mismatch ? 1 : 0;
+        return inspections.Any(insp => insp.SourceIntegrityMismatches is { Count: > 0 }) ? 1 : 0;
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
@@ -314,7 +303,7 @@ public class AssemblyCommand
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-            verbosity: (int)userVerbosity, rootLabel: rootLabel);
+            verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap);
     }
 
     // ── Effective sections cache ──

@@ -45,7 +45,7 @@ Runtime assemblies are the actual implementation. They:
 Commands that use runtime assemblies:
 
 - `library` - Full library inspection (always uses runtime for `--platform`)
-- `audit` - library audit for platform-looking targets
+- `library -S Signals` - library signals for platform-looking targets
 - PDB/SourceLink resolution for `--docs`, `--samples`, or source URL extraction
 
 ## Hybrid Resolution Pattern

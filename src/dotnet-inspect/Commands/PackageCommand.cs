@@ -28,17 +28,19 @@ public class PackageCommand
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
 
-        // Discovery mode: -D/--discover lists schema
-        if (options.Discover != null && !options.Effective)
+        // Static discovery mode: -D --schema lists schema without resolving/loading the package.
+        // Also keep no-target package discovery static because there is no target to make effective.
+        if (options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
             var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
-                verbosity: (int)options.Verbosity);
+                verbosity: (int)options.Verbosity,
+                sectionCostAnnotations: pipeline.GetCostAnnotations());
         }
 
-        // --effective with -D: run pipeline at Detailed to show sections with data
-        bool effectiveDiscovery = options.Effective && options.Discover != null;
+        // -D defaults to effective discovery for target-based commands.
+        bool effectiveDiscovery = options.Discover != null && !options.Schema;
         var userVerbosity = options.Verbosity; // preserve for display formatting
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
@@ -48,9 +50,6 @@ public class PackageCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
-
-        if (options.Audit)
-            options = options with { IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { PackageSections.Audit } };
 
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
@@ -251,19 +250,21 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
             }
 
+            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true;
+
             var result = await PackageInspector.InspectAsync(
                 extractPath, packageName, version, isLocalFile,
                 isLocalFile ? packageArgs[0] : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
                 resolution.NupkgPath,
-                fetchMetadata: options.NuGetAudit);
+                fetchMetadata: wantsSignals);
 
             // Apply package size (not cached in index — comes from nupkg file)
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
             // Verify package signature if nupkg is available
-            if (resolution.NupkgPath != null && (options.Verbosity >= Verbosity.Normal || options.Audit))
+            if (resolution.NupkgPath != null && (options.Verbosity >= Verbosity.Normal || wantsSignals))
             {
                 logger.Log($"Verifying package signature: {Path.GetFileName(resolution.NupkgPath)}");
                 result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
@@ -274,14 +275,21 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            if (options.Audit)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(result, options.NuGetAudit, client, logger);
+            if (wantsSignals)
+            {
+                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+                    extractPath, packageName, version, client, logger, acquirePdb: true);
+            }
+
+            if (wantsSignals)
+                await AuditSignalBuilder.PopulatePackageAuditAsync(result, client, logger);
 
             // Output results
             if (effectiveDiscovery)
             {
                 var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections);
                 var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+                var fullSchemaMap = schemaMap;
 
                 // Field-level filtering: detect which fields produced output
                 // For bare -D, target all effective sections; for -D SectionName, target specific ones
@@ -305,7 +313,7 @@ public class PackageCommand
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
-                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}");
+                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -328,8 +336,8 @@ public class PackageCommand
                         return 1;
                     }
 
-                    // Narrow to the Package section for oneline
-                    options = options with { IncludeSections = new HashSet<string> { PackageSections.Package } };
+                    // Narrow to the Package Info section for oneline
+                    options = options with { IncludeSections = new HashSet<string> { PackageSections.PackageInfo } };
                 }
 
                 if (hasProjection)
@@ -396,6 +404,7 @@ public class PackageCommand
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
     {
         result.PackageName = nuspec.PackageName ?? result.PackageName;
+        result.ManifestVersion = nuspec.ManifestVersion;
         result.Version = nuspec.Version ?? result.Version;
         result.Description = nuspec.Description;
         result.Authors = nuspec.Authors;

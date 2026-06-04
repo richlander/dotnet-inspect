@@ -54,7 +54,7 @@ dotnet-inspect System.CommandLine
 ```expect
 # System.CommandLine
 Version: 2.0.8
-## Package
+## Package Info
 | Field | Value |
 ```
 
@@ -158,9 +158,9 @@ dotnet-inspect System.CommandLine -v:d
 ```
 
 ```expect
-## Package
+## Package Info
 ## Statistics
-## Package Dependencies
+## Dependencies
 ```
 
 ```expect-not
@@ -212,8 +212,8 @@ dotnet-inspect System.CommandLine -S
 ```
 
 ```expect
-Package
-Package Dependencies
+Package Info
+Dependencies
 ```
 
 ```expect-not
@@ -264,7 +264,7 @@ dotnet-inspect System.CommandLine -S Package
 ```
 
 ```expect
-## Package
+## Package Info
 | Field | Value |
 ```
 

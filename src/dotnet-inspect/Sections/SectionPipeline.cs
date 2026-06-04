@@ -16,6 +16,11 @@ public sealed class SectionEntry<TModel>
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
+public static class SectionAnnotations
+{
+    public const string OptIn = "opt-in";
+}
+
 /// <summary>
 /// Pipeline that computes the effective set of sections to render
 /// based on registered descriptors, verbosity, and <c>-S</c> filters.
@@ -51,10 +56,9 @@ public sealed class SectionPipeline<TModel>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
 
     /// <summary>
-    /// Maps each section name to a short cost-tier annotation for discovery output:
+    /// Maps each section name to a short annotation for discovery output:
     /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
-    /// in a default flow), <c>"expensive"</c> for sections that touch the network or do heavy work
-    /// and so only appear at Detailed verbosity. Cheap default sections are omitted (no annotation).
+    /// in a default flow). Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()
     {
@@ -62,9 +66,7 @@ public sealed class SectionPipeline<TModel>
         foreach (var e in _entries)
         {
             if (e.ExplicitOnly)
-                map[e.Name] = "opt-in";
-            else if (e.IsExpensive)
-                map[e.Name] = "expensive";
+                map[e.Name] = SectionAnnotations.OptIn;
         }
         return map;
     }
@@ -245,7 +247,7 @@ public sealed class SectionPipeline<TModel>
     /// that declare any of the given <paramref name="capabilities"/> AND are authorized to use them.
     /// Authorization rule (keys off the user's verbosity, never an internally force-bumped value):
     /// <list type="bullet">
-    ///   <item><b>MayDownloadPdb</b>: section is in the explicit include set OR <paramref name="userVerbosity"/> &gt;= Detailed.</item>
+    ///   <item><b>MayDownloadPdb</b>/<b>MayAuditSources</b>: section is in the explicit include set OR <paramref name="userVerbosity"/> &gt;= Detailed.</item>
     ///   <item><b>MayFetchSources</b>: section is in the explicit include set (never by verbosity).</item>
     /// </list>
     /// Selection (not <c>CanRender</c>) is used deliberately so the work that *produces* a section's
@@ -265,7 +267,7 @@ public sealed class SectionPipeline<TModel>
                 continue;
 
             bool inInclude = explicitInclude && include!.Contains(entry.Name);
-            // MayFetchSources requires explicit include; MayDownloadPdb also allowed at -v:d.
+            // MayFetchSources requires explicit include; lighter network work is also allowed at -v:d.
             bool wantsFetch = (capabilities & SectionCapabilities.MayFetchSources) != 0;
             bool authorized = inInclude
                 || (!wantsFetch && userVerbosity >= Verbosity.Detailed);

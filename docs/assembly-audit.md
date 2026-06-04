@@ -1,15 +1,15 @@
-# Audit
+# Signals
 
-The `audit` command reports package and library signals. It is an evidence report, not a safety or trust verdict.
+The `Signals` section reports package and library observations. It is an evidence report, not a safety or trust verdict.
 
 ```bash
-dotnet-inspect audit System.Text.Json
-dotnet-inspect audit System.Text.Json -v:d
-dotnet-inspect library System.Text.Json -S "Source Integrity"
-dotnet-inspect audit package System.Text.Json --nuget
+dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
+dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect package System.Text.Json -S Signals
 ```
 
-Cost is governed by verbosity (the cost ceiling) and explicit section selection. `audit X` reports metadata signals plus the Audit section, acquiring a missing library PDB to resolve SourceLink. The per-source-file reachability pass (the `SourceLink Audit` and `Missing Source Files` sections, which issue one HTTP HEAD per tracked source URL) is opt-in: `audit X -v:d` includes it, and on a plain `library X` inspection it is selected explicitly via `-S "SourceLink Audit"`. It does not run in a plain `library X -v:d` flow, because its cost scales with source-file count. The exhaustive content check — downloading every tracked source file and comparing its hash to the PDB checksum — is the opt-in `Source Integrity` section, selected explicitly via `library X -S "Source Integrity"`; it never runs in a default flow and exits non-zero on a checksum mismatch. For packages, `--nuget` adds registry-backed signals.
+Cost is governed by verbosity (the cost ceiling) and explicit section selection. `library X -S Signals` reports metadata/provenance signals and acquires a missing library PDB to resolve SourceLink. The per-source-file reachability pass (the `SourceLink Availability` and `SourceLink Missing Files` sections, which issue one HTTP HEAD per tracked source URL) is selected explicitly via `-S`. It does not run in a plain `library X -v:d` flow, because its cost scales with source-file count. The exhaustive content check — downloading every tracked source file and comparing its hash to the PDB checksum — is the opt-in `SourceLink Integrity` section, selected explicitly via `library X -S "SourceLink Integrity"`; it never runs in a default flow and exits non-zero on a checksum mismatch. For packages, `Signals` is opt-in and includes registry-backed signals.
 
 ## Build Audit Fields
 

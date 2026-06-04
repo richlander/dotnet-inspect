@@ -137,7 +137,7 @@ public class LibraryInspection
     public bool? AllSourcesAccessible { get; set; }
 
     /// <summary>
-    /// Whether a Source Integrity pass (GET + checksum verification) was run.
+    /// Whether a SourceLink Integrity pass (GET + checksum verification) was run.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SourceIntegrityChecked { get; set; }
@@ -153,6 +153,12 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int SourceIntegrityMismatched { get; set; }
+
+    /// <summary>
+    /// Number of source documents whose content hash matched the PDB checksum after normalizing line endings.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SourceIntegrityLineEndingNormalized { get; set; }
 
     /// <summary>
     /// Number of source documents that could not be fetched or had no usable checksum.

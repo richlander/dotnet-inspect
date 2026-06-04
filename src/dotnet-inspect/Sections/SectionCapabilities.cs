@@ -18,7 +18,12 @@ public enum SectionCapabilities
     MayDownloadPdb = 1 << 0,
 
     /// <summary>
+    /// May check SourceLink source-file availability with lightweight HEAD requests.
+    /// </summary>
+    MayAuditSources = 1 << 1,
+
+    /// <summary>
     /// May fetch source file bodies over the network and hash them (the slow integrity work).
     /// </summary>
-    MayFetchSources = 1 << 1,
+    MayFetchSources = 1 << 2,
 }

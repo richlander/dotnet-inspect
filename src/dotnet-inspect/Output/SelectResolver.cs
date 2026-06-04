@@ -21,6 +21,8 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
 /// </summary>
 public static class SelectResolver
 {
+    public const string AllSelector = "All";
+
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
     /// When <paramref name="singleGlob"/> is true, a glob must match exactly one section
@@ -72,6 +74,13 @@ public static class SelectResolver
 
         foreach (var value in select)
         {
+            if (value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var section in knownSections)
+                    matched.Add(section);
+                continue;
+            }
+
             var (matches, miss) = ResolveSingle(value, knownSections);
             foreach (var m in matches)
                 matched.Add(m);

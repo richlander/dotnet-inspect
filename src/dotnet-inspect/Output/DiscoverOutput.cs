@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using Markout;
 
@@ -51,8 +52,20 @@ public static class DiscoverOutput
             context.Serialize(view, Console.Out, new OneLineFormatter(showHeader: false));
         }
 
+        if (ShouldWriteAllSelectorHint(discover, json, sectionCostAnnotations))
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Note: Use -S {SelectResolver.AllSelector} to select all sections.");
+        }
+
         return 0;
     }
+
+    private static bool ShouldWriteAllSelectorHint(string[]? discover, bool json,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations)
+        => !json
+           && discover is null or { Length: 0 }
+           && sectionCostAnnotations?.Values.Any(v => v == SectionAnnotations.OptIn) == true;
 
     /// <summary>
     /// Runs discovery with effective filtering (only sections with data).
@@ -88,8 +101,8 @@ public static class DiscoverOutput
 
     /// <summary>
     /// Splits requested discovery sections into those still worth resolving and those that are
-    /// valid in the full schema but have no data under <c>--effective</c>. For the latter a
-    /// "has no data for this type" note is written (clearer than "Section not found", since the
+    /// valid in the full schema but have no data under effective discovery. For the latter a
+    /// "has no data for this query" note is written (clearer than "Section not found", since the
     /// section is real — just empty for this input). Truly unknown names are kept so the normal
     /// discovery resolver can report them with suggestions. Returns the names to still resolve,
     /// or <c>null</c> when every requested section was valid-but-empty (fully handled via notes).
@@ -112,7 +125,7 @@ public static class DiscoverOutput
             if (fullMatches.Count >= 1)
             {
                 foreach (var match in fullMatches)
-                    Console.Error.WriteLine($"note: section '{match}' has no data for this type");
+                    Console.Error.WriteLine($"note: section '{match}' has no data for this query");
                 emittedNote = true;
             }
             else
@@ -129,7 +142,7 @@ public static class DiscoverOutput
     /// The single-type member pipeline reports decompiler code sections (Source, IL,
     /// IL (Annotated), Lowered C#) as renderable whenever the type has methods, but these
     /// are member-detail sections produced only for a specific member selection — they are
-    /// not part of the type schema. Dropping them keeps <c>-D --effective</c> consistent
+    /// not part of the type schema. Dropping them keeps effective discovery consistent
     /// with <c>-D</c> and ensures every listed section is queryable via <c>-D &lt;Section&gt;</c>.
     /// </summary>
     public static List<string> RestrictToSchemaSections(List<string> effectiveSections, DocumentSchema schema)
@@ -142,7 +155,7 @@ public static class DiscoverOutput
     /// since it has no data to query. This catches sections whose <c>CanRender</c> is a coarse
     /// proxy — e.g. "Custom Attributes", gated on "the type has methods" but only populated
     /// when a specific member's attributes are read (the member-detail path) — so
-    /// <c>--effective</c> reflects real data rather than mere potential.
+    /// effective discovery reflects real data rather than mere potential.
     /// Only tabular sections (those with schema columns) are subject to the drop; non-tabular
     /// sections are left untouched because their content may not render as a markdown table.
     /// This measures renderability in the current type effective-discovery render path
@@ -189,7 +202,7 @@ public static class DiscoverOutput
 
     /// <summary>
     /// Filters a schema's section columns to only those that actually render, given a
-    /// markdown rendering of the same view. Used by --effective discovery so the reported
+    /// markdown rendering of the same view. Used by effective discovery so the reported
     /// columns match what the user would see at their current verbosity/options (e.g. the
     /// Select overload-index column is dropped unless --show-index produced it, summary
     /// columns replace detailed columns at Minimal verbosity, etc.).
@@ -274,14 +287,13 @@ public static class DiscoverOutput
     private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
-        // Bare -D: list sections (regular alpha, then opt-in alpha)
+        // Bare -D: list sections (enabled alpha, then opt-in alpha)
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
             return items
                 .Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations)))
-                .OrderBy(r => sectionCostAnnotations != null
-                    && sectionCostAnnotations.TryGetValue(r.Name, out var t) && t == "opt-in" ? 1 : 0)
+                .OrderBy(r => GetSectionSortRank(r.Name, sectionCostAnnotations))
                 .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -353,8 +365,8 @@ public static class DiscoverOutput
     }
 
     /// <summary>
-    /// Appends a cost-tier annotation to a section's kind label, e.g. <c>"section"</c> →
-    /// <c>"section (expensive)"</c>, when <paramref name="annotations"/> has an entry for the
+    /// Appends an annotation to a section's kind label, e.g. <c>"section"</c> →
+    /// <c>"section (opt-in)"</c>, when <paramref name="annotations"/> has an entry for the
     /// section name. Cheap default sections (no entry) are returned unchanged.
     /// </summary>
     private static string AnnotateKind(string kind, string name,
@@ -362,6 +374,18 @@ public static class DiscoverOutput
         => annotations != null && annotations.TryGetValue(name, out var tier)
             ? $"{kind} ({tier})"
             : kind;
+
+    private static int GetSectionSortRank(string name, IReadOnlyDictionary<string, string>? annotations)
+    {
+        if (annotations == null || !annotations.TryGetValue(name, out var tier))
+            return 0;
+
+        return tier switch
+        {
+            SectionAnnotations.OptIn => 1,
+            _ => 0
+        };
+    }
 
     private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
@@ -400,10 +424,9 @@ public static class DiscoverOutput
         }
         else
         {
-            // Full tree: sections → items (regular alpha, then opt-in alpha)
+            // Full tree: sections → items (enabled alpha, then opt-in alpha)
             var orderedSections = schema.SectionNames
-                .OrderBy(n => sectionCostAnnotations != null
-                    && sectionCostAnnotations.TryGetValue(n, out var t) && t == "opt-in" ? 1 : 0)
+                .OrderBy(n => GetSectionSortRank(n, sectionCostAnnotations))
                 .ThenBy(n => n, StringComparer.OrdinalIgnoreCase);
             foreach (var sectionName in orderedSections)
             {

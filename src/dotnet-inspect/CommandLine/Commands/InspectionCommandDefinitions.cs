@@ -199,7 +199,9 @@ public static class InspectionCommandDefinitions
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = opts.ParseSelect(parseResult),
                 Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
+                Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(asmNoHeaderOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)

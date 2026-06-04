@@ -34,7 +34,6 @@ public static class SourceCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var verifyOption = new Option<bool>("--verify") { Description = "Verify SourceLink URLs are accessible (HTTP HEAD)" };
-        var auditOption = new Option<bool>("--audit") { Description = "Full source audit: verify all PDB source files are accessible" };
         var browsableUrlsOption = new Option<bool>("--browsable-urls") { Description = "Use /blob/ URLs for browser viewing (default: /raw/ for LLM consumption)" };
         var catOption = new Option<bool>("--cat") { Description = "Print source file contents to stdout" };
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "Method token+IL offset to resolve (e.g., 0x6000001+0x5)" };
@@ -53,7 +52,6 @@ public static class SourceCommandDefinitions
         sourceCommand.Options.Add(memberOption);
         sourceCommand.Options.Add(typeFilterOption);
         sourceCommand.Options.Add(verifyOption);
-        sourceCommand.Options.Add(auditOption);
         sourceCommand.Options.Add(browsableUrlsOption);
         sourceCommand.Options.Add(catOption);
         sourceCommand.Options.Add(ilOffsetOption);
@@ -69,7 +67,7 @@ public static class SourceCommandDefinitions
 
         var commandArgs = new SourceOptionsParser.SourceCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, memberOption, typeFilterOption, verifyOption, auditOption, browsableUrlsOption, catOption,
+            allOption, memberOption, typeFilterOption, verifyOption, browsableUrlsOption, catOption,
             ilOffsetOption,
             compactOption, oneLineOption, noHeaderOption);
 

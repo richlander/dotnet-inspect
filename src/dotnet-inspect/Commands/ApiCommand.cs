@@ -43,7 +43,7 @@ public class ApiCommand
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
-            Effective = options.Effective, Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
+            Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel
         })
     };
@@ -703,7 +703,7 @@ public class ApiCommand
     /// specific options surface. When the enabling option is off, the column is not queryable
     /// (e.g. <c>--columns Select</c> does nothing), so it is hidden from discovery to keep what
     /// is listed consistent with what the user can actually project. This is the option/contract
-    /// level gate (data-independent); the data-level gate is <c>--effective</c>.
+    /// level gate (data-independent); the data-level gate is effective discovery.
     /// </summary>
     /// <remarks>
     /// Currently the only option-gated column is the <c>Select</c> overload-index column, which
@@ -717,7 +717,7 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Executes effective discovery (<c>-D --effective</c>) for a single type. Shared by the
+    /// Executes effective discovery (<c>-D</c>) for a single type. Shared by the
     /// type and member commands so both paths apply identical queryability filtering:
     /// <list type="bullet">
     /// <item>Section gate: <see cref="DiscoverOutput.RestrictToSchemaSections"/> drops pipeline

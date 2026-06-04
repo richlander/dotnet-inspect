@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.9.0
+
+### Signals
+
+- Replaced the top-level `audit` command with explicit `Signals` section selection for package and library signal reports.
+- Added SourceLink availability and CR/LF mismatch diagnostics to library Signals.
+- Package Signals now include symbol/source evidence grouped by PDB source, including `msdl.microsoft.com`, `.snupkg`, embedded, and in-package PDBs.
+
+### Package inspection
+
+- Added `Library Files` to list all files under `lib/` across target frameworks.
+- Added package manifest version output and removed the redundant manifest schema row.
+- Added `-S All` to select all sections, including opt-in sections.
+
+### SourceLink
+
+- SourceLink Integrity now treats CR/LF-only checksum differences as verified with a diagnostic row.
+- Removed duplicate `source --audit`; use `library <target> -S "SourceLink Availability"` for full SourceLink reachability.
+
 ## v0.8.1
 
 ### Skill guidance

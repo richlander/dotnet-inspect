@@ -90,7 +90,7 @@ Much of this could have been avoided if:
 
 Currently tips only fire in three places:
 - After `package` → suggests `api`
-- After `audit` → suggests `--full`
+- After `library -S Signals` → suggests SourceLink follow-up sections
 - After `api` → suggests `--docs`
 
 Tips are the primary mechanism for guiding LLMs toward efficient next steps without changing stdout output (which would break skill parsers). More tip opportunities:

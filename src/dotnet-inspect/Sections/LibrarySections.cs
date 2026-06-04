@@ -25,13 +25,12 @@ public static class LibrarySections
     {
         return new SectionPipeline<LibraryInspection>()
             .Add<LibraryInfo>()
-            .Add<Symbols>()
-            .Add<Audit>()
             .Add<SourceLinkAudit>()
             .Add<MissingSourceFiles>()
             .Add<SourceIntegrity>()
-            .Add<LibraryReferences>()
-            .Add<LibraryReferencesTransitive>()
+            .Add<Symbols>()
+            .Add<Signals>()
+            .Add<References>()
             .Add<Dependencies>()
             .Add<ExtensionMethods>()
             .Add<UnsafeMethods>()
@@ -71,38 +70,39 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
     }
 
-    // ===== Expensive sections (require network) =====
+    // ===== Symbol/provenance sections (network-capable, acceptable default cost) =====
 
     public sealed class Symbols : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => "Symbols";
-        public static bool IsExpensive => true;
+        public static bool IsExpensive => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => ScannerSymbols;
         public static bool CanRender(LibraryInspection model) => true;
     }
 
-    // ===== Normal sections (offline, cheap) =====
-
-    public sealed class Audit : ISectionDescriptor<LibraryInspection>
+    public sealed class Signals : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Audit";
+        public static string Name => "Signals";
         public static bool IsExpensive => false;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
     }
 
+    // ===== Opt-in SourceLink sections =====
+
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "SourceLink Audit";
+        public static string Name => "SourceLink Availability";
         public static bool IsExpensive => true;
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
-        // slow for the default -v:d flow. The Audit section's PDB-derived SourceLink row covers
-        // provenance without this per-file network fan-out.
+        // slow to render as a full default section. Signals may still summarize this high-value audit.
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
@@ -110,11 +110,12 @@ public static class LibrarySections
 
     public sealed class MissingSourceFiles : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Missing Source Files";
+        public static string Name => "SourceLink Missing Files";
         public static bool IsExpensive => true;
-        // Opt-in only: derived from the same per-file HEAD pass as SourceLink Audit.
+        // Opt-in only: derived from the same per-file HEAD pass as SourceLink Availability.
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.MissingSourceFiles is { Count: > 0 };
@@ -122,7 +123,7 @@ public static class LibrarySections
 
     public sealed class SourceIntegrity : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Source Integrity";
+        public static string Name => "SourceLink Integrity";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionCapabilities Capabilities =>
@@ -131,24 +132,16 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
-    public sealed class LibraryReferences : ISectionDescriptor<LibraryInspection>
+    // ===== Normal sections (offline, cheap) =====
+
+    public sealed class References : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Library References";
+        public static string Name => "References";
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyInfo?.References is { Count: > 0 }
                && model.AssemblyInfo?.TransitiveReferences is not { Count: > 0 };
-    }
-
-    public sealed class LibraryReferencesTransitive : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => "Library References (Transitive)";
-        public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerTransitiveRefs;
-        public static bool CanRender(LibraryInspection model)
-            => !model.UseDependenciesView
-               && model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
     }
 
     public sealed class Dependencies : ISectionDescriptor<LibraryInspection>

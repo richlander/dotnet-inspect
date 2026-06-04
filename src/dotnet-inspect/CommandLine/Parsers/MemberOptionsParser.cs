@@ -200,7 +200,6 @@ public static class MemberOptionsParser
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
-            Effective = parseResult.GetValue(opts.Effective),
             Count = parseResult.GetValue(opts.Count),
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),

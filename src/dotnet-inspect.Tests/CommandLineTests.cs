@@ -82,27 +82,11 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void AuditCommand_RemovedSourceAuditFlag_IsRejected()
+    public void AuditCommand_IsNoLongerRegistered()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json", "--source-audit"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json"]);
 
         Assert.NotEmpty(result.Errors);
-    }
-
-    [Fact]
-    public void AuditCommand_RemovedSymbolsFlag_IsRejected()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json", "--symbols"]);
-
-        Assert.NotEmpty(result.Errors);
-    }
-
-    [Fact]
-    public void AuditCommand_WithDetailedVerbosity_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["audit", "System.Text.Json", "-v:d"]);
-
-        Assert.Empty(result.Errors);
     }
 
     [Fact]

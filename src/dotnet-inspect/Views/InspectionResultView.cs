@@ -3,6 +3,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Views;
 
@@ -32,23 +33,83 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.Summary, Headless = true)]
     public List<MarkoutField> Summary => GetCompactFields();
 
-    [MarkoutSection(Name = PackageSections.Package)]
+    [MarkoutIgnoreInTable]
+    public List<DependencyGroup>? DependencyGroups => _data.DependencyGroups;
+
+    [MarkoutSection(Name = PackageSections.Dependencies)]
+    public List<FlatDependency>? FlatDependencies => _data.DependencyGroups?
+        .OrderBy(g => GetTfmSortOrder(g.TargetFramework))
+        .ThenBy(g => g.TargetFramework)
+        .SelectMany(g => g.Dependencies
+            .OrderBy(d => d.Id)
+            .Select(d => new FlatDependency
+            {
+                TargetFramework = g.TargetFramework,
+                Id = d.Id,
+                Version = d.Version
+            }))
+        .ToList();
+
+    private static int GetTfmSortOrder(string tfm)
+    {
+        if (tfm.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) ||
+            tfm.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase))
+            return 0;
+        if (tfm.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) ||
+            tfm.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+            return 1;
+        if (tfm.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase))
+            return 2;
+        return 3;
+    }
+
+    [MarkoutSection(Name = PackageSections.Files)]
+    public List<string>? Files => _data.Files;
+
+    [MarkoutSection(Name = PackageSections.LibraryFiles)]
+    public List<LibraryFileRow>? LibraryFiles => _data.LibraryFiles?
+        .Select(f => new LibraryFileRow(TfmResolver.ExtractTfmFromPath(f) ?? "", f))
+        .OrderByDescending(f => TfmResolver.GetTfmPriority(f.Tfm))
+        .ThenBy(f => f.File, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    [MarkoutSection(Name = PackageSections.Manifest)]
+    public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
+
+    [MarkoutIgnore]
+    public bool HasManifest => !string.IsNullOrWhiteSpace(_data.PackageName)
+        || !string.IsNullOrWhiteSpace(_data.Version)
+        || !string.IsNullOrWhiteSpace(_data.ToolFormat)
+        || _data.ToolCommands is { Count: > 0 }
+        || _data.RuntimeIdentifierPackages is { Count: > 0 };
+
+    [MarkoutSection(Name = PackageSections.PackageInfo)]
     public List<MarkoutField> Metadata => GetMetadataFields();
+
+    [MarkoutSection(Name = PackageSections.RuntimeDependencies)]
+    public List<PackageDependency>? RuntimeDependencies => _data.RuntimeDependencies;
 
     [MarkoutIgnore]
     public bool HasAuditSignals => _data.AuditSignals is { Count: > 0 };
 
-    [MarkoutSection(Name = PackageSections.Audit, ShowWhenProperty = nameof(HasAuditSignals))]
-    public List<AuditSignalRow>? AuditSection =>
+    [MarkoutSection(Name = PackageSections.Signals, ShowWhenProperty = nameof(HasAuditSignals))]
+    public List<AuditSignalRow>? SignalsSection =>
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
-    public string? Authors => _data.Authors;
-    public string? License => _data.License;
-    public string? Repository => _data.Repository;
-
-    [MarkoutFormat("yyyy-MM-dd")]
-    [MarkoutPropertyName("Built")]
-    public DateTimeOffset? BuiltDate => _data.BuiltDate;
+    [MarkoutSection(Name = PackageSections.Signature)]
+    public SigningSection? SigningSectionData => _data.SignatureResult is { } sig
+        ? new SigningSection
+        {
+            Signed = _data.Signed == true ? "Yes" : sig.IsUnsigned ? "No" : "Unknown",
+            Publisher = !string.IsNullOrEmpty(sig.Publisher)
+                ? $"{sig.Publisher}{(sig.AuthorVerified ? " (Verified)" : "")}"
+                : null,
+            AuthorVerified = sig.AuthorVerified ? "Yes" : sig.IsUnsigned ? "No" : null,
+            RepositoryVerified = sig.RepositoryVerified ? "Yes" : null,
+            Repository = sig.Repository,
+            Status = sig.StatusMessage,
+        }
+        : null;
 
     [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutSection(Name = PackageSections.Statistics)]
@@ -72,6 +133,24 @@ public class InspectionResultView
     [MarkoutPropertyName("Version Count")]
     public int? VersionCount => _data.VersionCount;
 
+    [MarkoutSection(Name = PackageSections.TargetFrameworks)]
+    public List<TargetFrameworkRow>? TargetFrameworkRows => _data.TargetFrameworks?
+        .OrderByDescending(TfmResolver.GetTfmPriority)
+        .Select(tfm => new TargetFrameworkRow(tfm))
+        .ToList();
+
+    [MarkoutSection(Name = PackageSections.Vulnerabilities)]
+    [MarkoutIgnoreInTable]
+    public List<PackageVulnerability>? Vulnerabilities => _data.Vulnerabilities;
+
+    public string? Authors => _data.Authors;
+    public string? License => _data.License;
+    public string? Repository => _data.Repository;
+
+    [MarkoutFormat("yyyy-MM-dd")]
+    [MarkoutPropertyName("Built")]
+    public DateTimeOffset? BuiltDate => _data.BuiltDate;
+
     public bool? IsVerified => _data.IsVerified;
 
     [MarkoutJoin(", ")]
@@ -80,10 +159,6 @@ public class InspectionResultView
 
     [MarkoutIgnoreInTable]
     public PackageDeprecation? Deprecation => _data.Deprecation;
-
-    [MarkoutSection(Name = PackageSections.Vulnerabilities)]
-    [MarkoutIgnoreInTable]
-    public List<PackageVulnerability>? Vulnerabilities => _data.Vulnerabilities;
 
     [MarkoutPropertyName("Vulnerabilities")]
     public string? VulnerabilitiesDisplay => Vulnerabilities is { Count: > 0 }
@@ -113,11 +188,13 @@ public class InspectionResultView
     [MarkoutPropertyName("Target Frameworks")]
     public List<string>? TargetFrameworks => _data.TargetFrameworks;
 
-    [MarkoutPropertyName("Target Frameworks")]
+    [MarkoutPropertyName("TFM Count")]
     public int TargetFrameworkCount => _data.TargetFrameworks?.Count ?? 0;
 
-    [MarkoutPropertyName("TFM")]
-    public string? Tfm => _data.Tfm;
+    [MarkoutPropertyName("Highest TFM")]
+    public string? HighestTfm => _data.TargetFrameworks is { Count: > 0 }
+        ? _data.TargetFrameworks.OrderByDescending(TfmResolver.GetTfmPriority).First()
+        : null;
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Supported RIDs")]
@@ -152,68 +229,12 @@ public class InspectionResultView
     [MarkoutPropertyName("Tool Commands")]
     public List<string>? ToolCommands => _data.ToolCommands;
 
-    [MarkoutSection(Name = PackageSections.RidPackages)]
-    public List<RidPackageReferenceView>? RuntimeIdentifierPackages => _data.RuntimeIdentifierPackages?
-        .Select(r => new RidPackageReferenceView(r))
-        .ToList();
-
     [MarkoutPropertyName("Runtime Target RID")]
     public string? RuntimeTargetRid => _data.RuntimeTargetRid;
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Native Files")]
     public List<string>? NativeFiles => _data.NativeFiles;
-
-    [MarkoutIgnoreInTable]
-    public List<DependencyGroup>? DependencyGroups => _data.DependencyGroups;
-
-    [MarkoutSection(Name = PackageSections.PackageDependencies)]
-    public List<FlatDependency>? FlatDependencies => _data.DependencyGroups?
-        .OrderBy(g => GetTfmSortOrder(g.TargetFramework))
-        .ThenBy(g => g.TargetFramework)
-        .SelectMany(g => g.Dependencies
-            .OrderBy(d => d.Id)
-            .Select(d => new FlatDependency
-            {
-                TargetFramework = g.TargetFramework,
-                Id = d.Id,
-                Version = d.Version
-            }))
-        .ToList();
-
-    private static int GetTfmSortOrder(string tfm)
-    {
-        if (tfm.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) ||
-            tfm.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase))
-            return 0;
-        if (tfm.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) ||
-            tfm.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
-            return 1;
-        if (tfm.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase))
-            return 2;
-        return 3;
-    }
-
-    [MarkoutSection(Name = PackageSections.RuntimeDependencies)]
-    public List<PackageDependency>? RuntimeDependencies => _data.RuntimeDependencies;
-
-    [MarkoutSection(Name = PackageSections.Files)]
-    public List<string>? Files => _data.Files;
-
-    [MarkoutSection(Name = PackageSections.Signing)]
-    public SigningSection? SigningSectionData => _data.SignatureResult is { } sig
-        ? new SigningSection
-        {
-            Signed = _data.Signed == true ? "Yes" : sig.IsUnsigned ? "No" : "Unknown",
-            Publisher = !string.IsNullOrEmpty(sig.Publisher)
-                ? $"{sig.Publisher}{(sig.AuthorVerified ? " (Verified)" : "")}"
-                : null,
-            AuthorVerified = sig.AuthorVerified ? "Yes" : sig.IsUnsigned ? "No" : null,
-            RepositoryVerified = sig.RepositoryVerified ? "Yes" : null,
-            Repository = sig.Repository,
-            Status = sig.StatusMessage,
-        }
-        : null;
 
     private List<MarkoutField> GetCompactFields()
     {
@@ -222,8 +243,10 @@ public class InspectionResultView
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
 
-        if (!string.IsNullOrEmpty(Tfm))
-            fields.Add(new("TFM", Tfm));
+        if (!string.IsNullOrEmpty(HighestTfm))
+            fields.Add(new("Highest TFM", HighestTfm));
+        if (TargetFrameworkCount > 0)
+            fields.Add(new("TFM Count", TargetFrameworkCount.ToString()));
         if (_data.BuiltDate.HasValue)
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
         else if (_data.Published.HasValue)
@@ -246,8 +269,10 @@ public class InspectionResultView
         fields.Add(new("Type", PackageType));
         if (_data.PackageSize.HasValue)
             fields.Add(new("Size", new ByteSizeFormatter().Format(_data.PackageSize.Value)));
-        if (!string.IsNullOrEmpty(Tfm))
-            fields.Add(new("TFM", Tfm));
+        if (!string.IsNullOrEmpty(HighestTfm))
+            fields.Add(new("Highest TFM", HighestTfm));
+        if (TargetFrameworkCount > 0)
+            fields.Add(new("TFM Count", TargetFrameworkCount.ToString()));
         if (_data.BuiltDate.HasValue)
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
         if (_data.Published.HasValue)
@@ -275,8 +300,6 @@ public class InspectionResultView
 
         if (_data.ContentDirectories is { Count: > 0 })
             fields.Add(new("Content", string.Join(", ", _data.ContentDirectories)));
-        if (TargetFrameworkCount > 0)
-            fields.Add(new("Target Frameworks", TargetFrameworkCount.ToString()));
         if (SupportedRidCount > 0)
             fields.Add(new("Runtime Identifiers", SupportedRidCount.ToString()));
         if (_data.AssemblyCount > 1)
@@ -299,6 +322,28 @@ public class InspectionResultView
         return fields;
     }
 
+    private List<ManifestRow> GetManifestRows()
+    {
+        List<ManifestRow> rows = [];
+
+        if (!string.IsNullOrWhiteSpace(_data.ManifestVersion))
+            rows.Add(new("Info", "Manifest Version", _data.ManifestVersion, null));
+        if (!string.IsNullOrWhiteSpace(_data.PackageName))
+            rows.Add(new("Info", "Package", _data.PackageName, null));
+        if (!string.IsNullOrWhiteSpace(_data.Version))
+            rows.Add(new("Info", "Version", _data.Version, null));
+        rows.Add(new("Info", "Type", PackageType, null));
+        if (_data.ToolCommands is { Count: > 0 })
+            rows.Add(new("Info", "Commands", string.Join(", ", _data.ToolCommands), null));
+        if (_data.RuntimeIdentifierPackages is { Count: > 0 })
+        {
+            rows.AddRange(_data.RuntimeIdentifierPackages.Select(r =>
+                new ManifestRow("RID Package", r.RuntimeIdentifier, r.PackageId, r.AvailableDisplay)));
+        }
+
+        return rows;
+    }
+
 }
 
 public class SigningSection
@@ -312,6 +357,22 @@ public class SigningSection
     public string? Repository { get; init; }
     public string? Status { get; init; }
 }
+
+[MarkoutSerializable]
+public record ManifestRow(
+    string Kind,
+    string Name,
+    string Value,
+    string? Available);
+
+[MarkoutSerializable]
+public record TargetFrameworkRow(
+    [property: MarkoutPropertyName("TFM")] string Tfm);
+
+[MarkoutSerializable]
+public record LibraryFileRow(
+    [property: MarkoutPropertyName("TFM")] string Tfm,
+    [property: MarkoutPropertyName("File")] string File);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
@@ -328,6 +389,9 @@ public class SigningSection
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]
+[MarkoutContext(typeof(TargetFrameworkRow))]
+[MarkoutContext(typeof(LibraryFileRow))]
+[MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
 [MarkoutContext(typeof(EmptyDepsView))]
 public partial class InspectionContext : MarkoutSerializerContext

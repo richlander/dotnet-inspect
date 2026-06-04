@@ -103,7 +103,7 @@ public record AssemblyOptions
 
     /// <summary>
     /// The user's originally requested verbosity, before any internal force-bumping for
-    /// <c>-S</c>/<c>-D --effective</c>. Capability authorization (network work) keys off this so
+    /// <c>-S</c>/<c>-D</c>. Capability authorization (network work) keys off this so
     /// a forced Detailed bump never silently authorizes downloads. Defaults to <see cref="Verbosity"/>.
     /// </summary>
     public Verbosity? UserVerbosityOverride { get; init; }
@@ -139,19 +139,14 @@ public record AssemblyOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
-    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// Show static discovery schema instead of target-effective discovery.
     /// </summary>
-    public bool Effective { get; init; }
+    public bool Schema { get; init; }
 
     /// <summary>
     /// Output the number of rendered table rows for a single selected section.
     /// </summary>
     public bool Count { get; init; }
-
-    /// <summary>
-    /// Show a focused metadata audit section. This is signal-based, not a trust verdict.
-    /// </summary>
-    public bool Audit { get; init; }
 
     /// <summary>
     /// NuGet source configuration options.

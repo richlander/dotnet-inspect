@@ -2,6 +2,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Metadata;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
@@ -133,14 +134,14 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void SingleAudit_ExcludesSymbols_AtNormalVerbosity()
+    public void SingleAudit_IncludesSymbols_AtNormalVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
         var pipeline = LibrarySections.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(inspection, Verbosity.Normal);
         var output = SerializeWithInclude(inspection, includeSections);
 
-        Assert.DoesNotContain("## Symbols", output);
+        Assert.Contains("## Symbols", output);
     }
 
     [Fact]
@@ -164,6 +165,136 @@ public class OutputFormatterTests
 
         Assert.Contains("Deterministic", output);
         Assert.Contains("Reproducible", output);
+    }
+
+    [Fact]
+    public void SingleAudit_CustomAttributes_AreSortedByName()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.CustomAttributes =
+        [
+            new CustomAttributeSummary { Name = "NeutralResourcesLanguage", Target = "Assembly", Value = "en-US" },
+            new CustomAttributeSummary { Name = "AssemblyMetadata(Serviceable)", Target = "Assembly", Value = "True" },
+            new CustomAttributeSummary { Name = "AssemblyDefaultAlias", Target = "Assembly", Value = "Test" }
+        ];
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("AssemblyDefaultAlias", StringComparison.Ordinal)
+            < output.IndexOf("AssemblyMetadata(Serviceable)", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("AssemblyMetadata(Serviceable)", StringComparison.Ordinal)
+            < output.IndexOf("NeutralResourcesLanguage", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SingleAudit_MethodSections_AreSortedByTypeThenName()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.UnsafeMethods =
+        [
+            new ClassifiedMethodSummary { DeclaringType = "B.Type", MethodName = "A", Signature = "void A()" },
+            new ClassifiedMethodSummary { DeclaringType = "A.Type", MethodName = "Z", Signature = "void Z()" }
+        ];
+        inspection.ExtensionMethods =
+        [
+            new ExtensionMethodSummary { ExtendedType = "B.Type", MethodName = "A", ExtensionClass = "Extensions" },
+            new ExtensionMethodSummary { ExtendedType = "A.Type", MethodName = "Z", ExtensionClass = "Extensions" }
+        ];
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("| Z | A.Type |", StringComparison.Ordinal)
+            < output.IndexOf("| A | B.Type |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Z | method | A.Type |", StringComparison.Ordinal)
+            < output.IndexOf("| A | method | B.Type |", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SingleAudit_SymbolFields_AreSortedByFieldName()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.Builder = "Microsoft";
+        inspection.PdbFormat = "Portable";
+        inspection.PdbLocation = "Symbol Package";
+        inspection.SourceLinkJson = "{}";
+        inspection.HasSourceLink = true;
+        inspection.SymbolServer = "msdl.microsoft.com";
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("| Builder |", StringComparison.Ordinal)
+            < output.IndexOf("| PDB Format |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| PDB Path |", StringComparison.Ordinal)
+            < output.IndexOf("| Source Link |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Source Link |", StringComparison.Ordinal)
+            < output.IndexOf("| Symbol Server |", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SingleAudit_SourceLinkAudit_UsesAvailableSourceFilesLabel()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.AllSourcesAccessible = false;
+        inspection.AccessibleSourceFiles = 343;
+        inspection.TotalSourceFiles = 345;
+        inspection.EmbeddedSourceFiles = 2;
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("| Source Files | 343/345 available |", output);
+        Assert.DoesNotContain("accessible or embedded", output);
+    }
+
+    [Fact]
+    public void SingleAudit_SourceIntegrity_RendersMismatchedFilesInSection()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.SourceIntegrityChecked = true;
+        inspection.SourceIntegrityMismatched = 2;
+        inspection.SourceIntegrityMismatches =
+        [
+            "/_/src/A.cs",
+            "/_/src/B.cs"
+        ];
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("## SourceLink Integrity", output);
+        Assert.Contains("| Mismatched | 2 |", output);
+        Assert.Contains("| Mismatched Files | `/_/src/A.cs`, `/_/src/B.cs` |", output);
+        Assert.DoesNotContain("Source integrity mismatch:", output);
+    }
+
+    [Fact]
+    public void SingleAudit_SourceIntegrity_RendersLineEndingNormalizedCount()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.SourceIntegrityChecked = true;
+        inspection.SourceIntegrityVerified = 2;
+        inspection.SourceIntegrityLineEndingNormalized = 2;
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("## SourceLink Integrity", output);
+        Assert.Contains("| CR/LF Mismatch | 2 normalized |", output);
+        Assert.Contains("| Status | Verified |", output);
+        Assert.Contains("| Verified | 2 |", output);
+    }
+
+    [Fact]
+    public void SingleAudit_Signals_RenderSourceLinkCrlfMismatch()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasSourceLink = true;
+        inspection.SourceIntegrityChecked = true;
+        inspection.SourceIntegrityVerified = 2;
+        inspection.SourceIntegrityLineEndingNormalized = 2;
+
+        AuditSignalBuilder.PopulateLibraryAudit(typeof(OutputFormatterTests).Assembly.Location, inspection, new VerboseLogger(false));
+        var output = Serialize(inspection);
+
+        Assert.Contains("## Signals", output);
+        Assert.Contains("| Provenance | SourceLink CR/LF | Mismatch (2) | PDB checksums matched after CR/LF normalization |", output);
     }
 
     private static LibraryInspection CreateTestAudit(string fileName, string? tfm)

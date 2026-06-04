@@ -162,24 +162,14 @@ public record InspectionOptions
     public string[]? Fields { get; init; }
 
     /// <summary>
-    /// Show effective sections (runs pipeline, filters by CanRender).
+    /// Show static discovery schema instead of target-effective discovery.
     /// </summary>
-    public bool Effective { get; init; }
+    public bool Schema { get; init; }
 
     /// <summary>
     /// Output the number of rendered table rows for a single selected section.
     /// </summary>
     public bool Count { get; init; }
-
-    /// <summary>
-    /// Show a focused metadata audit section. This is signal-based, not a trust verdict.
-    /// </summary>
-    public bool Audit { get; init; }
-
-    /// <summary>
-    /// Expand package audit with NuGet registry data, vulnerabilities, transitive dependencies, and dependency ages.
-    /// </summary>
-    public bool NuGetAudit { get; init; }
 
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.

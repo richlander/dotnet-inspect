@@ -28,16 +28,6 @@ public class SourceListView
 
     [MarkoutSkipNull] public int? Types { get; set; }
 
-    // Audit fields (shown with --audit)
-    [MarkoutSkipNull] public string? Coverage { get; set; }
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("Total Files")]
-    public int? TotalFiles { get; set; }
-
-    [MarkoutSkipNull] public int? Accessible { get; set; }
-    [MarkoutSkipNull] public int? Embedded { get; set; }
-
     // Source file table (without verify)
     [MarkoutSection(Name = "Source Files")]
     public List<SourceFileRow>? SourceFiles { get; set; }
@@ -46,9 +36,6 @@ public class SourceListView
     [MarkoutSection(Name = "Source Files")]
     public List<VerifiedSourceFileRow>? VerifiedSourceFiles { get; set; }
 
-    // Missing files from audit
-    [MarkoutSection(Name = "Missing Files")]
-    public List<MissingFileRow>? MissingFiles { get; set; }
 }
 
 /// <summary>
@@ -157,12 +144,6 @@ public record VerifiedSourceUrlRow(string Url, string Status);
 public record MemberDocRow(string Member, string? Summary);
 
 /// <summary>
-/// Row for missing files in the source audit.
-/// </summary>
-[MarkoutSerializable]
-public record MissingFileRow(string File);
-
-/// <summary>
 /// Row in the IL offset resolution "Source" section: the resolved source location.
 /// </summary>
 [MarkoutSerializable]
@@ -230,7 +211,6 @@ public class SourceILOffsetView
 [MarkoutContext(typeof(SourceUrlRow))]
 [MarkoutContext(typeof(VerifiedSourceUrlRow))]
 [MarkoutContext(typeof(MemberDocRow))]
-[MarkoutContext(typeof(MissingFileRow))]
 [MarkoutContext(typeof(SourceILOffsetView))]
 [MarkoutContext(typeof(ILOffsetSourceRow))]
 [MarkoutContext(typeof(ILOffsetInfoSection))]

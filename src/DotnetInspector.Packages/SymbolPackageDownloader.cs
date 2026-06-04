@@ -1,6 +1,4 @@
 using System.IO.Compression;
-using DotnetInspector.Core;
-
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -23,9 +21,6 @@ public record PdbDownloadResult(
 /// </remarks>
 public class SymbolPackageDownloader(HttpClient client)
 {
-    private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromDays(1);
-    private const string NegativeCacheCategory = "symbol-misses";
-
     private readonly HttpClient _client = client;
     private readonly string _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
 
@@ -101,13 +96,6 @@ public class SymbolPackageDownloader(HttpClient client)
                 windowsPdbDetected = true;
         }
 
-        var missKey = GetSymbolServerMissKey("https://msdl.microsoft.com/download/symbols", pdbFileName, symbolKey);
-        if (IsNegativeCached(missKey))
-        {
-            log?.Invoke("Using cached MSDL PDB miss");
-            return new PdbDownloadResult(null, windowsPdbDetected);
-        }
-
         var url = $"https://msdl.microsoft.com/download/symbols/{pdbFileName}/{symbolKey}/{pdbFileName}";
         log?.Invoke("Trying MSDL symbol server");
 
@@ -117,8 +105,6 @@ public class SymbolPackageDownloader(HttpClient client)
             using var response = httpResult.Response;
             if (response == null || !response.IsSuccessStatusCode)
             {
-                if (httpResult.IsNotFound)
-                    CacheNegative(missKey);
                 log?.Invoke("MSDL: symbol not found");
                 return new PdbDownloadResult(null, windowsPdbDetected);
             }
@@ -168,13 +154,6 @@ public class SymbolPackageDownloader(HttpClient client)
                 windowsPdbDetected = true;
         }
 
-        var noMatchingPdbKey = GetSymbolPackageNoMatchingPdbKey(normalizedName, normalizedVersion, assemblyPath);
-        if (IsNegativeCached(noMatchingPdbKey))
-        {
-            log?.Invoke("Using cached symbol package PDB miss");
-            return new PdbDownloadResult(null, windowsPdbDetected);
-        }
-
         // Try NuGet global CDN first
         var snupkgUrls = new[]
         {
@@ -188,19 +167,10 @@ public class SymbolPackageDownloader(HttpClient client)
         {
             try
             {
-                var missKey = GetUrlMissKey("snupkg", snupkgUrl);
-                if (IsNegativeCached(missKey))
-                {
-                    log?.Invoke($"Using cached symbol package URL miss: {snupkgUrl}");
-                    continue;
-                }
-
                 var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
                 using var response = httpResult.Response;
                 if (response is not { IsSuccessStatusCode: true })
                 {
-                    if (httpResult.IsNotFound)
-                        CacheNegative(missKey);
                     continue;
                 }
 
@@ -245,7 +215,6 @@ public class SymbolPackageDownloader(HttpClient client)
             if (pdbFiles.Length == 0)
             {
                 log?.Invoke("No matching PDB found in symbol package");
-                CacheNegative(GetSymbolPackageNoMatchingPdbKey(normalizedName, normalizedVersion, assemblyPath));
                 return new PdbDownloadResult(null, windowsPdbDetected);
             }
 
@@ -304,13 +273,6 @@ public class SymbolPackageDownloader(HttpClient client)
         foreach (var server in symbolServers)
         {
             var url = $"{server}/{pdbFileName}/{symbolKey}/{pdbFileName}";
-            var missKey = GetSymbolServerMissKey(server, pdbFileName, symbolKey);
-            if (IsNegativeCached(missKey))
-            {
-                log?.Invoke($"Using cached symbol server PDB miss: {server}");
-                continue;
-            }
-
             log?.Invoke($"Trying symbol server: {server}");
 
             try
@@ -319,8 +281,6 @@ public class SymbolPackageDownloader(HttpClient client)
                 using var response = httpResult.Response;
                 if (response == null || !response.IsSuccessStatusCode)
                 {
-                    if (httpResult.IsNotFound)
-                        CacheNegative(missKey);
                     continue;
                 }
 
@@ -411,17 +371,4 @@ public class SymbolPackageDownloader(HttpClient client)
         return Path.Combine(_cachePath, "servers", pdbName, symbolKey, pdbName);
     }
 
-    private static bool IsNegativeCached(string key) =>
-        CoreCache.TryGet(NegativeCacheCategory, key, NegativeCacheTtl, extension: "miss") != null;
-
-    private static void CacheNegative(string key) =>
-        CoreCache.Set(NegativeCacheCategory, key, "1", extension: "miss");
-
-    private static string GetSymbolServerMissKey(string server, string pdbFileName, string symbolKey) =>
-        $"pdb-server:{server}/{pdbFileName}/{symbolKey}";
-
-    private static string GetUrlMissKey(string kind, string url) => $"{kind}:{url}";
-
-    private static string GetSymbolPackageNoMatchingPdbKey(string normalizedName, string normalizedVersion, string assemblyPath) =>
-        $"snupkg-no-pdb:{normalizedName}@{normalizedVersion}/{Path.GetFileNameWithoutExtension(assemblyPath)}";
 }

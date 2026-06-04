@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
@@ -210,11 +208,6 @@ public static class SourceCommand
         if (options.Verify)
             await VerifyUrlsAsync(verifiedRows, httpClient, logger);
 
-        // Run full PDB audit if requested
-        AuditResult? audit = null;
-        if (options.Audit)
-            audit = await RunAuditAsync(service, httpClient, logger);
-
         // Dispatch output based on format
         if (options.IsDefaultInvocation || (options.OneLine && !options.JsonOutput))
         {
@@ -241,13 +234,8 @@ public static class SourceCommand
                 Version = packageVersion,
                 Tfm = selectedTfm,
                 Types = typeList.Count,
-                Coverage = audit?.Coverage,
-                TotalFiles = audit?.TotalFiles,
-                Accessible = audit?.Accessible,
-                Embedded = audit?.Embedded,
                 SourceFiles = showTable ? (options.Verify ? null : rows) : null,
-                VerifiedSourceFiles = showTable ? (options.Verify ? verifiedRows : null) : null,
-                MissingFiles = audit?.MissingFiles?.Select(f => new MissingFileRow(f)).ToList()
+                VerifiedSourceFiles = showTable ? (options.Verify ? verifiedRows : null) : null
             };
             WriteOutput(view, options);
         }
@@ -266,7 +254,7 @@ public static class SourceCommand
 
                 Hints.WriteTips(options.TipLevel,
                     new Tip(Name, $"{simpleName} {sourceFlag}", "view single type source"),
-                    new Tip(Name, $"{sourceFlag} --audit", "full source accessibility audit"),
+                    new Tip("library", $"{sourceFlag} -S \"SourceLink Availability\"", "full source accessibility audit"),
                     new Tip(Name, $"{sourceFlag} -v:d", "include docs and samples"));
             }
         }
@@ -920,13 +908,8 @@ public static class SourceCommand
         Version = v.Version,
         Tfm = v.Tfm,
         Types = v.Types,
-        Coverage = v.Coverage,
-        TotalFiles = v.TotalFiles,
-        Accessible = v.Accessible,
-        Embedded = v.Embedded,
         SourceFiles = v.SourceFiles?.Select(r => new SourceFileEntry { Type = r.Type, Url = r.Url }).ToList()
-            ?? v.VerifiedSourceFiles?.Select(r => new SourceFileEntry { Type = r.Type, Url = r.Url, Status = r.Status }).ToList(),
-        MissingFiles = v.MissingFiles?.Select(r => r.File).ToList()
+            ?? v.VerifiedSourceFiles?.Select(r => new SourceFileEntry { Type = r.Type, Url = r.Url, Status = r.Status }).ToList()
     };
 
     private static SourceDetailResult ToDetailResult(SourceDetailView v) => new()
@@ -1011,84 +994,6 @@ public static class SourceCommand
     }
 
     /// <summary>
-    /// Full PDB-level source audit: verifies all tracked source files are accessible.
-    /// Uses CoreCache for permanent caching (commit-pinned URLs are immutable).
-    /// </summary>
-    private static async Task<AuditResult> RunAuditAsync(
-        SourceLinkService service, HttpClient httpClient, VerboseLogger logger)
-    {
-        var documents = service.GetTrackedFiles();
-        int embeddedFiles = 0;
-        int accessibleCount = 0;
-        var missingFiles = new ConcurrentBag<string>();
-        List<SourceDocument> urlDocs = [];
-
-        foreach (var doc in documents)
-        {
-            if (doc.IsEmbedded) { embeddedFiles++; continue; }
-            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath))
-            {
-                missingFiles.Add(doc.FilePath);
-                continue;
-            }
-            urlDocs.Add(doc);
-        }
-
-        // Check cache for previously verified URLs
-        List<SourceDocument> uncachedDocs = [];
-        foreach (var doc in urlDocs)
-        {
-            if (CoreCache.TryGet("source-audit", doc.ResolvedUrl!, extension: "ok") != null)
-                Interlocked.Increment(ref accessibleCount);
-            else
-                uncachedDocs.Add(doc);
-        }
-
-        if (uncachedDocs.Count > 0)
-        {
-            logger.Log($"Verifying {uncachedDocs.Count} source URLs ({urlDocs.Count - uncachedDocs.Count} cached)...");
-
-            await Parallel.ForEachAsync(uncachedDocs,
-                new ParallelOptions { MaxDegreeOfParallelism = 16 },
-                async (doc, ct) =>
-                {
-                    using var response = await HttpRetryHelper.HeadWithRetryAsync(
-                        httpClient, doc.ResolvedUrl!, log: logger.Log, cancellationToken: ct);
-                    if (response != null)
-                    {
-                        Interlocked.Increment(ref accessibleCount);
-                        CoreCache.Set("source-audit", doc.ResolvedUrl!, "1", extension: "ok");
-                    }
-                    else
-                    {
-                        logger.Log($"Source not accessible: {doc.ResolvedUrl}");
-                        missingFiles.Add(doc.FilePath);
-                    }
-                });
-        }
-
-        int totalAccessible = accessibleCount + embeddedFiles;
-        string coverage = totalAccessible == 0 ? "None"
-            : totalAccessible >= documents.Count ? "Complete"
-            : "Partial";
-
-        logger.Log($"Source coverage: {totalAccessible}/{documents.Count} files accessible");
-
-        return new AuditResult(
-            coverage,
-            documents.Count,
-            totalAccessible,
-            embeddedFiles > 0 ? embeddedFiles : null,
-            missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)]);
-    }
-
-    /// <summary>
-    /// Build artifacts generated during CI will always 404 via SourceLink.
-    /// </summary>
-    private static bool IsBuildArtifact(string filePath) =>
-        filePath.Contains("/artifacts/obj/") || filePath.Contains("\\artifacts\\obj\\");
-
-    /// <summary>
     /// Formats a type name using C#-style generic syntax for display in hints and tips.
     /// e.g., "Dictionary`2" → "Dictionary&lt;TKey, TValue&gt;" (using actual type parameter names when available).
     /// </summary>
@@ -1109,22 +1014,12 @@ public static class SourceCommand
         {
             Console.Error.WriteLine("Error: No readable PDB found.");
         }
-        Console.Error.WriteLine("       Run 'source --audit' for more details.");
+        Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
         Console.Error.WriteLine();
     }
 }
 
 // JSON domain models (following established pattern: domain models for JSON, views for Markout)
-
-/// <summary>
-/// Result of a full PDB source audit.
-/// </summary>
-public record AuditResult(
-    string Coverage,
-    int TotalFiles,
-    int Accessible,
-    int? Embedded,
-    List<string>? MissingFiles);
 
 public class SourceListResult
 {
@@ -1135,12 +1030,7 @@ public class SourceListResult
     public string? Version { get; init; }
     public string? Tfm { get; init; }
     public int? Types { get; init; }
-    public string? Coverage { get; init; }
-    public int? TotalFiles { get; init; }
-    public int? Accessible { get; init; }
-    public int? Embedded { get; init; }
     public List<SourceFileEntry>? SourceFiles { get; init; }
-    public List<string>? MissingFiles { get; init; }
 }
 
 public class SourceDetailResult

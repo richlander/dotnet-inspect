@@ -22,13 +22,15 @@ These paths share a common starting point: both bare `-S` and bare `-D` list the
 
 ```bash=
 $ dotnet run --project src/dotnet-inspect -- System.CommandLine -S
-Package                  section
-Statistics               section
-Package Dependencies     section
-Vulnerabilities          section
-RID Packages             section
-Runtime Dependencies     section
+Dependencies             section
 Files                    section
+Library Files            section
+Manifest                 section
+Package Info             section
+Runtime Dependencies     section
+Statistics               section
+Target Frameworks        section
+Vulnerabilities          section
 ```
 
 The same output is produced by `-D` with no argument.
@@ -111,7 +113,7 @@ The first query path is the curated verbosity presets. These mix query and forma
 $ dotnet run --project src/dotnet-inspect -- System.CommandLine -v:q
 # System.CommandLine (2.0.3)
 
-Version: 2.0.3 | Type: Library | TFM: net8.0 | Built: 2026-01-25 | Source: NuGet
+Version: 2.0.3 | Type: Library | Highest TFM: net8.0 | TFM Count: 2 | Built: 2026-01-25 | Source: NuGet
 ```
 
 It is doing multiple things:
@@ -137,14 +139,14 @@ Support for parsing command lines, supporting both POSIX and Windows conventions
 | Version | 2.0.3 |
 | Type | Library |
 | Size | 538.6 KB |
-| TFM | net8.0 |
+| Highest TFM | net8.0 |
 | Built | 2026-01-25 |
 | Source | NuGet |
 | Authors | Microsoft |
 | License | MIT |
 | Repository | https://github.com/dotnet/dotnet |
 | Content | lib |
-| Target Frameworks | 2 |
+| TFM Count | 2 |
 | Readme | Yes |
 ```
 

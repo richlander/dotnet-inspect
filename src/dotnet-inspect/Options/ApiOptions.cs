@@ -61,7 +61,6 @@ public record ApiOptions
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
-    public bool Effective { get; init; }
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
@@ -70,7 +69,7 @@ public record ApiOptions
     /// True when discovery (-D) should resolve and load the source to report only the
     /// sections/columns that actually have data (effective discovery). For type/member
     /// queries this is the default; <c>--schema</c> opts out to the cheap, offline static
-    /// schema listing. The legacy <c>--effective</c> flag is now redundant but still honored.
+    /// schema listing.
     /// </summary>
     public bool EffectiveDiscovery => Discover != null && !Schema;
 

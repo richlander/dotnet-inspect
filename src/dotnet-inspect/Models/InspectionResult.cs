@@ -11,6 +11,8 @@ public class InspectionResult
 {
     public string PackageName { get; set; } = "";
 
+    public string? ManifestVersion { get; set; }
+
     public string Version { get; set; } = "";
 
     /// <summary>
@@ -116,6 +118,12 @@ public class InspectionResult
     /// </summary>
     public int AssemblyCount { get; set; }
 
+    /// <summary>
+    /// Local package binary symbol/source provenance summary. Counts non-resource DLL files
+    /// discovered in the package layout.
+    /// </summary>
+    public PackageBinarySignals? BinarySignals { get; set; }
+
     public bool IsFrameworkDependent { get; set; }
 
     public bool HasRidSpecificAssets { get; set; }
@@ -136,6 +144,11 @@ public class InspectionResult
     public string? RuntimeTargetRid { get; set; }
 
     public List<string>? NativeFiles { get; set; }
+
+    /// <summary>
+    /// Files under the package lib/ directory, across all target frameworks.
+    /// </summary>
+    public List<string>? LibraryFiles { get; set; }
 
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
@@ -167,4 +180,21 @@ public class InspectionResult
         { AuthorVerified: true } or { RepositoryVerified: true } => true,
         _ => false
     };
+}
+
+public record class PackageBinarySignals
+{
+    public int TotalBinaries { get; init; }
+    public int SymbolsAvailable { get; init; }
+    public int SourceLinkAvailable { get; init; }
+    public int EmbeddedPdbs { get; init; }
+    public int InPackagePdbs { get; init; }
+    public int SnupkgPdbs { get; init; }
+    public int MsdlPdbs { get; init; }
+    public int OtherPdbs { get; init; }
+    public int EmbeddedSourceLinkPdbs { get; init; }
+    public int InPackageSourceLinkPdbs { get; init; }
+    public int SnupkgSourceLinkPdbs { get; init; }
+    public int MsdlSourceLinkPdbs { get; init; }
+    public int OtherSourceLinkPdbs { get; init; }
 }
