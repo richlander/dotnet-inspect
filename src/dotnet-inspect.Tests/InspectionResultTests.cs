@@ -105,7 +105,7 @@ public class InspectionResultTests
 
         var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
 
-        Assert.Contains("| Info | Manifest Version | 2013/05 |", output);
+        Assert.Contains("| Info | Manifest Version | 2013/05 | n/a |", output);
     }
 
     [Theory]

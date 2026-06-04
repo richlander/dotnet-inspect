@@ -327,14 +327,14 @@ public class InspectionResultView
         List<ManifestRow> rows = [];
 
         if (!string.IsNullOrWhiteSpace(_data.ManifestVersion))
-            rows.Add(new("Info", "Manifest Version", _data.ManifestVersion, null));
+            rows.Add(new("Info", "Manifest Version", _data.ManifestVersion, "n/a"));
         if (!string.IsNullOrWhiteSpace(_data.PackageName))
-            rows.Add(new("Info", "Package", _data.PackageName, null));
+            rows.Add(new("Info", "Package", _data.PackageName, "n/a"));
         if (!string.IsNullOrWhiteSpace(_data.Version))
-            rows.Add(new("Info", "Version", _data.Version, null));
-        rows.Add(new("Info", "Type", PackageType, null));
+            rows.Add(new("Info", "Version", _data.Version, "n/a"));
+        rows.Add(new("Info", "Type", PackageType, "n/a"));
         if (_data.ToolCommands is { Count: > 0 })
-            rows.Add(new("Info", "Commands", string.Join(", ", _data.ToolCommands), null));
+            rows.Add(new("Info", "Commands", string.Join(", ", _data.ToolCommands), "n/a"));
         if (_data.RuntimeIdentifierPackages is { Count: > 0 })
         {
             rows.AddRange(_data.RuntimeIdentifierPackages.Select(r =>
