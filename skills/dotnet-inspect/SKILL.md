@@ -14,7 +14,9 @@ Invoke through `dnx` unless the tool is already installed:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use `--oneline` to scan, `--json` for structured data, `--count` to count one selected table section, `--rows -n N` or shorthand like `--rows -6` to cap data rows per rendered Markdown table while keeping headers/sections, and `-v:d` when you need source/decompiled C#/IL detail.
+Default output is Markdown because it preserves headings, section boundaries, table headers, and code fences, making the evidence readable and easy to quote. Use `--oneline` for compact one-result-per-line output, `--json` for structured automation, and `-v:d` when you need source/decompiled C#/IL detail.
+
+Use built-in limiters before shell pipes. `-n N` and shorthand like `-6` limit output lines; `--tail N` keeps the last N lines; `--rows -n N` or `--rows -6` caps data rows per rendered Markdown table while preserving headings and table headers; `--count` counts rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
 ## Workflow map
 
@@ -27,7 +29,7 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Inspect package/library signals | `library Foo -S Signals` or `package Foo -S Signals` | `Signals` resolves SourceLink for libraries; add `-S "SourceLink Availability"` for source reachability or `-S "SourceLink Integrity"` for slow content verification. |
 | Inventory package library files | `package Foo -S "Library Files"` | Lists all files under `lib/` across TFMs; use paths from this section with `library <file> --package Foo` for specific assemblies. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
-| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
+| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--tail N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
 
 ## Modern .NET and preview workflow
 
