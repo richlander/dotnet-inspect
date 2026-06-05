@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.9.2
+
+### Output
+
+- `Signals` no longer includes a SourceLink CR/LF placeholder row; CR/LF diagnostics are reported only by the `SourceLink Integrity` section.
+
 ## v0.9.1
 
 ### Fixes
