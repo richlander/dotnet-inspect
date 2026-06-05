@@ -264,9 +264,9 @@ bool isRuntimeAsync = (method.ImplAttributes & (MethodImplAttributes)0x2000) != 
 Like the Unsafe and P/Invoke sections, detection is **public-surface only** (skips
 accessors and compiler-generated `<...>` types), so it surfaces the async API a caller sees.
 
-The **Library Info** section also carries a roll-up **Async Kind** row summarizing the whole
-assembly's public async surface: `Runtime`, `State machine`, `Mixed` (both kinds present), or
-`None` (no public async methods). It reuses the same cheap, always-computed presence flags
+The **Signals** section carries a roll-up **Async Kind** row summarizing the whole assembly's
+public async surface: `Runtime`, `State machine`, `Mixed` (both kinds present), or `None`
+(no public async methods). It reuses the same cheap, always-computed presence flags
 (`HasRuntimeAsync`/`HasStateMachineAsync`) gathered in the single metadata pass, so it adds no
 extra scanning cost.
 
