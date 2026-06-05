@@ -537,6 +537,63 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("AcceptsBool(0)", code);
     }
 
+    [Fact]
+    public void CollectionWithCapacity_ReusesConstructedCollection()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CollectionWithCapacity));
+
+        Assert.Equal(1, CountOccurrences(code, "new List<string>"));
+        Assert.Contains(".AddRange", code);
+    }
+
+    [Fact]
+    public void CollectionWithComparer_ReusesConstructedCollection()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.CollectionWithComparer));
+
+        Assert.Equal(1, CountOccurrences(code, "new HashSet<string>"));
+        Assert.Contains(".Add(\"Hello\")", code);
+        Assert.Contains(".Add(\"HELLO\")", code);
+        Assert.Contains(".Add(\"hello\")", code);
+    }
+
+    [Fact]
+    public void UnsafeReadThroughAddress_EmitsPointerDereference()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.UnsafeReadThroughAddress));
+
+        Assert.Contains("*(&", code);
+        Assert.DoesNotContain("(nuint)", code);
+    }
+
+    [Fact]
+    public void AddressAsNativeUInt_KeepsNativeUIntCast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.AddressAsNativeUInt));
+
+        Assert.Contains("(nuint)&", code);
+    }
+
+    [Fact]
+    public void UnsafeReadArrayElementAddress_EmitsPointerDereference()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.UnsafeReadArrayElementAddress));
+
+        Assert.Contains("*(&", code);
+        Assert.Contains("[0]", code);
+        Assert.DoesNotContain("(nuint)ref", code);
+    }
+
+    [Fact]
+    public void ArrayElementAddressAsNativeUInt_KeepsNativeUIntCast()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ArrayElementAddressAsNativeUInt));
+
+        Assert.Contains("(nuint)&", code);
+        Assert.Contains("[0]", code);
+        Assert.DoesNotContain("(nuint)ref", code);
+    }
+
     // --- Helpers ---
 
     static string EmitMethod(string methodName)
@@ -570,6 +627,18 @@ public class CSharpEmitterTests
     // decompiler falls back to synthesized V_n locals, and with it real source names appear.
     static string TestAssemblyPdbPath() =>
         Path.ChangeExtension(typeof(CfgSampleClass).Assembly.Location, ".pdb");
+
+    static int CountOccurrences(string text, string value)
+    {
+        int count = 0;
+        int index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
+    }
 
     [Fact]
     public void ExternalPdb_SuppliesLocalVariableNames()

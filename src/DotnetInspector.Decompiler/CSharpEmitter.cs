@@ -110,6 +110,10 @@ public static class CSharpEmitter
         // Array initializer elements: newarr IL offset → collected element values
         readonly Dictionary<int, SortedDictionary<int, ILAstExpression>> _arrayInitValues = [];
 
+        // Collection construction temporaries: newobj IL offset → synthesized local name.
+        readonly Dictionary<int, string> _collectionTemps = [];
+        int _nextCollectionTemp;
+
         // Variables inlined by ExpressionInliner (suppress declarations)
         readonly HashSet<string> _inlinedLocals;
 
@@ -1312,6 +1316,61 @@ public static class CSharpEmitter
             ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or
             ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or
             ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref;
+
+        void TryEnsureCollectionTempForMutation(ILAstExpression expr, int indent)
+        {
+            if (!TryGetCollectionMutationReceiver(expr, out var newObj))
+                return;
+            if (_collectionTemps.ContainsKey(newObj.Offset))
+                return;
+
+            string tempName = CreateCollectionTempName();
+
+            WriteIndent(indent);
+            _sb.Append($"{SimplifyTypeName(ExtractTypeName(newObj.Operand))} {tempName} = ");
+            EmitNewObjectExpression(newObj);
+            _sb.AppendLine(";");
+
+            _collectionTemps[newObj.Offset] = tempName;
+        }
+
+        bool TryGetCollectionMutationReceiver(ILAstExpression expr, out ILAstExpression newObj)
+        {
+            if (expr.OpCode == ILOpCode.Pop && expr.Arguments.Count == 1)
+                return TryGetCollectionMutationReceiver(expr.Arguments[0], out newObj);
+
+            newObj = null!;
+            if (expr.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt))
+                return false;
+            if (expr.IsStaticCall || expr.Arguments.Count == 0)
+                return false;
+
+            string memberName = ExtractMemberName(expr.Operand);
+            if (memberName is not ("Add" or "AddRange"))
+                return false;
+
+            var receiver = expr.Arguments[0];
+            if (receiver.OpCode != ILOpCode.Dup || receiver.Arguments.Count != 1)
+                return false;
+            if (receiver.Arguments[0].OpCode != ILOpCode.Newobj)
+                return false;
+
+            newObj = receiver.Arguments[0];
+            return true;
+        }
+
+        string CreateCollectionTempName()
+        {
+            while (true)
+            {
+                string name = $"__collection{_nextCollectionTemp++}";
+                if (_ast.Locals.Any(l => l.Name == name))
+                    continue;
+                if (_paramNames is not null && _paramNames.Contains(name))
+                    continue;
+                return name;
+            }
+        }
 
         static bool TryGetConstantIndex(ILAstExpression expr, out int value)
         {
@@ -2775,6 +2834,8 @@ public static class CSharpEmitter
 
         void EmitStatement(ILAstExpression expr, int indent)
         {
+            TryEnsureCollectionTempForMutation(expr, indent);
+
             switch (expr.OpCode)
             {
                 case ILOpCode.Ret:
@@ -3213,7 +3274,16 @@ public static class CSharpEmitter
                 case ILOpCode.Conv_i: EmitCast(expr, "nint"); break;
                 case ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_i_un:
                     EmitCheckedCast(expr, "nint"); break;
-                case ILOpCode.Conv_u: EmitCast(expr, "nuint"); break;
+                case ILOpCode.Conv_u:
+                    if (expr.Arguments.Count > 0 && IsAddressExpression(expr.Arguments[0]))
+                    {
+                        if (!IsPointerType(resolvedType))
+                            _sb.Append("(nuint)");
+                        EmitAddressExpression(expr.Arguments[0]);
+                    }
+                    else
+                        EmitCast(expr, "nuint");
+                    break;
                 case ILOpCode.Conv_ovf_u or ILOpCode.Conv_ovf_u_un:
                     EmitCheckedCast(expr, "nuint"); break;
 
@@ -3229,31 +3299,13 @@ public static class CSharpEmitter
 
                 // Object creation
                 case ILOpCode.Newobj:
-                {
-                    string typeName = ExtractTypeName(expr.Operand);
-                    string simplified = SimplifyTypeName(typeName);
-
-                    // Delegate construction with closure lambda: new Func<T,R>(closure, <Method>b__N)
-                    // Simplify to lambda annotation
-                    if (expr.Arguments.Count == 2
-                        && expr.Arguments[1] is { Operand: string lambdaName }
-                        && lambdaName.Contains(">b__", StringComparison.Ordinal))
                     {
-                        string cleanLambda = SimplifyLambdaName(lambdaName);
-                        _sb.Append($"/* {cleanLambda} */");
+                        if (_collectionTemps.TryGetValue(expr.Offset, out string? collectionTemp))
+                            _sb.Append(collectionTemp);
+                        else
+                            EmitNewObjectExpression(expr);
                         break;
                     }
-
-                    _sb.Append($"new {simplified}(");
-                    // Skip 'this' argument (first arg for instance constructor)
-                    for (int i = 0; i < expr.Arguments.Count; i++)
-                    {
-                        if (i > 0) _sb.Append(", ");
-                        EmitExpression(expr.Arguments[i]);
-                    }
-                    _sb.Append(')');
-                    break;
-                }
 
                 case ILOpCode.Newarr:
                     if (_arrayInitValues.TryGetValue(expr.Offset, out var initElements))
@@ -3304,7 +3356,7 @@ public static class CSharpEmitter
                      ILOpCode.Ldind_u1 or ILOpCode.Ldind_u2 or ILOpCode.Ldind_u4 or
                      ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref or
                      ILOpCode.Ldobj:
-                    if (expr.Arguments.Count > 0)
+                    if (!TryEmitPointerDereference(expr) && expr.Arguments.Count > 0)
                         EmitExpression(expr.Arguments[0]);
                     break;
 
@@ -3432,6 +3484,98 @@ public static class CSharpEmitter
                     _sb.Append("/* ");
                     expr.WriteTo(_sb, 0);
                     _sb.Append(" */");
+                    break;
+            }
+        }
+
+        void EmitNewObjectExpression(ILAstExpression expr)
+        {
+            string typeName = ExtractTypeName(expr.Operand);
+            string simplified = SimplifyTypeName(typeName);
+
+            // Delegate construction with closure lambda: new Func<T,R>(closure, <Method>b__N)
+            // Simplify to lambda annotation
+            if (expr.Arguments.Count == 2
+                && expr.Arguments[1] is { Operand: string lambdaName }
+                && lambdaName.Contains(">b__", StringComparison.Ordinal))
+            {
+                string cleanLambda = SimplifyLambdaName(lambdaName);
+                _sb.Append($"/* {cleanLambda} */");
+                return;
+            }
+
+            _sb.Append($"new {simplified}(");
+            for (int i = 0; i < expr.Arguments.Count; i++)
+            {
+                if (i > 0) _sb.Append(", ");
+                EmitExpression(expr.Arguments[i]);
+            }
+            _sb.Append(')');
+        }
+
+        bool TryEmitPointerDereference(ILAstExpression expr)
+        {
+            if (expr.Arguments.Count != 1)
+                return false;
+
+            var address = expr.Arguments[0];
+            if (address.OpCode != ILOpCode.Conv_u || address.Arguments.Count != 1)
+                return false;
+            if (!IsAddressExpression(address.Arguments[0]))
+                return false;
+
+            _sb.Append("*(");
+            EmitAddressExpression(address.Arguments[0]);
+            _sb.Append(')');
+            return true;
+        }
+
+        static bool IsAddressExpression(ILAstExpression expr) =>
+            expr.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca
+                or ILOpCode.Ldarga_s or ILOpCode.Ldarga
+                or ILOpCode.Ldflda or ILOpCode.Ldsflda
+                or ILOpCode.Ldelema;
+
+        static bool IsPointerType(string? typeName) =>
+            typeName is not null && typeName.EndsWith('*');
+
+        void EmitAddressExpression(ILAstExpression expr)
+        {
+            _sb.Append('&');
+            switch (expr.OpCode)
+            {
+                case ILOpCode.Ldloca_s or ILOpCode.Ldloca:
+                    _sb.Append(expr.Operand ?? "loc");
+                    break;
+                case ILOpCode.Ldarga_s or ILOpCode.Ldarga:
+                    _sb.Append(RemapArg(expr.Operand, expr.OpCode));
+                    break;
+                case ILOpCode.Ldflda:
+                    if (expr.Arguments.Count > 0)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('.');
+                    }
+                    _sb.Append(ExtractMemberName(expr.Operand));
+                    break;
+                case ILOpCode.Ldsflda:
+                    _sb.Append(expr.Operand ?? "/* field */");
+                    break;
+                case ILOpCode.Ldelema:
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(']');
+                    }
+                    else
+                    {
+                        _sb.Append("/* array element */");
+                    }
+                    break;
+                default:
+                    EmitExpression(expr);
                     break;
             }
         }
