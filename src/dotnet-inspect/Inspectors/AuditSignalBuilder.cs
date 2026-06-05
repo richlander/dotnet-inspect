@@ -10,65 +10,37 @@ namespace DotnetInspector.Inspectors;
 
 internal static class AuditSignalBuilder
 {
+    private delegate SignalValue? SignalResolver<TContext>(in TContext context);
+
+    private readonly record struct SignalValue(string Value, string Evidence);
+
+    private readonly record struct SignalRow<TContext>(
+        string Area,
+        string Signal,
+        SignalResolver<TContext> Resolve);
+
+    private readonly record struct LibrarySignalContext(
+        LibraryInspection Inspection,
+        AssemblyAuditMetadata? Metadata,
+        int? PInvokeMethodCount);
+
+    private readonly record struct PackageSignalContext(
+        InspectionResult Result,
+        DirectDependencySelection DirectDependencies,
+        DependencySignalSummary DependencySignals);
+
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
     {
         List<AuditSignal> signals = [];
-
-        var sourceLink = FormatSourceLink(inspection);
-        Add(signals, "Provenance", "SourceLink", sourceLink.Value, sourceLink.Evidence);
-        var sourceLinkAvailability = FormatSourceLinkAvailability(inspection);
-        Add(signals, "Provenance", "SourceLink availability",
-            sourceLinkAvailability.Value, sourceLinkAvailability.Evidence);
-        Add(signals, "Provenance", "Deterministic", FormatBool(inspection.IsDeterministic),
-            "PE debug directory and path normalization");
-
-        Add(signals, "Dependencies", "Direct assembly references",
-            (inspection.AssemblyInfo?.References?.Count ?? 0).ToString(),
-            "AssemblyRef table");
-        Add(signals, "Compatibility", "Async Kind",
-            ResolveAsyncKind(inspection), "public async method classification");
-
+        AssemblyAuditMetadata? metadata = null;
         int? pInvokeMethodCount = null;
-
-        if (inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitive)
-        {
-            Add(signals, "Dependencies", "Transitive assembly references",
-                transitive.Select(r => r.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
-                "resolved assembly reference closure");
-            Add(signals, "Dependencies", "Max reference depth",
-                transitive.Count == 0 ? "0" : transitive.Max(r => r.Depth + 1).ToString(),
-                "resolved assembly reference closure");
-        }
 
         try
         {
             using var stream = File.OpenRead(assemblyPath);
             using var peReader = new PEReader(stream);
-            var metadata = AssemblyDetailScanner.ScanAuditMetadata(peReader);
+            metadata = AssemblyDetailScanner.ScanAuditMetadata(peReader);
             pInvokeMethodCount = metadata.PInvokeMethodCount;
-
-            Add(signals, "Compatibility", "IsTrimmable", FormatNullableBool(metadata.IsTrimmable),
-                FormatAssemblyMetadataEvidence("IsTrimmable", metadata.IsTrimmable));
-            Add(signals, "Compatibility", "IsAotCompatible", FormatNullableBool(metadata.IsAotCompatible),
-                FormatAssemblyMetadataEvidence("IsAotCompatible", metadata.IsAotCompatible));
-            Add(signals, "Compatibility", "RequiresUnreferencedCode", FormatCount(metadata.RequiresUnreferencedCodeCount),
-                "RequiresUnreferencedCodeAttribute");
-            Add(signals, "Compatibility", "RequiresDynamicCode", FormatCount(metadata.RequiresDynamicCodeCount),
-                "RequiresDynamicCodeAttribute");
-            Add(signals, "Compatibility", "RequiresAssemblyFiles", FormatCount(metadata.RequiresAssemblyFilesCount),
-                "RequiresAssemblyFilesAttribute");
-            Add(signals, "Compatibility", "DynamicDependency", FormatCount(metadata.DynamicDependencyCount),
-                "DynamicDependencyAttribute");
-
-            Add(signals, "Memory safety", "Memory safety model",
-                FormatMemorySafetyModel(metadata.MemorySafetyRulesVersion),
-                "module MemorySafetyRulesAttribute");
-            Add(signals, "Memory safety", "RequiresUnsafe members",
-                FormatCount(metadata.RequiresUnsafeCount),
-                "RequiresUnsafeAttribute");
-            Add(signals, "Memory safety", "Disable runtime marshalling",
-                FormatBool(metadata.HasDisableRuntimeMarshalling),
-                "DisableRuntimeMarshallingAttribute");
         }
         catch (Exception ex)
         {
@@ -78,10 +50,8 @@ internal static class AuditSignalBuilder
         if (inspection.UnsafeMethods == null || inspection.PInvokeMethods == null || inspection.AsyncMethods == null)
             LibraryMetadataService.ScanClassifiedMethods(assemblyPath, inspection, logger);
 
-        Add(signals, "Memory safety", "Unsafe public signatures",
-            FormatCount(inspection.UnsafeMethods?.Count ?? 0), "public pointer signatures");
-        Add(signals, "Interop", "P/Invoke methods",
-            FormatCount(pInvokeMethodCount ?? inspection.PInvokeMethods?.Count ?? 0), "all PInvokeImpl metadata");
+        var context = new LibrarySignalContext(inspection, metadata, pInvokeMethodCount);
+        AddLibrarySignals(signals, in context);
 
         inspection.AuditSignals = signals;
     }
@@ -94,53 +64,14 @@ internal static class AuditSignalBuilder
         List<AuditSignal> signals = [];
 
         var directDependencies = GetDirectDependenciesForLatestTfm(result);
-
-        var supportedTfm = FormatSupportedTfm(result);
-        Add(signals, "Compatibility", "Supported TFM", supportedTfm.Value, supportedTfm.Evidence);
-        var portability = FormatPortability(result);
-        Add(signals, "Compatibility", "Portable", portability.Value, portability.Evidence);
-        Add(signals, "Documentation", "README", FormatBool(result.HasReadme), "nuspec/package files");
-        Add(signals, "Legal", "License",
-            string.IsNullOrWhiteSpace(result.License) ? "Not declared" : result.License, "nuspec metadata");
-
-        if (result.BinarySignals is { TotalBinaries: > 0 } binarySignals)
-        {
-            Add(signals, "Provenance", "Symbols",
-                FormatCoverage(binarySignals.SymbolsAvailable, binarySignals.TotalBinaries),
-                FormatPdbSourceEvidence(binarySignals));
-            Add(signals, "Provenance", "SourceLink",
-                FormatCoverage(binarySignals.SourceLinkAvailable, binarySignals.TotalBinaries),
-                FormatSourceLinkEvidence(binarySignals));
-        }
-
-        Add(signals, "Dependencies", "Direct dependencies",
-            directDependencies.Dependencies.Count.ToString(), directDependencies.Evidence);
-
-        if (result.Published is { Year: > 1901 } published)
-            Add(signals, "NuGet", "Package age", FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration");
-
-        Add(signals, "NuGet", "Known vulnerabilities",
-            FormatCount(result.Vulnerabilities?.Count ?? 0), "NuGet advisory data");
-
         var dependencySignals = await GetDependencySignalsAsync(directDependencies.Dependencies, httpClient, logger);
-        Add(signals, "Dependencies", "Dependencies with vulnerabilities",
-            dependencySignals.VulnerableDependencies.ToString(),
-            FormatDependencyRegistryEvidence(dependencySignals));
-        Add(signals, "Dependencies", "Deprecated dependencies",
-            dependencySignals.DeprecatedDependencies.ToString(),
-            FormatDependencyRegistryEvidence(dependencySignals));
-        if (dependencySignals.AgeSummary != null)
-        {
-            var ageSummary = dependencySignals.AgeSummary;
-            Add(signals, "Dependencies", "Dependency age",
-                $"min {ageSummary.MinDays}d, median {ageSummary.MedianDays}d, max {ageSummary.MaxDays}d",
-                FormatDependencyAgeEvidence(dependencySignals));
-        }
+        var context = new PackageSignalContext(result, directDependencies, dependencySignals);
+        AddPackageSignals(signals, in context);
 
         result.AuditSignals = signals;
     }
 
-    private sealed record DependencySignalSummary(
+    private readonly record struct DependencySignalSummary(
         int DirectDependencies,
         int CheckedDependencies,
         int VulnerableDependencies,
@@ -196,6 +127,292 @@ internal static class AuditSignalBuilder
     private static void Add(List<AuditSignal> rows, string area, string signal, string value, string evidence)
         => rows.Add(new AuditSignal(area, signal, value, evidence));
 
+    private static void Add(List<AuditSignal> rows, string area, string signal, (string Value, string Evidence) value)
+        => Add(rows, area, signal, value.Value, value.Evidence);
+
+    private static void AddLibrarySignals(List<AuditSignal> rows, in LibrarySignalContext context)
+    {
+        ReadOnlySpan<SignalRow<LibrarySignalContext>> registry =
+        [
+            LibrarySignalRows.ProvenanceSourceLink,
+            LibrarySignalRows.ProvenanceSourceLinkAvailability,
+            LibrarySignalRows.ProvenanceDeterministic,
+            LibrarySignalRows.DependenciesDirectAssemblyReferences,
+            LibrarySignalRows.CompatibilityAsyncKind,
+            LibrarySignalRows.DependenciesTransitiveAssemblyReferences,
+            LibrarySignalRows.DependenciesMaxReferenceDepth,
+            LibrarySignalRows.CompatibilityIsTrimmable,
+            LibrarySignalRows.CompatibilityIsAotCompatible,
+            LibrarySignalRows.CompatibilityRequiresUnreferencedCode,
+            LibrarySignalRows.CompatibilityRequiresDynamicCode,
+            LibrarySignalRows.CompatibilityRequiresAssemblyFiles,
+            LibrarySignalRows.CompatibilityDynamicDependency,
+            LibrarySignalRows.MemorySafetyModel,
+            LibrarySignalRows.MemorySafetyRequiresUnsafeMembers,
+            LibrarySignalRows.MemorySafetyDisableRuntimeMarshalling,
+            LibrarySignalRows.MemorySafetyUnsafePublicSignatures,
+            LibrarySignalRows.InteropPInvokeMethods
+        ];
+
+        AddSignals(rows, in context, registry);
+    }
+
+    private static void AddPackageSignals(List<AuditSignal> rows, in PackageSignalContext context)
+    {
+        ReadOnlySpan<SignalRow<PackageSignalContext>> registry =
+        [
+            PackageSignalRows.CompatibilitySupportedTfm,
+            PackageSignalRows.CompatibilityPortable,
+            PackageSignalRows.DocumentationReadme,
+            PackageSignalRows.LegalLicense,
+            PackageSignalRows.ProvenanceSymbols,
+            PackageSignalRows.ProvenanceSourceLink,
+            PackageSignalRows.DependenciesDirectDependencies,
+            PackageSignalRows.NuGetPackageAge,
+            PackageSignalRows.NuGetKnownVulnerabilities,
+            PackageSignalRows.DependenciesWithVulnerabilities,
+            PackageSignalRows.DependenciesDeprecatedDependencies,
+            PackageSignalRows.DependenciesDependencyAge
+        ];
+
+        AddSignals(rows, in context, registry);
+    }
+
+    private static void AddSignals<TContext>(
+        List<AuditSignal> rows,
+        in TContext context,
+        ReadOnlySpan<SignalRow<TContext>> registry)
+    {
+        foreach (ref readonly var row in registry)
+        {
+            if (row.Resolve(in context) is { } value)
+                Add(rows, row.Area, row.Signal, value.Value, value.Evidence);
+        }
+    }
+
+    private static SignalValue ToSignalValue(this (string Value, string Evidence) value) =>
+        new(value.Value, value.Evidence);
+
+    private static class LibrarySignalRows
+    {
+        public static SignalRow<LibrarySignalContext> ProvenanceSourceLink =>
+            new("Provenance", "SourceLink", ResolveProvenanceSourceLink);
+
+        public static SignalRow<LibrarySignalContext> ProvenanceSourceLinkAvailability =>
+            new("Provenance", "SourceLink availability", ResolveProvenanceSourceLinkAvailability);
+
+        public static SignalRow<LibrarySignalContext> ProvenanceDeterministic =>
+            new("Provenance", "Deterministic", ResolveProvenanceDeterministic);
+
+        public static SignalRow<LibrarySignalContext> DependenciesDirectAssemblyReferences =>
+            new("Dependencies", "Direct assembly references", ResolveDependenciesDirectAssemblyReferences);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityAsyncKind =>
+            new("Compatibility", "Async Kind", ResolveCompatibilityAsyncKind);
+
+        public static SignalRow<LibrarySignalContext> DependenciesTransitiveAssemblyReferences =>
+            new("Dependencies", "Transitive assembly references", ResolveDependenciesTransitiveAssemblyReferences);
+
+        public static SignalRow<LibrarySignalContext> DependenciesMaxReferenceDepth =>
+            new("Dependencies", "Max reference depth", ResolveDependenciesMaxReferenceDepth);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityIsTrimmable =>
+            new("Compatibility", "IsTrimmable", ResolveCompatibilityIsTrimmable);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityIsAotCompatible =>
+            new("Compatibility", "IsAotCompatible", ResolveCompatibilityIsAotCompatible);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityRequiresUnreferencedCode =>
+            new("Compatibility", "RequiresUnreferencedCode", ResolveCompatibilityRequiresUnreferencedCode);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityRequiresDynamicCode =>
+            new("Compatibility", "RequiresDynamicCode", ResolveCompatibilityRequiresDynamicCode);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityRequiresAssemblyFiles =>
+            new("Compatibility", "RequiresAssemblyFiles", ResolveCompatibilityRequiresAssemblyFiles);
+
+        public static SignalRow<LibrarySignalContext> CompatibilityDynamicDependency =>
+            new("Compatibility", "DynamicDependency", ResolveCompatibilityDynamicDependency);
+
+        public static SignalRow<LibrarySignalContext> MemorySafetyModel =>
+            new("Memory safety", "Memory safety model", ResolveMemorySafetyModel);
+
+        public static SignalRow<LibrarySignalContext> MemorySafetyRequiresUnsafeMembers =>
+            new("Memory safety", "RequiresUnsafe members", ResolveMemorySafetyRequiresUnsafeMembers);
+
+        public static SignalRow<LibrarySignalContext> MemorySafetyDisableRuntimeMarshalling =>
+            new("Memory safety", "Disable runtime marshalling", ResolveMemorySafetyDisableRuntimeMarshalling);
+
+        public static SignalRow<LibrarySignalContext> MemorySafetyUnsafePublicSignatures =>
+            new("Memory safety", "Unsafe public signatures", ResolveMemorySafetyUnsafePublicSignatures);
+
+        public static SignalRow<LibrarySignalContext> InteropPInvokeMethods =>
+            new("Interop", "P/Invoke methods", ResolveInteropPInvokeMethods);
+
+        private static SignalValue? ResolveProvenanceSourceLink(in LibrarySignalContext context) =>
+            FormatSourceLink(context.Inspection).ToSignalValue();
+
+        private static SignalValue? ResolveProvenanceSourceLinkAvailability(in LibrarySignalContext context) =>
+            FormatSourceLinkAvailability(context.Inspection).ToSignalValue();
+
+        private static SignalValue? ResolveProvenanceDeterministic(in LibrarySignalContext context) =>
+            new(FormatBool(context.Inspection.IsDeterministic), "PE debug directory and path normalization");
+
+        private static SignalValue? ResolveDependenciesDirectAssemblyReferences(in LibrarySignalContext context) =>
+            new((context.Inspection.AssemblyInfo?.References?.Count ?? 0).ToString(), "AssemblyRef table");
+
+        private static SignalValue? ResolveCompatibilityAsyncKind(in LibrarySignalContext context) =>
+            new(ResolveAsyncKind(context.Inspection), "public async method classification");
+
+        private static SignalValue? ResolveDependenciesTransitiveAssemblyReferences(in LibrarySignalContext context) =>
+            context.Inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitive
+                ? new SignalValue(
+                    transitive.Select(r => r.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
+                    "resolved assembly reference closure")
+                : null;
+
+        private static SignalValue? ResolveDependenciesMaxReferenceDepth(in LibrarySignalContext context) =>
+            context.Inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitive
+                ? new SignalValue(transitive.Max(r => r.Depth + 1).ToString(), "resolved assembly reference closure")
+                : null;
+
+        private static SignalValue? ResolveCompatibilityIsTrimmable(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatNullableBool(context.Metadata.IsTrimmable), FormatAssemblyMetadataEvidence("IsTrimmable", context.Metadata.IsTrimmable));
+
+        private static SignalValue? ResolveCompatibilityIsAotCompatible(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatNullableBool(context.Metadata.IsAotCompatible), FormatAssemblyMetadataEvidence("IsAotCompatible", context.Metadata.IsAotCompatible));
+
+        private static SignalValue? ResolveCompatibilityRequiresUnreferencedCode(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatCount(context.Metadata.RequiresUnreferencedCodeCount), "RequiresUnreferencedCodeAttribute");
+
+        private static SignalValue? ResolveCompatibilityRequiresDynamicCode(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatCount(context.Metadata.RequiresDynamicCodeCount), "RequiresDynamicCodeAttribute");
+
+        private static SignalValue? ResolveCompatibilityRequiresAssemblyFiles(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatCount(context.Metadata.RequiresAssemblyFilesCount), "RequiresAssemblyFilesAttribute");
+
+        private static SignalValue? ResolveCompatibilityDynamicDependency(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatCount(context.Metadata.DynamicDependencyCount), "DynamicDependencyAttribute");
+
+        private static SignalValue? ResolveMemorySafetyModel(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatMemorySafetyModel(context.Metadata.MemorySafetyRulesVersion), "module MemorySafetyRulesAttribute");
+
+        private static SignalValue? ResolveMemorySafetyRequiresUnsafeMembers(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatCount(context.Metadata.RequiresUnsafeCount), "RequiresUnsafeAttribute");
+
+        private static SignalValue? ResolveMemorySafetyDisableRuntimeMarshalling(in LibrarySignalContext context) =>
+            context.Metadata == null
+                ? null
+                : new SignalValue(FormatBool(context.Metadata.HasDisableRuntimeMarshalling), "DisableRuntimeMarshallingAttribute");
+
+        private static SignalValue? ResolveMemorySafetyUnsafePublicSignatures(in LibrarySignalContext context) =>
+            new(FormatCount(context.Inspection.UnsafeMethods?.Count ?? 0), "public pointer signatures");
+
+        private static SignalValue? ResolveInteropPInvokeMethods(in LibrarySignalContext context) =>
+            new(FormatCount(context.PInvokeMethodCount ?? context.Inspection.PInvokeMethods?.Count ?? 0), "all PInvokeImpl metadata");
+    }
+
+    private static class PackageSignalRows
+    {
+        public static SignalRow<PackageSignalContext> CompatibilitySupportedTfm =>
+            new("Compatibility", "Supported TFM", ResolveCompatibilitySupportedTfm);
+
+        public static SignalRow<PackageSignalContext> CompatibilityPortable =>
+            new("Compatibility", "Portable", ResolveCompatibilityPortable);
+
+        public static SignalRow<PackageSignalContext> DocumentationReadme =>
+            new("Documentation", "README", ResolveDocumentationReadme);
+
+        public static SignalRow<PackageSignalContext> LegalLicense =>
+            new("Legal", "License", ResolveLegalLicense);
+
+        public static SignalRow<PackageSignalContext> ProvenanceSymbols =>
+            new("Provenance", "Symbols", ResolveProvenanceSymbols);
+
+        public static SignalRow<PackageSignalContext> ProvenanceSourceLink =>
+            new("Provenance", "SourceLink", ResolveProvenanceSourceLink);
+
+        public static SignalRow<PackageSignalContext> DependenciesDirectDependencies =>
+            new("Dependencies", "Direct dependencies", ResolveDependenciesDirectDependencies);
+
+        public static SignalRow<PackageSignalContext> NuGetPackageAge =>
+            new("NuGet", "Package age", ResolveNuGetPackageAge);
+
+        public static SignalRow<PackageSignalContext> NuGetKnownVulnerabilities =>
+            new("NuGet", "Known vulnerabilities", ResolveNuGetKnownVulnerabilities);
+
+        public static SignalRow<PackageSignalContext> DependenciesWithVulnerabilities =>
+            new("Dependencies", "Dependencies with vulnerabilities", ResolveDependenciesWithVulnerabilities);
+
+        public static SignalRow<PackageSignalContext> DependenciesDeprecatedDependencies =>
+            new("Dependencies", "Deprecated dependencies", ResolveDependenciesDeprecatedDependencies);
+
+        public static SignalRow<PackageSignalContext> DependenciesDependencyAge =>
+            new("Dependencies", "Dependency age", ResolveDependenciesDependencyAge);
+
+        private static SignalValue? ResolveCompatibilitySupportedTfm(in PackageSignalContext context) =>
+            FormatSupportedTfm(context.Result).ToSignalValue();
+
+        private static SignalValue? ResolveCompatibilityPortable(in PackageSignalContext context) =>
+            FormatPortability(context.Result).ToSignalValue();
+
+        private static SignalValue? ResolveDocumentationReadme(in PackageSignalContext context) =>
+            new(FormatBool(context.Result.HasReadme), "nuspec/package files");
+
+        private static SignalValue? ResolveLegalLicense(in PackageSignalContext context) =>
+            new(string.IsNullOrWhiteSpace(context.Result.License) ? "Not declared" : context.Result.License, "nuspec metadata");
+
+        private static SignalValue? ResolveProvenanceSymbols(in PackageSignalContext context) =>
+            context.Result.BinarySignals is { TotalBinaries: > 0 } binarySignals
+                ? new SignalValue(FormatCoverage(binarySignals.SymbolsAvailable, binarySignals.TotalBinaries), FormatPdbSourceEvidence(binarySignals))
+                : null;
+
+        private static SignalValue? ResolveProvenanceSourceLink(in PackageSignalContext context) =>
+            context.Result.BinarySignals is { TotalBinaries: > 0 } binarySignals
+                ? new SignalValue(FormatCoverage(binarySignals.SourceLinkAvailable, binarySignals.TotalBinaries), FormatSourceLinkEvidence(binarySignals))
+                : null;
+
+        private static SignalValue? ResolveDependenciesDirectDependencies(in PackageSignalContext context) =>
+            new(context.DirectDependencies.Dependencies.Count.ToString(), context.DirectDependencies.Evidence);
+
+        private static SignalValue? ResolveNuGetPackageAge(in PackageSignalContext context) =>
+            context.Result.Published is { Year: > 1901 } published
+                ? new SignalValue(FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration")
+                : null;
+
+        private static SignalValue? ResolveNuGetKnownVulnerabilities(in PackageSignalContext context) =>
+            new(FormatCount(context.Result.Vulnerabilities?.Count ?? 0), "NuGet advisory data");
+
+        private static SignalValue? ResolveDependenciesWithVulnerabilities(in PackageSignalContext context) =>
+            new(context.DependencySignals.VulnerableDependencies.ToString(), FormatDependencyRegistryEvidence(context.DependencySignals));
+
+        private static SignalValue? ResolveDependenciesDeprecatedDependencies(in PackageSignalContext context) =>
+            new(context.DependencySignals.DeprecatedDependencies.ToString(), FormatDependencyRegistryEvidence(context.DependencySignals));
+
+        private static SignalValue? ResolveDependenciesDependencyAge(in PackageSignalContext context) =>
+            context.DependencySignals.AgeSummary is { } ageSummary
+                ? new SignalValue(
+                    $"min {ageSummary.MinDays}d, median {ageSummary.MedianDays}d, max {ageSummary.MaxDays}d",
+                    FormatDependencyAgeEvidence(context.DependencySignals))
+                : null;
+    }
+
     private static string ResolveAsyncKind(LibraryInspection inspection) =>
         (inspection.HasRuntimeAsync, inspection.HasStateMachineAsync) switch
         {
@@ -217,7 +434,7 @@ internal static class AuditSignalBuilder
                 ? $"{ageSummary.Count} direct dependencies"
                 : $"{ageSummary.Count}/{summary.DirectDependencies} direct dependencies with published dates";
 
-    private sealed record DirectDependencySelection(List<PackageDependency> Dependencies, string Evidence);
+    private readonly record struct DirectDependencySelection(List<PackageDependency> Dependencies, string Evidence);
 
     private static DirectDependencySelection GetDirectDependenciesForLatestTfm(InspectionResult result)
     {
