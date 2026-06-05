@@ -17,7 +17,7 @@ public class LibraryInspectionView
     }
 
     [MarkoutIgnore]
-    public string? Tfm => _data.Tfm;
+    public string? Tfm => _topFieldsOnly ? null : _data.Tfm;
 
     [MarkoutPropertyName("File")]
     public string FileName => _data.FileName;

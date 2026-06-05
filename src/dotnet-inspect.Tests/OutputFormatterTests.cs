@@ -590,6 +590,7 @@ public class OutputFormatterTests
             topFieldsOnly: true);
 
         Assert.StartsWith("# Test.dll", output.TrimStart());
+        Assert.DoesNotContain("# Test.dll (net9.0)", output);
         Assert.Contains("Name: Test", output);
         Assert.Contains("Version: 1.2.3", output);
         Assert.Contains("Source: NuGet", output);
