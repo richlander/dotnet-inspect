@@ -100,21 +100,26 @@ public static class AnnotatedILEmitter
             int offset = reader.Offset;
             var opcode = reader.ReadILOpcode();
             string operand = DecodeOperand(context, ref reader, opcode, offset);
+            string? variableAnnotation = GetVariableAnnotation(context, opcode, operand);
 
             sb.Append($"IL_{offset:X4}: ");
             sb.Append($"{FormatOpCode(opcode),-12}");
             if (operand.Length > 0)
                 sb.Append(' ').Append(operand);
 
+            List<string> annotations = [];
+            if (variableAnnotation != null)
+                annotations.Add(variableAnnotation);
+
             // Append stack type annotation
             if (instructionStacks.TryGetValue(offset, out var stackBefore))
             {
                 string stackStr = FormatStack(stackBefore);
-                if (stackStr.Length > 0)
-                    sb.Append($"  // stack: [{stackStr}]");
-                else
-                    sb.Append("  // stack: []");
+                annotations.Add(stackStr.Length > 0 ? $"stack: [{stackStr}]" : "stack: []");
             }
+
+            if (annotations.Count > 0)
+                sb.Append("  // ").Append(string.Join("; ", annotations));
 
             sb.AppendLine();
         }
@@ -177,6 +182,7 @@ public static class AnnotatedILEmitter
 
             var opcode = reader.ReadILOpcode();
             string operand = DecodeOperand(context, ref reader, opcode, offset);
+            string? variableAnnotation = GetVariableAnnotation(context, opcode, operand);
 
             WriteIndent(sb, currentIndent + 1);
             sb.Append($"IL_{offset:X4}: ");
@@ -184,12 +190,19 @@ public static class AnnotatedILEmitter
             if (operand.Length > 0)
                 sb.Append(' ').Append(operand);
 
+            List<string> annotations = [];
+            if (variableAnnotation != null)
+                annotations.Add(variableAnnotation);
+
             // Stack annotation
             if (instructionStacks.TryGetValue(offset, out var stackBefore))
             {
                 string stackStr = FormatStack(stackBefore);
-                sb.Append($"  // [{stackStr}]");
+                annotations.Add($"[{stackStr}]");
             }
+
+            if (annotations.Count > 0)
+                sb.Append("  // ").Append(string.Join("; ", annotations));
 
             sb.AppendLine();
         }
@@ -201,6 +214,89 @@ public static class AnnotatedILEmitter
             WriteIndent(sb, currentIndent);
             sb.AppendLine("}");
         }
+    }
+
+    static string? GetVariableAnnotation(MethodBodyContext context, ILOpCode opcode, string operand)
+    {
+        var reference = GetVariableReference(opcode, operand);
+        if (reference is null)
+            return null;
+
+        var (kind, index) = reference.Value;
+        return kind switch
+        {
+            VariableReferenceKind.Local => GetLocalDebugName(context, index) is { } name
+                ? $"local: {name}"
+                : null,
+            VariableReferenceKind.Argument => GetArgumentName(context, index) is { } name
+                ? $"arg: {name}"
+                : null,
+            _ => null
+        };
+    }
+
+    static (VariableReferenceKind Kind, int Index)? GetVariableReference(ILOpCode opcode, string operand)
+    {
+        return opcode switch
+        {
+            ILOpCode.Ldloc_0 or ILOpCode.Stloc_0 => (VariableReferenceKind.Local, 0),
+            ILOpCode.Ldloc_1 or ILOpCode.Stloc_1 => (VariableReferenceKind.Local, 1),
+            ILOpCode.Ldloc_2 or ILOpCode.Stloc_2 => (VariableReferenceKind.Local, 2),
+            ILOpCode.Ldloc_3 or ILOpCode.Stloc_3 => (VariableReferenceKind.Local, 3),
+
+            ILOpCode.Ldarg_0 => (VariableReferenceKind.Argument, 0),
+            ILOpCode.Ldarg_1 => (VariableReferenceKind.Argument, 1),
+            ILOpCode.Ldarg_2 => (VariableReferenceKind.Argument, 2),
+            ILOpCode.Ldarg_3 => (VariableReferenceKind.Argument, 3),
+
+            ILOpCode.Ldloc_s or ILOpCode.Stloc_s or ILOpCode.Ldloca_s
+                or ILOpCode.Ldloc or ILOpCode.Stloc or ILOpCode.Ldloca
+                => TryParseVariableIndex(operand, out int localIndex)
+                    ? (VariableReferenceKind.Local, localIndex)
+                    : null,
+
+            ILOpCode.Ldarg_s or ILOpCode.Starg_s or ILOpCode.Ldarga_s
+                or ILOpCode.Ldarg or ILOpCode.Starg or ILOpCode.Ldarga
+                => TryParseVariableIndex(operand, out int argumentIndex)
+                    ? (VariableReferenceKind.Argument, argumentIndex)
+                    : null,
+
+            _ => null
+        };
+    }
+
+    static bool TryParseVariableIndex(string operand, out int index) =>
+        int.TryParse(operand, out index) && index >= 0;
+
+    static string? GetLocalDebugName(MethodBodyContext context, int index)
+    {
+        if (index >= context.LocalNames.Count)
+            return null;
+
+        var name = context.LocalNames[index];
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
+    static string? GetArgumentName(MethodBodyContext context, int index)
+    {
+        if (context.HasThis)
+        {
+            if (index == 0)
+                return "this";
+            index--;
+        }
+
+        if (index < 0 || index >= context.ParameterNames.Count)
+            return null;
+
+        var name = context.ParameterNames[index];
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
+    enum VariableReferenceKind
+    {
+        Local,
+        Argument
     }
 
     // --- Header emission ---
@@ -215,12 +311,7 @@ public static class AnnotatedILEmitter
             sb.Append("// Parameters: ");
             sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p =>
             {
-                string name = p.Name;
-                if (context.HasThis)
-                {
-                    if (p.Index == 0) name = "this";
-                    else name = $"P_{p.Index - 1}";
-                }
+                string name = GetArgumentName(context, p.Index) ?? p.Name;
                 return p.TypeName is not null ? $"{p.TypeName} {name}" : name;
             })));
         }
@@ -246,13 +337,7 @@ public static class AnnotatedILEmitter
             sb.Append("//   Parameters: ");
             sb.AppendLine(string.Join(", ", simResult.Parameters.Select(p =>
             {
-                string name = p.Name;
-                // Remap to match lowered C# naming: this + shifted indices
-                if (context.HasThis)
-                {
-                    if (p.Index == 0) name = "this";
-                    else name = $"P_{p.Index - 1}";
-                }
+                string name = GetArgumentName(context, p.Index) ?? p.Name;
                 return p.TypeName is not null ? $"{p.TypeName} {name}" : name;
             })));
         }

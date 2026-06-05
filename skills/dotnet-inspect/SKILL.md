@@ -86,7 +86,7 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serial
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
 
-Fidelity expectations: SourceLink source is the original source when available. Lowered C# is a best-effort, readable reconstruction from IL that helps explain intent but is not guaranteed to match original syntax, local names, or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
+Fidelity expectations: SourceLink source is the original source when available. Lowered C# is a best-effort, readable reconstruction from IL that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
 
 ## Package and library Signals workflow
 
