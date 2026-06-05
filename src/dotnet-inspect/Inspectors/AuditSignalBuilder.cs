@@ -297,7 +297,7 @@ internal static class AuditSignalBuilder
     {
         if (signals.SourceLinkAvailable > 0)
         {
-            return "SourceLink data in " + FormatPdbSources(
+            return "SourceLink data found in " + FormatPdbSources(
                 signals.EmbeddedSourceLinkPdbs,
                 signals.InPackageSourceLinkPdbs,
                 signals.SnupkgSourceLinkPdbs,
@@ -324,10 +324,10 @@ internal static class AuditSignalBuilder
     {
         List<string> parts = [];
         AddPdbSourcePart(parts, "embedded PDBs", embedded, total);
-        AddPdbSourcePart(parts, "in-package PDBs", inPackage, total);
-        AddPdbSourcePart(parts, ".snupkg PDBs", snupkg, total);
-        AddPdbSourcePart(parts, "msdl.microsoft.com PDBs", msdl, total);
-        AddPdbSourcePart(parts, "other symbol-server PDBs", other, total);
+        AddPdbSourcePart(parts, "PDBs from package", inPackage, total);
+        AddPdbSourcePart(parts, "PDBs from .snupkg", snupkg, total);
+        AddPdbSourcePart(parts, "PDBs from msdl.microsoft.com", msdl, total);
+        AddPdbSourcePart(parts, "PDBs from other symbol servers", other, total);
         return parts.Count == 0 ? fallback : string.Join(", ", parts);
     }
 
@@ -397,7 +397,7 @@ internal static class AuditSignalBuilder
                 ? inspection.PdbLocation.ToLowerInvariant()
                 : "unknown";
 
-        return $"PDB (source: {source})";
+        return $"SourceLink data found in PDB from {source}";
     }
 
     private static string FormatBool(bool value) => value ? "Yes" : "No";
