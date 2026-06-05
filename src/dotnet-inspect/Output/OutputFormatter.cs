@@ -26,8 +26,9 @@ public static class OutputFormatter
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
-        var view = new InspectionResultView(result);
-        var writerOptions = BuildWriterOptions(result, options, pipeline);
+        bool includeContext = ShouldRenderPackageContext(options);
+        var view = new InspectionResultView(result, includeTitleVersion: !includeContext);
+        var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
         return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
@@ -56,15 +57,17 @@ public static class OutputFormatter
     }
 
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
     {
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections);
+        if (includeContext && includeSections is { Count: > 0 })
+            includeSections = [PackageSections.Summary, .. includeSections];
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
     }
@@ -72,7 +75,7 @@ public static class OutputFormatter
     public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
             inspection, options.Verbosity, options.IncludeSections);
@@ -128,7 +131,7 @@ public static class OutputFormatter
     public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var report = new LibraryInspectionReport
         {
             Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
@@ -164,7 +167,7 @@ public static class OutputFormatter
         {
             foreach (var inspection in inspections)
             {
-                var auditView = new LibraryInspectionView(inspection);
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var includeSections = pipeline.ComputeIncludeSections(
                     inspection, options.Verbosity, options.IncludeSections);
                 var writerOpts = new MarkoutWriterOptions
@@ -195,4 +198,16 @@ public static class OutputFormatter
             IncludeFields = fields,
         };
     }
+
+    internal static bool ShouldRenderLibraryContext(AssemblyOptions options) =>
+        options.Verbosity == Verbosity.Quiet
+        || (options.IncludeSections is { Count: > 0 }
+            && !options.Count
+            && !options.JsonOutput);
+
+    internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
+        options.IncludeSections is { Count: > 0 }
+        && !options.Count
+        && !options.JsonOutput
+        && !options.OneLine;
 }

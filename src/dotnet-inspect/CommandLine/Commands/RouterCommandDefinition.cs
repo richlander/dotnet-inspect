@@ -42,12 +42,12 @@ public static class RouterCommandDefinition
         // Version query options for the router
         var routerVersionOption = new Option<bool>("--version") { Description = "Show resolved version" };
         routerCommand.Options.Add(routerVersionOption);
-        var routerLatestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest version from nuget.org" };
+        var routerLatestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest stable version from nuget.org (add --preview for prerelease)" };
         routerCommand.Options.Add(routerLatestVersionOption);
         var routerVersionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
         routerVersionsOption.DefaultValueFactory = _ => null;
         routerCommand.Options.Add(routerVersionsOption);
-        var routerPrereleaseOption = new Option<bool>("--preview") { Description = "With --versions: include prerelease versions" };
+        var routerPrereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         routerPrereleaseOption.Aliases.Add("--prerelease");
         routerCommand.Options.Add(routerPrereleaseOption);
 
@@ -236,7 +236,7 @@ public static class RouterCommandDefinition
                     Console.Error.WriteLine($"Error: Version '{query.ExplicitVersion}' of package '{query.BareName}' not found. Use --versions to see available versions.");
                 return 1;
             }
-            else
+            else if (!query.IncludePrerelease)
             {
                 // Bare name: use newest cached version
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(query.BareName);
@@ -253,6 +253,7 @@ public static class RouterCommandDefinition
         {
             PackageArgs = [query.BareName],
             ListVersions = true,
+            IncludePrerelease = query.IncludePrerelease,
             Limit = 1,
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

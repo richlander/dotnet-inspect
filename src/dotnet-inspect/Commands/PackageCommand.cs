@@ -87,7 +87,7 @@ public class PackageCommand
 
             // Cache-first for bare --version (Limit==1 && !ForceLatest):
             // check local caches before hitting NuGet, matching router behavior.
-            if (options.Limit == 1 && !options.ForceLatest)
+            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease)
             {
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
                 if (cachedVersion != null)
@@ -95,6 +95,26 @@ public class PackageCommand
                     Console.WriteLine(cachedVersion);
                     return 0;
                 }
+            }
+
+            if (options.Limit == 1 && options.ForceLatest)
+            {
+                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var latest = await PackageExtractor.GetLatestVersionAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    sources,
+                    logger.Log,
+                    skipCache: true,
+                    includePrerelease: options.IncludePrerelease);
+                if (latest == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                Console.WriteLine(latest);
+                return 0;
             }
 
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
@@ -189,7 +209,8 @@ public class PackageCommand
                 logger.Log,
                 sourceOptions: options.SourceOptions,
                 version: isLocalFile ? null : (version.Length > 0 ? version : null),
-                forceLatest: options.ForceLatest);
+                forceLatest: options.ForceLatest,
+                includePrerelease: options.IncludePrerelease);
 
             if (!outcome.IsSuccess)
             {

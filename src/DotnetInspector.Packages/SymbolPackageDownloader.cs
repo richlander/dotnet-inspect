@@ -1,4 +1,7 @@
 using System.IO.Compression;
+using System.Net;
+using DotnetInspector.Core;
+
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -21,6 +24,9 @@ public record PdbDownloadResult(
 /// </remarks>
 public class SymbolPackageDownloader(HttpClient client)
 {
+    private const string SymbolMissCacheCategory = "symbol-misses";
+    private static readonly TimeSpan SymbolMissCacheTtl = TimeSpan.FromDays(1);
+    private static readonly TimeSpan SymbolForbiddenCacheTtl = TimeSpan.FromDays(7);
     private readonly HttpClient _client = client;
     private readonly string _cachePath = Path.Combine(NuGetCache.GetAppCachePath(), "symbols");
 
@@ -97,6 +103,9 @@ public class SymbolPackageDownloader(HttpClient client)
         }
 
         var url = $"https://msdl.microsoft.com/download/symbols/{pdbFileName}/{symbolKey}/{pdbFileName}";
+        if (IsCachedMiss(url, log, "MSDL symbol server"))
+            return new PdbDownloadResult(null, windowsPdbDetected);
+
         log?.Invoke("Trying MSDL symbol server");
 
         try
@@ -105,6 +114,7 @@ public class SymbolPackageDownloader(HttpClient client)
             using var response = httpResult.Response;
             if (response == null || !response.IsSuccessStatusCode)
             {
+                CacheMissIfDefinitive(url, httpResult);
                 log?.Invoke("MSDL: symbol not found");
                 return new PdbDownloadResult(null, windowsPdbDetected);
             }
@@ -165,12 +175,16 @@ public class SymbolPackageDownloader(HttpClient client)
 
         foreach (var snupkgUrl in snupkgUrls)
         {
+            if (IsCachedMiss(snupkgUrl, log, "symbol package"))
+                continue;
+
             try
             {
                 var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(_client, snupkgUrl, log: log).ConfigureAwait(false);
                 using var response = httpResult.Response;
                 if (response is not { IsSuccessStatusCode: true })
                 {
+                    CacheMissIfDefinitive(snupkgUrl, httpResult);
                     continue;
                 }
 
@@ -273,6 +287,9 @@ public class SymbolPackageDownloader(HttpClient client)
         foreach (var server in symbolServers)
         {
             var url = $"{server}/{pdbFileName}/{symbolKey}/{pdbFileName}";
+            if (IsCachedMiss(url, log, "symbol server"))
+                continue;
+
             log?.Invoke($"Trying symbol server: {server}");
 
             try
@@ -281,6 +298,7 @@ public class SymbolPackageDownloader(HttpClient client)
                 using var response = httpResult.Response;
                 if (response == null || !response.IsSuccessStatusCode)
                 {
+                    CacheMissIfDefinitive(url, httpResult);
                     continue;
                 }
 
@@ -311,6 +329,33 @@ public class SymbolPackageDownloader(HttpClient client)
         }
 
         return new PdbDownloadResult(null, windowsPdbDetected);
+    }
+
+    private static bool IsCachedMiss(string key, Action<string>? log, string source)
+    {
+        if (CoreCache.TryGet(SymbolMissCacheCategory, key, SymbolForbiddenCacheTtl, extension: "forbidden") != null)
+        {
+            log?.Invoke($"Using cached symbol miss: {source}");
+            return true;
+        }
+
+        if (CoreCache.TryGet(SymbolMissCacheCategory, key, SymbolMissCacheTtl, extension: "miss") == null)
+            return false;
+
+        log?.Invoke($"Using cached symbol miss: {source}");
+        return true;
+    }
+
+    private static void CacheMissIfDefinitive(string key, HttpRetryHelper.HttpRetryResult result)
+    {
+        if (result.StatusCode is not { } statusCode)
+            return;
+
+        if (HttpRetryHelper.IsRetryableStatus(statusCode))
+            return;
+
+        var extension = statusCode == HttpStatusCode.Forbidden ? "forbidden" : "miss";
+        CoreCache.Set(SymbolMissCacheCategory, key, ((int)statusCode).ToString(), extension);
     }
 
     /// <summary>

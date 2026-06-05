@@ -108,6 +108,16 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void LibraryCommand_WithPreviewAlias_ParsesCorrectly()
+    {
+        var result1 = CommandLineBuilder.CreateRootCommand().Parse(["library", "Foo.dll", "--package", "Foo", "--preview"]);
+        var result2 = CommandLineBuilder.CreateRootCommand().Parse(["library", "Foo.dll", "--package", "Foo", "--prerelease"]);
+
+        Assert.Empty(result1.Errors);
+        Assert.Empty(result2.Errors);
+    }
+
+    [Fact]
     public void Router_WithCompactFlag_ParsesCorrectly()
     {
         var args = CommandLineBuilder.PreprocessArgs(["System.Text.Json.JsonSerializer", "--json", "--compact"]);

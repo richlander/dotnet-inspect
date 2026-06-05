@@ -9,22 +9,26 @@ namespace DotnetInspector.Views;
 
 [MarkoutSerializable(
     TitleProperty = nameof(PackageName),
-    TitleContextProperty = nameof(Version),
+    TitleContextProperty = nameof(TitleVersion),
     DescriptionProperty = nameof(Description),
     AutoFields = false)]
 public class InspectionResultView
 {
     private readonly InspectionResult _data;
+    private readonly bool _includeTitleVersion;
 
-    public InspectionResultView(InspectionResult data)
+    public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
     {
         _data = data;
+        _includeTitleVersion = includeTitleVersion;
     }
 
     [MarkoutPropertyName("Package")]
     public string PackageName => _data.PackageName;
 
     public string Version => _data.Version;
+
+    public string? TitleVersion => _includeTitleVersion ? _data.Version : null;
 
     public string? Description => _data.Description;
 

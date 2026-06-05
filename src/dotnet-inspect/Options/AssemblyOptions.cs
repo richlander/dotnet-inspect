@@ -35,6 +35,11 @@ public record AssemblyOptions
     public string? PackagePath { get; init; }
 
     /// <summary>
+    /// Include prerelease/preview versions when resolving an unversioned package.
+    /// </summary>
+    public bool IncludePrerelease { get; init; }
+
+    /// <summary>
     /// Platform assembly name (e.g., System.Text.Json).
     /// Resolves to installed .NET runtime assembly.
     /// </summary>

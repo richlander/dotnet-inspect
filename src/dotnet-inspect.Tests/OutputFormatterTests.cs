@@ -575,6 +575,42 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void LibrarySelectedSection_IncludesCompactContext()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.Source = "NuGet";
+        inspection.PlatformVersion = "1.2.3";
+        inspection.AuditSignals =
+        [
+            new AuditSignal("Provenance", "SourceLink", "Present", "PDB")
+        ];
+        var output = SerializeWithInclude(
+            inspection,
+            includeSections: ["Signals"],
+            topFieldsOnly: true);
+
+        Assert.StartsWith("# Test.dll", output.TrimStart());
+        Assert.DoesNotContain("# Test.dll (net9.0)", output);
+        Assert.Contains("Name: Test", output);
+        Assert.Contains("Version: 1.2.3", output);
+        Assert.Contains("Source: NuGet", output);
+        Assert.Contains("## Signals", output);
+    }
+
+    [Fact]
+    public void LibrarySelectedSection_FormatterUsesCompactContext()
+    {
+        var options = new AssemblyOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = ["Signals"],
+            Format = OutputFormat.Markdown
+        };
+
+        Assert.True(OutputFormatter.ShouldRenderLibraryContext(options));
+    }
+
+    [Fact]
     public void PackageQuiet_ThreeLines()
     {
         var result = CreateTestPackageResult();
@@ -591,6 +627,44 @@ public class OutputFormatterTests
         Assert.Equal("", lines[1]);
         Assert.Contains(" | ", lines[2]);
         Assert.DoesNotContain("## ", output);
+    }
+
+    [Fact]
+    public void PackageSelectedSection_IncludesCompactContextWithoutDescriptionOrTitleVersion()
+    {
+        var result = CreateTestPackageResult();
+        result.Description = "Package description that should only appear in default views.";
+        result.Source = "NuGet";
+        result.AuditSignals =
+        [
+            new AuditSignal("NuGet", "Known vulnerabilities", "0", "NuGet advisory data")
+        ];
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = [PackageSections.Signals]
+        };
+
+        var output = OutputFormatter.FormatResult(result, options, PackageSectionDescriptors.CreatePipeline());
+
+        Assert.StartsWith("# TestPackage", output.TrimStart());
+        Assert.DoesNotContain("# TestPackage (1.0.0)", output);
+        Assert.Contains("Version: 1.0.0", output);
+        Assert.Contains("Source: NuGet", output);
+        Assert.DoesNotContain(result.Description, output);
+        Assert.Contains("## Signals", output);
+    }
+
+    [Fact]
+    public void PackageSelectedSection_FormatterUsesCompactContext()
+    {
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = [PackageSections.Signals]
+        };
+
+        Assert.True(OutputFormatter.ShouldRenderPackageContext(options));
     }
 
     [Fact]

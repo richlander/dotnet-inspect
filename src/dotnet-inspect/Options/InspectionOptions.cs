@@ -58,7 +58,7 @@ public record InspectionOptions
     public bool ListVersions { get; init; }
 
     /// <summary>
-    /// Include prerelease/preview versions when listing versions.
+    /// Include prerelease/preview versions when listing versions or resolving an unversioned latest package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
 

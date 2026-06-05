@@ -55,6 +55,7 @@ public static class PackageExtractor
     /// <param name="sourceOptions">NuGet source configuration (defaults to nuget.org)</param>
     /// <param name="version">Explicit version (overrides any version embedded in packageSource)</param>
     /// <param name="forceLatest">When true, always resolve version from network (bypass cache-first)</param>
+    /// <param name="includePrerelease">When true, latest resolution includes prerelease/preview versions</param>
     /// <returns>Extraction outcome carrying result on success or error message on failure</returns>
     public static async Task<PackageExtractionOutcome> ExtractPackageAsync(
         HttpClient client,
@@ -63,7 +64,8 @@ public static class PackageExtractor
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
         string? version = null,
-        bool forceLatest = false)
+        bool forceLatest = false,
+        bool includePrerelease = false)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
@@ -72,7 +74,7 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version, forceLatest).ConfigureAwait(false);
+        return await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version, forceLatest, includePrerelease).ConfigureAwait(false);
     }
 
     private static PackageExtractionOutcome ExtractLocalPackage(
@@ -102,7 +104,8 @@ public static class PackageExtractor
         string tempDirPrefix,
         NuGetSourceOptions? sourceOptions,
         string? explicitVersion = null,
-        bool forceLatest = false)
+        bool forceLatest = false,
+        bool includePrerelease = false)
     {
         var (packageName, parsedVersion) = ParsePackageReference(packageSource);
         var version = explicitVersion ?? parsedVersion;
@@ -130,24 +133,10 @@ public static class PackageExtractor
         // Get version if not specified
         if (version == null)
         {
-            if (!forceLatest)
-            {
-                // Cache-first: use already-cached version if available (no network)
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(packageName);
-                if (cachedVersion != null)
-                {
-                    version = cachedVersion;
-                    log?.Invoke($"Using cached version: {version}");
-                }
-            }
-
+            version = await GetLatestVersionAsync(client, packageName, sources, log, skipCache: forceLatest, includePrerelease: includePrerelease).ConfigureAwait(false);
             if (version == null)
             {
-                version = await GetLatestVersionAsync(client, packageName, sources, log, skipCache: forceLatest).ConfigureAwait(false);
-                if (version == null)
-                {
-                    return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
-                }
+                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
             }
         }
 
@@ -395,16 +384,18 @@ public static class PackageExtractor
         string packageName,
         List<NuGetSource> sources,
         Action<string>? log,
-        bool skipCache = false)
+        bool skipCache = false,
+        bool includePrerelease = false)
     {
         string normalizedName = packageName.ToLowerInvariant();
+        string cacheKey = includePrerelease ? $"{normalizedName}-prerelease" : normalizedName;
 
         // Cache nuget.org results even when additional custom sources are configured.
         bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg);
 
         if (canCache)
         {
-            var cached = CoreCache.TryGet(VersionCacheCategory, normalizedName, VersionCacheTtl, extension: "txt");
+            var cached = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
             if (cached != null)
             {
                 log?.Invoke($"Using cached version: {cached}");
@@ -414,11 +405,11 @@ public static class PackageExtractor
 
         foreach (var source in sources)
         {
-            var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
             if (version != null)
             {
                 if (canCache && source.IsNuGetOrg)
-                    CoreCache.Set(VersionCacheCategory, normalizedName, version, extension: "txt");
+                    CoreCache.Set(VersionCacheCategory, cacheKey, version, extension: "txt");
                 return version;
             }
         }
@@ -536,12 +527,13 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         NuGetSource source,
-        Action<string>? log)
+        Action<string>? log,
+        bool includePrerelease)
     {
         var auth = source.GetAuthHeader();
 
         // For nuget.org, use the search API — returns latest version directly without listing all versions
-        if (source.IsNuGetOrg)
+        if (source.IsNuGetOrg && !includePrerelease)
         {
             var version = await GetLatestVersionFromSearchAsync(client, packageName, log).ConfigureAwait(false);
             if (version != null)
@@ -555,7 +547,7 @@ public static class PackageExtractor
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, auth).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, auth, includePrerelease).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -570,7 +562,7 @@ public static class PackageExtractor
             string indexUrl = $"{baseAddress}{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, auth).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, auth, includePrerelease).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -613,7 +605,8 @@ public static class PackageExtractor
 
     private static async Task<string?> ParseVersionIndexAsync(
         HttpClient client, string indexUrl,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        bool includePrerelease = false)
     {
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(client, indexUrl, auth: auth).ConfigureAwait(false);
         if (json == null)
@@ -640,7 +633,7 @@ public static class PackageExtractor
                             latestStable = parsed;
                     }
                 }
-                return (latestStable ?? latestAny)?.OriginalVersion;
+                return (includePrerelease ? latestAny : latestStable ?? latestAny)?.OriginalVersion;
             }
         }
         catch (System.Text.Json.JsonException)

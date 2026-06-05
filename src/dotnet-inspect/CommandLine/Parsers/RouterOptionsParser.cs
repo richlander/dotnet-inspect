@@ -70,6 +70,7 @@ public static class RouterOptionsParser
         string BareName,
         string? ExplicitVersion,
         bool ForceLatest,
+        bool IncludePrerelease,
         NuGetSourceOptions SourceOptions) : RouterParseResult;
 
     /// <summary>
@@ -184,7 +185,12 @@ public static class RouterOptionsParser
 
         // --version query
         if (showVersion)
-            return new HandleVersionQuery(bareName, explicitVersion, forceLatest, opts.ParseNuGetSourceOptions(parseResult));
+            return new HandleVersionQuery(
+                bareName,
+                explicitVersion,
+                forceLatest,
+                parseResult.GetValue(args.PrereleaseOption),
+                opts.ParseNuGetSourceOptions(parseResult));
 
         // Fall through to package command
         bool useBareName = forceLatest || showLatestVersion;

@@ -169,7 +169,7 @@ public class AssemblyCommand
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath, options.PackagePath, options.Tfm,
-                    options.SourceOptions, logger, context.HttpClient);
+                    options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
                 if (extractResult == null)
                 {
                     return 1;
@@ -500,11 +500,12 @@ public class AssemblyCommand
         string packageSource,
         string? tfm,
         NuGetSourceOptions? sourceOptions,
+        bool includePrerelease,
         VerboseLogger logger,
         HttpClient httpClient)
     {
         var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions);
+            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
         if (!outcome.IsSuccess)
         {
             Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
