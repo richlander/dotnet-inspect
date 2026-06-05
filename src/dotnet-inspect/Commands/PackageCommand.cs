@@ -87,7 +87,7 @@ public class PackageCommand
 
             // Cache-first for bare --version (Limit==1 && !ForceLatest):
             // check local caches before hitting NuGet, matching router behavior.
-            if (options.Limit == 1 && !options.ForceLatest)
+            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease)
             {
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
                 if (cachedVersion != null)
@@ -189,7 +189,8 @@ public class PackageCommand
                 logger.Log,
                 sourceOptions: options.SourceOptions,
                 version: isLocalFile ? null : (version.Length > 0 ? version : null),
-                forceLatest: options.ForceLatest);
+                forceLatest: options.ForceLatest,
+                includePrerelease: options.IncludePrerelease);
 
             if (!outcome.IsSuccess)
             {

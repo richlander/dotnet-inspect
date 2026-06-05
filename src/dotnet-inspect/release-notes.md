@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.9.2
+
+### Package resolution
+
+- `--preview`/`--prerelease` now opt latest package resolution into prerelease versions, including `library <dll> --package <package> --preview`.
+
 ## v0.9.1
 
 ### Fixes

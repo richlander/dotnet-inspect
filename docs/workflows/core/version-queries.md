@@ -123,6 +123,17 @@ Source: NuGet
 grep -oE 'Version: [0-9.]+'
 ```
 
+### 2d. Opting into latest prerelease
+
+By default, unpinned package resolution chooses the latest stable version. Add `--preview`
+or `--prerelease` to include prerelease versions when resolving latest.
+
+```bash
+dotnet-inspect package Microsoft.CodeAnalysis.CSharp --latest-version --preview
+dotnet-inspect package Microsoft.CodeAnalysis.CSharp@latest --preview -v:q
+dotnet-inspect library Microsoft.CodeAnalysis.CSharp.dll --package Microsoft.CodeAnalysis.CSharp --preview -S Signals
+```
+
 ## 3. List all available versions
 
 > Goal: See every published version, newest first.

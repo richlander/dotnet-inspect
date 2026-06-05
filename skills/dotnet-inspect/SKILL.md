@@ -45,7 +45,7 @@ LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspect
 | Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
 | Implementation detail | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -v:d` | Prefer SourceLink source when available; use Lowered C# for readable control-flow intent and IL/annotated IL for exact instructions. |
 
-For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest.
+For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest. Unpinned packages use the latest stable by default; add `--preview` or `--prerelease` to include prerelease versions in latest resolution, including `library <dll> --package Foo --preview`.
 
 ## API lookup workflow
 
