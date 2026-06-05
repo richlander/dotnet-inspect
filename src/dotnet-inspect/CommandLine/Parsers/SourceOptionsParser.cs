@@ -70,16 +70,12 @@ public static class SourceOptionsParser
         SharedOptions opts,
         SourceCommandArgs args)
     {
-        var argsValue = parseResult.GetValue(args.ArgsArg) ?? [];
-        var explicitPackage = parseResult.GetValue(args.PackageOption);
-        var explicitAssembly = parseResult.GetValue(args.AssemblyOption);
-        var explicitPlatform = parseResult.GetValue(args.PlatformOption);
         var ilOffset = parseResult.GetValue(args.ILOffsetOption);
-        bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
-        bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
+        var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
+            parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
 
         // Handle projection discovery or help
-        if (argsValue.Length == 0 && !hasExplicitSource && ilOffset == null)
+        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && ilOffset == null)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -87,14 +83,14 @@ public static class SourceOptionsParser
         }
 
         // Check for unrecognized options in positional args
-        var badOption = argsValue.FirstOrDefault(a => a.StartsWith('-'));
+        var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
         // Resolve source
-        var source = await SourceResolver.ResolveAsync(
-            argsValue, explicitPackage, explicitAssembly, explicitPlatform,
-            parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+        var sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
+            sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+        var source = sourceSelection.Source;
 
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
@@ -107,21 +103,20 @@ public static class SourceOptionsParser
             if (memberName == null)
             {
                 var positionalMembers = new List<string>();
-                if (hasExplicitSource && argsValue.Length >= 2)
-                    positionalMembers.AddRange(argsValue[1..]);
-                else if (!hasExplicitSource && argsValue.Length >= 3)
-                    positionalMembers.AddRange(argsValue[2..]);
+                if (sourceSelection.HasExplicitSource && sourceSelection.Args.Length >= 2)
+                    positionalMembers.AddRange(sourceSelection.Args[1..]);
+                else if (!sourceSelection.HasExplicitSource && sourceSelection.Args.Length >= 3)
+                    positionalMembers.AddRange(sourceSelection.Args[2..]);
 
                 // Handle Type.Member dotted syntax
                 var typeName = source.TypeName;
                 if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
                 {
-                    var lastDot = typeName.LastIndexOf('.');
-                    var rightPart = typeName[(lastDot + 1)..];
-                    if (!rightPart.Contains('<'))
+                    var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
+                    if (splitMemberName != null)
                     {
-                        positionalMembers.Add(rightPart);
-                        source = source with { TypeName = typeName[..lastDot] };
+                        positionalMembers.Add(splitMemberName);
+                        source = source with { TypeName = splitTypeName };
                     }
                 }
 
