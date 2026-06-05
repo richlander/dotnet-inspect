@@ -25,6 +25,8 @@ internal static class AuditSignalBuilder
         Add(signals, "Dependencies", "Direct assembly references",
             (inspection.AssemblyInfo?.References?.Count ?? 0).ToString(),
             "AssemblyRef table");
+        Add(signals, "Compatibility", "Async Kind",
+            ResolveAsyncKind(inspection), "public async method classification");
 
         int? pInvokeMethodCount = null;
 
@@ -193,6 +195,15 @@ internal static class AuditSignalBuilder
 
     private static void Add(List<AuditSignal> rows, string area, string signal, string value, string evidence)
         => rows.Add(new AuditSignal(area, signal, value, evidence));
+
+    private static string ResolveAsyncKind(LibraryInspection inspection) =>
+        (inspection.HasRuntimeAsync, inspection.HasStateMachineAsync) switch
+        {
+            (true, true) => "Mixed",
+            (true, false) => AsyncMethodSummary.RuntimeKind,
+            (false, true) => AsyncMethodSummary.StateMachineKind,
+            _ => "None",
+        };
 
     private static string FormatDependencyRegistryEvidence(DependencySignalSummary summary)
         => summary.DirectDependencies == 0

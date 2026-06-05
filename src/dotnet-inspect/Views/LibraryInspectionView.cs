@@ -138,7 +138,6 @@ public class LibraryInspectionView
         FileSize = _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null,
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
-        AsyncKind = ResolveAsyncKind(),
         Source = _data.Source,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
     };
@@ -304,20 +303,6 @@ public class LibraryInspectionView
         return "";
     }
 
-    /// <summary>
-    /// Classifies the assembly's public async surface: "Runtime" (impl-flag async only),
-    /// "State machine" (compiler state-machine async only), "Mixed" (both), or "None" when the
-    /// assembly exposes no public async methods. Scope matches the "Async Methods" section
-    /// (public, non-accessor methods).
-    /// </summary>
-    private string ResolveAsyncKind() => (_data.HasRuntimeAsync, _data.HasStateMachineAsync) switch
-    {
-        (true, true) => "Mixed",
-        (true, false) => AsyncMethodSummary.RuntimeKind,
-        (false, true) => AsyncMethodSummary.StateMachineKind,
-        _ => "None",
-    };
-
     private static string FormatSize(int bytes) => bytes switch
     {
         0 => "",
@@ -424,7 +409,6 @@ public record AuditSignalRow(
 public class LibraryInfoSection
 {
     public string? AssemblyVersion { get; init; }
-    public string? AsyncKind { get; init; }
     public string? Architecture { get; init; }
     public string? Company { get; init; }
     public string? Compilation { get; init; }
