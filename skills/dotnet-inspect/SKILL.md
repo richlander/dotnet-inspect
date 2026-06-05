@@ -45,7 +45,7 @@ LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspect
 | Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
 | Implementation detail | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -v:d` | Prefer SourceLink source when available; use Lowered C# for readable control-flow intent and IL/annotated IL for exact instructions. |
 
-For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest. Unpinned packages use the latest stable by default; add `--preview` or `--prerelease` to include prerelease versions in latest resolution, including `library <dll> --package Foo --preview`.
+For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest. Unpinned packages use the latest stable by default; add `--preview` to include prerelease versions in latest resolution, including `package Foo --latest-version --preview` and `library <dll> --package Foo --preview`.
 
 ## API lookup workflow
 
@@ -120,7 +120,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. `-S`, `--columns`, and `--fields` accept comma-separated or semicolon-separated lists. In `--schema` section output, `section (opt-in)` means the section never runs from normal verbosity; select it explicitly with `-S` when needed, or use `-S All` to include all sections including opt-in sections. Use `--count` only when exactly one selected section should produce a row count.
+For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. `-S`, `--columns`, and `--fields` accept comma-separated or semicolon-separated lists. In `--schema` section output, `section (opt-in)` means the section never runs from normal verbosity; select it explicitly with `-S` when needed, or use `-S All` to include all sections including opt-in sections. Use `--count` only when exactly one selected section should produce a row count. Library `-S` output keeps a compact context row with key fields such as version, TFM, source, and size before the selected section.
 
 `-n N` and shorthand values like `-6` normally limit output lines. Add `--rows` to reinterpret that head count as data rows per rendered Markdown table; this preserves headings/table headers and applies independently to each table. `--rows` requires `-n/--head` or numeric shorthand and cannot be combined with `--tail`. Prefer `--rows` over shell `head` when you need parseable Markdown tables.
 
