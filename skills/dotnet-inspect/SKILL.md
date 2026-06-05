@@ -14,9 +14,11 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--plaintext` for text-only output, `--oneline` for compact one-result-per-line output, `--json` for structured automation, and `-v:d` when you need source/decompiled C#/IL detail.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--oneline` for compact tabular output like `docker images` when you need one result per row. Use `--json` for structured automation. Use `-v:d` when you need source/decompiled C#/IL detail.
 
-Use built-in limiters before shell pipes. `-n N` and shorthand like `-6` limit output lines; `--tail N` keeps the last N lines; `--rows -n N` or `--rows -6` caps data rows per rendered Markdown table while preserving headings and table headers; `--count` counts rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
+Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; `-S Section` selects sections; `--columns` and `--fields` project values. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+
+Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
 ## Workflow map
 
