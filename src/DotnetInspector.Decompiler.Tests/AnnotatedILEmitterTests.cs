@@ -128,6 +128,20 @@ public class AnnotatedILEmitterTests
         Assert.True(hasIndentedInstruction, $"Expected indented instructions in:\n{output}");
     }
 
+    [Fact]
+    public void Structured_ExternalPdb_AnnotatesVariableNames()
+    {
+        var pdbPath = TestAssemblyPdbPath();
+        Assert.SkipUnless(File.Exists(pdbPath), $"standalone PDB not found at {pdbPath}");
+
+        string output = EmitMethod(nameof(CfgSampleClass.LoopSum), ILAnnotationDepth.Structured, pdbPath);
+
+        Assert.Matches(@"//\s+Parameters: .* n", output);
+        Assert.Contains("arg: n", output);
+        Assert.Contains("local: sum", output);
+        Assert.Contains("local: i", output);
+    }
+
     // --- Token resolution ---
 
     [Fact]
@@ -236,7 +250,7 @@ public class AnnotatedILEmitterTests
 
     // --- Helpers ---
 
-    static string EmitMethod(string methodName, ILAnnotationDepth depth)
+    static string EmitMethod(string methodName, ILAnnotationDepth depth, string? externalPdbPath = null)
     {
         var assemblyPath = typeof(CfgSampleClass).Assembly.Location;
         var stream = File.OpenRead(assemblyPath);
@@ -244,10 +258,14 @@ public class AnnotatedILEmitterTests
         var context = MethodBodyContext.Create(
             peReader,
             typeof(CfgSampleClass).FullName!,
-            methodName);
+            methodName,
+            externalPdbPath: externalPdbPath);
         Assert.NotNull(context);
         return AnnotatedILEmitter.Emit(context, depth);
     }
+
+    static string TestAssemblyPdbPath() =>
+        Path.ChangeExtension(typeof(CfgSampleClass).Assembly.Location, ".pdb");
 
     static string EmitMethodDefault(string methodName)
     {
