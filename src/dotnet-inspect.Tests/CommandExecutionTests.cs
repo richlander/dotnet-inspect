@@ -58,6 +58,51 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
+
+        var pointerRoot = Path.Combine(tempDir, "pointer");
+        var pointerToolsDir = Path.Combine(pointerRoot, "tools", "net10.0", "any");
+        Directory.CreateDirectory(pointerToolsDir);
+        File.WriteAllText(Path.Combine(pointerToolsDir, "DotnetToolSettings.xml"), """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="Test.Tool.dll" Runner="dotnet" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="Test.Tool.linux-x64" />
+                <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="Test.Tool.any" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+
+        var payloadRoot = Path.Combine(tempDir, "payload");
+        var payloadToolsDir = Path.Combine(payloadRoot, "tools", "net10.0", "any");
+        Directory.CreateDirectory(payloadToolsDir);
+        File.Copy(TestAssemblyPath, Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+
+        var ridRoot = Path.Combine(tempDir, "rid");
+        var ridToolsDir = Path.Combine(ridRoot, "tools", "any", "linux-x64");
+        Directory.CreateDirectory(ridToolsDir);
+        File.WriteAllText(Path.Combine(ridToolsDir, "DotnetToolSettings.xml"), """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="test-tool" Runner="executable" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+
+        var pointerPackagePath = Path.Combine(tempDir, "Test.Tool.1.0.0.nupkg");
+        var payloadPackagePath = Path.Combine(tempDir, "Test.Tool.any.1.0.0.nupkg");
+        var ridPackagePath = Path.Combine(tempDir, "Test.Tool.linux-x64.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(pointerRoot, pointerPackagePath);
+        ZipFile.CreateFromDirectory(payloadRoot, payloadPackagePath);
+        ZipFile.CreateFromDirectory(ridRoot, ridPackagePath);
+
+        return (pointerPackagePath, ridPackagePath, tempDir);
+    }
+
     public CommandExecutionTests()
     {
         NuGetCache.Initialize("dotnet-inspect");
@@ -773,6 +818,46 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("RegexOptions", output);
             Assert.Contains("Compiled", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Library_ToolPointerPackage_ResolvesAnyPayloadAssembly()
+    {
+        var (packagePath, _, tempDir) = CreateLocalToolPackageSet();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Tool.dll", output);
+            Assert.Contains("| Name | dotnet-inspect.Tests |", output);
+            Assert.DoesNotContain("No DLLs found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Library_ToolRidPackage_ResolvesSiblingAnyPayloadAssembly()
+    {
+        var (_, packagePath, tempDir) = CreateLocalToolPackageSet();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Tool.dll", output);
+            Assert.Contains("| Name | dotnet-inspect.Tests |", output);
+            Assert.DoesNotContain("No DLLs found", error);
         }
         finally
         {

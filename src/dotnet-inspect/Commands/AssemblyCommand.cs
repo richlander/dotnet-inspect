@@ -167,14 +167,18 @@ public class AssemblyCommand
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                var extractResult = await ExtractFromPackageAsync(assemblyPath, options.PackagePath, options.Tfm, logger, context.HttpClient);
+                var extractResult = await ExtractFromPackageAsync(
+                    assemblyPath, options.PackagePath, options.Tfm,
+                    options.SourceOptions, logger, context.HttpClient);
                 if (extractResult == null)
                 {
                     return 1;
                 }
 
-                var (assemblyPaths, extractPath, extractTempDir, nupkgPath) = extractResult.Value;
+                var (assemblyPaths, extractPath, extractTempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion) = extractResult.Value;
                 tempDir = extractTempDir;
+                packageName = resolvedPackageName;
+                packageVersion = resolvedPackageVersion;
 
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0)
@@ -491,9 +495,16 @@ public class AssemblyCommand
         return inspections;
     }
 
-    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath)?> ExtractFromPackageAsync(string? assemblyName, string packageSource, string? tfm, VerboseLogger logger, HttpClient httpClient)
+    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(
+        string? assemblyName,
+        string packageSource,
+        string? tfm,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
-        var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, packageSource, logger.Log);
+        var outcome = await PackageExtractor.ExtractPackageAsync(
+            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions);
         if (!outcome.IsSuccess)
         {
             Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
@@ -504,9 +515,35 @@ public class AssemblyCommand
         string extractPath = resolution.ExtractPath;
         string? tempDir = resolution.TempDir;
         string? nupkgPath = resolution.NupkgPath;
+        string? resolvedPackageName = resolution.PackageName;
+        string? resolvedPackageVersion = resolution.Version;
 
         // Find DLLs in the extracted package
         string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+        if (allDlls.Length == 0)
+        {
+            var payload = await TryResolveToolPayloadPackageAsync(
+                resolution, packageSource, sourceOptions, logger, httpClient).ConfigureAwait(false);
+
+            if (payload.Error != null)
+            {
+                Console.Error.WriteLine(payload.Error);
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            if (payload.Result != null)
+            {
+                DeleteTempDir(tempDir);
+                resolution = payload.Result;
+                extractPath = resolution.ExtractPath;
+                tempDir = resolution.TempDir;
+                nupkgPath = resolution.NupkgPath;
+                resolvedPackageName = resolution.PackageName;
+                resolvedPackageVersion = resolution.Version;
+                allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+            }
+        }
 
         // --tfm all: return all assemblies from every TFM
         if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
@@ -515,10 +552,10 @@ public class AssemblyCommand
             if (candidates.Count == 0)
             {
                 Console.Error.WriteLine("Error: No DLLs found in package.");
-                if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
+                DeleteTempDir(tempDir);
                 return null;
             }
-            return (candidates, extractPath, tempDir, nupkgPath);
+            return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }
 
         // --tfm <specific>: find assembly by TFM
@@ -538,11 +575,11 @@ public class AssemblyCommand
                 {
                     Console.Error.WriteLine($"  {t}");
                 }
-                if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
+                DeleteTempDir(tempDir);
                 return null;
             }
             logger.Log($"Using TFM: {tfm}");
-            return ([tfmAssembly], extractPath, tempDir, nupkgPath);
+            return ([tfmAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }
 
         // No --tfm and no assembly name: select the highest-priority TFM (default)
@@ -552,7 +589,7 @@ public class AssemblyCommand
             if (candidates.Count == 0)
             {
                 Console.Error.WriteLine("Error: No DLLs found in package.");
-                if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
+                DeleteTempDir(tempDir);
                 return null;
             }
 
@@ -560,11 +597,11 @@ public class AssemblyCommand
             if (selectedPath == null)
             {
                 // No TFM structure found, fall back to first DLL
-                return ([candidates[0]], extractPath, tempDir, nupkgPath);
+                return ([candidates[0]], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
             }
 
             logger.Log($"Using TFM: {selectedTfm}");
-            return ([selectedPath], extractPath, tempDir, nupkgPath);
+            return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }
 
         var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
@@ -572,7 +609,7 @@ public class AssemblyCommand
         {
             Console.Error.WriteLine($"Error: Library '{assemblyName}' not found in package.");
             Console.Error.WriteLine("Use 'dotnet-inspect package <name> --files' to list available libraries.");
-            if (tempDir != null) try { Directory.Delete(tempDir, recursive: true); } catch { }
+            DeleteTempDir(tempDir);
             return null;
         }
 
@@ -580,7 +617,114 @@ public class AssemblyCommand
             logger.Log($"Using TFM: {matchedTfm}");
 
         logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
-        return ([matchedAssembly], extractPath, tempDir, nupkgPath);
+        return ([matchedAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+    }
+
+    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
+
+    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
+        PackageExtractionResult package,
+        string originalPackageSource,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        HttpClient httpClient)
+    {
+        var payloadId = GetToolPayloadPackageId(package.ExtractPath, package.PackageName);
+        if (payloadId == null)
+            return new(null, null);
+
+        var version = package.Version ?? GetNuspecVersion(package.ExtractPath);
+        if (version == null)
+            return new(null, $"Error: Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
+
+        var localPayload = TryFindLocalSiblingPackage(originalPackageSource, payloadId, version);
+        var payloadOutcome = localPayload != null
+            ? await PackageExtractor.ExtractPackageAsync(httpClient, localPayload, logger.Log).ConfigureAwait(false)
+            : await PackageExtractor.ExtractPackageAsync(
+                httpClient, payloadId, logger.Log, sourceOptions: sourceOptions, version: version).ConfigureAwait(false);
+
+        if (!payloadOutcome.IsSuccess)
+            return new(null, $"Error: Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
+
+        var payload = payloadOutcome.Result!;
+        var dlls = Directory.GetFiles(payload.ExtractPath, "*.dll", SearchOption.AllDirectories)
+            .Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (dlls.Count == 0)
+        {
+            DeleteTempDir(payload.TempDir);
+            return new(null, $"Error: Tool payload package '{payload.PackageName}@{payload.Version}' does not contain inspectable .NET DLLs.");
+        }
+
+        logger.Log($"Tool package has no DLLs; inspecting payload package: {payload.PackageName} {payload.Version}");
+        return new(payload, null);
+    }
+
+    private static string? GetToolPayloadPackageId(string extractPath, string? packageName)
+    {
+        var toolsDir = Path.Combine(extractPath, "tools");
+        if (Directory.Exists(toolsDir))
+        {
+            var settings = ToolsAnalyzer.ReadToolSettings(toolsDir);
+            var anyPayload = settings?.RuntimeIdentifierPackages?
+                .FirstOrDefault(r => r.RuntimeIdentifier.Equals("any", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(anyPayload?.PackageId))
+                return anyPayload.PackageId;
+        }
+
+        return TryGetSiblingAnyPackageId(packageName);
+    }
+
+    private static string? TryGetSiblingAnyPackageId(string? packageName)
+    {
+        if (string.IsNullOrWhiteSpace(packageName))
+            return null;
+
+        string[] knownRidSuffixes =
+        [
+            ".win-x64",
+            ".win-arm64",
+            ".linux-x64",
+            ".linux-arm64",
+            ".osx-arm64"
+        ];
+
+        var suffix = knownRidSuffixes.FirstOrDefault(s =>
+            packageName.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+        return suffix == null ? null : packageName[..^suffix.Length] + ".any";
+    }
+
+    private static string? TryFindLocalSiblingPackage(string originalPackageSource, string payloadId, string version)
+    {
+        if (!originalPackageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(originalPackageSource));
+        if (directory == null)
+            return null;
+
+        var exact = Path.Combine(directory, $"{payloadId}.{version}.nupkg");
+        if (File.Exists(exact))
+            return exact;
+
+        return Directory.GetFiles(directory, $"{payloadId}.*.nupkg")
+            .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private static string? GetNuspecVersion(string extractPath)
+    {
+        var nuspec = Directory.GetFiles(extractPath, "*.nuspec", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault();
+        return nuspec == null ? null : NuspecParser.Parse(nuspec).Version;
+    }
+
+    private static void DeleteTempDir(string? tempDir)
+    {
+        if (tempDir == null)
+            return;
+
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
     }
 
 }

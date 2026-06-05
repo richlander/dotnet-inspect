@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.9.0
+version: 0.9.1
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Use for factual answers about package contents, API signatures, compatibility changes, relationships, SourceLink, and assembly metadata.
 ---
 

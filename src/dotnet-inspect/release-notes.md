@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.9.1
+
+### Fixes
+
+- `library <dll> --package <tool-package> -S "SourceLink Integrity"` now resolves Tool v2 pointer/RID packages to their inspectable framework-dependent payload package.
+- CI smoke tests now write directly to files again after the .NET 11 stdout redirection fix.
+
 ## v0.9.0
 
 ### Signals

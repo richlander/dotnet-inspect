@@ -193,17 +193,14 @@ jobs:
 
       - name: Smoke test - package quiet
         run: |
-          # Pipe through cat to work around a .NET 11 preview SDK regression
-          # where redirecting an AOT binary's stdout directly to a file
-          # ('> file') truncates the output to ~256 bytes. Piping is fine.
-          dotnet-inspect package System.Text.Json 10.0.0 -v:q | cat > smoke-package.md
+          dotnet-inspect package System.Text.Json 10.0.0 -v:q > smoke-package.md
           cat smoke-package.md
           grep -q "System.Text.Json" smoke-package.md
           grep -q "Library" smoke-package.md
 
       - name: Smoke test - package normal
         run: |
-          dotnet-inspect package System.Text.Json 10.0.0 -v:n | cat > smoke-package-normal.md
+          dotnet-inspect package System.Text.Json 10.0.0 -v:n > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package Info" smoke-package-normal.md
           grep -q "## Dependencies" smoke-package-normal.md
@@ -211,25 +208,25 @@ jobs:
 
       - name: Smoke test - type command (oneline default)
         run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --oneline | cat > smoke-type.txt
+          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --oneline > smoke-type.txt
           cat smoke-type.txt
           grep -q "JsonSerializer" smoke-type.txt
 
       - name: Smoke test - member command (oneline default)
         run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --oneline | cat > smoke-member.txt
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --oneline > smoke-member.txt
           cat smoke-member.txt
           grep -q "Serialize" smoke-member.txt
 
       - name: Smoke test - type command (markdown)
         run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -v:m -t JsonSerializer | cat > smoke-type.md
+          dotnet-inspect type --package System.Text.Json@10.0.0 -v:m -t JsonSerializer > smoke-type.md
           cat smoke-type.md
           grep -q "JsonSerializer" smoke-type.md
 
       - name: Smoke test - member command (markdown)
         run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -v:m -m Serialize | cat > smoke-member.md
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -v:m -m Serialize > smoke-member.md
           cat smoke-member.md
           grep -q "JsonSerializer" smoke-member.md
           grep -q "Serialize" smoke-member.md
