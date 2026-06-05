@@ -507,6 +507,44 @@ public class CfgSampleClass
     public static void AcceptsBool(bool flag) { }
 
     public static void PassesBoolFalse() => AcceptsBool(false);
+
+    public static List<string> CollectionWithCapacity(List<string> values)
+    {
+        return [with(capacity: values.Count * 2), .. values];
+    }
+
+    public static HashSet<string> CollectionWithComparer()
+    {
+        return [with(System.StringComparer.OrdinalIgnoreCase), "Hello", "HELLO", "hello"];
+    }
+
+    public static unsafe int UnsafeReadThroughAddress()
+    {
+        int value = 42;
+        return *(&value);
+    }
+
+    public static unsafe nuint AddressAsNativeUInt()
+    {
+        int value = 42;
+        return (nuint)(&value);
+    }
+
+    public static unsafe int UnsafeReadArrayElementAddress(int[] values)
+    {
+        fixed (int* p = &values[0])
+        {
+            return *p;
+        }
+    }
+
+    public static unsafe nuint ArrayElementAddressAsNativeUInt(int[] values)
+    {
+        fixed (int* p = &values[0])
+        {
+            return (nuint)p;
+        }
+    }
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
