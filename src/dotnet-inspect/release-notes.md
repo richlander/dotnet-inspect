@@ -10,6 +10,7 @@
 
 - `Signals` no longer includes a SourceLink CR/LF placeholder row; CR/LF diagnostics are reported only by the `SourceLink Integrity` section.
 - Library `Signals` now owns the `Async Kind` roll-up (`Runtime`, `State machine`, `Mixed`, or `None`); `Library Info` no longer duplicates it.
+- Library output with explicit section selection now keeps a compact context row with key fields such as version and source.
 
 ## v0.9.1
 

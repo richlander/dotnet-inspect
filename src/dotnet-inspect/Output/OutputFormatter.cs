@@ -72,7 +72,7 @@ public static class OutputFormatter
     public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
             inspection, options.Verbosity, options.IncludeSections);
@@ -128,7 +128,7 @@ public static class OutputFormatter
     public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var report = new LibraryInspectionReport
         {
             Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
@@ -164,7 +164,7 @@ public static class OutputFormatter
         {
             foreach (var inspection in inspections)
             {
-                var auditView = new LibraryInspectionView(inspection);
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var includeSections = pipeline.ComputeIncludeSections(
                     inspection, options.Verbosity, options.IncludeSections);
                 var writerOpts = new MarkoutWriterOptions
@@ -195,4 +195,10 @@ public static class OutputFormatter
             IncludeFields = fields,
         };
     }
+
+    internal static bool ShouldRenderLibraryContext(AssemblyOptions options) =>
+        options.Verbosity == Verbosity.Quiet
+        || (options.IncludeSections is { Count: > 0 }
+            && !options.Count
+            && !options.JsonOutput);
 }

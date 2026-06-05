@@ -575,6 +575,41 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void LibrarySelectedSection_IncludesCompactContext()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.Source = "NuGet";
+        inspection.PlatformVersion = "1.2.3";
+        inspection.AuditSignals =
+        [
+            new AuditSignal("Provenance", "SourceLink", "Present", "PDB")
+        ];
+        var output = SerializeWithInclude(
+            inspection,
+            includeSections: ["Signals"],
+            topFieldsOnly: true);
+
+        Assert.StartsWith("# Test.dll", output.TrimStart());
+        Assert.Contains("Name: Test", output);
+        Assert.Contains("Version: 1.2.3", output);
+        Assert.Contains("Source: NuGet", output);
+        Assert.Contains("## Signals", output);
+    }
+
+    [Fact]
+    public void LibrarySelectedSection_FormatterUsesCompactContext()
+    {
+        var options = new AssemblyOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = ["Signals"],
+            Format = OutputFormat.Markdown
+        };
+
+        Assert.True(OutputFormatter.ShouldRenderLibraryContext(options));
+    }
+
+    [Fact]
     public void PackageQuiet_ThreeLines()
     {
         var result = CreateTestPackageResult();
