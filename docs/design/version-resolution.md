@@ -1,15 +1,16 @@
 # Version Resolution
 
 dotnet-inspect uses Docker-style version tags to balance freshness against
-latency. A cached package is served in under 50 ms; a network round-trip
-typically costs 1–4 seconds.
+latency. Version discovery is cached briefly; package contents are cached
+permanently by exact version.
 
 ## Three modes
 
 | Syntax | Behavior | Network I/O |
 | --- | --- | --- |
 | `Name@2.0.3` | **Pinned** — use the exact version from cache; download only if missing | Never, if cached |
-| `Name` | **Prefer cache** — use the newest cached version; refresh when caches expire | Only on TTL expiry |
+| `Name` | **Latest stable** — resolve the latest stable version, then use/download that exact package | Only on version-cache miss |
+| `Name --preview` | **Latest prerelease** — resolve the latest version including prerelease/preview versions | Only on version-cache miss |
 | `Name@latest` | **Always check** — query NuGet for the latest version every time | Always |
 
 ### Pinned (`Name@version`)
@@ -19,15 +20,19 @@ global cache (`~/.nuget/packages`) or the app cache, it is used immediately.
 No network request is made. If the version has never been downloaded, it is
 fetched once and cached permanently.
 
-### Prefer cache (`Name`)
+### Latest stable (`Name`)
 
 This is the default and the most common case. Resolution follows this order:
 
-1. **Disk scan** — check the NuGet global cache and app cache for any stable
-   (non-prerelease) version of the package. If found, use the highest version.
-2. **Version cache** — if no package is cached, check the version-resolution
-   cache (1-hour TTL). If a cached version string exists, use it.
-3. **Network** — if both caches miss, query NuGet for the latest stable version.
+1. **Version cache** — check the version-resolution cache (1-hour TTL). If a
+   cached version string exists, use it.
+2. **Network** — if the version cache misses, query NuGet for the latest stable
+   version.
+3. **Package cache** — after resolving the version, use the NuGet global cache
+   or app package cache for that exact version; download only if missing.
+
+Adding `--preview`/`--prerelease` switches step 1/2 to a separate prerelease-aware
+version cache/feed query and may resolve to a preview version.
 
 For platform ref packs (e.g., `Microsoft.NETCore.App.Ref`), the same strategy
 applies: if a pack directory exists on disk, use it without querying NuGet.
@@ -62,7 +67,8 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Download or check | Cache behavior |
 | --- | --- |
 | Pinned package `.nupkg` extraction | Uses NuGet global cache or app package cache permanently; downloads only when missing. |
-| Bare package version resolution | Uses disk scan first, then the version-resolution cache with a 1-hour TTL, then NuGet. |
+| Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet; package caches are used only after the version is resolved. |
+| Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
 | Package index scan | Cached permanently for extracted package contents. |

@@ -133,24 +133,10 @@ public static class PackageExtractor
         // Get version if not specified
         if (version == null)
         {
-            if (!forceLatest && !includePrerelease)
-            {
-                // Cache-first: use already-cached version if available (no network)
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(packageName);
-                if (cachedVersion != null)
-                {
-                    version = cachedVersion;
-                    log?.Invoke($"Using cached version: {version}");
-                }
-            }
-
+            version = await GetLatestVersionAsync(client, packageName, sources, log, skipCache: forceLatest, includePrerelease: includePrerelease).ConfigureAwait(false);
             if (version == null)
             {
-                version = await GetLatestVersionAsync(client, packageName, sources, log, skipCache: forceLatest, includePrerelease: includePrerelease).ConfigureAwait(false);
-                if (version == null)
-                {
-                    return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
-                }
+                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
             }
         }
 

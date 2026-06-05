@@ -26,8 +26,9 @@ public static class OutputFormatter
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
-        var view = new InspectionResultView(result);
-        var writerOptions = BuildWriterOptions(result, options, pipeline);
+        bool includeContext = ShouldRenderPackageContext(options);
+        var view = new InspectionResultView(result, includeTitleVersion: !includeContext);
+        var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
         return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
@@ -56,15 +57,17 @@ public static class OutputFormatter
     }
 
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
     {
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections);
+        if (includeContext && includeSections is { Count: > 0 })
+            includeSections = [PackageSections.Summary, .. includeSections];
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
     }
@@ -201,4 +204,10 @@ public static class OutputFormatter
         || (options.IncludeSections is { Count: > 0 }
             && !options.Count
             && !options.JsonOutput);
+
+    internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
+        options.IncludeSections is { Count: > 0 }
+        && !options.Count
+        && !options.JsonOutput
+        && !options.OneLine;
 }

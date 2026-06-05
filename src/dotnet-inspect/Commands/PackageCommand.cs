@@ -97,6 +97,26 @@ public class PackageCommand
                 }
             }
 
+            if (options.Limit == 1 && options.ForceLatest)
+            {
+                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var latest = await PackageExtractor.GetLatestVersionAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    sources,
+                    logger.Log,
+                    skipCache: true,
+                    includePrerelease: options.IncludePrerelease);
+                if (latest == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                Console.WriteLine(latest);
+                return 0;
+            }
+
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {

@@ -629,6 +629,44 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PackageSelectedSection_IncludesCompactContextWithoutDescriptionOrTitleVersion()
+    {
+        var result = CreateTestPackageResult();
+        result.Description = "Package description that should only appear in default views.";
+        result.Source = "NuGet";
+        result.AuditSignals =
+        [
+            new AuditSignal("NuGet", "Known vulnerabilities", "0", "NuGet advisory data")
+        ];
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = [PackageSections.Signals]
+        };
+
+        var output = OutputFormatter.FormatResult(result, options, PackageSectionDescriptors.CreatePipeline());
+
+        Assert.StartsWith("# TestPackage", output.TrimStart());
+        Assert.DoesNotContain("# TestPackage (1.0.0)", output);
+        Assert.Contains("Version: 1.0.0", output);
+        Assert.Contains("Source: NuGet", output);
+        Assert.DoesNotContain(result.Description, output);
+        Assert.Contains("## Signals", output);
+    }
+
+    [Fact]
+    public void PackageSelectedSection_FormatterUsesCompactContext()
+    {
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = [PackageSections.Signals]
+        };
+
+        Assert.True(OutputFormatter.ShouldRenderPackageContext(options));
+    }
+
+    [Fact]
     public void ApiQuiet_ThreeLines()
     {
         var api = CreateTestApiSurface();
