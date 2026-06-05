@@ -174,6 +174,10 @@ public static class InspectionCommandDefinitions
                 else
                     packagePath = source;
             }
+            else if (!string.IsNullOrEmpty(source) && !string.IsNullOrEmpty(explicitPackage))
+            {
+                assemblyPath = source;
+            }
 
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
