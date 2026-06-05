@@ -336,7 +336,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void SingleAudit_Signals_RenderSourceLinkCrlfMismatch()
+    public void SingleAudit_Signals_DoNotRenderSourceLinkCrlfMismatch()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
         inspection.HasSourceLink = true;
@@ -348,7 +348,9 @@ public class OutputFormatterTests
         var output = Serialize(inspection);
 
         Assert.Contains("## Signals", output);
-        Assert.Contains("| Provenance | SourceLink CR/LF | Mismatch (2) | PDB checksums matched after CR/LF normalization |", output);
+        Assert.DoesNotContain("SourceLink CR/LF", output);
+        Assert.Contains("## SourceLink Integrity", output);
+        Assert.Contains("| CR/LF Mismatch | 2 normalized |", output);
     }
 
     private static LibraryInspection CreateTestAudit(string fileName, string? tfm)

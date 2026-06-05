@@ -19,9 +19,6 @@ internal static class AuditSignalBuilder
         var sourceLinkAvailability = FormatSourceLinkAvailability(inspection);
         Add(signals, "Provenance", "SourceLink availability",
             sourceLinkAvailability.Value, sourceLinkAvailability.Evidence);
-        var sourceLinkLineEndings = FormatSourceLinkLineEndings(inspection);
-        Add(signals, "Provenance", "SourceLink CR/LF",
-            sourceLinkLineEndings.Value, sourceLinkLineEndings.Evidence);
         Add(signals, "Provenance", "Deterministic", FormatBool(inspection.IsDeterministic),
             "PE debug directory and path normalization");
 
@@ -379,23 +376,6 @@ internal static class AuditSignalBuilder
             return ("Not available", "SourceLink data not available");
 
         return ("Not checked", "SourceLink availability not selected");
-    }
-
-    private static (string Value, string Evidence) FormatSourceLinkLineEndings(LibraryInspection inspection)
-    {
-        if (!inspection.SourceIntegrityChecked)
-            return ("Not checked", "SourceLink Integrity not selected");
-
-        if (inspection.SourceIntegrityLineEndingNormalized > 0)
-        {
-            return ($"Mismatch ({inspection.SourceIntegrityLineEndingNormalized})",
-                "PDB checksums matched after CR/LF normalization");
-        }
-
-        if (inspection.SourceIntegrityMismatched > 0)
-            return ("No", "content mismatches were not explained by CR/LF normalization");
-
-        return ("No", "source bytes matched PDB checksums");
     }
 
     private static string FormatPdbEvidence(LibraryInspection inspection)
