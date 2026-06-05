@@ -10,95 +10,90 @@ namespace DotnetInspector.Inspectors;
 
 internal static class AuditSignalBuilder
 {
-    private sealed record SignalDescriptor<TContext>(
-        string Area,
-        string Signal,
-        Func<TContext, SignalValue?> Resolve);
-
-    private readonly record struct SignalValue(string Value, string Evidence);
-
-    private sealed record LibrarySignalContext(
+    private readonly record struct LibrarySignalContext(
         LibraryInspection Inspection,
         AssemblyAuditMetadata? Metadata,
         int? PInvokeMethodCount);
 
-    private sealed record PackageSignalContext(
+    private readonly record struct PackageSignalContext(
         InspectionResult Result,
         DirectDependencySelection DirectDependencies,
         DependencySignalSummary DependencySignals);
 
-    private static readonly SignalDescriptor<LibrarySignalContext>[] LibrarySignals =
+    private enum LibrarySignal
+    {
+        SourceLink,
+        SourceLinkAvailability,
+        Deterministic,
+        DirectAssemblyReferences,
+        AsyncKind,
+        TransitiveAssemblyReferences,
+        MaxReferenceDepth,
+        IsTrimmable,
+        IsAotCompatible,
+        RequiresUnreferencedCode,
+        RequiresDynamicCode,
+        RequiresAssemblyFiles,
+        DynamicDependency,
+        MemorySafetyModel,
+        RequiresUnsafeMembers,
+        DisableRuntimeMarshalling,
+        UnsafePublicSignatures,
+        PInvokeMethods
+    }
+
+    private enum PackageSignal
+    {
+        SupportedTfm,
+        Portable,
+        Readme,
+        License,
+        Symbols,
+        SourceLink,
+        DirectDependencies,
+        PackageAge,
+        KnownVulnerabilities,
+        DependenciesWithVulnerabilities,
+        DeprecatedDependencies,
+        DependencyAge
+    }
+
+    private static ReadOnlySpan<LibrarySignal> LibrarySignals =>
     [
-        new("Provenance", "SourceLink", ctx => FormatSourceLink(ctx.Inspection).ToSignalValue()),
-        new("Provenance", "SourceLink availability", ctx => FormatSourceLinkAvailability(ctx.Inspection).ToSignalValue()),
-        new("Provenance", "Deterministic", ctx => new(FormatBool(ctx.Inspection.IsDeterministic), "PE debug directory and path normalization")),
-        new("Dependencies", "Direct assembly references", ctx => new((ctx.Inspection.AssemblyInfo?.References?.Count ?? 0).ToString(), "AssemblyRef table")),
-        new("Compatibility", "Async Kind", ctx => new(ResolveAsyncKind(ctx.Inspection), "public async method classification")),
-        new("Dependencies", "Transitive assembly references", ctx =>
-            ctx.Inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitive
-                ? new SignalValue(
-                    transitive.Select(r => r.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
-                    "resolved assembly reference closure")
-                : null),
-        new("Dependencies", "Max reference depth", ctx =>
-            ctx.Inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitive
-                ? new SignalValue(transitive.Max(r => r.Depth + 1).ToString(), "resolved assembly reference closure")
-                : null),
-        new("Compatibility", "IsTrimmable", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatNullableBool(ctx.Metadata.IsTrimmable), FormatAssemblyMetadataEvidence("IsTrimmable", ctx.Metadata.IsTrimmable))),
-        new("Compatibility", "IsAotCompatible", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatNullableBool(ctx.Metadata.IsAotCompatible), FormatAssemblyMetadataEvidence("IsAotCompatible", ctx.Metadata.IsAotCompatible))),
-        new("Compatibility", "RequiresUnreferencedCode", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatCount(ctx.Metadata.RequiresUnreferencedCodeCount), "RequiresUnreferencedCodeAttribute")),
-        new("Compatibility", "RequiresDynamicCode", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatCount(ctx.Metadata.RequiresDynamicCodeCount), "RequiresDynamicCodeAttribute")),
-        new("Compatibility", "RequiresAssemblyFiles", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatCount(ctx.Metadata.RequiresAssemblyFilesCount), "RequiresAssemblyFilesAttribute")),
-        new("Compatibility", "DynamicDependency", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatCount(ctx.Metadata.DynamicDependencyCount), "DynamicDependencyAttribute")),
-        new("Memory safety", "Memory safety model", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatMemorySafetyModel(ctx.Metadata.MemorySafetyRulesVersion), "module MemorySafetyRulesAttribute")),
-        new("Memory safety", "RequiresUnsafe members", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatCount(ctx.Metadata.RequiresUnsafeCount), "RequiresUnsafeAttribute")),
-        new("Memory safety", "Disable runtime marshalling", ctx => ctx.Metadata == null
-            ? null
-            : new SignalValue(FormatBool(ctx.Metadata.HasDisableRuntimeMarshalling), "DisableRuntimeMarshallingAttribute")),
-        new("Memory safety", "Unsafe public signatures", ctx => new(FormatCount(ctx.Inspection.UnsafeMethods?.Count ?? 0), "public pointer signatures")),
-        new("Interop", "P/Invoke methods", ctx => new(FormatCount(ctx.PInvokeMethodCount ?? ctx.Inspection.PInvokeMethods?.Count ?? 0), "all PInvokeImpl metadata")),
+        LibrarySignal.SourceLink,
+        LibrarySignal.SourceLinkAvailability,
+        LibrarySignal.Deterministic,
+        LibrarySignal.DirectAssemblyReferences,
+        LibrarySignal.AsyncKind,
+        LibrarySignal.TransitiveAssemblyReferences,
+        LibrarySignal.MaxReferenceDepth,
+        LibrarySignal.IsTrimmable,
+        LibrarySignal.IsAotCompatible,
+        LibrarySignal.RequiresUnreferencedCode,
+        LibrarySignal.RequiresDynamicCode,
+        LibrarySignal.RequiresAssemblyFiles,
+        LibrarySignal.DynamicDependency,
+        LibrarySignal.MemorySafetyModel,
+        LibrarySignal.RequiresUnsafeMembers,
+        LibrarySignal.DisableRuntimeMarshalling,
+        LibrarySignal.UnsafePublicSignatures,
+        LibrarySignal.PInvokeMethods
     ];
 
-    private static readonly SignalDescriptor<PackageSignalContext>[] PackageSignals =
+    private static ReadOnlySpan<PackageSignal> PackageSignals =>
     [
-        new("Compatibility", "Supported TFM", ctx => FormatSupportedTfm(ctx.Result).ToSignalValue()),
-        new("Compatibility", "Portable", ctx => FormatPortability(ctx.Result).ToSignalValue()),
-        new("Documentation", "README", ctx => new(FormatBool(ctx.Result.HasReadme), "nuspec/package files")),
-        new("Legal", "License", ctx => new(string.IsNullOrWhiteSpace(ctx.Result.License) ? "Not declared" : ctx.Result.License, "nuspec metadata")),
-        new("Provenance", "Symbols", ctx => ctx.Result.BinarySignals is { TotalBinaries: > 0 } binarySignals
-            ? new SignalValue(FormatCoverage(binarySignals.SymbolsAvailable, binarySignals.TotalBinaries), FormatPdbSourceEvidence(binarySignals))
-            : null),
-        new("Provenance", "SourceLink", ctx => ctx.Result.BinarySignals is { TotalBinaries: > 0 } binarySignals
-            ? new SignalValue(FormatCoverage(binarySignals.SourceLinkAvailable, binarySignals.TotalBinaries), FormatSourceLinkEvidence(binarySignals))
-            : null),
-        new("Dependencies", "Direct dependencies", ctx => new(ctx.DirectDependencies.Dependencies.Count.ToString(), ctx.DirectDependencies.Evidence)),
-        new("NuGet", "Package age", ctx => ctx.Result.Published is { Year: > 1901 } published
-            ? new SignalValue(FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration")
-            : null),
-        new("NuGet", "Known vulnerabilities", ctx => new(FormatCount(ctx.Result.Vulnerabilities?.Count ?? 0), "NuGet advisory data")),
-        new("Dependencies", "Dependencies with vulnerabilities", ctx => new(ctx.DependencySignals.VulnerableDependencies.ToString(), FormatDependencyRegistryEvidence(ctx.DependencySignals))),
-        new("Dependencies", "Deprecated dependencies", ctx => new(ctx.DependencySignals.DeprecatedDependencies.ToString(), FormatDependencyRegistryEvidence(ctx.DependencySignals))),
-        new("Dependencies", "Dependency age", ctx => ctx.DependencySignals.AgeSummary is { } ageSummary
-            ? new SignalValue(
-                $"min {ageSummary.MinDays}d, median {ageSummary.MedianDays}d, max {ageSummary.MaxDays}d",
-                FormatDependencyAgeEvidence(ctx.DependencySignals))
-            : null),
+        PackageSignal.SupportedTfm,
+        PackageSignal.Portable,
+        PackageSignal.Readme,
+        PackageSignal.License,
+        PackageSignal.Symbols,
+        PackageSignal.SourceLink,
+        PackageSignal.DirectDependencies,
+        PackageSignal.PackageAge,
+        PackageSignal.KnownVulnerabilities,
+        PackageSignal.DependenciesWithVulnerabilities,
+        PackageSignal.DeprecatedDependencies,
+        PackageSignal.DependencyAge
     ];
 
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
@@ -122,7 +117,7 @@ internal static class AuditSignalBuilder
         if (inspection.UnsafeMethods == null || inspection.PInvokeMethods == null || inspection.AsyncMethods == null)
             LibraryMetadataService.ScanClassifiedMethods(assemblyPath, inspection, logger);
 
-        AddSignals(signals, new LibrarySignalContext(inspection, metadata, pInvokeMethodCount), LibrarySignals);
+        AddSignals(signals, new LibrarySignalContext(inspection, metadata, pInvokeMethodCount));
 
         inspection.AuditSignals = signals;
     }
@@ -136,12 +131,12 @@ internal static class AuditSignalBuilder
 
         var directDependencies = GetDirectDependenciesForLatestTfm(result);
         var dependencySignals = await GetDependencySignalsAsync(directDependencies.Dependencies, httpClient, logger);
-        AddSignals(signals, new PackageSignalContext(result, directDependencies, dependencySignals), PackageSignals);
+        AddSignals(signals, new PackageSignalContext(result, directDependencies, dependencySignals));
 
         result.AuditSignals = signals;
     }
 
-    private sealed record DependencySignalSummary(
+    private readonly record struct DependencySignalSummary(
         int DirectDependencies,
         int CheckedDependencies,
         int VulnerableDependencies,
@@ -197,20 +192,152 @@ internal static class AuditSignalBuilder
     private static void Add(List<AuditSignal> rows, string area, string signal, string value, string evidence)
         => rows.Add(new AuditSignal(area, signal, value, evidence));
 
-    private static void AddSignals<TContext>(
-        List<AuditSignal> rows,
-        TContext context,
-        IEnumerable<SignalDescriptor<TContext>> descriptors)
+    private static void AddSignals(List<AuditSignal> rows, in LibrarySignalContext context)
     {
-        foreach (var descriptor in descriptors)
+        foreach (var signal in LibrarySignals)
+            AddLibrarySignal(rows, signal, context);
+    }
+
+    private static void AddSignals(List<AuditSignal> rows, in PackageSignalContext context)
+    {
+        foreach (var signal in PackageSignals)
+            AddPackageSignal(rows, signal, context);
+    }
+
+    private static void AddLibrarySignal(List<AuditSignal> rows, LibrarySignal signal, in LibrarySignalContext context)
+    {
+        var inspection = context.Inspection;
+        var metadata = context.Metadata;
+
+        switch (signal)
         {
-            if (descriptor.Resolve(context) is { } value)
-                Add(rows, descriptor.Area, descriptor.Signal, value.Value, value.Evidence);
+            case LibrarySignal.SourceLink:
+                Add(rows, "Provenance", "SourceLink", FormatSourceLink(inspection));
+                break;
+            case LibrarySignal.SourceLinkAvailability:
+                Add(rows, "Provenance", "SourceLink availability", FormatSourceLinkAvailability(inspection));
+                break;
+            case LibrarySignal.Deterministic:
+                Add(rows, "Provenance", "Deterministic", FormatBool(inspection.IsDeterministic), "PE debug directory and path normalization");
+                break;
+            case LibrarySignal.DirectAssemblyReferences:
+                Add(rows, "Dependencies", "Direct assembly references", (inspection.AssemblyInfo?.References?.Count ?? 0).ToString(), "AssemblyRef table");
+                break;
+            case LibrarySignal.AsyncKind:
+                Add(rows, "Compatibility", "Async Kind", ResolveAsyncKind(inspection), "public async method classification");
+                break;
+            case LibrarySignal.TransitiveAssemblyReferences:
+                if (inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitiveRefs)
+                {
+                    Add(rows, "Dependencies", "Transitive assembly references",
+                        transitiveRefs.Select(r => r.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
+                        "resolved assembly reference closure");
+                }
+                break;
+            case LibrarySignal.MaxReferenceDepth:
+                if (inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitiveDepth)
+                    Add(rows, "Dependencies", "Max reference depth", transitiveDepth.Max(r => r.Depth + 1).ToString(), "resolved assembly reference closure");
+                break;
+            case LibrarySignal.IsTrimmable:
+                if (metadata != null)
+                    Add(rows, "Compatibility", "IsTrimmable", FormatNullableBool(metadata.IsTrimmable), FormatAssemblyMetadataEvidence("IsTrimmable", metadata.IsTrimmable));
+                break;
+            case LibrarySignal.IsAotCompatible:
+                if (metadata != null)
+                    Add(rows, "Compatibility", "IsAotCompatible", FormatNullableBool(metadata.IsAotCompatible), FormatAssemblyMetadataEvidence("IsAotCompatible", metadata.IsAotCompatible));
+                break;
+            case LibrarySignal.RequiresUnreferencedCode:
+                if (metadata != null)
+                    Add(rows, "Compatibility", "RequiresUnreferencedCode", FormatCount(metadata.RequiresUnreferencedCodeCount), "RequiresUnreferencedCodeAttribute");
+                break;
+            case LibrarySignal.RequiresDynamicCode:
+                if (metadata != null)
+                    Add(rows, "Compatibility", "RequiresDynamicCode", FormatCount(metadata.RequiresDynamicCodeCount), "RequiresDynamicCodeAttribute");
+                break;
+            case LibrarySignal.RequiresAssemblyFiles:
+                if (metadata != null)
+                    Add(rows, "Compatibility", "RequiresAssemblyFiles", FormatCount(metadata.RequiresAssemblyFilesCount), "RequiresAssemblyFilesAttribute");
+                break;
+            case LibrarySignal.DynamicDependency:
+                if (metadata != null)
+                    Add(rows, "Compatibility", "DynamicDependency", FormatCount(metadata.DynamicDependencyCount), "DynamicDependencyAttribute");
+                break;
+            case LibrarySignal.MemorySafetyModel:
+                if (metadata != null)
+                    Add(rows, "Memory safety", "Memory safety model", FormatMemorySafetyModel(metadata.MemorySafetyRulesVersion), "module MemorySafetyRulesAttribute");
+                break;
+            case LibrarySignal.RequiresUnsafeMembers:
+                if (metadata != null)
+                    Add(rows, "Memory safety", "RequiresUnsafe members", FormatCount(metadata.RequiresUnsafeCount), "RequiresUnsafeAttribute");
+                break;
+            case LibrarySignal.DisableRuntimeMarshalling:
+                if (metadata != null)
+                    Add(rows, "Memory safety", "Disable runtime marshalling", FormatBool(metadata.HasDisableRuntimeMarshalling), "DisableRuntimeMarshallingAttribute");
+                break;
+            case LibrarySignal.UnsafePublicSignatures:
+                Add(rows, "Memory safety", "Unsafe public signatures", FormatCount(inspection.UnsafeMethods?.Count ?? 0), "public pointer signatures");
+                break;
+            case LibrarySignal.PInvokeMethods:
+                Add(rows, "Interop", "P/Invoke methods", FormatCount(context.PInvokeMethodCount ?? inspection.PInvokeMethods?.Count ?? 0), "all PInvokeImpl metadata");
+                break;
         }
     }
 
-    private static SignalValue ToSignalValue(this (string Value, string Evidence) value) =>
-        new(value.Value, value.Evidence);
+    private static void AddPackageSignal(List<AuditSignal> rows, PackageSignal signal, in PackageSignalContext context)
+    {
+        var result = context.Result;
+
+        switch (signal)
+        {
+            case PackageSignal.SupportedTfm:
+                Add(rows, "Compatibility", "Supported TFM", FormatSupportedTfm(result));
+                break;
+            case PackageSignal.Portable:
+                Add(rows, "Compatibility", "Portable", FormatPortability(result));
+                break;
+            case PackageSignal.Readme:
+                Add(rows, "Documentation", "README", FormatBool(result.HasReadme), "nuspec/package files");
+                break;
+            case PackageSignal.License:
+                Add(rows, "Legal", "License", string.IsNullOrWhiteSpace(result.License) ? "Not declared" : result.License, "nuspec metadata");
+                break;
+            case PackageSignal.Symbols:
+                if (result.BinarySignals is { TotalBinaries: > 0 } symbolSignals)
+                    Add(rows, "Provenance", "Symbols", FormatCoverage(symbolSignals.SymbolsAvailable, symbolSignals.TotalBinaries), FormatPdbSourceEvidence(symbolSignals));
+                break;
+            case PackageSignal.SourceLink:
+                if (result.BinarySignals is { TotalBinaries: > 0 } sourceLinkSignals)
+                    Add(rows, "Provenance", "SourceLink", FormatCoverage(sourceLinkSignals.SourceLinkAvailable, sourceLinkSignals.TotalBinaries), FormatSourceLinkEvidence(sourceLinkSignals));
+                break;
+            case PackageSignal.DirectDependencies:
+                Add(rows, "Dependencies", "Direct dependencies", context.DirectDependencies.Dependencies.Count.ToString(), context.DirectDependencies.Evidence);
+                break;
+            case PackageSignal.PackageAge:
+                if (result.Published is { Year: > 1901 } published)
+                    Add(rows, "NuGet", "Package age", FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration");
+                break;
+            case PackageSignal.KnownVulnerabilities:
+                Add(rows, "NuGet", "Known vulnerabilities", FormatCount(result.Vulnerabilities?.Count ?? 0), "NuGet advisory data");
+                break;
+            case PackageSignal.DependenciesWithVulnerabilities:
+                Add(rows, "Dependencies", "Dependencies with vulnerabilities", context.DependencySignals.VulnerableDependencies.ToString(), FormatDependencyRegistryEvidence(context.DependencySignals));
+                break;
+            case PackageSignal.DeprecatedDependencies:
+                Add(rows, "Dependencies", "Deprecated dependencies", context.DependencySignals.DeprecatedDependencies.ToString(), FormatDependencyRegistryEvidence(context.DependencySignals));
+                break;
+            case PackageSignal.DependencyAge:
+                if (context.DependencySignals.AgeSummary is { } ageSummary)
+                {
+                    Add(rows, "Dependencies", "Dependency age",
+                        $"min {ageSummary.MinDays}d, median {ageSummary.MedianDays}d, max {ageSummary.MaxDays}d",
+                        FormatDependencyAgeEvidence(context.DependencySignals));
+                }
+                break;
+        }
+    }
+
+    private static void Add(List<AuditSignal> rows, string area, string signal, (string Value, string Evidence) value)
+        => Add(rows, area, signal, value.Value, value.Evidence);
 
     private static string ResolveAsyncKind(LibraryInspection inspection) =>
         (inspection.HasRuntimeAsync, inspection.HasStateMachineAsync) switch
@@ -233,7 +360,7 @@ internal static class AuditSignalBuilder
                 ? $"{ageSummary.Count} direct dependencies"
                 : $"{ageSummary.Count}/{summary.DirectDependencies} direct dependencies with published dates";
 
-    private sealed record DirectDependencySelection(List<PackageDependency> Dependencies, string Evidence);
+    private readonly record struct DirectDependencySelection(List<PackageDependency> Dependencies, string Evidence);
 
     private static DirectDependencySelection GetDirectDependenciesForLatestTfm(InspectionResult result)
     {
