@@ -114,12 +114,18 @@ public static class CSharpEmitter
         readonly Dictionary<int, string> _collectionTemps = [];
         int _nextCollectionTemp;
 
+        // Inline-array collection expression temporaries: local name → element index/value map.
+        readonly Dictionary<string, SortedDictionary<int, ILAstExpression>> _inlineArrayInitValues = [];
+
         // Variables inlined by ExpressionInliner (suppress declarations)
         readonly HashSet<string> _inlinedLocals;
 
         // Item 2: Locals whose declaration is merged with first assignment
         // Maps variable name → init expression string
         readonly Dictionary<string, string> _mergedLocals = [];
+
+        // Try/finally regions that are compiler-lowered lock statements.
+        readonly Dictionary<StructuredBlock, LockPattern> _lockPatterns = [];
 
         public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null)
         {
@@ -188,8 +194,30 @@ public static class CSharpEmitter
             // Scan all blocks for string interpolation handler patterns
             ScanForInterpolation(ast);
 
+            // C# collection expressions targeting spans can lower through compiler-generated
+            // inline-array helpers. Scan early so their helper locals aren't declared.
+            ScanInlineArrayInitializers(ast);
+
+            // Pre-detect lock patterns so compiler-generated temporaries are suppressed before
+            // their initialization blocks are emitted.
+            ScanForLockPatterns(structure.Root);
+
             // Pre-detect using patterns to suppress local declarations
             ScanForUsingPatterns(structure.Root);
+        }
+
+        sealed class LockPattern
+        {
+            public required ILAstExpression LockExpression { get; init; }
+            public List<ILAstNode> SkipNodes { get; } = [];
+            public List<string> SuppressedLocals { get; } = [];
+        }
+
+        sealed class InlineArrayInitializerCandidate
+        {
+            public SortedDictionary<int, ILAstExpression> Elements { get; } = [];
+            public List<ILAstNode> StoreNodes { get; } = [];
+            public List<ILAstNode> InitNodes { get; } = [];
         }
 
         void ScanForInterpolation(ILAstMethod ast)
@@ -309,6 +337,488 @@ public static class CSharpEmitter
                 return s;
             }
             return null;
+        }
+
+        void ScanForLockPatterns(StructuredBlock block)
+        {
+            if (block.Kind == StructuredBlockKind.TryCatchFinally
+                && block.ExceptionRegion is { Kind: ExceptionRegionKind.Finally }
+                && TryDetectLockPattern(block, out var pattern))
+            {
+                _lockPatterns[block] = pattern;
+                foreach (var node in pattern.SkipNodes)
+                    _skipNodes.Add(node);
+                foreach (string local in pattern.SuppressedLocals)
+                    _suppressedLocals.Add(local);
+            }
+
+            foreach (var c in block.Children)
+                ScanForLockPatterns(c);
+            foreach (var c in block.TryChildren)
+                ScanForLockPatterns(c);
+            foreach (var c in block.HandlerChildren)
+                ScanForLockPatterns(c);
+            if (block.ThenBlock is not null)
+                ScanForLockPatterns(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ScanForLockPatterns(block.ElseBlock);
+        }
+
+        bool TryDetectLockPattern(StructuredBlock block, out LockPattern pattern)
+        {
+            if (TryDetectSystemThreadingLockPattern(block, out pattern))
+                return true;
+
+            return TryDetectMonitorLockPattern(block, out pattern);
+        }
+
+        bool TryDetectSystemThreadingLockPattern(StructuredBlock block, out LockPattern pattern)
+        {
+            pattern = null!;
+
+            if (!TryDetectDirectDisposeOnly(block, out string? scopeVar))
+                return false;
+
+            if (!TryFindPreviousStore(block, scopeVar, out var initNode, out var initExpression))
+                return false;
+            if (HasUnexpectedPreviousNodesAfterFirstExpected(block, allowedStoreLocal: null, initNode))
+            {
+                return false;
+            }
+
+            if (initExpression.Operand is not string initOperand
+                || !initOperand.Contains("System.Threading.Lock::EnterScope", StringComparison.Ordinal)
+                || initExpression.IsStaticCall
+                || initExpression.Arguments.Count == 0)
+            {
+                return false;
+            }
+
+            pattern = new LockPattern { LockExpression = initExpression.Arguments[0] };
+            pattern.SkipNodes.Add(initNode);
+            pattern.SuppressedLocals.Add(scopeVar);
+            return true;
+        }
+
+        bool TryDetectMonitorLockPattern(StructuredBlock block, out LockPattern pattern)
+        {
+            pattern = null!;
+
+            ILAstNode? enterNode = null;
+            ILAstExpression? enterExpression = null;
+            foreach (var (_, node) in EnumerateStructuredNodes(block.TryChildren))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (IsIgnorableLockTryNode(expr))
+                    continue;
+                if (expr.Operand is string operand
+                    && operand.Contains("System.Threading.Monitor::Enter", StringComparison.Ordinal)
+                    && expr.IsStaticCall
+                    && expr.Arguments.Count > 0)
+                {
+                    enterNode = node;
+                    enterExpression = expr;
+                    break;
+                }
+
+                return false;
+            }
+
+            if (enterNode is null || enterExpression is null)
+                return false;
+
+            string? lockVar = GetLocalReferenceName(enterExpression.Arguments[0]);
+            if (lockVar is null)
+                return false;
+
+            if (!TryFindPreviousStore(block, lockVar, out var initNode, out var lockExpression))
+                return false;
+
+            string? lockTakenVar = enterExpression.Arguments.Count > 1
+                ? GetLocalReferenceName(enterExpression.Arguments[1]) ?? enterExpression.Arguments[1].Operand
+                : null;
+            if (!HandlerMatchesMonitorExitOnly(block, lockVar, lockTakenVar))
+                return false;
+
+            ILAstNode? lockTakenInitNode = null;
+            if (lockTakenVar is not null)
+                TryFindPreviousStore(block, lockTakenVar, out lockTakenInitNode, out _);
+
+            if (HasUnexpectedPreviousNodesAfterFirstExpected(block, lockTakenVar, initNode, lockTakenInitNode))
+                return false;
+
+            pattern = new LockPattern { LockExpression = lockExpression };
+            pattern.SkipNodes.Add(enterNode);
+            pattern.SkipNodes.Add(initNode);
+            pattern.SuppressedLocals.Add(lockVar);
+
+            if (lockTakenVar is not null)
+            {
+                pattern.SuppressedLocals.Add(lockTakenVar);
+                if (lockTakenInitNode is not null)
+                    pattern.SkipNodes.Add(lockTakenInitNode);
+            }
+
+            return true;
+        }
+
+        static bool IsIgnorableLockTryNode(ILAstExpression expr)
+            => expr.OpCode == ILOpCode.Nop;
+
+        bool HasUnexpectedPreviousNodesAfterFirstExpected(
+            StructuredBlock block,
+            string? allowedStoreLocal,
+            params ILAstNode?[] expectedNodes)
+        {
+            if (!TryGetPreviousSiblingNodes(block, out var nodes))
+                return true;
+
+            var expected = expectedNodes.OfType<ILAstNode>().ToHashSet();
+            if (expected.Count == 0 || !expected.All(nodes.Contains))
+                return true;
+
+            int firstExpectedIndex = nodes.FindIndex(expected.Contains);
+            for (int i = firstExpectedIndex; i < nodes.Count; i++)
+            {
+                var node = nodes[i];
+                if (expected.Contains(node))
+                    continue;
+                if (NodeExpression(node) is not { } expr || IsIgnorableLockTryNode(expr))
+                    continue;
+                if (allowedStoreLocal is not null && IsStoreToLocal(expr, allowedStoreLocal))
+                    continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        bool TryGetPreviousSiblingNodes(StructuredBlock block, out List<ILAstNode> nodes)
+        {
+            nodes = [];
+            var parent = FindParentSequence(block);
+            if (parent is null)
+                return false;
+
+            int blockIndex = -1;
+            for (int i = 0; i < parent.Children.Count; i++)
+            {
+                if (ReferenceEquals(parent.Children[i], block))
+                {
+                    blockIndex = i;
+                    break;
+                }
+            }
+
+            if (blockIndex <= 0)
+                return false;
+
+            for (int i = 0; i < blockIndex; i++)
+                nodes.AddRange(EnumerateStructuredNodes(parent.Children[i]).Select(item => item.Node));
+            return nodes.Count > 0;
+        }
+
+        bool HandlerMatchesMonitorExitOnly(StructuredBlock block, string lockVar, string? lockTakenVar)
+        {
+            if (lockTakenVar is not null)
+                return HandlerMatchesGuardedMonitorExitOnly(block, lockVar, lockTakenVar);
+
+            bool sawExit = false;
+            foreach (var (_, node) in EnumerateStructuredNodes(block.HandlerChildren))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (expr.OpCode is ILOpCode.Nop or ILOpCode.Endfinally)
+                    continue;
+                if (expr.Operand is string operand
+                    && operand.Contains("System.Threading.Monitor::Exit", StringComparison.Ordinal)
+                    && expr.IsStaticCall
+                    && expr.Arguments.Count > 0
+                    && IsLoadOf(expr.Arguments[0], lockVar))
+                {
+                    if (sawExit)
+                        return false;
+                    sawExit = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawExit;
+        }
+
+        bool HandlerMatchesGuardedMonitorExitOnly(StructuredBlock block, string lockVar, string lockTakenVar)
+        {
+            if (HandlerMatchesStructuredGuardedMonitorExitOnly(block, lockVar, lockTakenVar))
+                return true;
+
+            bool sawGuard = false;
+            bool sawExit = false;
+
+            foreach (var (_, node) in EnumerateStructuredNodes(block.HandlerChildren))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (expr.OpCode == ILOpCode.Nop)
+                    continue;
+                if (expr.OpCode == ILOpCode.Endfinally && sawExit)
+                    continue;
+
+                if (!sawGuard
+                    && (expr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                        or ILOpCode.Brtrue or ILOpCode.Brtrue_s)
+                    && expr.Arguments.Count == 1
+                    && IsLoadOf(expr.Arguments[0], lockTakenVar))
+                {
+                    sawGuard = true;
+                    continue;
+                }
+
+                if (sawGuard
+                    && !sawExit
+                    && expr.Operand is string operand
+                    && operand.Contains("System.Threading.Monitor::Exit", StringComparison.Ordinal)
+                    && expr.IsStaticCall
+                    && expr.Arguments.Count > 0
+                    && IsLoadOf(expr.Arguments[0], lockVar))
+                {
+                    sawExit = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawGuard && sawExit;
+        }
+
+        bool HandlerMatchesStructuredGuardedMonitorExitOnly(StructuredBlock block, string lockVar, string lockTakenVar)
+        {
+            bool sawGuard = false;
+            foreach (var child in block.HandlerChildren)
+            {
+                if (child.Kind == StructuredBlockKind.IfThenElse)
+                {
+                    if (sawGuard
+                        || child.ElseBlock is not null
+                        || !BlockContainsSingleMonitorExit(child.ThenBlock, lockVar))
+                    {
+                        return false;
+                    }
+
+                    sawGuard = true;
+                    continue;
+                }
+
+                if (!BlockContainsOnlyIgnorableFinallyNodes(child))
+                    return false;
+            }
+
+            return sawGuard;
+        }
+
+        bool BlockContainsSingleMonitorExit(StructuredBlock? block, string lockVar)
+        {
+            if (block is null)
+                return false;
+
+            bool sawExit = false;
+            foreach (var (_, node) in EnumerateStructuredNodes(block))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (expr.OpCode == ILOpCode.Nop)
+                    continue;
+                if (expr.Operand is string operand
+                    && operand.Contains("System.Threading.Monitor::Exit", StringComparison.Ordinal)
+                    && expr.IsStaticCall
+                    && expr.Arguments.Count > 0
+                    && IsLoadOf(expr.Arguments[0], lockVar))
+                {
+                    if (sawExit)
+                        return false;
+                    sawExit = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawExit;
+        }
+
+        bool BlockContainsOnlyIgnorableFinallyNodes(StructuredBlock block)
+        {
+            foreach (var (_, node) in EnumerateStructuredNodes(block))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (expr.OpCode is ILOpCode.Nop or ILOpCode.Endfinally)
+                    continue;
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TryDetectDirectDisposeOnly(StructuredBlock block, out string disposeVar)
+        {
+            disposeVar = "";
+            bool sawDispose = false;
+
+            foreach (var (_, node) in EnumerateStructuredNodes(block.HandlerChildren))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (expr.OpCode is ILOpCode.Nop or ILOpCode.Endfinally)
+                    continue;
+
+                if (!sawDispose
+                    && expr.Operand is string operand
+                    && operand.Contains("Dispose", StringComparison.Ordinal)
+                    && !expr.IsStaticCall
+                    && expr.Arguments.Count > 0)
+                {
+                    disposeVar = RenderReceiverName(expr.Arguments[0]);
+                    sawDispose = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawDispose;
+        }
+
+        IEnumerable<(int BlockIndex, ILAstNode Node)> EnumerateStructuredNodes(IEnumerable<StructuredBlock> blocks)
+        {
+            foreach (var block in blocks)
+            {
+                foreach (var item in EnumerateStructuredNodes(block))
+                    yield return item;
+            }
+        }
+
+        IEnumerable<(int BlockIndex, ILAstNode Node)> EnumerateStructuredNodes(StructuredBlock block)
+        {
+            if (block.BlockIndex >= 0 && _blockMap.TryGetValue(block.BlockIndex, out var astBlock))
+            {
+                foreach (var node in astBlock.Nodes)
+                    yield return (block.BlockIndex, node);
+            }
+
+            foreach (var c in block.Children)
+                foreach (var item in EnumerateStructuredNodes(c))
+                    yield return item;
+            foreach (var c in block.TryChildren)
+                foreach (var item in EnumerateStructuredNodes(c))
+                    yield return item;
+            foreach (var c in block.HandlerChildren)
+                foreach (var item in EnumerateStructuredNodes(c))
+                    yield return item;
+            if (block.ThenBlock is not null)
+                foreach (var item in EnumerateStructuredNodes(block.ThenBlock))
+                    yield return item;
+            if (block.ElseBlock is not null)
+                foreach (var item in EnumerateStructuredNodes(block.ElseBlock))
+                    yield return item;
+        }
+
+        static ILAstExpression? NodeExpression(ILAstNode node) => node switch
+        {
+            ILAstStatement { Expression: var expr } => expr,
+            ILAstAssignment { Value: var value } => value,
+            _ => null
+        };
+
+        bool TryFindPreviousStore(
+            StructuredBlock block,
+            string varName,
+            out ILAstNode storeNode,
+            out ILAstExpression value)
+        {
+            storeNode = null!;
+            value = null!;
+
+            var parent = FindParentSequence(block);
+            if (parent is null)
+                return false;
+
+            int blockIndex = -1;
+            for (int i = 0; i < parent.Children.Count; i++)
+            {
+                if (ReferenceEquals(parent.Children[i], block))
+                {
+                    blockIndex = i;
+                    break;
+                }
+            }
+
+            if (blockIndex < 0)
+                return false;
+
+            for (int i = blockIndex - 1; i >= 0; i--)
+            {
+                foreach (var (_, node) in EnumerateStructuredNodes(parent.Children[i]).Reverse())
+                {
+                    if (node is ILAstAssignment assign
+                        && assign.Variable.Name == varName)
+                    {
+                        storeNode = node;
+                        value = assign.Value;
+                        return true;
+                    }
+
+                    if (node is ILAstStatement { Expression: var expr }
+                        && IsStoreToLocal(expr, varName)
+                        && expr.Arguments.Count > 0)
+                    {
+                        storeNode = node;
+                        value = expr.Arguments[0];
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        static bool IsStoreToLocal(ILAstExpression expr, string varName)
+        {
+            if (expr.OpCode is not (ILOpCode.Stloc or ILOpCode.Stloc_s
+                or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3))
+                return false;
+
+            string name = expr.Operand ?? GetLocalName(expr.OpCode);
+            return name == varName;
+        }
+
+        static string? GetLocalReferenceName(ILAstExpression expr)
+        {
+            if (expr.Operand is { } operand
+                && expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                    or ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                    or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3)
+            {
+                return operand;
+            }
+
+            return expr.OpCode switch
+            {
+                ILOpCode.Ldloc_0 => "V_0",
+                ILOpCode.Ldloc_1 => "V_1",
+                ILOpCode.Ldloc_2 => "V_2",
+                ILOpCode.Ldloc_3 => "V_3",
+                _ => null
+            };
         }
 
         void ScanForUsingPatterns(StructuredBlock block)
@@ -851,6 +1361,9 @@ public static class CSharpEmitter
             if (block.NegateCondition)
                 condition = NegateConditionString(condition);
 
+            if (TryEmitNullConditionalAssignment(block, condition, indent))
+                return;
+
             // Item 1: Short-circuit return: if(cond) return expr; return false/true;
             if (TryEmitShortCircuitReturn(block, condition, indent))
                 return;
@@ -887,6 +1400,298 @@ public static class CSharpEmitter
                     _sb.AppendLine("}");
                 }
             }
+        }
+
+        bool TryEmitNullConditionalAssignment(StructuredBlock block, string condition, int indent)
+        {
+            if (block.ElseBlock is not null)
+                return false;
+            if (!TryParseNotNullCondition(condition, out string? receiver))
+                return false;
+            if (receiver is null)
+                return false;
+            if (!TryExtractNullConditionalAssignment(
+                    block.ThenBlock,
+                    receiver,
+                    out string? targetSuffix,
+                    out string? assignmentOperator,
+                    out ILAstExpression? value,
+                    out string? expectedType,
+                    out int consumedBlockIndex))
+            {
+                return false;
+            }
+            if (targetSuffix is null || assignmentOperator is null || value is null)
+                return false;
+
+            WriteIndent(indent);
+            _sb.Append(receiver);
+            _sb.Append(targetSuffix);
+            _sb.Append(' ');
+            _sb.Append(assignmentOperator);
+            _sb.Append(' ');
+            EmitExpression(value, expectedType);
+            _sb.AppendLine(";");
+
+            if (consumedBlockIndex >= 0)
+            {
+                _consumedBlocks.Add(consumedBlockIndex);
+                RemoveGotoTargetsForConsumedBlock(consumedBlockIndex);
+            }
+
+            return true;
+        }
+
+        static bool TryParseNotNullCondition(string condition, out string? receiver)
+        {
+            receiver = null;
+            const string suffix = " != null";
+            if (!condition.EndsWith(suffix, StringComparison.Ordinal))
+                return false;
+
+            receiver = condition[..^suffix.Length].Trim();
+            return receiver.Length > 0;
+        }
+
+        bool TryExtractNullConditionalAssignment(
+            StructuredBlock? block,
+            string receiver,
+            out string? targetSuffix,
+            out string? assignmentOperator,
+            out ILAstExpression? value,
+            out string? expectedType,
+            out int consumedBlockIndex)
+        {
+            targetSuffix = null;
+            assignmentOperator = null;
+            value = null;
+            expectedType = null;
+            consumedBlockIndex = -1;
+
+            if (block is null)
+                return false;
+
+            int blockIdx = block.BlockIndex;
+            if (block.Kind == StructuredBlockKind.Sequence && block.Children.Count == 1)
+                blockIdx = block.Children[0].BlockIndex;
+            if (blockIdx < 0 || !_blockMap.TryGetValue(blockIdx, out var astBlock))
+                return false;
+
+            foreach (var node in astBlock.Nodes)
+            {
+                if (node is ILAstStatement { Expression: var expr })
+                {
+                    if (IsIgnorableNullConditionalAssignmentNode(expr))
+                        continue;
+
+                    if (value is not null)
+                        return false;
+                    if (!TryFormatNullConditionalAssignmentTarget(
+                            expr,
+                            receiver,
+                            out targetSuffix,
+                            out assignmentOperator,
+                            out value,
+                            out expectedType))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            if (value is null)
+                return false;
+
+            consumedBlockIndex = blockIdx;
+            return true;
+        }
+
+        static bool IsIgnorableNullConditionalAssignmentNode(ILAstExpression expr)
+            => expr.OpCode is ILOpCode.Nop or ILOpCode.Br or ILOpCode.Br_s
+                or ILOpCode.Leave or ILOpCode.Leave_s;
+
+        bool TryFormatNullConditionalAssignmentTarget(
+            ILAstExpression expr,
+            string receiver,
+            out string? targetSuffix,
+            out string? assignmentOperator,
+            out ILAstExpression? value,
+            out string? expectedType)
+        {
+            targetSuffix = null;
+            assignmentOperator = null;
+            value = null;
+            expectedType = null;
+
+            if (expr.OpCode == ILOpCode.Stfld && expr.Arguments.Count >= 2)
+            {
+                if (!TryGetSimpleReceiverString(expr.Arguments[0], out string? actualReceiver)
+                    || actualReceiver != receiver)
+                    return false;
+
+                targetSuffix = $"?.{ExtractMemberName(expr.Operand)}";
+                expectedType = TryResolveFieldType(expr.Operand);
+                if (TryExtractCompoundAssignmentValue(
+                        expr.Arguments[1],
+                        receiver,
+                        memberName: ExtractMemberName(expr.Operand),
+                        indexExpression: null,
+                        out assignmentOperator,
+                        out value))
+                {
+                    return true;
+                }
+
+                assignmentOperator = "=";
+                value = expr.Arguments[1];
+                return true;
+            }
+
+            if (IsStelemOpCode(expr.OpCode) && expr.Arguments.Count >= 3)
+            {
+                if (!TryGetSimpleReceiverString(expr.Arguments[0], out string? actualReceiver)
+                    || actualReceiver != receiver)
+                    return false;
+
+                targetSuffix = $"?[{ExpressionToString(expr.Arguments[1])}]";
+                assignmentOperator = "=";
+                value = expr.Arguments[2];
+                return true;
+            }
+
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && !expr.IsStaticCall
+                && expr.Operand is string operand)
+            {
+                string memberName = ExtractMemberName(operand);
+                if (memberName.StartsWith("set_", StringComparison.Ordinal)
+                    && expr.Arguments.Count >= 2
+                    && TryGetSimpleReceiverString(expr.Arguments[0], out string? actualReceiver)
+                    && actualReceiver == receiver)
+                {
+                    if (memberName == "set_Item" && expr.Arguments.Count >= 3)
+                    {
+                        targetSuffix = $"?[{ExpressionToString(expr.Arguments[1])}]";
+                        assignmentOperator = "=";
+                        value = expr.Arguments[2];
+                    }
+                    else
+                    {
+                        string propertyName = memberName[4..];
+                        targetSuffix = $"?.{propertyName}";
+                        if (TryExtractCompoundAssignmentValue(
+                                expr.Arguments[1],
+                                receiver,
+                                propertyName,
+                                indexExpression: null,
+                                out assignmentOperator,
+                                out value))
+                        {
+                            return true;
+                        }
+
+                        assignmentOperator = "=";
+                        value = expr.Arguments[1];
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool TryExtractCompoundAssignmentValue(
+            ILAstExpression assignedValue,
+            string receiver,
+            string memberName,
+            string? indexExpression,
+            out string? assignmentOperator,
+            out ILAstExpression? rhs)
+        {
+            assignmentOperator = null;
+            rhs = null;
+
+            if (assignedValue.Arguments.Count < 2)
+                return false;
+            if (CompoundAssignmentOperator(assignedValue.OpCode) is not { } op)
+                return false;
+            if (!IsSameMemberRead(assignedValue.Arguments[0], receiver, memberName, indexExpression))
+                return false;
+
+            assignmentOperator = $"{op}=";
+            rhs = assignedValue.Arguments[1];
+            return true;
+        }
+
+        bool IsSameMemberRead(ILAstExpression expr, string receiver, string memberName, string? indexExpression)
+        {
+            if (indexExpression is null
+                && ExpressionToString(expr) == $"{receiver}.{memberName}")
+            {
+                return true;
+            }
+
+            if (expr.OpCode == ILOpCode.Ldfld
+                && indexExpression is null
+                && ExtractMemberName(expr.Operand) == memberName
+                && expr.Arguments.Count > 0
+                && TryGetSimpleReceiverString(expr.Arguments[0], out string? fieldReceiver)
+                && fieldReceiver == receiver)
+            {
+                return true;
+            }
+
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && !expr.IsStaticCall
+                && expr.Operand is string operand
+                && expr.Arguments.Count > 0)
+            {
+                string readMember = ExtractMemberName(operand);
+                if (indexExpression is null
+                    && readMember == $"get_{memberName}"
+                    && TryGetSimpleReceiverString(expr.Arguments[0], out string? propertyReceiver)
+                    && propertyReceiver == receiver)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static string? CompoundAssignmentOperator(ILOpCode op) => op switch
+        {
+            ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
+            ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
+            ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
+            ILOpCode.Div or ILOpCode.Div_un => "/",
+            ILOpCode.Rem or ILOpCode.Rem_un => "%",
+            ILOpCode.And => "&",
+            ILOpCode.Or => "|",
+            ILOpCode.Xor => "^",
+            ILOpCode.Shl => "<<",
+            ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+            _ => null
+        };
+
+        bool TryGetSimpleReceiverString(ILAstExpression expr, out string? receiver)
+        {
+            receiver = null;
+            if (expr.OpCode is not (ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
+                or ILOpCode.Ldarg_3 or ILOpCode.Ldarg_s or ILOpCode.Ldarg
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2
+                or ILOpCode.Ldloc_3 or ILOpCode.Ldloc_s or ILOpCode.Ldloc))
+            {
+                return false;
+            }
+
+            receiver = ExpressionToString(expr);
+            return receiver.Length > 0;
         }
 
         /// <summary>
@@ -1277,6 +2082,199 @@ public static class CSharpEmitter
                 else return null;
             }
             return value;
+        }
+
+        /// <summary>
+        /// Scan all blocks for C# collection expressions that lower through compiler-generated
+        /// inline-array helper calls:
+        /// InlineArrayElementRef(ref inlineArray, index) = value;
+        /// InlineArrayAsReadOnlySpan(ref inlineArray, length)
+        /// </summary>
+        void ScanInlineArrayInitializers(ILAstMethod ast)
+        {
+            var candidates = new Dictionary<string, InlineArrayInitializerCandidate>();
+            var spanConsumers = new HashSet<string>();
+
+            foreach (var block in ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (TryGetInlineArrayElementStore(node, out string? inlineArrayLocal, out int index, out var value))
+                    {
+                        if (!candidates.TryGetValue(inlineArrayLocal, out var candidate))
+                        {
+                            candidate = new InlineArrayInitializerCandidate();
+                            candidates[inlineArrayLocal] = candidate;
+                        }
+
+                        candidate.Elements[index] = value;
+                        candidate.StoreNodes.Add(node);
+                    }
+                    else if (TryGetInlineArrayDefaultInit(node, out string? initializedLocal))
+                    {
+                        if (!candidates.TryGetValue(initializedLocal, out var candidate))
+                        {
+                            candidate = new InlineArrayInitializerCandidate();
+                            candidates[initializedLocal] = candidate;
+                        }
+
+                        candidate.InitNodes.Add(node);
+                    }
+
+                    if (NodeExpression(node) is { } expr)
+                    {
+                        foreach (string consumedLocal in FindInlineArraySpanConsumers(expr))
+                            spanConsumers.Add(consumedLocal);
+                    }
+                }
+            }
+
+            foreach (var (local, candidate) in candidates)
+            {
+                if (!spanConsumers.Contains(local) || HasUnexpectedInlineArrayUse(ast, local))
+                    continue;
+
+                _inlineArrayInitValues[local] = candidate.Elements;
+                _suppressedLocals.Add(local);
+                foreach (var node in candidate.StoreNodes)
+                    _skipNodes.Add(node);
+                foreach (var node in candidate.InitNodes)
+                    _skipNodes.Add(node);
+            }
+        }
+
+        IEnumerable<string> FindInlineArraySpanConsumers(ILAstExpression expr)
+        {
+            if (IsInlineArrayAsSpanCall(expr)
+                && expr.Arguments.Count > 0
+                && GetLocalReferenceName(expr.Arguments[0]) is { } local)
+            {
+                yield return local;
+            }
+
+            foreach (var arg in expr.Arguments)
+            {
+                foreach (string consumedLocal in FindInlineArraySpanConsumers(arg))
+                    yield return consumedLocal;
+            }
+        }
+
+        static bool IsInlineArrayAsSpanCall(ILAstExpression expr)
+            => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && expr.Operand is string operand
+                && (operand.Contains("InlineArrayAsReadOnlySpan", StringComparison.Ordinal)
+                    || operand.Contains("InlineArrayAsSpan", StringComparison.Ordinal));
+
+        bool HasUnexpectedInlineArrayUse(ILAstMethod ast, string local)
+        {
+            foreach (var block in ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (NodeExpression(node) is { } expr
+                        && HasUnexpectedInlineArrayUse(expr, local))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool HasUnexpectedInlineArrayUse(ILAstExpression expr, string local)
+        {
+            if (IsInlineArrayAsSpanCall(expr)
+                || IsInlineArrayElementRefCall(expr))
+            {
+                for (int i = 0; i < expr.Arguments.Count; i++)
+                {
+                    if (i == 0 && GetLocalReferenceName(expr.Arguments[i]) == local)
+                        continue;
+                    if (HasUnexpectedInlineArrayUse(expr.Arguments[i], local))
+                        return true;
+                }
+
+                return false;
+            }
+
+            if (expr.OpCode == ILOpCode.Initobj && expr.Arguments.Count > 0)
+            {
+                for (int i = 0; i < expr.Arguments.Count; i++)
+                {
+                    if (i == 0 && GetLocalReferenceName(expr.Arguments[i]) == local)
+                        continue;
+                    if (HasUnexpectedInlineArrayUse(expr.Arguments[i], local))
+                        return true;
+                }
+
+                return false;
+            }
+
+            if (GetLocalReferenceName(expr) == local)
+                return true;
+
+            foreach (var arg in expr.Arguments)
+            {
+                if (HasUnexpectedInlineArrayUse(arg, local))
+                    return true;
+            }
+
+            return false;
+        }
+
+        bool TryGetInlineArrayElementStore(
+            ILAstNode node,
+            out string inlineArrayLocal,
+            out int index,
+            out ILAstExpression value)
+        {
+            inlineArrayLocal = "";
+            index = -1;
+            value = null!;
+
+            if (node is not ILAstStatement { Expression: var expr })
+                return false;
+            if (expr.OpCode is not (ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2
+                or ILOpCode.Stind_i4 or ILOpCode.Stind_i8 or ILOpCode.Stind_r4
+                or ILOpCode.Stind_r8 or ILOpCode.Stind_ref or ILOpCode.Stobj))
+                return false;
+            if (expr.Arguments.Count < 2)
+                return false;
+
+            var valueExpr = expr.Arguments[0];
+            var addressExpr = expr.Arguments[1];
+            if (!IsInlineArrayElementRefCall(addressExpr) || addressExpr.Arguments.Count < 2)
+                return false;
+
+            if (GetLocalReferenceName(addressExpr.Arguments[0]) is not { } local)
+                return false;
+            if (!TryGetConstantIndex(addressExpr.Arguments[1], out int elementIndex))
+                return false;
+
+            inlineArrayLocal = local;
+            index = elementIndex;
+            value = valueExpr;
+            return true;
+        }
+
+        static bool IsInlineArrayElementRefCall(ILAstExpression expr)
+            => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && expr.Operand is string operand
+                && operand.Contains("InlineArrayElementRef", StringComparison.Ordinal);
+
+        static bool TryGetInlineArrayDefaultInit(ILAstNode node, out string inlineArrayLocal)
+        {
+            inlineArrayLocal = "";
+            if (node is not ILAstStatement { Expression: var expr })
+                return false;
+            if (expr.OpCode != ILOpCode.Initobj || expr.Arguments.Count == 0)
+                return false;
+            if (GetLocalReferenceName(expr.Arguments[0]) is not { } local)
+                return false;
+
+            inlineArrayLocal = local;
+            return true;
         }
 
         /// <summary>
@@ -2312,6 +3310,13 @@ public static class CSharpEmitter
         {
             if (block.ExceptionRegion is not { } region) return;
 
+            if (region.Kind == ExceptionRegionKind.Finally
+                && TryGetLockPattern(block, out var lockPattern))
+            {
+                EmitLockBlock(block, lockPattern, indent);
+                return;
+            }
+
             // Detect using pattern: try { body } finally { if (v != null) v.Dispose(); }
             if (region.Kind == ExceptionRegionKind.Finally
                 && TryDetectDisposeVariable(block) is { } disposeVar)
@@ -2345,6 +3350,47 @@ public static class CSharpEmitter
             // Emit additional handlers (multiple catch)
             foreach (var addl in block.AdditionalHandlers)
                 EmitHandler(addl.Region, addl.HandlerChildren, null, indent);
+        }
+
+        bool TryGetLockPattern(StructuredBlock block, out LockPattern pattern)
+        {
+            if (_lockPatterns.TryGetValue(block, out pattern!))
+                return true;
+
+            if (!TryDetectLockPattern(block, out pattern))
+                return false;
+
+            _lockPatterns[block] = pattern;
+            foreach (var node in pattern.SkipNodes)
+                _skipNodes.Add(node);
+            foreach (string local in pattern.SuppressedLocals)
+                _suppressedLocals.Add(local);
+            return true;
+        }
+
+        void EmitLockBlock(StructuredBlock block, LockPattern pattern, int indent)
+        {
+            WriteIndent(indent);
+            _sb.Append("lock (");
+            EmitExpression(pattern.LockExpression);
+            _sb.AppendLine(")");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+
+            if (block.TryChildren.Count > 0)
+            {
+                foreach (var child in block.TryChildren)
+                    EmitStructuredBlock(child, indent + 1);
+            }
+            else
+            {
+                EmitBasicBlock(block.BlockIndex, indent + 1);
+            }
+
+            WriteIndent(indent);
+            _sb.AppendLine("}");
+
+            MarkHandlerConsumed(block);
         }
 
         void EmitHandler(ExceptionRegion region, List<StructuredBlock> handlerChildren, StructuredBlock? block, int indent)
@@ -3302,7 +4348,7 @@ public static class CSharpEmitter
                     {
                         if (_collectionTemps.TryGetValue(expr.Offset, out string? collectionTemp))
                             _sb.Append(collectionTemp);
-                        else
+                        else if (!TryEmitSpanCollectionExpression(expr, resolvedType))
                             EmitNewObjectExpression(expr);
                         break;
                     }
@@ -3513,6 +4559,57 @@ public static class CSharpEmitter
             _sb.Append(')');
         }
 
+        bool TryEmitSpanCollectionExpression(ILAstExpression expr, string? expectedType)
+        {
+            string constructedType = ExtractTypeName(expr.Operand);
+            if (!IsSpanOrReadOnlySpanType(constructedType)
+                && !IsSpanOrReadOnlySpanType(expectedType))
+            {
+                return false;
+            }
+
+            if (expr.Arguments.Count != 1 || expr.Arguments[0].OpCode != ILOpCode.Newarr)
+                return false;
+
+            return TryEmitCollectionExpressionFromNewArray(expr.Arguments[0]);
+        }
+
+        bool TryEmitCollectionExpressionFromNewArray(ILAstExpression newArray)
+        {
+            if (newArray.Arguments.Count == 0 || !TryGetConstantIndex(newArray.Arguments[0], out int size))
+                return false;
+            if (!_arrayInitValues.TryGetValue(newArray.Offset, out var initElements))
+                return size == 0 && EmitEmptyCollectionExpression();
+
+            _sb.Append('[');
+            for (int i = 0; i < size; i++)
+            {
+                if (i > 0) _sb.Append(", ");
+                if (initElements.TryGetValue(i, out var element))
+                    EmitExpression(element);
+                else
+                    _sb.Append("default");
+            }
+            _sb.Append(']');
+            return true;
+        }
+
+        bool EmitEmptyCollectionExpression()
+        {
+            _sb.Append("[]");
+            return true;
+        }
+
+        static bool IsSpanOrReadOnlySpanType(string? typeName)
+        {
+            if (typeName is null)
+                return false;
+            return typeName.StartsWith("System.Span<", StringComparison.Ordinal)
+                || typeName.StartsWith("Span<", StringComparison.Ordinal)
+                || typeName.StartsWith("System.ReadOnlySpan<", StringComparison.Ordinal)
+                || typeName.StartsWith("ReadOnlySpan<", StringComparison.Ordinal);
+        }
+
         bool TryEmitPointerDereference(ILAstExpression expr)
         {
             if (expr.Arguments.Count != 1)
@@ -3649,6 +4746,9 @@ public static class CSharpEmitter
                 typePart = methodName[..colonIdx];
                 memberPart = methodName[(colonIdx + 2)..].TrimEnd('(', ')');
             }
+
+            if (TryEmitInlineArrayAsSpanExpression(expr, memberPart))
+                return;
 
             // String interpolation: ToStringAndClear() on a detected handler → $"..."
             if (memberPart is "ToStringAndClear" or "ToString"
@@ -3823,6 +4923,32 @@ public static class CSharpEmitter
                 else
                     _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}()");
             }
+        }
+
+        bool TryEmitInlineArrayAsSpanExpression(ILAstExpression expr, string memberPart)
+        {
+            if (memberPart is not ("InlineArrayAsReadOnlySpan" or "InlineArrayAsSpan"))
+                return false;
+            if (expr.Arguments.Count < 2)
+                return false;
+            if (GetLocalReferenceName(expr.Arguments[0]) is not { } inlineArrayLocal)
+                return false;
+            if (!TryGetConstantIndex(expr.Arguments[1], out int length))
+                return false;
+            if (!_inlineArrayInitValues.TryGetValue(inlineArrayLocal, out var elements))
+                return false;
+
+            _sb.Append('[');
+            for (int i = 0; i < length; i++)
+            {
+                if (i > 0) _sb.Append(", ");
+                if (elements.TryGetValue(i, out var element))
+                    EmitExpression(element);
+                else
+                    _sb.Append("default");
+            }
+            _sb.Append(']');
+            return true;
         }
 
         void EmitBranchCondition(ILAstExpression expr)
