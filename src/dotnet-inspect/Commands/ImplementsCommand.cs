@@ -79,7 +79,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns, options.Fields);
+                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns, options.Fields, options.Rows);
             }
 
             return 0;
@@ -132,7 +132,7 @@ public class ImplementsCommand
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns, string[]? fields)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns, string[]? fields, int? rows)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
@@ -152,7 +152,8 @@ public class ImplementsCommand
         }
         else
         {
-            Console.WriteLine(MarkoutSerializer.Serialize(view, SearchViewContext.Default));
+            var markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default).TrimEnd();
+            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, rows));
         }
     }
 }
@@ -183,4 +184,3 @@ public record class ImplementerResult
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; set; }
 }
-

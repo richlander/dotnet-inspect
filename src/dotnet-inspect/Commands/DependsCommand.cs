@@ -1,6 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -86,7 +87,7 @@ public class DependsCommand
                         Title = rootName,
                         Dependencies = treeNodes
                     };
-                    MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                    WriteMarkdown(view, options.Rows);
                 }
             }
 
@@ -188,7 +189,7 @@ public class DependsCommand
                     Title = assemblyName,
                     Dependencies = treeNodes
                 };
-                MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                WriteMarkdown(view, options.Rows);
             }
             return 0;
         }
@@ -296,7 +297,7 @@ public class DependsCommand
                     Title = title,
                     Dependencies = treeNodes
                 };
-                MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+                WriteMarkdown(view, options.Rows);
             }
             return 0;
         }
@@ -394,5 +395,11 @@ public class DependsCommand
             Console.Out.WriteLine();
         mdWriter.WriteCodeEnd();
         mdWriter.Flush();
+    }
+
+    private static void WriteMarkdown(PackageDependenciesView view, int? rows)
+    {
+        var markdown = MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default).TrimEnd();
+        Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, rows));
     }
 }

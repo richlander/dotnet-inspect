@@ -48,6 +48,11 @@ public record ImplementsOptions : IAssemblySourceOptions
     public int? Limit { get; init; }
 
     /// <summary>
+    /// Limit data rows per rendered table.
+    /// </summary>
+    public int? Rows { get; init; }
+
+    /// <summary>
     /// Output as JSON.
     /// </summary>
     public bool JsonOutput { get; init; }
@@ -115,4 +120,5 @@ public record ImplementsOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NoHeader;}
+    public bool IsRawOutput => JsonOutput || OneLine || NoHeader;
+}

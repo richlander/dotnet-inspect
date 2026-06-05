@@ -14,7 +14,7 @@ Invoke through `dnx` unless the tool is already installed:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use `--oneline` to scan, `--json` for structured data, `--count` to count one selected table section, and `-v:d` when you need source/decompiled C#/IL detail.
+Default output is Markdown. Use `--oneline` to scan, `--json` for structured data, `--count` to count one selected table section, `--rows -n N` to cap rendered table rows, and `-v:d` when you need source/decompiled C#/IL detail.
 
 ## Workflow map
 
@@ -27,7 +27,7 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Inspect package/library signals | `library Foo -S Signals` or `package Foo -S Signals` | `Signals` resolves SourceLink for libraries; add `-S "SourceLink Availability"` for source reachability or `-S "SourceLink Integrity"` for slow content verification. |
 | Inventory package library files | `package Foo -S "Library Files"` | Lists all files under `lib/` across TFMs; use paths from this section with `library <file> --package Foo` for specific assemblies. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
-| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N` | Prefer built-in limits over shell pipes. |
+| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--rows -n N` | Prefer built-in limits over shell pipes. |
 
 ## Modern .NET and preview workflow
 

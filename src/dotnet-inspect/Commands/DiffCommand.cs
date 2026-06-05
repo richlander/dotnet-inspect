@@ -252,7 +252,8 @@ public class DiffCommand
             return nameWriter.ToString();
         }
 
-        return DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
+        var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
+        return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
     }
 
     private static IReadOnlyList<TypeDiff> FilterByClassification(IReadOnlyList<TypeDiff> typeDiffs, DiffOptions options)
@@ -298,6 +299,7 @@ public record DiffOptions
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
+    public int? Rows { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

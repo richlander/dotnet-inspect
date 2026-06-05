@@ -207,6 +207,7 @@ public static class SearchCommandDefinitions
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
+                Rows = opts.ParseRows(parseResult),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 OneLine = opts.ResolveOneLine(parseResult, oneLineOption),
@@ -323,6 +324,7 @@ public static class SearchCommandDefinitions
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
+                Rows = opts.ParseRows(parseResult),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
@@ -395,6 +397,7 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                    Rows = opts.ParseRows(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
@@ -430,6 +433,7 @@ public static class SearchCommandDefinitions
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                Rows = opts.ParseRows(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
@@ -447,6 +451,7 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+                    Rows = opts.ParseRows(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };

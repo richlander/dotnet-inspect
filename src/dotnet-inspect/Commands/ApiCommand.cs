@@ -473,6 +473,7 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
         else if (options.OneLine)
@@ -487,7 +488,15 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
-            MarkoutSerializer.Serialize(view, Console.Out, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+            if (options.PlainText)
+            {
+                MarkoutSerializer.Serialize(view, Console.Out, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+            }
+            else
+            {
+                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions).TrimEnd();
+                Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            }
         }
     }
 
@@ -673,7 +682,7 @@ public class ApiCommand
                 ApiViewContext.Default.Serialize(view.MemberCode, writer);
 
             writer.Flush();
-            CountOutput.WriteCountFromMarkdown(sw.ToString());
+            CountOutput.WriteCountFromMarkdown(MarkdownTableRowLimiter.Apply(sw.ToString(), options.Rows));
         }
         else if (options.OneLine)
         {
@@ -687,13 +696,28 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
-            ApiViewContext.Default.Serialize(view, writer);
+            if (options.PlainText)
+            {
+                var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
+                ApiViewContext.Default.Serialize(view, writer);
 
-            if (view.MemberCode != null)
-                ApiViewContext.Default.Serialize(view.MemberCode, writer);
+                if (view.MemberCode != null)
+                    ApiViewContext.Default.Serialize(view.MemberCode, writer);
 
-            writer.Flush();
+                writer.Flush();
+            }
+            else
+            {
+                var sw = new StringWriter();
+                var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+                ApiViewContext.Default.Serialize(view, writer);
+
+                if (view.MemberCode != null)
+                    ApiViewContext.Default.Serialize(view.MemberCode, writer);
+
+                writer.Flush();
+                sink.WriteLine(MarkdownTableRowLimiter.Apply(sw.ToString().TrimEnd(), options.Rows));
+            }
         }
     }
 

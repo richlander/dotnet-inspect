@@ -58,6 +58,11 @@ public record ExtensionsOptions : IAssemblySourceOptions
     public int? Limit { get; init; }
 
     /// <summary>
+    /// Limit data rows per rendered table.
+    /// </summary>
+    public int? Rows { get; init; }
+
+    /// <summary>
     /// Output as JSON.
     /// </summary>
     public bool JsonOutput { get; init; }

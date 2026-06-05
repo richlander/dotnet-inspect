@@ -35,7 +35,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
 | Source mapping | `source`, `member -v:d` | SourceLink URLs, member line numbers, source fetching, URL verification, token+IL-offset to source-line resolution. |
-| Agent-friendly output | global flags | Markdown by default, compact `--oneline`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, built-in head/tail limiting. |
+| Agent-friendly output | global flags | Markdown by default, compact `--oneline`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
 
@@ -67,7 +67,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 
 ## Output and querying
 
-Default output is Markdown. Use `--oneline` for compact rows, `--plaintext` for plain text, `--json` for structured data, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`.
+Default output is Markdown. Use `--oneline` for compact rows, `--plaintext` for plain text, `--json` for structured data, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`.
 
 Sections and fields are queryable without a template language:
 

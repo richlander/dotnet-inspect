@@ -140,6 +140,7 @@ public static class TypeOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
+            Rows = opts.ParseRows(parseResult),
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

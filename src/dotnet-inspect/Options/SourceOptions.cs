@@ -70,6 +70,7 @@ public record SourceOptions
     public bool PlainText { get; init; }
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }
+    public int? Rows { get; init; }
     public bool Verbose { get; init; }
 
     // Projection & discovery

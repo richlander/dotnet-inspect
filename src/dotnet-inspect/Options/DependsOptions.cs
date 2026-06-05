@@ -68,6 +68,11 @@ public record DependsOptions : IAssemblySourceOptions
     public bool EmbeddedMermaid { get; init; }
 
     /// <summary>
+    /// Limit data rows per rendered table.
+    /// </summary>
+    public int? Rows { get; init; }
+
+    /// <summary>
     /// Show progress messages on stderr.
     /// </summary>
     public bool Verbose { get; init; }

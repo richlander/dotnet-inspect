@@ -97,8 +97,20 @@ if (args.Length == 1 && args[0] == "--release-notes")
 // Pre-process args for implicit package command (also expands -NN → -n NN)
 args = CommandLineBuilder.PreprocessArgs(args);
 
-// Install line-limiting writer when -NN shorthand was used (e.g. -30)
-if (CommandLineBuilder.HeadLines is int headLines)
+// Install line-limiting writer when -NN shorthand was used (e.g. -30).
+// With --rows, -n/-NN is interpreted by commands as per-table row limits.
+var rowLimitMode = args.Any(a => a == "--rows");
+if (rowLimitMode && CommandLineBuilder.TailLines != null)
+{
+    Console.Error.WriteLine("Error: --rows cannot be combined with --tail.");
+    return 1;
+}
+if (rowLimitMode && CommandLineBuilder.HeadLines == null)
+{
+    Console.Error.WriteLine("Error: --rows requires -n/--head or -N.");
+    return 1;
+}
+if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
     Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
 
 // Install tail writer when --tail N was used

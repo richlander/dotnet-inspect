@@ -23,6 +23,7 @@ public class SharedOptions
 
     // Output control options
     public Option<int?> Limit { get; }
+    public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/-N as data rows per rendered table instead of output lines" };
     public Option<int?> Tail { get; }
     public Option<bool> Count { get; } = new("--count") { Description = "With a single selected section, output the number of table rows" };
     public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
@@ -107,6 +108,7 @@ public class SharedOptions
         command.Options.Add(Tips);
         command.Options.Add(Info);
         command.Options.Add(Limit);
+        command.Options.Add(Rows);
         command.Options.Add(Tail);
     }
 
@@ -138,6 +140,9 @@ public class SharedOptions
     {
         command.Options.Add(Count);
     }
+
+    public int? ParseRows(ParseResult parseResult)
+        => parseResult.GetValue(Rows) ? parseResult.GetValue(Limit) : null;
 
     /// <summary>
     /// Adds NuGet source options to a command.

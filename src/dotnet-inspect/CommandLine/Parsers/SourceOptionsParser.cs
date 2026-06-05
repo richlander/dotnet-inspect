@@ -167,6 +167,7 @@ public static class SourceOptionsParser
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
+            Rows = opts.ParseRows(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             NuGetOptions = opts.ParseNuGetSourceOptions(parseResult)
