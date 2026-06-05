@@ -90,7 +90,7 @@ public class ExtensionsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Verbosity);
+                WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows);
             }
 
             return 0;
@@ -145,10 +145,11 @@ public class ExtensionsCommand
         JsonOutputHelper.Write(results, ExtensionsJsonContext.Default.ListExtensionMethodResult, ExtensionsCompactJsonContext.Default.ListExtensionMethodResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity)
+    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, int? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
-        Console.WriteLine(MarkoutSerializer.Serialize(view, SearchViewContext.Default));
+        var markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default).TrimEnd();
+        Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, rows));
     }
 
     /// <summary>
@@ -215,4 +216,3 @@ public record class ExtensionMethodResult
     [JsonPropertyName("reachable_from_type")]
     public string? ReachableFromType { get; set; }
 }
-

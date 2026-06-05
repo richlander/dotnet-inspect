@@ -89,6 +89,7 @@ public static class FindOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
+            Rows = opts.ParseRows(parseResult),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),

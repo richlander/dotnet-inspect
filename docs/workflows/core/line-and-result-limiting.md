@@ -1,13 +1,13 @@
 ---
 id: line-and-result-limiting
-description: Control output size with line limits, result limits, and row counts
-commands: [-n, -t, -m, --versions, --count]
+description: Control output size with line limits, table row limits, result limits, and row counts
+commands: [-n, --rows, -t, -m, --versions, --count]
 areas: [output, limiting, count, agents]
 ---
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`). `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` returns one integer for the rendered row count of a single selected section. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n` limits output lines (like `head`). `--rows -n N` interprets the same count as table data rows per rendered table. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` returns one integer for the rendered row count of a single selected section. These are essential for agents that need compact, predictable output.
 
 ## Preconditions
 
@@ -81,11 +81,35 @@ wc -l | tr -d ' '
 Tips:
 ```
 
-## 2. Limit type results
+## 2. Limit table rows
+
+> Goal: Keep Markdown structure and table headers, but show only the first N data rows per rendered table.
+> `--rows` is a mode for `-n`/`-N`; it requires a head count and cannot be combined with `--tail`.
+
+```bash
+dotnet-inspect System.Private.CoreLib -S "Async*" --rows -n 6
+```
+
+```expect
+## Async Methods
+| Name | Declaring Type | Kind | Signature |
+DisposeAsync
+WriteAsync
+```
+
+```query
+grep -c '^| .* | .* | .* | .* |$'
+```
+
+```expect
+6
+```
+
+## 3. Limit type results
 
 > Goal: Return only the first N types from a type listing.
 
-### 2a. Using `type -t N`
+### 3a. Using `type -t N`
 
 ```prompt
 Show me just 3 types from System.Text.Json.
@@ -105,11 +129,11 @@ JsonCommentHandling
 Tips:
 ```
 
-## 3. Filter types by glob
+## 4. Filter types by glob
 
 > Goal: Filter types to those matching a name pattern.
 
-### 3a. Using `type -t pattern`
+### 4a. Using `type -t pattern`
 
 ```bash
 dotnet-inspect type System.Text.Json -t "Json*" --tips q
@@ -125,11 +149,11 @@ SortedSet
 Tips:
 ```
 
-## 4. Limit find results
+## 5. Limit find results
 
 > Goal: Return only the first N matches from a find search.
 
-### 4a. Using `find -t N`
+### 5a. Using `find -t N`
 
 ```bash
 dotnet-inspect find "Json*" -t 3 -v:q
@@ -152,11 +176,11 @@ grep -c '^| Json'
 Tips:
 ```
 
-## 5. Limit member results
+## 6. Limit member results
 
 > Goal: Return only the first N members from a member listing.
 
-### 5a. Using `member -m N`
+### 6a. Using `member -m N`
 
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer -m 3
@@ -172,11 +196,11 @@ Deserialize
 Tips:
 ```
 
-## 6. Filter members by name
+## 7. Filter members by name
 
 > Goal: Show only members matching an exact name, including all overloads.
 
-### 6a. Using positional member name
+### 7a. Using positional member name
 
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer Deserialize --tips q
@@ -192,11 +216,11 @@ Deserialize
 Tips:
 ```
 
-## 7. Limit version list
+## 8. Limit version list
 
 > Goal: Return only the first N versions.
 
-### 7a. Using `--versions N`
+### 8a. Using `--versions N`
 
 ```bash
 dotnet-inspect System.CommandLine --versions 3
@@ -220,11 +244,11 @@ wc -l | tr -d ' '
 Tips:
 ```
 
-## 8. Count rows in a section
+## 9. Count rows in a section
 
 > Goal: Return a single integer row count for a selected table section.
 
-### 8a. Count async methods
+### 9a. Count async methods
 
 ```prompt
 How many async methods are in System.Text.Json?
@@ -248,7 +272,7 @@ positive
 Tips:
 ```
 
-### 8b. Count requires one selected section
+### 9b. Count requires one selected section
 
 ```bash
 dotnet-inspect System.Text.Json --count

@@ -205,6 +205,7 @@ public static class InspectionCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
+                Rows = opts.ParseRows(parseResult),
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(asmNoHeaderOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

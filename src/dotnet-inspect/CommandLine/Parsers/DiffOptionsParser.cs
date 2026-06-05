@@ -112,8 +112,9 @@ public static class DiffOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
-                Columns = opts.ParseColumns(parseResult),
-                Fields = opts.ParseFields(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Rows = opts.ParseRows(parseResult),
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);

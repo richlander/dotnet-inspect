@@ -69,6 +69,60 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void LimitMarkdownTableRows_LimitsEachTable()
+    {
+        const string markdown = """
+        # Title
+
+        ## First
+
+        | Name |
+        | ---- |
+        | A |
+        | B |
+        | C |
+
+        ## Second
+
+        | Value |
+        | ----- |
+        | 1 |
+        | 2 |
+        """;
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, 2);
+
+        Assert.Contains("| A |", output);
+        Assert.Contains("| B |", output);
+        Assert.DoesNotContain("| C |", output);
+        Assert.Contains("| 1 |", output);
+        Assert.Contains("| 2 |", output);
+    }
+
+    [Fact]
+    public void LimitMarkdownTableRows_IgnoresCodeFences()
+    {
+        const string markdown = """
+        ```md
+        | Name |
+        | ---- |
+        | A |
+        | B |
+        ```
+
+        | Name |
+        | ---- |
+        | A |
+        | B |
+        """;
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, 1);
+
+        Assert.Contains("| B |\n```", output.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain("| B |\n", output.ReplaceLineEndings("\n").Split("```")[2]);
+    }
+
+    [Fact]
     public void MultiAssemblyReport_HasSingleH1()
     {
         var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");

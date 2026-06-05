@@ -29,6 +29,7 @@ public static class OutputFormatter
         var view = new InspectionResultView(result);
         var writerOptions = BuildWriterOptions(result, options, pipeline);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
+        markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
         return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
     }
 
@@ -84,6 +85,7 @@ public static class OutputFormatter
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
             return;
         }
@@ -108,12 +110,14 @@ public static class OutputFormatter
         }
         else if (options.VerbosityEnabled)
         {
-            Console.WriteLine(MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd());
+            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
+            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and oneline wasn't explicitly requested
-            Console.WriteLine(MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd());
+            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
+            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
         {
@@ -140,6 +144,7 @@ public static class OutputFormatter
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
+            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
             return;
         }
@@ -152,7 +157,8 @@ public static class OutputFormatter
 
         if (options.VerbosityEnabled)
         {
-            Console.WriteLine(MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd());
+            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
+            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
         {

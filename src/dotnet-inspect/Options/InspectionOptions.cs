@@ -172,6 +172,11 @@ public record InspectionOptions
     public bool Count { get; init; }
 
     /// <summary>
+    /// Limit data rows per rendered table.
+    /// </summary>
+    public int? Rows { get; init; }
+
+    /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;

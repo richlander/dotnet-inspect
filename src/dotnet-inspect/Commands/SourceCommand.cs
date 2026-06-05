@@ -725,7 +725,15 @@ public static class SourceCommand
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
         var formatter = options.PlainText ? (IMarkoutFormatter)new PlainTextFormatter() : new MarkdownFormatter();
-        MarkoutSerializer.Serialize(view, Console.Out, formatter, SourceViewContext.Default, writerOpts);
+        if (options.PlainText)
+        {
+            MarkoutSerializer.Serialize(view, Console.Out, formatter, SourceViewContext.Default, writerOpts);
+        }
+        else
+        {
+            var markdown = MarkoutSerializer.Serialize(view, SourceViewContext.Default, writerOpts).TrimEnd();
+            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+        }
     }
 
     private static void WriteJson<T>(T view, bool compact) where T : class

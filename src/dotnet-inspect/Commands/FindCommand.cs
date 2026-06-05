@@ -92,7 +92,8 @@ public class FindCommand
         }
         else
         {
-            Console.WriteLine(MarkoutSerializer.Serialize(view, SearchViewContext.Default));
+            var markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default).TrimEnd();
+            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
     }
 }
@@ -123,4 +124,3 @@ public record class TypeSearchResult
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; set; }
 }
-

@@ -103,6 +103,7 @@ public static class PackageOptionsParser
             Fields = opts.ParseFields(parseResult),
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
+            Rows = opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

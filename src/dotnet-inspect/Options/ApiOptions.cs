@@ -63,6 +63,7 @@ public record ApiOptions
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }
     public bool Count { get; init; }
+    public int? Rows { get; init; }
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>

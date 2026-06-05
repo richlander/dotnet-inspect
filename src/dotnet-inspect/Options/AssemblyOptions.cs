@@ -149,6 +149,11 @@ public record AssemblyOptions
     public bool Count { get; init; }
 
     /// <summary>
+    /// Limit data rows per rendered table.
+    /// </summary>
+    public int? Rows { get; init; }
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
