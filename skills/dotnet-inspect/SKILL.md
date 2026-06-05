@@ -1,20 +1,20 @@
 ---
 name: dotnet-inspect
 version: 0.9.2
-description: Query .NET APIs across NuGet packages, platform libraries, and local files. Use for factual answers about package contents, API signatures, compatibility changes, relationships, SourceLink, and assembly metadata.
+description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, and version-to-version API changes.
 ---
 
 # dotnet-inspect
 
-Use dotnet-inspect when you need evidence about .NET libraries instead of guessing: API signatures, package contents, extension methods, implementors, SourceLink URLs, dependencies, or version-to-version API changes.
+Use dotnet-inspect when you need evidence instead of guesses for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, or version-to-version API changes.
 
-Invoke through `dnx` unless the tool is already installed:
+Invoke with `dnx`:
 
 ```bash
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown because it preserves headings, section boundaries, table headers, and code fences, making the evidence readable and easy to quote. Use `--oneline` for compact one-result-per-line output, `--json` for structured automation, and `-v:d` when you need source/decompiled C#/IL detail.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--plaintext` for text-only output, `--oneline` for compact one-result-per-line output, `--json` for structured automation, and `-v:d` when you need source/decompiled C#/IL detail.
 
 Use built-in limiters before shell pipes. `-n N` and shorthand like `-6` limit output lines; `--tail N` keeps the last N lines; `--rows -n N` or `--rows -6` caps data rows per rendered Markdown table while preserving headings and table headers; `--count` counts rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
