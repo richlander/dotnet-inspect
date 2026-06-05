@@ -155,10 +155,10 @@ public class InspectionResultTests
 
         var symbols = Assert.Single(result.AuditSignals!, s => s.Signal == "Symbols");
         Assert.Equal("Yes (5/5)", symbols.Value);
-        Assert.Equal("msdl.microsoft.com PDBs", symbols.Evidence);
+        Assert.Equal("PDBs from msdl.microsoft.com", symbols.Evidence);
 
         var sourceLink = Assert.Single(result.AuditSignals!, s => s.Signal == "SourceLink");
-        Assert.Equal("SourceLink data in msdl.microsoft.com PDBs", sourceLink.Evidence);
+        Assert.Equal("SourceLink data found in PDBs from msdl.microsoft.com", sourceLink.Evidence);
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public class InspectionResultTests
             result, new HttpClient(), new VerboseLogger(false));
 
         var symbols = Assert.Single(result.AuditSignals!, s => s.Signal == "Symbols");
-        Assert.Equal("embedded PDBs (1), in-package PDBs (1), .snupkg PDBs (1), msdl.microsoft.com PDBs (1)", symbols.Evidence);
+        Assert.Equal("embedded PDBs (1), PDBs from package (1), PDBs from .snupkg (1), PDBs from msdl.microsoft.com (1)", symbols.Evidence);
     }
 
     [Fact]
