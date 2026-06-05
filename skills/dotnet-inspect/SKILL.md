@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.9.1
+version: 0.9.2
 description: Query .NET APIs across NuGet packages, platform libraries, and local files. Use for factual answers about package contents, API signatures, compatibility changes, relationships, SourceLink, and assembly metadata.
 ---
 
@@ -14,7 +14,7 @@ Invoke through `dnx` unless the tool is already installed:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use `--oneline` to scan, `--json` for structured data, `--count` to count one selected table section, `--rows -n N` to cap rendered table rows, and `-v:d` when you need source/decompiled C#/IL detail.
+Default output is Markdown. Use `--oneline` to scan, `--json` for structured data, `--count` to count one selected table section, `--rows -n N` or shorthand like `--rows -6` to cap data rows per rendered Markdown table while keeping headers/sections, and `-v:d` when you need source/decompiled C#/IL detail.
 
 ## Workflow map
 
@@ -27,7 +27,7 @@ Default output is Markdown. Use `--oneline` to scan, `--json` for structured dat
 | Inspect package/library signals | `library Foo -S Signals` or `package Foo -S Signals` | `Signals` resolves SourceLink for libraries; add `-S "SourceLink Availability"` for source reachability or `-S "SourceLink Integrity"` for slow content verification. |
 | Inventory package library files | `package Foo -S "Library Files"` | Lists all files under `lib/` across TFMs; use paths from this section with `library <file> --package Foo` for specific assemblies. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
-| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--rows -n N` | Prefer built-in limits over shell pipes. |
+| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
 
 ## Modern .NET and preview workflow
 
@@ -39,7 +39,7 @@ LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspect
 | Runtime-pack assemblies | Many BCL libraries ship only as installed platform/runtime-pack assemblies, not standalone packages. | `library --platform Lib --version <version>` or direct DLL path | Prefer platform/direct DLL inspection when package lookup is misleading. |
 | Memory-safety metadata | Newer compilers may stamp updated memory-safety rules and caller-unsafe members in metadata. | `library Lib --version <version> -S Signals` | Compare `MemorySafetyRules` v2+ with the `RequiresUnsafe` member count; unsafe signatures and P/Invoke remain separate signals. |
 | Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
-| Lowering changes | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -v:d` | Inspect Source, Lowered C#, IL, and annotated IL before inferring behavior. |
+| Implementation detail | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -v:d` | Prefer SourceLink source when available; use Lowered C# for readable control-flow intent and IL/annotated IL for exact instructions. |
 
 For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest.
 
@@ -84,6 +84,8 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serial
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
 
+Fidelity expectations: SourceLink source is the original source when available. Lowered C# is a best-effort, readable reconstruction from IL that helps explain intent but is not guaranteed to match original syntax, local names, or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
+
 ## Package and library Signals workflow
 
 Use `Signals` for metadata and provenance observations. It reports observations, not a safety or trust verdict. Cost follows verbosity and explicit selection: `library X -S Signals` reports metadata plus the shared Signals section (acquiring a missing library PDB to resolve SourceLink); add `SourceLink Availability` and `SourceLink Missing Files` for the per-source-file reachability pass. The exhaustive content check is the opt-in `SourceLink Integrity` section.
@@ -94,6 +96,8 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Signals,SourceLink Availab
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink Integrity"
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
 ```
+
+For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 
 Library Signals include assembly metadata such as SourceLink presence, SourceLink availability, SourceLink CR/LF diagnostics, determinism, trim/AOT markers, updated memory-safety model, `RequiresUnsafe` member count, unsafe signatures, P/Invoke, and direct references. Package Signals use the same shape for package metadata/assets, dependencies, signature provenance, and NuGet registry observations. `library X -S Signals` resolves SourceLink by acquiring a missing PDB. The per-source-file reachability pass — SourceLink Availability and SourceLink Missing Files, which issue one HTTP HEAD per tracked source URL — is opt-in: select it explicitly with `-S "SourceLink Availability"`. It does not run in a plain `library X -v:d` flow because its cost scales with source-file count. To verify source *content*, select `library X -S "SourceLink Integrity"`: it downloads each tracked source file and compares its hash to the PDB checksum, exits non-zero on true content mismatch, and reports `CR/LF Mismatch` when checksums match after line-ending normalization.
 
@@ -109,9 +113,12 @@ Discover sections, then select or project fields.
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -S Methods --columns "Name;Signature;Obsolete"
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
+dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
 For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. `-S`, `--columns`, and `--fields` accept comma-separated or semicolon-separated lists. In `--schema` section output, `section (opt-in)` means the section never runs from normal verbosity; select it explicitly with `-S` when needed, or use `-S All` to include all sections including opt-in sections. Use `--count` only when exactly one selected section should produce a row count.
+
+`-n N` and shorthand values like `-6` normally limit output lines. Add `--rows` to reinterpret that head count as data rows per rendered Markdown table; this preserves headings/table headers and applies independently to each table. `--rows` requires `-n/--head` or numeric shorthand and cannot be combined with `--tail`. Prefer `--rows` over shell `head` when you need parseable Markdown tables.
 
 ## Relationship workflow
 
