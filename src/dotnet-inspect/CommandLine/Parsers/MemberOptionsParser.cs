@@ -78,15 +78,11 @@ public static class MemberOptionsParser
         SharedOptions opts,
         MemberCommandArgs args)
     {
-        var argsValue = parseResult.GetValue(args.ArgsArg) ?? [];
-        var explicitPackage = parseResult.GetValue(args.PackageOption);
-        var explicitAssembly = parseResult.GetValue(args.AssemblyOption);
-        var explicitPlatform = parseResult.GetValue(args.PlatformOption);
-        bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
-        bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
+        var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
+            parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
 
         // Handle projection discovery or help
-        if (argsValue.Length == 0 && !hasExplicitSource)
+        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -95,15 +91,15 @@ public static class MemberOptionsParser
 
         // Extract positional members
         List<string> positionalMembers = [];
-        if (hasExplicitSource && argsValue.Length >= 2)
-            positionalMembers.AddRange(argsValue[1..]);
-        else if (!hasExplicitSource && argsValue.Length >= 3)
-            positionalMembers.AddRange(argsValue[2..]);
+        if (sourceInputs.HasExplicitSource && sourceInputs.Args.Length >= 2)
+            positionalMembers.AddRange(sourceInputs.Args[1..]);
+        else if (!sourceInputs.HasExplicitSource && sourceInputs.Args.Length >= 3)
+            positionalMembers.AddRange(sourceInputs.Args[2..]);
 
         // Resolve source
-        var source = await SourceResolver.ResolveAsync(
-            argsValue, explicitPackage, explicitAssembly, explicitPlatform,
-            parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+        var sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
+            sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+        var source = sourceSelection.Source;
 
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
@@ -111,7 +107,7 @@ public static class MemberOptionsParser
         // If source resolution left us with an unresolved package that is actually
         // a qualified type name (e.g., "System.Text.Json.JsonDocument"), split it
         // so the user can write: member System.Text.Json.JsonDocument Parse
-        if (explicitPackage == null && source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
+        if (sourceSelection.ExplicitPackage == null && source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
         {
             var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
             if (probe != null)
@@ -135,12 +131,11 @@ public static class MemberOptionsParser
         // not a type.member pair.
         if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
         {
-            var lastDot = typeName.LastIndexOf('.');
-            var rightPart = typeName[(lastDot + 1)..];
-            if (!rightPart.Contains('<'))
+            var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
+            if (splitMemberName != null)
             {
-                positionalMembers.Add(rightPart);
-                typeName = typeName[..lastDot];
+                positionalMembers.Add(splitMemberName);
+                typeName = splitTypeName;
             }
         }
 

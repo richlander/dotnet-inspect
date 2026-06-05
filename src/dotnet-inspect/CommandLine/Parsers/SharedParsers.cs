@@ -1,3 +1,7 @@
+using System.CommandLine;
+using System.CommandLine.Parsing;
+using DotnetInspector.Services;
+
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
@@ -7,6 +11,78 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class SharedParsers
 {
+    public sealed record SourceSelection(
+        string[] Args,
+        string? ExplicitPackage,
+        string? ExplicitAssembly,
+        string? ExplicitPlatform,
+        bool IsLibrarySelector,
+        bool HasExplicitSource,
+        SourceResolver.ResolvedSource Source);
+
+    public sealed record SourceSelectionInputs(
+        string[] Args,
+        string? ExplicitPackage,
+        string? ExplicitAssembly,
+        string? ExplicitPlatform,
+        bool IsLibrarySelector,
+        bool HasExplicitSource);
+
+    public static SourceSelectionInputs ReadSourceSelectionInputs(
+        ParseResult parseResult,
+        Argument<string[]> argsArg,
+        Option<string?> packageOption,
+        Option<string?> assemblyOption,
+        Option<string?> platformOption)
+    {
+        var argsValue = parseResult.GetValue(argsArg) ?? [];
+        var explicitPackage = parseResult.GetValue(packageOption);
+        var explicitAssembly = parseResult.GetValue(assemblyOption);
+        var explicitPlatform = parseResult.GetValue(platformOption);
+        bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
+        bool hasExplicitSource = SourceResolver.HasExplicitSource(
+            explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
+
+        return new SourceSelectionInputs(
+            argsValue,
+            explicitPackage,
+            explicitAssembly,
+            explicitPlatform,
+            isLibrarySelector,
+            hasExplicitSource);
+    }
+
+    public static async Task<SourceSelection> ResolveSourceSelectionAsync(
+        SourceSelectionInputs inputs,
+        bool verbose,
+        bool tryQualifiedTypeName)
+    {
+        var source = await SourceResolver.ResolveAsync(
+            inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
+            verbose, tryQualifiedTypeName).ConfigureAwait(false);
+
+        return new SourceSelection(
+            inputs.Args,
+            inputs.ExplicitPackage,
+            inputs.ExplicitAssembly,
+            inputs.ExplicitPlatform,
+            inputs.IsLibrarySelector,
+            inputs.HasExplicitSource,
+            source);
+    }
+
+    public static (string TypeName, string? MemberName) SplitTrailingMember(string typeName)
+    {
+        var lastDot = typeName.LastIndexOf('.');
+        if (lastDot <= 0)
+            return (typeName, null);
+
+        var rightPart = typeName[(lastDot + 1)..];
+        return rightPart.Contains('<')
+            ? (typeName, null)
+            : (typeName[..lastDot], rightPart);
+    }
+
     /// <summary>
     /// Parses member filter values where a single numeric value means limit,
     /// otherwise values are treated as filter names.

@@ -75,15 +75,11 @@ public static class TypeOptionsParser
         SharedOptions opts,
         TypeCommandArgs args)
     {
-        var argsValue = parseResult.GetValue(args.ArgsArg) ?? [];
-        var explicitPackage = parseResult.GetValue(args.PackageOption);
-        var explicitAssembly = parseResult.GetValue(args.AssemblyOption);
-        var explicitPlatform = parseResult.GetValue(args.PlatformOption);
-        bool isLibrarySelector = SourceResolver.IsLibrarySelector(explicitAssembly, explicitPackage);
-        bool hasExplicitSource = SourceResolver.HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
+        var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
+            parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
 
         // Handle projection discovery or help
-        if (argsValue.Length == 0 && !hasExplicitSource)
+        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -91,14 +87,14 @@ public static class TypeOptionsParser
         }
 
         // Check for unrecognized options in positional args
-        var badOption = argsValue.FirstOrDefault(a => a.StartsWith('-'));
+        var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
         // Resolve source
-        var source = await SourceResolver.ResolveAsync(
-            argsValue, explicitPackage, explicitAssembly, explicitPlatform,
-            parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+        var sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
+            sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+        var source = sourceSelection.Source;
 
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);

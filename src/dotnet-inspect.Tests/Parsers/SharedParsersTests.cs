@@ -1,4 +1,5 @@
 using DotnetInspector.CommandLine;
+using System.CommandLine;
 
 namespace DotnetInspector.Tests.Parsers;
 
@@ -158,6 +159,35 @@ public class SharedParsersTests
         Assert.Equal("Deserialize", member);
     }
 
+    // ── SplitTrailingMember ───────────────────────────────────────────────
+
+    [Fact]
+    public void SplitTrailingMember_SplitsSimpleMember()
+    {
+        var (typeName, memberName) = SharedParsers.SplitTrailingMember("System.Text.Json.JsonSerializer.Deserialize");
+
+        Assert.Equal("System.Text.Json.JsonSerializer", typeName);
+        Assert.Equal("Deserialize", memberName);
+    }
+
+    [Fact]
+    public void SplitTrailingMember_DoesNotSplitGenericTypeSuffix()
+    {
+        var (typeName, memberName) = SharedParsers.SplitTrailingMember("System.Collections.Generic.List<T>");
+
+        Assert.Equal("System.Collections.Generic.List<T>", typeName);
+        Assert.Null(memberName);
+    }
+
+    [Fact]
+    public void SplitTrailingMember_NoDot_ReturnsOriginal()
+    {
+        var (typeName, memberName) = SharedParsers.SplitTrailingMember("JsonSerializer");
+
+        Assert.Equal("JsonSerializer", typeName);
+        Assert.Null(memberName);
+    }
+
     // ── ParseTypeFilter ──────────────────────────────────────────────────
 
     [Fact]
@@ -313,5 +343,52 @@ public class SharedParsersTests
         Assert.Equal(2, result.Length);
         Assert.Equal("string", result[0]);
         Assert.Equal("int", result[1]);
+    }
+
+    // ── Source selection ──────────────────────────────────────────────────
+
+    [Fact]
+    public void ReadSourceSelectionInputs_ExplicitPackage_IsExplicitSource()
+    {
+        var root = new RootCommand();
+        var argsArg = new Argument<string[]>("args") { Arity = ArgumentArity.ZeroOrMore };
+        var packageOption = new Option<string?>("--package");
+        var assemblyOption = new Option<string?>("--library");
+        var platformOption = new Option<string?>("--platform");
+        root.Arguments.Add(argsArg);
+        root.Options.Add(packageOption);
+        root.Options.Add(assemblyOption);
+        root.Options.Add(platformOption);
+
+        var result = root.Parse(["JsonSerializer", "--package", "System.Text.Json"]);
+        var inputs = SharedParsers.ReadSourceSelectionInputs(
+            result, argsArg, packageOption, assemblyOption, platformOption);
+
+        Assert.True(inputs.HasExplicitSource);
+        Assert.False(inputs.IsLibrarySelector);
+        Assert.Equal(["JsonSerializer"], inputs.Args);
+        Assert.Equal("System.Text.Json", inputs.ExplicitPackage);
+    }
+
+    [Fact]
+    public void ReadSourceSelectionInputs_LibrarySelector_IsNotExplicitSource()
+    {
+        var root = new RootCommand();
+        var argsArg = new Argument<string[]>("args") { Arity = ArgumentArity.ZeroOrMore };
+        var packageOption = new Option<string?>("--package");
+        var assemblyOption = new Option<string?>("--library");
+        var platformOption = new Option<string?>("--platform");
+        root.Arguments.Add(argsArg);
+        root.Options.Add(packageOption);
+        root.Options.Add(assemblyOption);
+        root.Options.Add(platformOption);
+
+        var result = root.Parse(["JsonSerializer", "--library", "System.Text.Json.dll"]);
+        var inputs = SharedParsers.ReadSourceSelectionInputs(
+            result, argsArg, packageOption, assemblyOption, platformOption);
+
+        Assert.True(inputs.IsLibrarySelector);
+        Assert.False(inputs.HasExplicitSource);
+        Assert.Equal("System.Text.Json.dll", inputs.ExplicitAssembly);
     }
 }
