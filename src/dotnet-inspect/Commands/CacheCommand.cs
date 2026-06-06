@@ -73,7 +73,19 @@ public class CacheCommand
 
     private static int ClearSession(string sessionName)
     {
+        if (!IsSafeSessionName(sessionName))
+        {
+            Console.Error.WriteLine("Error: Session name must not contain path separators or traversal.");
+            return 1;
+        }
+
         var sessionPath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
+        if (!IsUnderTempDirectory(sessionPath))
+        {
+            Console.Error.WriteLine("Error: Refusing to clear session outside the temporary directory.");
+            return 1;
+        }
+
         if (!Directory.Exists(sessionPath))
         {
             Console.WriteLine($"Session '{sessionName}' not found.");
@@ -93,6 +105,26 @@ public class CacheCommand
         {
             Console.Error.WriteLine($"Error clearing session '{sessionName}': {ex.Message}");
             return 1;
+        }
+    }
+
+    private static bool IsSafeSessionName(string sessionName) =>
+        !string.IsNullOrWhiteSpace(sessionName)
+        && !sessionName.Contains("..", StringComparison.Ordinal)
+        && sessionName.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, Path.VolumeSeparatorChar]) < 0;
+
+    private static bool IsUnderTempDirectory(string path)
+    {
+        try
+        {
+            var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            var tempRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+            return fullPath.StartsWith(tempRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(tempRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 

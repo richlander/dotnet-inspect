@@ -181,6 +181,7 @@ public static class NuGetCache
             // Remove incomplete cache if exists
             if (Directory.Exists(targetPath))
             {
+                CoreCache.EnsurePathInCacheContext(targetPath);
                 Directory.Delete(targetPath, recursive: true);
             }
 

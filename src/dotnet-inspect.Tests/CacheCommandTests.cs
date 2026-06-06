@@ -75,4 +75,22 @@ public class CacheCommandTests : IDisposable
         Assert.True(result.BytesFreed > 0);
         Assert.True(result.DirectoriesDeleted >= 1);
     }
+
+    [Fact]
+    public void CoreCache_Clear_RejectsTraversalOutsideCacheRoot()
+    {
+        Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithInvalidSessionName_ReturnsError()
+    {
+        var options = new CacheOptions(Clean: true, Verbose: false, Session: "../user-data");
+
+        var (result, _, error) = await ConsoleCapture.RunAsync(
+            () => CacheCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, result);
+        Assert.Contains("Session name must not contain path separators", error);
+    }
 }
