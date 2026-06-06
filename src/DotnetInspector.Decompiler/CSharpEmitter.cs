@@ -1404,7 +1404,7 @@ public static class CSharpEmitter
 
         bool TryEmitNullConditionalAssignment(StructuredBlock block, string condition, int indent)
         {
-            if (block.ElseBlock is not null)
+            if (block.ElseBlock is not null && !IsTerminalNullPath(block, block.ElseBlock))
                 return false;
             if (!TryParseNotNullCondition(condition, out string? receiver))
                 return false;
@@ -1438,6 +1438,8 @@ public static class CSharpEmitter
                 _consumedBlocks.Add(consumedBlockIndex);
                 RemoveGotoTargetsForConsumedBlock(consumedBlockIndex);
             }
+            if (block.ElseBlock is not null)
+                ConsumeStructuredBlock(block.ElseBlock);
 
             return true;
         }
@@ -1477,6 +1479,8 @@ public static class CSharpEmitter
             if (blockIdx < 0 || !_blockMap.TryGetValue(blockIdx, out var astBlock))
                 return false;
 
+            var receiverAliases = new HashSet<string> { receiver };
+            var consumedReceiverAliases = new HashSet<string>();
             foreach (var node in astBlock.Nodes)
             {
                 if (node is ILAstStatement { Expression: var expr })
@@ -1484,11 +1488,17 @@ public static class CSharpEmitter
                     if (IsIgnorableNullConditionalAssignmentNode(expr))
                         continue;
 
+                    if (TryAddReceiverAlias(expr, receiverAliases, out string? receiverAlias))
+                    {
+                        consumedReceiverAliases.Add(receiverAlias);
+                        continue;
+                    }
+
                     if (value is not null)
                         return false;
                     if (!TryFormatNullConditionalAssignmentTarget(
                             expr,
-                            receiver,
+                            receiverAliases,
                             out targetSuffix,
                             out assignmentOperator,
                             out value,
@@ -1505,9 +1515,290 @@ public static class CSharpEmitter
 
             if (value is null)
                 return false;
+            if (consumedReceiverAliases.Count > 0
+                && (ReferencesAnyLocal(value, consumedReceiverAliases)
+                    || (targetSuffix is not null && ContainsAnyAliasText(targetSuffix, consumedReceiverAliases))
+                    || AliasUsedOutsideBlock(blockIdx, consumedReceiverAliases)))
+            {
+                return false;
+            }
 
             consumedBlockIndex = blockIdx;
             return true;
+        }
+
+        bool IsTerminalNullPath(StructuredBlock ifBlock, StructuredBlock elseBlock)
+        {
+            return TryGetTerminalNullPathTargetIndex(elseBlock, out int terminalBlockIndex)
+                && HasNoMeaningfulFollowingSiblings(ifBlock, terminalBlockIndex);
+        }
+
+        bool TryGetTerminalNullPathTargetIndex(StructuredBlock block, out int terminalBlockIndex)
+        {
+            terminalBlockIndex = -1;
+            if (!TryGetSingleBlockIndex(block, out int blockIdx)
+                || !_blockMap.TryGetValue(blockIdx, out var astBlock))
+            {
+                return false;
+            }
+
+            if (blockIdx == _ast.Blocks.Count - 1 && BlockIsVoidReturnOnly(astBlock))
+            {
+                terminalBlockIndex = blockIdx;
+                return true;
+            }
+
+            if (BlockBranchesOnlyToTerminalReturn(astBlock, out int targetBlockIndex))
+            {
+                terminalBlockIndex = targetBlockIndex;
+                return true;
+            }
+
+            return false;
+        }
+
+        bool TryGetSingleBlockIndex(StructuredBlock block, out int blockIdx)
+        {
+            blockIdx = block.BlockIndex;
+            if (blockIdx >= 0)
+                return true;
+
+            if (block.Kind == StructuredBlockKind.Sequence && block.Children.Count == 1)
+            {
+                blockIdx = block.Children[0].BlockIndex;
+                return blockIdx >= 0;
+            }
+
+            return false;
+        }
+
+        bool HasNoMeaningfulFollowingSiblings(StructuredBlock block, int terminalBlockIndex)
+        {
+            var parent = FindParentSequence(block);
+            if (parent is null)
+                return false;
+
+            int blockIndex = -1;
+            for (int i = 0; i < parent.Children.Count; i++)
+            {
+                if (ReferenceEquals(parent.Children[i], block))
+                {
+                    blockIndex = i;
+                    break;
+                }
+            }
+
+            if (blockIndex < 0)
+                return false;
+
+            for (int i = blockIndex + 1; i < parent.Children.Count; i++)
+            {
+                var sibling = parent.Children[i];
+                if (TryGetSingleBlockIndex(sibling, out int siblingBlockIndex)
+                    && siblingBlockIndex == terminalBlockIndex
+                    && _blockMap.TryGetValue(siblingBlockIndex, out var terminalBlock)
+                    && BlockIsVoidReturnOnly(terminalBlock))
+                {
+                    continue;
+                }
+
+                if (!BlockContainsOnlyNops(sibling))
+                    return false;
+            }
+
+            return true;
+        }
+
+        bool BlockContainsOnlyNops(StructuredBlock block)
+        {
+            foreach (var (_, node) in EnumerateStructuredNodes(block))
+            {
+                if (NodeExpression(node) is { OpCode: not ILOpCode.Nop })
+                    return false;
+            }
+
+            return true;
+        }
+
+        bool BlockIsVoidReturnOnly(ILAstBlock astBlock)
+        {
+            bool sawReturn = false;
+            foreach (var node in astBlock.Nodes)
+            {
+                if (node is not ILAstStatement { Expression: var expr })
+                    return false;
+                if (expr.OpCode == ILOpCode.Nop)
+                    continue;
+                if (expr.OpCode == ILOpCode.Ret && expr.Arguments.Count == 0)
+                {
+                    if (sawReturn)
+                        return false;
+                    sawReturn = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawReturn;
+        }
+
+        bool BlockBranchesOnlyToTerminalReturn(ILAstBlock astBlock, out int targetBlockIndex)
+        {
+            targetBlockIndex = -1;
+            string? target = null;
+            foreach (var node in astBlock.Nodes)
+            {
+                if (node is not ILAstStatement { Expression: var expr })
+                    return false;
+                if (expr.OpCode == ILOpCode.Nop)
+                    continue;
+                if (expr.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                        or ILOpCode.Leave or ILOpCode.Leave_s
+                    && expr.Operand is string branchTarget)
+                {
+                    if (target is not null)
+                        return false;
+                    target = branchTarget;
+                    continue;
+                }
+
+                return false;
+            }
+
+            if (target is null)
+                return false;
+
+            foreach (var (blockIdx, offset) in _blockStartOffset)
+            {
+                if ($"IL_{offset:X4}" != target)
+                    continue;
+                if (blockIdx == _ast.Blocks.Count - 1
+                    && _blockMap.TryGetValue(blockIdx, out var targetBlock)
+                    && BlockIsVoidReturnOnly(targetBlock))
+                {
+                    targetBlockIndex = blockIdx;
+                    return true;
+                }
+
+                return false;
+            }
+
+            return false;
+        }
+
+        void ConsumeStructuredBlock(StructuredBlock block)
+        {
+            if (block.BlockIndex >= 0)
+            {
+                _consumedBlocks.Add(block.BlockIndex);
+                RemoveGotoTargetsForConsumedBlock(block.BlockIndex);
+            }
+            foreach (var child in block.Children)
+                ConsumeStructuredBlock(child);
+            foreach (var child in block.TryChildren)
+                ConsumeStructuredBlock(child);
+            foreach (var child in block.HandlerChildren)
+                ConsumeStructuredBlock(child);
+            if (block.ThenBlock is not null)
+                ConsumeStructuredBlock(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ConsumeStructuredBlock(block.ElseBlock);
+        }
+
+        bool TryAddReceiverAlias(ILAstExpression expr, HashSet<string> receiverAliases, out string aliasName)
+        {
+            aliasName = "";
+            if (expr.OpCode is not (ILOpCode.Stloc or ILOpCode.Stloc_s
+                or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3))
+                return false;
+            if (expr.Arguments.Count != 1)
+                return false;
+            if (!TryGetSimpleReceiverString(expr.Arguments[0], out string? assignedReceiver)
+                || assignedReceiver is null
+                || !receiverAliases.Contains(assignedReceiver))
+                return false;
+
+            aliasName = expr.Operand ?? GetLocalName(expr.OpCode);
+            receiverAliases.Add(aliasName);
+            return true;
+        }
+
+        static bool ReferencesAnyLocal(ILAstExpression expr, HashSet<string> localNames)
+        {
+            if (GetLocalReferenceName(expr) is { } localName && localNames.Contains(localName))
+                return true;
+
+            foreach (var arg in expr.Arguments)
+            {
+                if (ReferencesAnyLocal(arg, localNames))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static bool ContainsAnyAliasText(string text, HashSet<string> aliases)
+            => aliases.Any(alias => text.Contains(alias, StringComparison.Ordinal));
+
+        static bool IsSideEffectFreeIndexExpression(ILAstExpression expr)
+        {
+            if (IsLdcI4(expr.OpCode))
+                return true;
+            if (expr.OpCode is ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
+                or ILOpCode.Ldarg_3 or ILOpCode.Ldarg_s or ILOpCode.Ldarg
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2
+                or ILOpCode.Ldloc_3 or ILOpCode.Ldloc_s or ILOpCode.Ldloc)
+            {
+                return true;
+            }
+
+            if (expr.OpCode is ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul
+                or ILOpCode.Div or ILOpCode.Rem
+                or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
+                or ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un
+                or ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4
+                or ILOpCode.Conv_u1 or ILOpCode.Conv_u2 or ILOpCode.Conv_u4
+                or ILOpCode.Conv_i8 or ILOpCode.Conv_u8)
+            {
+                return expr.Arguments.All(IsSideEffectFreeIndexExpression);
+            }
+
+            return false;
+        }
+
+        bool AliasUsedOutsideBlock(int consumedBlockIndex, HashSet<string> aliases)
+        {
+            for (int i = 0; i < _ast.Blocks.Count; i++)
+            {
+                if (i == consumedBlockIndex)
+                    continue;
+
+                foreach (var node in _ast.Blocks[i].Nodes)
+                {
+                    if (NodeReferencesAnyLocal(node, aliases))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        static bool NodeReferencesAnyLocal(ILAstNode node, HashSet<string> aliases) => node switch
+        {
+            ILAstAssignment assign => aliases.Contains(assign.Variable.Name) || ReferencesAnyLocal(assign.Value, aliases),
+            ILAstStatement { Expression: var expr } => IsStoreToAnyLocal(expr, aliases) || ReferencesAnyLocal(expr, aliases),
+            _ => false
+        };
+
+        static bool IsStoreToAnyLocal(ILAstExpression expr, HashSet<string> aliases)
+        {
+            if (expr.OpCode is not (ILOpCode.Stloc or ILOpCode.Stloc_s
+                or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3))
+                return false;
+
+            string name = expr.Operand ?? GetLocalName(expr.OpCode);
+            return aliases.Contains(name);
         }
 
         static bool IsIgnorableNullConditionalAssignmentNode(ILAstExpression expr)
@@ -1516,7 +1807,7 @@ public static class CSharpEmitter
 
         bool TryFormatNullConditionalAssignmentTarget(
             ILAstExpression expr,
-            string receiver,
+            HashSet<string> receiverAliases,
             out string? targetSuffix,
             out string? assignmentOperator,
             out ILAstExpression? value,
@@ -1530,14 +1821,15 @@ public static class CSharpEmitter
             if (expr.OpCode == ILOpCode.Stfld && expr.Arguments.Count >= 2)
             {
                 if (!TryGetSimpleReceiverString(expr.Arguments[0], out string? actualReceiver)
-                    || actualReceiver != receiver)
+                    || actualReceiver is null
+                    || !receiverAliases.Contains(actualReceiver))
                     return false;
 
                 targetSuffix = $"?.{ExtractMemberName(expr.Operand)}";
                 expectedType = TryResolveFieldType(expr.Operand);
                 if (TryExtractCompoundAssignmentValue(
                         expr.Arguments[1],
-                        receiver,
+                        receiverAliases,
                         memberName: ExtractMemberName(expr.Operand),
                         indexExpression: null,
                         out assignmentOperator,
@@ -1554,7 +1846,8 @@ public static class CSharpEmitter
             if (IsStelemOpCode(expr.OpCode) && expr.Arguments.Count >= 3)
             {
                 if (!TryGetSimpleReceiverString(expr.Arguments[0], out string? actualReceiver)
-                    || actualReceiver != receiver)
+                    || actualReceiver is null
+                    || !receiverAliases.Contains(actualReceiver))
                     return false;
 
                 targetSuffix = $"?[{ExpressionToString(expr.Arguments[1])}]";
@@ -1571,24 +1864,40 @@ public static class CSharpEmitter
                 if (memberName.StartsWith("set_", StringComparison.Ordinal)
                     && expr.Arguments.Count >= 2
                     && TryGetSimpleReceiverString(expr.Arguments[0], out string? actualReceiver)
-                    && actualReceiver == receiver)
+                && actualReceiver is not null
+                && receiverAliases.Contains(actualReceiver))
                 {
-                    if (memberName == "set_Item" && expr.Arguments.Count >= 3)
+                if (memberName == "set_Item" && expr.Arguments.Count >= 3)
+                {
+                    if (!IsSideEffectFreeIndexExpression(expr.Arguments[1]))
+                        return false;
+
+                    string indexExpression = ExpressionToString(expr.Arguments[1]);
+                    targetSuffix = $"?[{indexExpression}]";
+                    if (TryExtractCompoundAssignmentValue(
+                            expr.Arguments[2],
+                            receiverAliases,
+                            memberName: "Item",
+                            indexExpression,
+                            out assignmentOperator,
+                            out value))
                     {
-                        targetSuffix = $"?[{ExpressionToString(expr.Arguments[1])}]";
-                        assignmentOperator = "=";
-                        value = expr.Arguments[2];
+                        return true;
                     }
-                    else
-                    {
-                        string propertyName = memberName[4..];
-                        targetSuffix = $"?.{propertyName}";
-                        if (TryExtractCompoundAssignmentValue(
-                                expr.Arguments[1],
-                                receiver,
-                                propertyName,
-                                indexExpression: null,
-                                out assignmentOperator,
+
+                    assignmentOperator = "=";
+                    value = expr.Arguments[2];
+                }
+                else
+                {
+                    string propertyName = memberName[4..];
+                    targetSuffix = $"?.{propertyName}";
+                    if (TryExtractCompoundAssignmentValue(
+                            expr.Arguments[1],
+                            receiverAliases,
+                            propertyName,
+                            indexExpression: null,
+                            out assignmentOperator,
                                 out value))
                         {
                             return true;
@@ -1607,7 +1916,7 @@ public static class CSharpEmitter
 
         bool TryExtractCompoundAssignmentValue(
             ILAstExpression assignedValue,
-            string receiver,
+            HashSet<string> receiverAliases,
             string memberName,
             string? indexExpression,
             out string? assignmentOperator,
@@ -1620,7 +1929,7 @@ public static class CSharpEmitter
                 return false;
             if (CompoundAssignmentOperator(assignedValue.OpCode) is not { } op)
                 return false;
-            if (!IsSameMemberRead(assignedValue.Arguments[0], receiver, memberName, indexExpression))
+            if (!IsSameMemberRead(assignedValue.Arguments[0], receiverAliases, memberName, indexExpression))
                 return false;
 
             assignmentOperator = $"{op}=";
@@ -1628,10 +1937,16 @@ public static class CSharpEmitter
             return true;
         }
 
-        bool IsSameMemberRead(ILAstExpression expr, string receiver, string memberName, string? indexExpression)
+        bool IsSameMemberRead(ILAstExpression expr, HashSet<string> receiverAliases, string memberName, string? indexExpression)
         {
+            string rendered = ExpressionToString(expr);
             if (indexExpression is null
-                && ExpressionToString(expr) == $"{receiver}.{memberName}")
+                && receiverAliases.Any(receiver => rendered == $"{receiver}.{memberName}"))
+            {
+                return true;
+            }
+            if (indexExpression is not null
+                && receiverAliases.Any(receiver => rendered == $"{receiver}[{indexExpression}]"))
             {
                 return true;
             }
@@ -1641,7 +1956,8 @@ public static class CSharpEmitter
                 && ExtractMemberName(expr.Operand) == memberName
                 && expr.Arguments.Count > 0
                 && TryGetSimpleReceiverString(expr.Arguments[0], out string? fieldReceiver)
-                && fieldReceiver == receiver)
+                && fieldReceiver is not null
+                && receiverAliases.Contains(fieldReceiver))
             {
                 return true;
             }
@@ -1655,7 +1971,18 @@ public static class CSharpEmitter
                 if (indexExpression is null
                     && readMember == $"get_{memberName}"
                     && TryGetSimpleReceiverString(expr.Arguments[0], out string? propertyReceiver)
-                    && propertyReceiver == receiver)
+                    && propertyReceiver is not null
+                    && receiverAliases.Contains(propertyReceiver))
+                {
+                    return true;
+                }
+                if (indexExpression is not null
+                    && readMember is "get_Item" or "get_Chars"
+                    && expr.Arguments.Count >= 2
+                    && TryGetSimpleReceiverString(expr.Arguments[0], out string? indexerReceiver)
+                    && indexerReceiver is not null
+                    && receiverAliases.Contains(indexerReceiver)
+                    && ExpressionToString(expr.Arguments[1]) == indexExpression)
                 {
                     return true;
                 }
