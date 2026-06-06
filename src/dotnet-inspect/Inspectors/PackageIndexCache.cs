@@ -38,7 +38,10 @@ internal static class PackageIndexCache
                 Description = doc.GetString("description"),
                 Authors = doc.GetString("authors"),
                 License = doc.GetString("license"),
+                LicenseUrl = doc.GetString("licenseUrl"),
                 Repository = doc.GetString("repository"),
+                RepositoryType = doc.GetString("repositoryType"),
+                RepositoryCommit = doc.GetString("repositoryCommit"),
                 ReadmeFile = doc.GetString("readmeFile"),
                 HasReadme = doc.GetBool("hasReadme"),
                 IsToolPackage = doc.GetBool("isToolPackage"),
@@ -123,6 +126,10 @@ internal static class PackageIndexCache
         WriteField(buf, "description"u8, result.Description);
         WriteField(buf, "authors"u8, result.Authors);
         WriteField(buf, "license"u8, result.License);
+        WriteField(buf, "licenseUrl"u8, result.LicenseUrl);
+        WriteField(buf, "repository"u8, result.Repository);
+        WriteField(buf, "repositoryType"u8, result.RepositoryType);
+        WriteField(buf, "repositoryCommit"u8, result.RepositoryCommit);
         WriteField(buf, "assemblyCount"u8, result.AssemblyCount);
         WriteField(buf, "hasReadme"u8, result.HasReadme);
         WriteField(buf, "isToolPackage"u8, result.IsToolPackage);
@@ -146,7 +153,6 @@ internal static class PackageIndexCache
             WriteField(buf, "msdlSourceLinkPdbs"u8, binarySignals.MsdlSourceLinkPdbs);
             WriteField(buf, "otherSourceLinkPdbs"u8, binarySignals.OtherSourceLinkPdbs);
         }
-        WriteField(buf, "repository"u8, result.Repository);
         WriteField(buf, "readmeFile"u8, result.ReadmeFile);
         WriteField(buf, "toolFormat"u8, result.ToolFormat);
         WriteField(buf, "runtimeTargetRid"u8, result.RuntimeTargetRid);
