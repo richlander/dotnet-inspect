@@ -129,7 +129,8 @@ public static class MemberOptionsParser
         //   → source=System.Text.Json, type=JsonDocument, member=Parse
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
+        var optionMembers = parseResult.GetValue(args.MemberOption) ?? [];
+        if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0 && optionMembers.Length == 0)
         {
             var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
             if (splitMemberName != null)
@@ -145,8 +146,7 @@ public static class MemberOptionsParser
             return new UnrecognizedOption(badOption);
 
         // Combine -m option with positional members
-        var members = parseResult.GetValue(args.MemberOption) ?? [];
-        var allMembers = members.Concat(positionalMembers).ToArray();
+        var allMembers = optionMembers.Concat(positionalMembers).ToArray();
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
