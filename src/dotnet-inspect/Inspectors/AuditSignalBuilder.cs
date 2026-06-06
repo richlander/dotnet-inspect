@@ -4,7 +4,6 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
-using NuGetFetch;
 
 namespace DotnetInspector.Inspectors;
 

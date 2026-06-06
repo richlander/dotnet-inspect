@@ -4,8 +4,6 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
-using NuGetFetch;
-using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
 
@@ -226,7 +224,7 @@ public static class PackageExtractor
     /// </summary>
     public static async Task<string?> GetPackageDownloadUrlAsync(
         HttpClient client,
-        NuGetSource source,
+        PackageSource source,
         string packageName,
         string version,
         Action<string>? log)
@@ -258,7 +256,7 @@ public static class PackageExtractor
     /// otherwise unparseable URLs return false — they cannot be queried by the
     /// remote-only operations in this class.
     /// </summary>
-    private static bool IsHttpSource(NuGetSource source) =>
+    private static bool IsHttpSource(PackageSource source) =>
         Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
         && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
@@ -267,7 +265,7 @@ public static class PackageExtractor
     /// </summary>
     private static async Task<string?> GetPackageBaseAddressAsync(
         HttpClient client,
-        NuGetSource source,
+        PackageSource source,
         Action<string>? log)
     {
         // Skip non-HTTP sources (e.g. local folder feeds from NuGet.Config).
@@ -382,7 +380,7 @@ public static class PackageExtractor
     public static async Task<string?> GetLatestVersionAsync(
         HttpClient client,
         string packageName,
-        List<NuGetSource> sources,
+        List<PackageSource> sources,
         Action<string>? log,
         bool skipCache = false,
         bool includePrerelease = false)
@@ -424,7 +422,7 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         string pattern,
-        List<NuGetSource> sources,
+        List<PackageSource> sources,
         Action<string>? log)
     {
         string normalizedName = packageName.ToLowerInvariant();
@@ -464,7 +462,7 @@ public static class PackageExtractor
     private static async Task<List<string>?> FetchAllVersionsFromSourceAsync(
         HttpClient client,
         string packageName,
-        NuGetSource source,
+        PackageSource source,
         Action<string>? log)
     {
         var auth = source.GetAuthHeader();
@@ -526,7 +524,7 @@ public static class PackageExtractor
     private static async Task<string?> GetLatestVersionFromSourceAsync(
         HttpClient client,
         string packageName,
-        NuGetSource source,
+        PackageSource source,
         Action<string>? log,
         bool includePrerelease)
     {
@@ -678,7 +676,7 @@ public static class PackageExtractor
     private static async Task<List<string>?> GetAllVersionsWithCacheAsync(
         HttpClient client,
         string normalizedName,
-        List<NuGetSource> sources,
+        List<PackageSource> sources,
         Action<string>? log)
     {
         // Cache only nuget.org's own version list (keyed by package name); custom/private

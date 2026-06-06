@@ -1,6 +1,5 @@
 using System.Text.Json;
 using DotnetInspector.Packages;
-using NuGetFetch;
 
 namespace DotnetInspector.Services;
 

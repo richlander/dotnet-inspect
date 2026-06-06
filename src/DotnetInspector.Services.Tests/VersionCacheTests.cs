@@ -1,7 +1,6 @@
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
-using NuGetFetch;
-using NuGetSource = NuGetFetch.PackageSource;
+using NuGetSource = DotnetInspector.Packages.PackageSource;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
 namespace DotnetInspector.Services.Tests;

@@ -4,7 +4,6 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
-using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 

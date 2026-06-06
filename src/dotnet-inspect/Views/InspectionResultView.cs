@@ -3,7 +3,6 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Markout;
-using NuGetFetch;
 
 namespace DotnetInspector.Views;
 

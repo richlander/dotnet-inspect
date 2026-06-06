@@ -23,6 +23,12 @@
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="NuGet.Frameworks" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Frameworks\bin\Release\net10.0\NuGet.Frameworks.dll" />
+    <Reference Include="NuGet.Packaging" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Packaging\bin\Release\net10.0\NuGet.Packaging.dll" />
+    <Reference Include="NuGet.Versioning" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Versioning\bin\Release\net10.0\NuGet.Versioning.dll" />
+  </ItemGroup>
+
   <!-- Use ProjectReference for local Markout development, PackageReference for releases -->
   <!-- ProjectReference: local development
   <ItemGroup>
@@ -32,7 +38,7 @@
   <!-- PackageReference: releases -->
   <ItemGroup>
     <PackageReference Include="MarkdownTable.Formatting" />
-    <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
 </Project>

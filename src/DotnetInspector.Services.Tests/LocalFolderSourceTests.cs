@@ -5,7 +5,7 @@ using System.Net;
 using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
-using NuGetSource = NuGetFetch.PackageSource;
+using NuGetSource = DotnetInspector.Packages.PackageSource;
 
 namespace DotnetInspector.Services.Tests;
 

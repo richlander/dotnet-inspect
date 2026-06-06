@@ -1,7 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using NuGetFetch;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using NuGet.Packaging;
+using NuGet.Packaging.Signing;
 
 namespace DotnetInspector.Services;
 
@@ -42,8 +45,7 @@ public record SignatureVerificationResult
 }
 
 /// <summary>
-/// Verifies NuGet package signatures using in-process CMS/X.509 verification
-/// via NuGetFetch's PackageSignatureVerifier.
+/// Verifies NuGet package signatures using NuGet.Packaging.
 /// </summary>
 public static class SignatureVerifier
 {
@@ -59,32 +61,54 @@ public static class SignatureVerifier
 
         try
         {
-            var result = PackageSignatureVerifier.VerifyPackage(nupkgPath);
-
-            return result.Status switch
+            using FileStream nupkgStream = File.OpenRead(nupkgPath);
+            using var reader = new PackageArchiveReader(nupkgStream);
+            if (!reader.IsSignedAsync(CancellationToken.None).GetAwaiter().GetResult())
             {
-                SignatureStatus.Unsigned => new SignatureVerificationResult
+                return new SignatureVerificationResult
                 {
                     IsUnsigned = true,
                     StatusMessage = "Package is not signed"
-                },
-                SignatureStatus.Invalid => new SignatureVerificationResult
+                };
+            }
+
+            PrimarySignature? signature = reader.GetPrimarySignatureAsync(CancellationToken.None).GetAwaiter().GetResult();
+            if (signature == null)
+            {
+                return new SignatureVerificationResult
                 {
-                    StatusMessage = $"Verification failed: {result.Reason}"
-                },
-                SignatureStatus.Valid => new SignatureVerificationResult
-                {
-                    // Only report publisher for author-signed packages;
-                    // for repo-only signatures the CN is the repository, not the author
-                    Publisher = result.SignatureType == SignatureType.Author ? result.Publisher : null,
-                    AuthorVerified = result.SignatureType == SignatureType.Author,
-                    RepositoryVerified = true, // nuget.org adds repo countersignature to all packages
-                    Repository = "nuget.org",
-                },
-                _ => new SignatureVerificationResult
-                {
-                    StatusMessage = "Unknown verification result"
-                }
+                    StatusMessage = "Verification failed: package signature could not be read"
+                };
+            }
+
+            reader.ValidateIntegrityAsync(signature.SignatureContent, CancellationToken.None).GetAwaiter().GetResult();
+
+            RepositoryCountersignature? repositoryCountersignature = RepositoryCountersignature.GetRepositoryCountersignature(signature);
+            bool isAuthorSignature = signature.Type == SignatureType.Author;
+            bool hasRepositorySignature = signature.Type == SignatureType.Repository || repositoryCountersignature != null;
+
+            return new SignatureVerificationResult
+            {
+                // Only report publisher for author-signed packages;
+                // for repo-only signatures the CN is the repository, not the author.
+                Publisher = isAuthorSignature ? GetCertificateDisplayName(signature.SignerInfo.Certificate) : null,
+                AuthorVerified = isAuthorSignature,
+                RepositoryVerified = hasRepositorySignature,
+                Repository = hasRepositorySignature ? "nuget.org" : null,
+            };
+        }
+        catch (CryptographicException ex)
+        {
+            return new SignatureVerificationResult
+            {
+                StatusMessage = $"Verification failed: {ex.Message}"
+            };
+        }
+        catch (SignatureException ex)
+        {
+            return new SignatureVerificationResult
+            {
+                StatusMessage = $"Verification failed: {ex.Message}"
             };
         }
         catch (Exception ex)
@@ -102,4 +126,7 @@ public static class SignatureVerifier
     /// </summary>
     public static Task<SignatureVerificationResult?> VerifyAsync(string nupkgPath) =>
         Task.FromResult(Verify(nupkgPath));
+
+    private static string? GetCertificateDisplayName(X509Certificate2? certificate)
+        => certificate?.GetNameInfo(X509NameType.SimpleName, forIssuer: false);
 }

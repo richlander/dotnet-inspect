@@ -55,6 +55,10 @@
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="NuGet.Versioning" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Versioning\bin\Release\net10.0\NuGet.Versioning.dll" />
+  </ItemGroup>
+
   <!--
     Markout references: Use ProjectReference for local development, PackageReference for releases.
     To switch: comment out one block and uncomment the other.
@@ -73,7 +77,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="ShellComplete" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>

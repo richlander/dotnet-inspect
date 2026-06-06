@@ -15,7 +15,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
-    <PackageReference Include="NuGetFetch" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="NuGet.Common" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Common\bin\Release\net10.0\NuGet.Common.dll" />
+    <Reference Include="NuGet.Configuration" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Configuration\bin\Release\net10.0\NuGet.Configuration.dll" />
+    <Reference Include="NuGet.Frameworks" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Frameworks\bin\Release\net10.0\NuGet.Frameworks.dll" />
+    <Reference Include="NuGet.Versioning" HintPath="..\..\..\NuGet.Client\artifacts\NuGet.Versioning\bin\Release\net10.0\NuGet.Versioning.dll" />
   </ItemGroup>
 
   <ItemGroup>

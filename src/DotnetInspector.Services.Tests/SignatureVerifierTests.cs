@@ -1,6 +1,3 @@
-
-using NuGetFetch;
-
 namespace DotnetInspector.Services.Tests;
 
 /// <summary>
@@ -10,12 +7,6 @@ namespace DotnetInspector.Services.Tests;
 public class SignatureVerifierTests : IDisposable
 {
     private readonly HttpClient _http = new();
-    private readonly NuGetClient _client;
-
-    public SignatureVerifierTests()
-    {
-        _client = new NuGetClient(_http);
-    }
 
     public void Dispose() => _http.Dispose();
 
@@ -128,7 +119,12 @@ public class SignatureVerifierTests : IDisposable
     private async Task<string> DownloadPackageAsync(string id, string version)
     {
         string path = Path.Combine(Path.GetTempPath(), $"{id}.{version}.nupkg");
-        await _client.DownloadToFileAsync(id, version, path);
+        string normalizedId = id.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+        string url = $"https://api.nuget.org/v3-flatcontainer/{normalizedId}/{normalizedVersion}/{normalizedId}.{normalizedVersion}.nupkg";
+        await using Stream source = await _http.GetStreamAsync(url);
+        await using FileStream destination = File.Create(path);
+        await source.CopyToAsync(destination);
         return path;
     }
 }
