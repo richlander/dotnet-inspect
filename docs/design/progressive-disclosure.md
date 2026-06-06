@@ -39,7 +39,9 @@ Section selection does two things:
 - It controls rendering.
 - It applies backpressure to data collection, so only scanners needed for requested sections run.
 
-For package and library output, selected sections keep a compact context row with key fields such as version, source, TFM, and size. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
+For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
+
+For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`.
 
 ## Discovery
 
@@ -82,7 +84,7 @@ dotnet-inspect package System.Text.Json --tail 8
 
 ## Opt-in sections
 
-Some sections are explicit-only because they are slow, network-heavy, or scale with source-file count.
+Some sections are explicit-only because they require stronger user intent than detailed verbosity can imply: they may fetch source content, scale with source-file count, or represent exhaustive/diagnostic work rather than a normal detailed view.
 
 Examples:
 
@@ -95,7 +97,7 @@ These sections do not run from normal verbosity or broad default output. Select 
 
 ## `-S All`
 
-`-S All` means "select every section the command exposes," including opt-in sections. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
+`-S All` means "select every section the command exposes," including opt-in sections. It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
 
 Prefer:
 

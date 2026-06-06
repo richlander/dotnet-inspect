@@ -132,17 +132,29 @@ public static class ApiOutputFormatter
     {
         var effectiveVerbosity = options.Verbosity;
 
-        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections);
+            type, effectiveVerbosity, options.IncludeSections, selectAll);
+        if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
+            && !includeSections.Contains(SectionNames.Summary))
+            includeSections = [SectionNames.Summary, .. includeSections];
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = effectiveVerbosity != Verbosity.Quiet,
+            IncludeDescription = effectiveVerbosity != Verbosity.Quiet && !ShouldRenderMemberDetailContext(options),
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
     }
+
+    internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
+        options is MemberOptions { OverloadIndex: not null }
+        && options.IncludeSections is { Count: > 0 }
+        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+        && !options.Count
+        && !options.JsonOutput
+        && !options.OneLine;
 
     // ===== Shape Output (--shape) =====
 
@@ -172,6 +184,10 @@ public static class ApiOutputFormatter
 
     internal static TypeView BuildTypeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options)
     {
+        bool memberDetail = options is MemberOptions { OverloadIndex: not null } && type.Members.Count == 1;
+        bool memberFilterActive = options is MemberOptions { MemberFilter.Count: > 0 };
+        var selectedMember = memberDetail ? type.Members[0] : null;
+
         // Build title with package context
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
@@ -201,7 +217,7 @@ public static class ApiOutputFormatter
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
-        if (options.Verbosity != Verbosity.Quiet && options.ShowDocs && type.Documentation.Summary != null)
+        if (!memberDetail && options.Verbosity != Verbosity.Quiet && options.ShowDocs && type.Documentation.Summary != null)
             description = type.Documentation.Summary;
 
         // Samples info (only with --docs/--samples)
@@ -211,7 +227,7 @@ public static class ApiOutputFormatter
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (type.TypeParameters.Count > 0)
+        if (!memberFilterActive && type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = tp.ConstraintsSummary ?? "" })
@@ -220,7 +236,7 @@ public static class ApiOutputFormatter
 
         // Interfaces (pipeline controls visibility via IncludeSections)
         List<InterfaceRow>? interfaceRows = null;
-        if (type.Interfaces.Count > 0)
+        if (!memberFilterActive && type.Interfaces.Count > 0)
         {
             interfaceRows = type.Interfaces.Order()
                 .Select(i => new InterfaceRow { Interface = i })
@@ -229,17 +245,23 @@ public static class ApiOutputFormatter
 
         // Baseclass (pipeline controls visibility via IncludeSections; filtered for trivial bases)
         List<BaseclassRow>? baseclassRows = null;
-        if (baseType != null)
+        if (!memberFilterActive && baseType != null)
         {
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
 
         bool topFieldsOnly = options.Verbosity == Verbosity.Quiet;
+        var title = memberDetail
+            ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
+            : $"{FormatGenericFullName(type)}{packageInfo}";
 
         return new TypeView
         {
-            Title = $"{FormatGenericFullName(type)}{packageInfo}",
+            Title = title,
             Description = description,
+            Summary = memberDetail
+                ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
+                : null,
             Kind = topFieldsOnly ? type.Kind : null,
             Modifiers = topFieldsOnly ? (modifiers.Count > 0 ? string.Join(", ", modifiers) : null) : null,
             BaseType = topFieldsOnly ? baseType : null,
@@ -262,6 +284,26 @@ public static class ApiOutputFormatter
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;
+    }
+
+    private static List<MarkoutField> BuildMemberDetailSummary(
+        ApiType type, string? foundIn, string? packageName, string? packageVersion,
+        string? apiSource, string? selectedTfm)
+    {
+        List<MarkoutField> fields = [new("Type", FormatGenericFullName(type))];
+
+        if (!string.IsNullOrEmpty(foundIn))
+            fields.Add(new("Library", foundIn));
+        if (!string.IsNullOrEmpty(packageName))
+            fields.Add(new("Package", packageName));
+        if (!string.IsNullOrEmpty(packageVersion))
+            fields.Add(new("Version", packageVersion));
+        if (!string.IsNullOrEmpty(apiSource))
+            fields.Add(new("Source", apiSource));
+        if (!string.IsNullOrEmpty(selectedTfm))
+            fields.Add(new("TFM", selectedTfm));
+
+        return fields;
     }
 
     internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
@@ -492,6 +534,32 @@ public static class ApiOutputFormatter
         return (truncated, "members");
     }
 
+    internal static void PopulateMemberSignature(TypeView view, ApiType type, ApiOptions options)
+    {
+        if (type.Members.Count != 1)
+            return;
+
+        var member = type.Members[0];
+        var sig = member.Signature ?? member.ReturnType ?? "";
+        var sigDisplay = member.Accessibility != null ? $"{member.Accessibility} {sig}" : sig;
+        string? obsoleteCell = null;
+        if (member.IsObsolete)
+        {
+            obsoleteCell = string.IsNullOrWhiteSpace(member.ObsoleteMessage)
+                ? "⚠ Obsolete"
+                : $"⚠ Obsolete — {member.ObsoleteMessage}";
+        }
+
+        var docsRequested = options.ShowDocs
+            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        var description = docsRequested ? member.Documentation.Summary : null;
+
+        view.SignatureRows =
+        [
+            new MemberSignatureRow($"`{sigDisplay}`", obsoleteCell, description)
+        ];
+    }
+
     /// <summary>
     /// Populates compact member summary sections for Minimal verbosity.
     /// Groups members by name within each kind, with kind-specific columns
@@ -626,65 +694,90 @@ public static class ApiOutputFormatter
         }).ToList();
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, string? pdbPath = null)
+    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null)
     {
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
 
         var memberCode = new MemberCodeView();
+        bool hasCode = false;
+        bool wantsAttributes = requestedSections.Contains(SectionNames.CustomAttributes);
+        bool wantsDecompiledSource = requestedSections.Contains(SectionNames.DecompiledSource);
+        bool wantsIL = requestedSections.Contains(SectionNames.IL);
+        bool wantsAnnotatedIL = requestedSections.Contains(SectionNames.ILAnnotated);
 
         foreach (var method in methods)
         {
             // Custom attributes
-            var attributes = AttributeReader.GetMethodAttributes(
-                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-            if (attributes.Count > 0)
+            if (wantsAttributes)
             {
-                view.MethodAttributeRows = attributes
-                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
-                    .ToList();
+                var attributes = AttributeReader.GetMethodAttributes(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                if (attributes.Count > 0)
+                {
+                    view.MethodAttributeRows = attributes
+                        .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                        .ToList();
+                }
             }
 
             // Lowered C#
-            try
+            if (wantsDecompiledSource)
             {
-                var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
-                if (context != null)
+                try
                 {
-                    var lowered = Decompiler.CSharpEmitter.Emit(context);
-                    if (!string.IsNullOrWhiteSpace(lowered))
-                        memberCode.LoweredCSharp = new CodeSection("csharp", lowered.TrimEnd());
+                    var context = Decompiler.MethodBodyContext.Create(
+                        peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
+                    if (context != null)
+                    {
+                        var lowered = Decompiler.CSharpEmitter.Emit(context);
+                        if (!string.IsNullOrWhiteSpace(lowered))
+                        {
+                            memberCode.DecompiledSourceCode = new CodeSection("csharp", lowered.TrimEnd());
+                            hasCode = true;
+                        }
+                    }
                 }
+                catch { }
             }
-            catch { }
 
             // IL disassembly
-            var instructions = ILDisassembler.DisassembleMethod(
-                peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
-            if (instructions is { Count: > 0 })
+            if (wantsIL)
             {
-                var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
-                memberCode.ILCode = new CodeSection("il", ilText);
+                var instructions = ILDisassembler.DisassembleMethod(
+                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                if (instructions is { Count: > 0 })
+                {
+                    var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+                    memberCode.ILCode = new CodeSection("il", ilText);
+                    hasCode = true;
+                }
             }
 
             // Annotated IL
-            try
+            if (wantsAnnotatedIL)
             {
-                var context = Decompiler.MethodBodyContext.Create(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
-                if (context != null)
+                try
                 {
-                    var annotated = Decompiler.AnnotatedILEmitter.Emit(
-                        context, Decompiler.ILAnnotationDepth.Structured);
-                    if (!string.IsNullOrWhiteSpace(annotated))
-                        memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                    var context = Decompiler.MethodBodyContext.Create(
+                        peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
+                    if (context != null)
+                    {
+                        var annotated = Decompiler.AnnotatedILEmitter.Emit(
+                            context, Decompiler.ILAnnotationDepth.Structured);
+                        if (!string.IsNullOrWhiteSpace(annotated))
+                        {
+                            memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                            hasCode = true;
+                        }
+                    }
                 }
+                catch { }
             }
-            catch { }
         }
 
-        view.MemberCode = memberCode;
+        if (hasCode)
+            view.MemberCode = memberCode;
     }
 
     // ===== Helper Methods =====

@@ -7,7 +7,7 @@ areas: [members, documentation, source, decompilation, nullability, overloads]
 
 # Member Lookup with Docs and Code
 
-> Drill into type members to see documentation, source code, and decompiled IL. The `member` command shows docs by default and can decompile to original source (via SourceLink), lowered C#, and IL. Use overload addressing (`Name:N`) to target specific overloads.
+> Drill into type members to see documentation, lowered C#, SourceLink-backed source, and IL. The `member` command shows docs by default; selected overloads expose implementation bodies through opt-in sections. Use overload addressing (`Name:N`) to target specific overloads.
 
 ## Preconditions
 
@@ -84,7 +84,7 @@ Methods: 10
 Tips:
 ```
 
-### 1c. Detailed verbosity (with source/IL)
+### 1c. Detailed verbosity (full member tables)
 
 ```bash
 dotnet-inspect member --package System.CommandLine Command -v:d
@@ -94,7 +94,6 @@ dotnet-inspect member --package System.CommandLine Command -v:d
 | Name | Signature | Description |
 Represents a specific action
 Initializes a new instance
-## Source
 ```
 
 ```expect-not
@@ -144,9 +143,9 @@ Methods: 103
 Tips:
 ```
 
-## 3. View member source code
+## 3. View member implementation code
 
-> Goal: When selecting a specific member, see original source (via SourceLink), lowered C#, and IL.
+> Goal: When selecting a specific member, discover and select implementation sections: lowered C# (`Decompiled Source`), SourceLink-backed source (`Original Source`), and IL.
 
 ### 3a. Single member (no overloads)
 
@@ -155,13 +154,11 @@ Show me the source code for Command.Add in System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command Add -n 30
+dotnet-inspect member --package System.CommandLine Command Add -S "Decompiled Source" -n 30
 ```
 
 ```expect
-## Source
-public void Add(Argument argument)
-## Lowered C#
+## Decompiled Source
 ```
 
 ```expect-not
@@ -171,11 +168,11 @@ Tips:
 ### 3b. Member with overloads (first overload)
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command SetAction:1 -n 30
+dotnet-inspect member --package System.CommandLine Command SetAction:1 -S "Decompiled Source" -n 30
 ```
 
 ```expect
-## Source
+## Decompiled Source
 public void SetAction(Action<ParseResult> action)
 ```
 
@@ -203,11 +200,11 @@ dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --sh
 ### 4b. Select constructor overload
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -n 30
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -S "Original Source" -n 30
 ```
 
 ```expect
-## Source
+## Original Source
 public OptionsFactory(IEnumerable<IConfigureOptions<TOptions>> setups
 ```
 
@@ -222,22 +219,22 @@ Tips:
 ### 5a. Using `--params` for exact match
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command SetAction --params 'Action' -n 20
+dotnet-inspect member --package System.CommandLine Command SetAction --params 'Action' -S "Original Source" -n 20
 ```
 
 ```expect
-## Source
+## Original Source
 public void SetAction(Action<ParseResult> action)
 ```
 
 ### 5b. Using `-of` for first parameter type
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command SetAction -of Func -n 20
+dotnet-inspect member --package System.CommandLine Command SetAction -of Func -S "Original Source" -n 20
 ```
 
 ```expect
-## Source
+## Original Source
 SetAction
 ```
 
@@ -280,14 +277,14 @@ Methods: 103
 ### 6b. Filter to specific method
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 50
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -S "Decompiled Source" -n 50
 ```
 
 ```expect
 # System.Text.Json.JsonSerializer
 ## Methods
 Deserialize
-## Source
+## Decompiled Source
 ```
 
 ```expect-not

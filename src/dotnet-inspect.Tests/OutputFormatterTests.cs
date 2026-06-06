@@ -69,6 +69,37 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void MarkdownSectionOrderer_ReordersH2SectionsAndKeepsFenceHeadings()
+    {
+        const string markdown = """
+        # Title
+
+        intro
+
+        ## Zebra
+
+        ```md
+        ## Not a section
+        ```
+
+        ## Alpha
+
+        A
+
+        ## Beta
+
+        B
+        """;
+
+        var output = MarkdownSectionOrderer.Apply(markdown, ["Beta", "Alpha", "Zebra"]);
+
+        Assert.True(output.IndexOf("## Beta", StringComparison.Ordinal) < output.IndexOf("## Alpha", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("## Alpha", StringComparison.Ordinal) < output.IndexOf("## Zebra", StringComparison.Ordinal));
+        Assert.Contains("## Not a section", output);
+        Assert.Contains("B\n\n## Alpha", output);
+    }
+
+    [Fact]
     public void LimitMarkdownTableRows_LimitsEachTable()
     {
         const string markdown = """

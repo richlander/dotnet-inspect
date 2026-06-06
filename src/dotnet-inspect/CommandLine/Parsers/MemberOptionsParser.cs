@@ -104,10 +104,41 @@ public static class MemberOptionsParser
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
 
+        var optionMembers = parseResult.GetValue(args.MemberOption) ?? [];
+
+        // If the only positional value is a fully-qualified Type.Member, split the
+        // member suffix first, then probe the type portion as the source/type name.
+        // Handles: member System.Text.Json.JsonSerializer.SerializeToNode
+        //   → source=System.Text.Json, type=JsonSerializer, member=SerializeToNode
+        bool resolvedQualifiedTypeMember = false;
+        if (sourceSelection.ExplicitPackage == null
+            && source.TypeName == null
+            && source.PackagePath != null
+            && source.PlatformAssembly == null
+            && source.AssemblyPath == null
+            && positionalMembers.Count == 0
+            && optionMembers.Length == 0)
+        {
+            var split = TrySplitQualifiedTypeMember(source.PackagePath);
+            if (split != null)
+            {
+                positionalMembers.Add(split.Value.MemberName);
+                var probe = split.Value.Probe;
+                source = probe.Kind == SourceResolver.LocalSourceKind.Platform
+                    ? source with { PackagePath = null, PlatformAssembly = probe.SourceName, TypeName = probe.Remainder }
+                    : source with { PackagePath = probe.SourceName, TypeName = probe.Remainder };
+                resolvedQualifiedTypeMember = true;
+            }
+        }
+
         // If source resolution left us with an unresolved package that is actually
         // a qualified type name (e.g., "System.Text.Json.JsonDocument"), split it
         // so the user can write: member System.Text.Json.JsonDocument Parse
-        if (sourceSelection.ExplicitPackage == null && source.PackagePath != null && source.PlatformAssembly == null && source.AssemblyPath == null)
+        if (!resolvedQualifiedTypeMember
+            && sourceSelection.ExplicitPackage == null
+            && source.PackagePath != null
+            && source.PlatformAssembly == null
+            && source.AssemblyPath == null)
         {
             var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
             if (probe != null)
@@ -129,7 +160,6 @@ public static class MemberOptionsParser
         //   → source=System.Text.Json, type=JsonDocument, member=Parse
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        var optionMembers = parseResult.GetValue(args.MemberOption) ?? [];
         if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0 && optionMembers.Length == 0)
         {
             var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
@@ -210,6 +240,26 @@ public static class MemberOptionsParser
         };
 
         return new Success(options);
+    }
+
+    private static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(string value)
+    {
+        for (var i = value.Length - 1; i > 0; i--)
+        {
+            if (value[i] != '.')
+                continue;
+
+            var typeCandidate = value[..i];
+            var memberName = value[(i + 1)..];
+            if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
+                continue;
+
+            var probe = SourceResolver.TryProbeLocalQualifiedName(typeCandidate);
+            if (probe != null)
+                return (probe, memberName);
+        }
+
+        return null;
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)

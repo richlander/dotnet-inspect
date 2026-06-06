@@ -457,13 +457,13 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Methods | section |", output);
-        // Code sections (Source, IL, IL (Annotated), Lowered C#) are member-detail
+        // Code sections (Decompiled Source, Original Source, IL, IL (Annotated)) are member-detail
         // sections not present in the type schema. They must not appear in effective
         // discovery, since they are not queryable via -D <Section>.
-        Assert.DoesNotContain("| Source | section |", output);
+        Assert.DoesNotContain("| Decompiled Source | section |", output);
+        Assert.DoesNotContain("| Original Source | section |", output);
         Assert.DoesNotContain("| IL | section |", output);
         Assert.DoesNotContain("| IL (Annotated) | section |", output);
-        Assert.DoesNotContain("| Lowered C# | section |", output);
     }
 
     [Fact]
@@ -604,6 +604,122 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         // With --show-index the Select column renders, so effective discovery lists it.
         Assert.Contains("| Select | column |", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DefaultShowsSignatureOnly()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
+        Assert.DoesNotContain("## Methods", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## IL", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoverEffective_ListsEnabledDetailSections()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Signature | section |", output);
+        Assert.Contains("| Decompiled Source | section |", output);
+        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| IL | section |", output);
+        Assert.Contains("| IL (Annotated) | section |", output);
+        Assert.DoesNotContain("Use -S All to select all sections.", output);
+        Assert.DoesNotContain("| Methods | section |", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoverSchema_ListsDetailSectionsWithoutAllHint()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            Discover = [],
+            Schema = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Original Source | section |", output);
+        Assert.DoesNotContain("Use -S All to select all sections.", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_NormalShowsLocalImplementationSections()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
+            OverloadIndex = 1,
+            Verbosity = Verbosity.Normal
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("## Custom Attributes", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## IL", output);
+        Assert.Contains("## IL (Annotated)", output);
+        Assert.DoesNotContain("## Original Source", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectDecompiledSource_RendersLoweredCSharp()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("GetTypeInfo", output);
+        Assert.Contains("WriteElement", output);
+        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("public static JsonElement SerializeToElement", output);
     }
 
     [Fact]
@@ -1291,6 +1407,8 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);
             Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Version: 1.0.0 |", output);
+            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Signals", StringComparison.Ordinal));
             Assert.DoesNotContain("Tip:", error);
         }
         finally

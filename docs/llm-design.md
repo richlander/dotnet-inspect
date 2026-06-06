@@ -47,11 +47,11 @@ For public signatures and overload inventories, prefer type shape:
 dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --shape
 ```
 
-Use `member` when you need docs, stable overload selectors, source, lowered C#, or IL:
+Use `member` when you need docs, stable overload selectors, decompiled/lowered C#, SourceLink-backed original source, or IL:
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --show-index
-dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 Serialize:1 -v:d
+dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 Serialize:1 -S "Decompiled Source"
 ```
 
 ## Signals workflows
@@ -70,8 +70,8 @@ Library signals describe assemblies: SourceLink presence/reachability, PDB/symbo
 
 ## Fidelity expectations
 
-- SourceLink source is original source when available.
-- Lowered C# is best-effort, readable reconstruction from IL; it may use PDB debug names when available.
+- `Original Source` is SourceLink-backed original source when available.
+- `Decompiled Source` is lowered C#, a best-effort readable reconstruction from IL; it may use PDB debug names when available.
 - Raw IL and annotated IL are the highest-fidelity views for exact instructions, offsets, branches, tokens, and calls.
 
 ## Skill guidance

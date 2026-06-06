@@ -13,6 +13,10 @@ public class TypeView
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
 
+    [MarkoutSection(Name = "Summary", Headless = true)]
+    [JsonIgnore]
+    public List<MarkoutField>? Summary { get; set; }
+
     // Top fields (rendered inline for -v:q compact summary only)
     [MarkoutSkipNull] public string? Kind { get; set; }
     [MarkoutSkipNull] public string? Modifiers { get; set; }
@@ -181,6 +185,9 @@ public class TypeView
     public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
         => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
 
+    public static bool SignatureObsoleteIsAllNull(List<MemberSignatureRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
+
     // Constructor emphasis (--ctor mode, Normal+ verbosity)
     [MarkoutSection(Name = "Constructors")]
     [JsonIgnore]
@@ -216,6 +223,11 @@ public class TypeView
     public List<EventSummaryRow>? EventSummaryRows { get; set; }
 
     // Index mode sections (--index path)
+    [MarkoutSection(Name = "Signature")]
+    [MarkoutIgnoreColumnWhen(nameof(SignatureObsoleteIsAllNull), "Obsolete")]
+    [JsonIgnore]
+    public List<MemberSignatureRow>? SignatureRows { get; set; }
+
     [MarkoutSection(Name = "Custom Attributes")]
     [JsonIgnore]
     public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
@@ -328,6 +340,12 @@ public record MemberRow(
         : this(null, name, signature, null, description) { }
 }
 
+[MarkoutSerializable]
+public record MemberSignatureRow(
+    string Signature,
+    [property: MarkoutSkipNull] string? Obsolete,
+    [property: MarkoutSkipNull] string? Description);
+
 /// <summary>
 /// Compact summary row for Minimal verbosity: one row per unique member name with overload count.
 /// </summary>
@@ -436,17 +454,17 @@ public record ApiOneLineRow(string Kind, string Name,
 public record ApiSurfaceOneLineRow(string Kind, string Type, string Members, string? Description);
 
 /// <summary>
-/// Code sections for member command output (Source, Lowered C#, IL, Annotated IL).
+/// Code sections for member command output (Decompiled Source, Original Source, IL, Annotated IL).
 /// Serialized separately after the main TypeView.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
 public class MemberCodeView
 {
-    [MarkoutSection(Name = "Source")]
-    public CodeSection SourceCode { get; set; }
+    [MarkoutSection(Name = "Decompiled Source")]
+    public CodeSection DecompiledSourceCode { get; set; }
 
-    [MarkoutSection(Name = "Lowered C#")]
-    public CodeSection LoweredCSharp { get; set; }
+    [MarkoutSection(Name = "Original Source")]
+    public CodeSection OriginalSourceCode { get; set; }
 
     [MarkoutSection(Name = "IL")]
     public CodeSection ILCode { get; set; }
@@ -467,6 +485,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
 [MarkoutContext(typeof(MemberRow))]
+[MarkoutContext(typeof(MemberSignatureRow))]
 [MarkoutContext(typeof(MethodAttributeRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]

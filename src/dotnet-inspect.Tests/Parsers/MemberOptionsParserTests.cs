@@ -229,6 +229,28 @@ public class MemberOptionsParserTests
         Assert.Contains("Humanize", options.MemberFilter);
     }
 
+    [Fact]
+    public async Task Positional_QualifiedTypeMember_ResolvesPlatformTypeAndMember()
+    {
+        var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializer.SerializeToNode");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Equal("System.Text.Json", options.PlatformAssembly);
+        Assert.Null(options.PackagePath);
+        Assert.Contains("SerializeToNode", options.MemberFilter);
+    }
+
+    [Fact]
+    public async Task Positional_QualifiedTypeMemberWithOverload_ResolvesIndex()
+    {
+        var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializer.SerializeToNode:1");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Equal("System.Text.Json", options.PlatformAssembly);
+        Assert.Contains("SerializeToNode", options.MemberFilter);
+        Assert.Equal(1, options.OverloadIndex);
+    }
+
     // ── Dotted member syntax (-m Type.Member) ────────────────────────────
 
     [Fact]

@@ -52,18 +52,16 @@ Lists all public members of `JsonSerializer` — one of the most-used types in
 modern .NET. Shows overload grouping, return types, and parameter signatures.
 Good intro to the `member` command at member granularity.
 
-## 5. Code: OptionsFactory.Create — source, lowered C#, and IL
+## 5. Code: OptionsFactory.Create — Decompiled Source, Original Source, and IL
 
 ```bash
-dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options -m Create
+dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options -m Create -S "Decompiled Source"
 ```
 
 Shows the member detail page for `OptionsFactory<TOptions>.Create` — the
-method that wires up the options pattern. The output includes four sections:
-original C# source (via SourceLink), lowered C# (decompiled from IL with
-goto-based control flow), raw IL disassembly, and annotated IL with
-pre-execution stack state at each instruction. A showcase of the tool's
-decompilation pipeline on a real, well-known method.
+method that wires up the options pattern. `Decompiled Source` is lowered C# decompiled from
+IL; use bare `-S` to discover `Original Source`, raw `IL`, and `IL (Annotated)`
+when you need SourceLink-backed source or exact instruction detail.
 
 ## 6. Depends: IFloatingPointIeee754 interface hierarchy
 

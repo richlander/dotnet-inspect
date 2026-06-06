@@ -58,7 +58,7 @@ public class ApiCommand
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var memberPipeline = ApiMemberSectionPipelines.Create(options);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
         bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
@@ -69,15 +69,19 @@ public class ApiCommand
         if (options.Discover != null && !options.EffectiveDiscovery)
         {
             var schema = singleTypeMode
-                ? ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema()
+                ? GetTypeDocumentSchema(options)
                 : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
 
             // Restrict plain discovery to columns/sections queryable under the active options.
             if (singleTypeMode)
+            {
+                schema = RestrictSchemaToSections(schema, knownSections);
                 schema = ToQueryableSchema(schema, options);
+            }
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
-                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput));
+                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null));
         }
 
         // -S/--select with values: resolve as section filter for backpressure
@@ -455,6 +459,66 @@ public class ApiCommand
         };
     }
 
+    internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
+    {
+        var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+            return schema;
+
+        return MergeSchemas(schema,
+            ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
+    }
+
+    private static DocumentSchema MergeSchemas(params DocumentSchema[] schemas)
+    {
+        var merged = new DocumentSchema();
+        foreach (var schema in schemas)
+        {
+            foreach (var name in schema.SectionNames)
+            {
+                var section = schema.GetSection(name);
+                if (section == null)
+                {
+                    merged.AddSection(name);
+                    continue;
+                }
+
+                var items = section.Items.Select(i => i.Name).ToArray();
+                if (items.Length > 0)
+                    merged.Add(name, section.ItemKind, items);
+                else
+                    merged.AddSection(name);
+            }
+        }
+
+        return merged;
+    }
+
+    private static DocumentSchema RestrictSchemaToSections(DocumentSchema schema, IReadOnlyCollection<string> sectionNames)
+    {
+        var filtered = new DocumentSchema();
+        foreach (var name in sectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (section == null)
+                continue;
+
+            var items = section.Items.Select(i => i.Name).ToArray();
+            if (items.Length > 0)
+                filtered.Add(name, section.ItemKind, items);
+            else
+                filtered.AddSection(name);
+        }
+
+        return filtered;
+    }
+
+    internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
+    {
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        return [.. pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections)];
+    }
+
     // ===== Full API Surface Rendering =====
 
     internal static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
@@ -506,7 +570,7 @@ public class ApiCommand
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
-        ApiOptions options, HttpClient httpClient, VerboseLogger logger)
+        ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true)
     {
         try
         {
@@ -529,7 +593,7 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
-            if (!service.HasPdb || !service.HasSourceLink)
+            if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
                 return new ResolvedMethodSource(null, pdbPath);
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly: true);
@@ -639,7 +703,11 @@ public class ApiCommand
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
+            if (options is MemberOptions { OverloadIndex: not null })
+            {
+                ApiOutputFormatter.PopulateMemberSignature(view, type, options);
+            }
+            else if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
                 && type.Members.Any(m => m.Kind == "constructor"))
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
@@ -656,18 +724,21 @@ public class ApiCommand
             // --index: populate code sections and custom attributes
             if (options is MemberOptions { OverloadIndex: not null, DllPath: not null } mo4)
             {
+                var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
                     .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
                     .ToList();
                 if (methods.Count > 0)
-                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath, mo4.OverloadIndex.Value - 1, mo4.PdbPath);
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath,
+                        mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath);
             }
 
             // Source code (already resolved in command layer)
-            if (options is MemberOptions { MethodSource: not null } mo5)
+            if (options is MemberOptions { MethodSource: not null } mo5
+                && GetRequestedMemberSections(type, mo5).Contains(SectionNames.OriginalSource))
             {
                 view.MemberCode ??= new MemberCodeView();
-                view.MemberCode.SourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
+                view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
             }
         }
 
@@ -716,7 +787,13 @@ public class ApiCommand
                     ApiViewContext.Default.Serialize(view.MemberCode, writer);
 
                 writer.Flush();
-                sink.WriteLine(MarkdownTableRowLimiter.Apply(sw.ToString().TrimEnd(), options.Rows));
+                var markdown = sw.ToString().TrimEnd();
+                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
+                }
+                sink.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
             }
         }
     }
@@ -745,8 +822,7 @@ public class ApiCommand
     /// type and member commands so both paths apply identical queryability filtering:
     /// <list type="bullet">
     /// <item>Section gate: <see cref="DiscoverOutput.RestrictToSchemaSections"/> drops pipeline
-    /// sections absent from the type schema (the member-detail code sections Source/IL/...),
-    /// then <see cref="DiscoverOutput.RestrictToRenderedSections"/> drops schema sections that
+    /// sections absent from the active schema, then <see cref="DiscoverOutput.RestrictToRenderedSections"/> drops schema sections that
     /// render no data for this type (e.g. Custom Attributes when the type has no attributes),
     /// so every listed section is queryable via <c>-D &lt;Section&gt;</c> and actually has data.</item>
     /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedHeaders"/> renders the
@@ -759,7 +835,7 @@ public class ApiCommand
     internal static int ExecuteEffectiveDiscovery(
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options)
     {
-        var fullSchema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+        var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetEffectiveSections(filteredType, Verbosity.Detailed, options.IncludeSections);
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
@@ -798,16 +874,38 @@ public class ApiCommand
         bool isMember = renderOptions is MemberOptions;
         if (view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (renderOptions.Verbosity == Verbosity.Minimal && !isMember)
+            if (renderOptions is MemberOptions { OverloadIndex: not null })
+                ApiOutputFormatter.PopulateMemberSignature(view, type, renderOptions);
+            else if (renderOptions.Verbosity == Verbosity.Minimal && !isMember)
                 ApiOutputFormatter.PopulateMemberSummarySections(view, type, renderOptions);
             else
                 ApiOutputFormatter.PopulateMemberSections(view, type, renderOptions);
+
+            if (renderOptions is MemberOptions { OverloadIndex: not null, DllPath: not null } memberOptions)
+            {
+                var requestedSections = GetRequestedMemberSections(type, memberOptions);
+                var methods = type.Members
+                    .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
+                    .ToList();
+                if (methods.Count > 0)
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods,
+                        memberOptions.DllPath, memberOptions.OverloadIndex.Value - 1,
+                        requestedSections, memberOptions.PdbPath);
+
+                if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", memberOptions.MethodSource.SourceCode);
+                }
+            }
         }
 
         var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, renderOptions);
         var sw = new StringWriter();
         var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), writerOptions);
         ApiViewContext.Default.Serialize(view, writer);
+        if (view.MemberCode != null)
+            ApiViewContext.Default.Serialize(view.MemberCode, writer);
         writer.Flush();
         return sw.ToString();
     }

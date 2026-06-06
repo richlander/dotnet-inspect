@@ -872,6 +872,28 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Signals", include);
     }
 
+    [Fact]
+    public void PackagePipeline_AllSelectorSections_DefaultFirstThenRemainingAlpha()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TargetFrameworks = ["net8.0"],
+            TotalDownloads = 1000,
+            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }],
+            LibraryFiles = ["lib/net8.0/test.dll"],
+            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
+        };
+
+        var sections = pipeline.GetAllSelectorSections(model);
+
+        Assert.Equal("Package Info", sections[0]);
+        Assert.DoesNotContain("Summary", sections);
+        Assert.Equal(["Dependencies", "Library Files", "Manifest", "Signals", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
+    }
+
     // ===== API type-list pipeline tests =====
 
     [Fact]
@@ -963,7 +985,8 @@ public class SectionPipelineTests
         Assert.Contains("Methods", names);
         Assert.Contains("Events", names);
         Assert.Contains("IL", names);
-        Assert.Contains("Source", names);
+        Assert.Contains("Decompiled Source", names);
+        Assert.Contains("Original Source", names);
         Assert.Contains("Custom Attributes", names);
     }
 
@@ -1076,5 +1099,33 @@ public class SectionPipelineTests
 
         // Remote Source section was removed — source info lives in the source command now
         Assert.DoesNotContain("Remote Source", names);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_NormalIncludesLocalImplementationSections()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample", Kind = "class",
+            Members = [new ApiMember { Name = "Run", Kind = "method" }]
+        };
+
+        var minimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var normal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        Assert.Contains("Signature", minimal);
+        Assert.DoesNotContain("Decompiled Source", minimal);
+        Assert.DoesNotContain("Original Source", minimal);
+        Assert.Contains("Decompiled Source", normal);
+        Assert.Contains("IL", normal);
+        Assert.Contains("IL (Annotated)", normal);
+        Assert.DoesNotContain("Original Source", normal);
+        Assert.Contains("Decompiled Source", detailed);
+        Assert.Contains("Original Source", detailed);
+        Assert.Contains("IL", detailed);
+        Assert.Contains("IL (Annotated)", detailed);
+        Assert.Empty(pipeline.GetCostAnnotations());
     }
 }

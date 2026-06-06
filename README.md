@@ -34,7 +34,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
-| Source mapping | `source`, `member -v:d` | SourceLink URLs, member line numbers, source fetching, URL verification, token+IL-offset to source-line resolution. |
+| Source mapping | `source`, `member -S "Original Source"` | SourceLink URLs, member line numbers, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--oneline`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -44,7 +44,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
-| `member X` | Inspect members, docs, overloads, source, decompiled C#, and IL. |
+| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. |
 | `diff X` | Compare API surfaces between versions. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -81,7 +81,7 @@ dotnet-inspect library System.Text.Json -S "Async*" --count
 dotnet-inspect library System.Text.Json -S Signals
 ```
 
-For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections.
+For target-based queries, `-D` and bare `-S` report the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections; it renders the default section first, then remaining sections alphabetically.
 
 ## Common examples
 
@@ -93,7 +93,7 @@ dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect type --package System.Text.Json --oneline
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -v:d
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 dotnet-inspect source JsonSerializer --package System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect depends Stream --markdown --mermaid
