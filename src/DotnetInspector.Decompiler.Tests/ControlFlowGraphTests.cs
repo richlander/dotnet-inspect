@@ -518,6 +518,53 @@ public class CfgSampleClass
         return [with(System.StringComparer.OrdinalIgnoreCase), "Hello", "HELLO", "hello"];
     }
 
+    public static int ReadOnlySpanCollectionExpression(int a)
+    {
+        ReadOnlySpan<int> values = [a, 42];
+        return values[0] + values[1];
+    }
+
+    public static int ClassicLock(object gate)
+    {
+        lock (gate)
+        {
+            return gate.GetHashCode();
+        }
+    }
+
+    public static int SystemThreadingLock(System.Threading.Lock gate)
+    {
+        lock (gate)
+        {
+            return gate.GetHashCode();
+        }
+    }
+
+    public static void NullConditionalFieldAssignment(CfgNullableTarget? target, int value)
+    {
+        target?.Value = value;
+    }
+
+    public static void NullConditionalFieldCompoundAssignment(CfgNullableTarget? target, int value)
+    {
+        target?.Value += value;
+    }
+
+    public static void NullConditionalPropertyAssignment(CfgNullableTarget? target, string value)
+    {
+        target?.Text = value;
+    }
+
+    public static void NullConditionalPropertyCompoundAssignment(CfgNullableTarget? target, int value)
+    {
+        target?.Count += value;
+    }
+
+    public static void NullConditionalIndexerAssignment(CfgNullableTarget? target, int value)
+    {
+        target?[0] = value;
+    }
+
     public static unsafe int UnsafeReadThroughAddress()
     {
         int value = 42;
@@ -548,3 +595,18 @@ public class CfgSampleClass
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
+
+public sealed class CfgNullableTarget
+{
+    public int Value;
+
+    public string? Text { get; set; }
+
+    public int Count { get; set; }
+
+    public int this[int index]
+    {
+        get => Value + index;
+        set => Value = value + index;
+    }
+}
