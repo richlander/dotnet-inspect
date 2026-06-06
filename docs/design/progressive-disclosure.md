@@ -9,6 +9,8 @@ This model combines four mechanisms:
 3. **Discovery** with `-D` so agents can inspect available sections/columns before choosing.
 4. **Opt-in sections** for expensive work that should never run accidentally.
 
+`-D` and `-S` are intentionally capitalized. They form a small query namespace for discovery and section selection that is less likely to collide with command-specific lowercase options. This matters because the query system is broader than an output formatter: it can affect data collection, network authorization, projection, and rendering. Tools that use lowercase `-f` for templates can mostly get away with it when `-f` means "format output"; a general query system needs a more distinct namespace.
+
 ## Verbosity
 
 Verbosity is the curated path. It controls how much of the default view appears.
