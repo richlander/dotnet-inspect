@@ -19,8 +19,9 @@ Agents working in this repo should preserve these principles:
 1. Prefer factual inspection over guesses; keep `dotnet-inspect skill` guidance current with CLI behavior.
 2. Keep output section ownership clear: sectioned output should avoid duplicated rows across sections.
 3. Preserve behavior-safe defaults. Expensive network/source checks should stay explicit or capability-gated.
-4. Use built-in query/limiter concepts (`-D`, `-S`, `--columns`, `--fields`, `--count`, `--rows`) instead of shell-pipe workarounds when possible.
-5. Treat cache schema changes as versioned categories and invalidate/clean stale metadata caches deliberately.
+4. Preserve the progressive-disclosure model: verbosity for curated defaults, `-D`/`-S` for query and backpressure, opt-in sections for expensive work, and `-S All` only for intentional exhaustive output.
+5. Use built-in query/limiter concepts (`-D`, `-S`, `--columns`, `--fields`, `--count`, `--rows`) instead of shell-pipe workarounds when possible.
+6. Treat cache schema changes as versioned categories and invalidate/clean stale metadata caches deliberately.
 
 ## Important systems
 
@@ -28,6 +29,7 @@ Agents working in this repo should preserve these principles:
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
+- [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S All`, and limiter behavior.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

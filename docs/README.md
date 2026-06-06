@@ -27,26 +27,34 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 ## Documentation
 
-### Using the Tool
+### Current system docs
 
-| Document | Description |
+| Document | Need served |
 | -------- | ----------- |
-| [Overview](overview.md) | Minimum system and architecture context |
-| [Architecture](architecture.md) | Tool overview, commands, and design philosophy |
-| [LLM Design](llm-design.md) | Why output is structured for AI-assisted development |
-| [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages |
-| [Signals](assembly-audit.md) | Understanding Signals output and network scope flags |
-| [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved |
-| [Sample References](sample-references.md) | Extracting code samples from XML docs |
+| [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
+| [Architecture](architecture.md) | Current command and metadata architecture. |
+| [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
+| [Progressive Disclosure](design/progressive-disclosure.md) | Current model for verbosity, `-D`/`-S`, opt-in sections, `-S All`, counts, and row limits. |
+| [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages. |
+| [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
+| [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
+| [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 
-### For Contributors
+### Contributor docs
 
-| Document | Description |
+| Document | Need served |
 | -------- | ----------- |
-| [Style Guide](design/style-guide.md) | Output formatting conventions |
-| [Rendering Model](design/rendering-model.md) | Verbosity vs mode-switch flags: how output is controlled |
-| [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool |
-| [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill |
+| [Style Guide](design/style-guide.md) | Output formatting conventions. |
+| [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
+| [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
+| [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
+| [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool. |
+| [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
+| [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
+
+### Design history and backlog
+
+Some files under `docs/design/` and `docs/backlog*.md` were written during ideation. They are useful design history, but may not describe current CLI behavior. When current behavior matters, start with Overview, Architecture, Progressive Disclosure, the embedded skill, and tests.
 
 ## Getting Started
 
