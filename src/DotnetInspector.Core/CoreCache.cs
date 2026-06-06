@@ -311,7 +311,7 @@ public static class CoreCache
     }
 
     /// <summary>
-    /// Cancels cache maintenance, waits briefly for in-flight cleanup to finish, and returns
+    /// Waits briefly for in-flight cleanup to finish, cancels if it exceeds the timeout, and returns
     /// the amount of obsolete cache data removed so far.
     /// </summary>
     public static CacheMaintenanceResult CancelAndWaitForMaintenance(TimeSpan timeout)
@@ -324,10 +324,16 @@ public static class CoreCache
             cts = s_maintenanceCts;
         }
 
-        cts?.Cancel();
         if (task != null)
         {
-            try { task.Wait(timeout); }
+            try
+            {
+                if (!task.Wait(timeout))
+                {
+                    cts?.Cancel();
+                    try { task.Wait(TimeSpan.FromMilliseconds(25)); } catch { }
+                }
+            }
             catch
             {
                 // Best-effort shutdown hook; cleanup must never affect command success.
