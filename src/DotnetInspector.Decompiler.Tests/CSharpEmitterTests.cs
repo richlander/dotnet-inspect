@@ -97,6 +97,33 @@ public class CSharpEmitterTests
         Assert.Contains("catch", output);
     }
 
+    [Fact]
+    public void CallByRefTarget_DoesNotDuplicateRefModifier()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.CallByRefTarget));
+
+        Assert.Contains("ByRefTarget(ref value)", output);
+        Assert.DoesNotContain("ref ref value", output);
+    }
+
+    [Fact]
+    public void CallInTarget_UsesInModifier()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.CallInTarget));
+
+        Assert.Contains("InTarget(in value)", output);
+        Assert.DoesNotContain("InTarget(ref value)", output);
+    }
+
+    [Fact]
+    public void CallOutTarget_UsesOutModifier()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.CallOutTarget));
+
+        Assert.Contains("OutTarget(out ", output);
+        Assert.DoesNotContain("OutTarget(ref ", output);
+    }
+
     // --- Return statements ---
 
     [Fact]

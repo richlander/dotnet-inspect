@@ -782,6 +782,7 @@ public static class ILAstBuilder
             string returnType;
             string? methodName;
             ImmutableArray<string> parameterTypes = default;
+            ImmutableArray<CallArgumentModifier> parameterModifiers = default;
 
             switch (handle.Kind)
             {
@@ -791,6 +792,7 @@ public static class ILAstBuilder
                     var sig = methodDef.DecodeSignature(SignatureDecoder.Instance, callerGenericContext);
                     paramCount = sig.ParameterTypes.Length;
                     parameterTypes = sig.ParameterTypes;
+                    parameterModifiers = GetParameterModifiers(reader, methodDef, parameterTypes);
                     isStatic = methodDef.Attributes.HasFlag(MethodAttributes.Static);
                     returnType = sig.ReturnType;
                     var declType = reader.GetTypeDefinition(methodDef.GetDeclaringType());
@@ -815,6 +817,7 @@ public static class ILAstBuilder
                     var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericCtx);
                     paramCount = sig.ParameterTypes.Length;
                     parameterTypes = sig.ParameterTypes;
+                    parameterModifiers = GetDefaultParameterModifiers(parameterTypes);
                     isStatic = !sig.Header.IsInstance;
                     returnType = sig.ReturnType;
                     methodName = ResolveMethodRefName(reader, memberRef, genericCtx);
@@ -849,7 +852,11 @@ public static class ILAstBuilder
             {
                 int paramStart = (!isStatic && opcode != ILOpCode.Newobj) ? 1 : 0;
                 for (int i = 0; i < parameterTypes.Length && (i + paramStart) < args.Length; i++)
+                {
                     args[i + paramStart].ExpectedType = parameterTypes[i];
+                    if (!parameterModifiers.IsDefault && i < parameterModifiers.Length)
+                        args[i + paramStart].ExpectedArgumentModifier = parameterModifiers[i];
+                }
             }
 
             // Compute result type
@@ -879,6 +886,55 @@ public static class ILAstBuilder
                 ResultType = StackValue.CreateUnknown(), Offset = offset
             };
         }
+    }
+
+    static ImmutableArray<CallArgumentModifier> GetParameterModifiers(
+        MetadataReader reader,
+        MethodDefinition methodDef,
+        ImmutableArray<string> parameterTypes)
+    {
+        var modifiers = GetDefaultParameterModifiers(parameterTypes).ToBuilder();
+
+        foreach (var parameterHandle in methodDef.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber == 0)
+                continue;
+
+            var index = parameter.SequenceNumber - 1;
+            if (index < 0 || index >= modifiers.Count)
+                continue;
+
+            if (AttributeReader.HasAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    "System.Runtime.CompilerServices.IsReadOnlyAttribute"))
+            {
+                modifiers[index] = CallArgumentModifier.In;
+            }
+            else if ((parameter.Attributes & ParameterAttributes.Out) != 0)
+            {
+                modifiers[index] = CallArgumentModifier.Out;
+            }
+        }
+
+        return modifiers.ToImmutable();
+    }
+
+    static ImmutableArray<CallArgumentModifier> GetDefaultParameterModifiers(ImmutableArray<string> parameterTypes)
+    {
+        if (parameterTypes.IsDefault)
+            return default;
+
+        var modifiers = ImmutableArray.CreateBuilder<CallArgumentModifier>(parameterTypes.Length);
+        foreach (var parameterType in parameterTypes)
+        {
+            modifiers.Add(parameterType.StartsWith("ref ", StringComparison.Ordinal)
+                ? CallArgumentModifier.Ref
+                : CallArgumentModifier.None);
+        }
+
+        return modifiers.ToImmutable();
     }
 
     static bool PushesValue(ILOpCode opcode, MethodBodyContext context, ILAstExpression node)

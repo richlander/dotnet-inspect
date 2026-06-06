@@ -62,6 +62,11 @@ public sealed class ILAstExpression : ILAstNode
     /// </summary>
     public string? ExpectedType { get; set; }
 
+    /// <summary>
+    /// The call-site modifier required by the parameter this expression is being passed to.
+    /// </summary>
+    public CallArgumentModifier ExpectedArgumentModifier { get; set; }
+
     public override void WriteTo(StringBuilder sb, int indent)
     {
         sb.Append(FormatOpCode(OpCode));
@@ -92,6 +97,14 @@ public sealed class ILAstExpression : ILAstNode
         ILOpCode.Ldloc_3 => "ldloc.3",
         _ => opcode.ToString().ToLowerInvariant().Replace('_', '.')
     };
+}
+
+public enum CallArgumentModifier
+{
+    None,
+    Ref,
+    Out,
+    In
 }
 
 /// <summary>

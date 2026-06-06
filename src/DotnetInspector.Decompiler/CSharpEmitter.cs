@@ -5273,10 +5273,67 @@ public static class CSharpEmitter
 
         void EmitCallArgument(ILAstExpression arg)
         {
-            if (arg.OpCode is ILOpCode.Ldloca_s or ILOpCode.Ldloca
-                or ILOpCode.Ldarga_s or ILOpCode.Ldarga)
-                _sb.Append("ref ");
-            EmitExpression(arg);
+            var modifier = arg.ExpectedArgumentModifier;
+            if (modifier == CallArgumentModifier.None && IsAddressExpression(arg))
+                modifier = CallArgumentModifier.Ref;
+
+            if (modifier == CallArgumentModifier.None)
+            {
+                EmitExpression(arg);
+                return;
+            }
+
+            _sb.Append(modifier switch
+            {
+                CallArgumentModifier.In => "in ",
+                CallArgumentModifier.Out => "out ",
+                _ => "ref "
+            });
+
+            if (IsAddressExpression(arg))
+                EmitByRefArgumentTarget(arg);
+            else
+                EmitExpression(arg);
+        }
+
+        void EmitByRefArgumentTarget(ILAstExpression expr)
+        {
+            switch (expr.OpCode)
+            {
+                case ILOpCode.Ldloca_s or ILOpCode.Ldloca:
+                    _sb.Append(expr.Operand ?? "loc");
+                    break;
+                case ILOpCode.Ldarga_s or ILOpCode.Ldarga:
+                    _sb.Append(RemapArg(expr.Operand, expr.OpCode));
+                    break;
+                case ILOpCode.Ldflda:
+                    if (expr.Arguments.Count > 0)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('.');
+                    }
+                    _sb.Append(ExtractMemberName(expr.Operand));
+                    break;
+                case ILOpCode.Ldsflda:
+                    _sb.Append(expr.Operand ?? "/* field */");
+                    break;
+                case ILOpCode.Ldelema:
+                    if (expr.Arguments.Count >= 2)
+                    {
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append('[');
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(']');
+                    }
+                    else
+                    {
+                        _sb.Append("/* array element */");
+                    }
+                    break;
+                default:
+                    EmitExpression(expr);
+                    break;
+            }
         }
 
         void EmitReceiver(ILAstExpression receiver, bool isBaseCall)
