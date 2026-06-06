@@ -127,6 +127,10 @@ public static class CSharpEmitter
         // Try/finally regions that are compiler-lowered lock statements.
         readonly Dictionary<StructuredBlock, LockPattern> _lockPatterns = [];
 
+        // Runtime-async custom awaits lower through an awaiter temp:
+        // awaitable.GetAwaiter(); if (!awaiter.IsCompleted) AsyncHelpers.AwaitAwaiter(awaiter); awaiter.GetResult().
+        readonly Dictionary<string, ILAstExpression> _runtimeCustomAwaitSources = [];
+
         public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null)
         {
             _ast = ast;
@@ -201,6 +205,10 @@ public static class CSharpEmitter
             // Pre-detect lock patterns so compiler-generated temporaries are suppressed before
             // their initialization blocks are emitted.
             ScanForLockPatterns(structure.Root);
+
+            // Pre-detect runtime-async custom awaiter patterns so awaiter temps and await
+            // scheduling guards can be rendered as source-level await expressions.
+            ScanForRuntimeCustomAwaitPatterns(structure.Root);
 
             // Pre-detect using patterns to suppress local declarations
             ScanForUsingPatterns(structure.Root);
@@ -338,6 +346,244 @@ public static class CSharpEmitter
             }
             return null;
         }
+
+        void ScanForRuntimeCustomAwaitPatterns(StructuredBlock block)
+        {
+            if (block.Kind == StructuredBlockKind.IfThenElse
+                && TryMatchRuntimeCustomAwaitGuard(block, out string? awaiterVar, out var awaitedExpression, out var storeNode))
+            {
+                _runtimeCustomAwaitSources[awaiterVar] = awaitedExpression;
+                _skipNodes.Add(storeNode);
+                _suppressedLocals.Add(awaiterVar);
+            }
+
+            foreach (var c in block.Children)
+                ScanForRuntimeCustomAwaitPatterns(c);
+            foreach (var c in block.TryChildren)
+                ScanForRuntimeCustomAwaitPatterns(c);
+            foreach (var c in block.HandlerChildren)
+                ScanForRuntimeCustomAwaitPatterns(c);
+            if (block.ThenBlock is not null)
+                ScanForRuntimeCustomAwaitPatterns(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ScanForRuntimeCustomAwaitPatterns(block.ElseBlock);
+        }
+
+        bool TryMatchRuntimeCustomAwaitGuard(
+            StructuredBlock block,
+            out string awaiterVar,
+            out ILAstExpression awaitedExpression,
+            out ILAstNode storeNode)
+        {
+            awaiterVar = "";
+            awaitedExpression = null!;
+            storeNode = null!;
+
+            if (block.ElseBlock is not null || block.ConditionBlockIndex < 0)
+                return false;
+            if (!_blockMap.TryGetValue(block.ConditionBlockIndex, out var conditionBlock))
+                return false;
+            if (conditionBlock.Nodes.LastOrDefault() is not ILAstStatement { Expression: var branchExpr })
+                return false;
+            if (!TryMatchNotCompletedAwaitGuard(branchExpr, block.NegateCondition, out awaiterVar))
+                return false;
+            if (!BlockContainsSingleRuntimeAwaitHelper(block.ThenBlock, awaiterVar))
+                return false;
+            if (!TryFindAwaiterStore(awaiterVar, out storeNode, out awaitedExpression))
+                return false;
+            if (!HasGetResultUse(awaiterVar))
+                return false;
+
+            return true;
+        }
+
+        bool TryMatchNotCompletedAwaitGuard(ILAstExpression branchExpr, bool negateCondition, out string awaiterVar)
+        {
+            awaiterVar = "";
+            if (branchExpr.Arguments.Count != 1)
+                return false;
+            if (!TryGetIsCompletedAwaiter(branchExpr.Arguments[0], out awaiterVar))
+                return false;
+
+            return branchExpr.OpCode switch
+            {
+                ILOpCode.Brtrue or ILOpCode.Brtrue_s => negateCondition,
+                ILOpCode.Brfalse or ILOpCode.Brfalse_s => negateCondition,
+                _ => false
+            };
+        }
+
+        bool TryGetIsCompletedAwaiter(ILAstExpression expr, out string awaiterVar)
+        {
+            awaiterVar = "";
+
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && expr.Operand is string operand
+                && ExtractMemberName(operand) == "get_IsCompleted"
+                && expr.Arguments.Count > 0
+                && GetLocalReferenceName(expr.Arguments[0]) is { } local)
+            {
+                awaiterVar = local;
+                return true;
+            }
+
+            return false;
+        }
+
+        bool BlockContainsSingleRuntimeAwaitHelper(StructuredBlock? block, string awaiterVar)
+        {
+            if (block is null)
+                return false;
+
+            bool sawHelper = false;
+            foreach (var (_, node) in EnumerateStructuredNodes(block))
+            {
+                var expr = NodeExpression(node);
+                if (expr is null)
+                    continue;
+                if (expr.OpCode is ILOpCode.Nop or ILOpCode.Br or ILOpCode.Br_s
+                    or ILOpCode.Leave or ILOpCode.Leave_s)
+                    continue;
+
+                if (IsRuntimeAwaiterHelperCall(expr, awaiterVar))
+                {
+                    if (sawHelper)
+                        return false;
+                    sawHelper = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawHelper;
+        }
+
+        static bool IsRuntimeAwaiterHelperCall(ILAstExpression expr, string awaiterVar)
+        {
+            if (expr.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt)
+                || expr.Operand is not string operand)
+                return false;
+
+            if (!operand.StartsWith("System.Runtime.CompilerServices.AsyncHelpers::", StringComparison.Ordinal))
+                return false;
+
+            string memberName = ExtractMemberName(operand);
+            if (memberName is not ("AwaitAwaiter" or "UnsafeAwaitAwaiter"))
+                return false;
+
+            return expr.Arguments.Count == 1 && IsLoadOf(expr.Arguments[0], awaiterVar);
+        }
+
+        bool TryFindAwaiterStore(string awaiterVar, out ILAstNode storeNode, out ILAstExpression awaitedExpression)
+        {
+            storeNode = null!;
+            awaitedExpression = null!;
+            bool found = false;
+
+            foreach (var block in _ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (node is not ILAstStatement { Expression: var expr }
+                        || !IsStoreToLocal(expr, awaiterVar)
+                        || expr.Arguments.Count != 1)
+                    {
+                        continue;
+                    }
+
+                    if (found)
+                        return false;
+                    if (!TryGetAwaitedExpressionFromGetAwaiter(expr.Arguments[0], out awaitedExpression))
+                        return false;
+
+                    storeNode = node;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        static bool TryGetAwaitedExpressionFromGetAwaiter(ILAstExpression getAwaiterExpr, out ILAstExpression awaitedExpression)
+        {
+            awaitedExpression = null!;
+            if (getAwaiterExpr.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt)
+                || getAwaiterExpr.Operand is not string operand
+                || ExtractMemberName(operand) != "GetAwaiter"
+                || getAwaiterExpr.Arguments.Count == 0)
+            {
+                return false;
+            }
+
+            awaitedExpression = NormalizeAwaitedExpression(getAwaiterExpr.Arguments[0]);
+            return true;
+        }
+
+        static ILAstExpression NormalizeAwaitedExpression(ILAstExpression receiver)
+        {
+            if (receiver.OpCode is ILOpCode.Ldarga or ILOpCode.Ldarga_s)
+            {
+                return new ILAstExpression
+                {
+                    OpCode = ILOpCode.Ldarg,
+                    Operand = receiver.Operand,
+                    ResultType = StackValue.CreateUnknown(),
+                    Offset = receiver.Offset
+                };
+            }
+
+            if (receiver.OpCode == ILOpCode.Ldelema && receiver.Arguments.Count >= 2)
+            {
+                var value = new ILAstExpression
+                {
+                    OpCode = ILOpCode.Ldelem,
+                    Operand = receiver.Operand,
+                    ResultType = StackValue.CreateUnknown(),
+                    Offset = receiver.Offset
+                };
+                value.Arguments.AddRange(receiver.Arguments);
+                return value;
+            }
+
+            return receiver;
+        }
+
+        bool HasGetResultUse(string awaiterVar)
+        {
+            foreach (var block in _ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (NodeExpression(node) is { } expr && HasGetResultUse(expr, awaiterVar))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        static bool HasGetResultUse(ILAstExpression expr, string awaiterVar)
+        {
+            if (IsGetResultCallOnAwaiter(expr, awaiterVar))
+                return true;
+
+            foreach (var arg in expr.Arguments)
+            {
+                if (HasGetResultUse(arg, awaiterVar))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static bool IsGetResultCallOnAwaiter(ILAstExpression expr, string awaiterVar)
+            => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && !expr.IsStaticCall
+                && expr.Operand is string operand
+                && ExtractMemberName(operand) == "GetResult"
+                && expr.Arguments.Count > 0
+                && IsLoadOf(expr.Arguments[0], awaiterVar);
 
         void ScanForLockPatterns(StructuredBlock block)
         {
@@ -1267,6 +1513,9 @@ public static class CSharpEmitter
                 // Emit any statements before the branch
                 for (int i = 0; i < condBlock.Nodes.Count - 1; i++)
                 {
+                    if (_skipNodes.Contains(condBlock.Nodes[i]))
+                        continue;
+
                     if (condBlock.Nodes[i] is ILAstStatement stmt)
                         EmitStatement(stmt.Expression, indent);
                     else if (condBlock.Nodes[i] is ILAstAssignment assign)
@@ -1361,6 +1610,9 @@ public static class CSharpEmitter
             if (block.NegateCondition)
                 condition = NegateConditionString(condition);
 
+            if (TryEmitRuntimeCustomAwaitGuard(block))
+                return;
+
             if (TryEmitNullConditionalAssignment(block, condition, indent))
                 return;
 
@@ -1400,6 +1652,21 @@ public static class CSharpEmitter
                     _sb.AppendLine("}");
                 }
             }
+        }
+
+        bool TryEmitRuntimeCustomAwaitGuard(StructuredBlock block)
+        {
+            if (!TryMatchRuntimeCustomAwaitGuard(block, out string awaiterVar, out _, out _))
+                return false;
+            if (!_runtimeCustomAwaitSources.ContainsKey(awaiterVar))
+                return false;
+
+            if (block.ThenBlock is not null)
+                ConsumeStructuredBlock(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ConsumeStructuredBlock(block.ElseBlock);
+
+            return true;
         }
 
         bool TryEmitNullConditionalAssignment(StructuredBlock block, string condition, int indent)
@@ -5016,7 +5283,7 @@ public static class CSharpEmitter
         {
             if (isBaseCall)
                 _sb.Append("base");
-            else if (IsRuntimeAwaitCall(receiver))
+            else if (IsRuntimeAwaitExpression(receiver))
             {
                 // `(await GetThingAsync()).Member` — the await result is the receiver, so it
                 // must be parenthesized; `await GetThingAsync().Member` would bind differently.
@@ -5038,6 +5305,18 @@ public static class CSharpEmitter
             expr.IsStaticCall
             && expr.Arguments.Count == 1
             && expr.Operand is "System.Runtime.CompilerServices.AsyncHelpers::Await";
+
+        bool IsRuntimeCustomAwaitGetResultCall(ILAstExpression expr)
+            => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && !expr.IsStaticCall
+                && expr.Operand is string operand
+                && ExtractMemberName(operand) == "GetResult"
+                && expr.Arguments.Count > 0
+                && GetLocalReferenceName(expr.Arguments[0]) is { } awaiterVar
+                && _runtimeCustomAwaitSources.ContainsKey(awaiterVar);
+
+        bool IsRuntimeAwaitExpression(ILAstExpression expr)
+            => IsRuntimeAwaitCall(expr) || IsRuntimeCustomAwaitGetResultCall(expr);
 
         void EmitCallExpression(ILAstExpression expr)
         {
@@ -5061,6 +5340,14 @@ public static class CSharpEmitter
                 if (wrap) _sb.Append('(');
                 EmitExpression(awaited);
                 if (wrap) _sb.Append(')');
+                return;
+            }
+
+            if (IsRuntimeCustomAwaitGetResultCall(expr)
+                && GetLocalReferenceName(expr.Arguments[0]) is { } awaiterVar
+                && _runtimeCustomAwaitSources.TryGetValue(awaiterVar, out var awaitedExpression))
+            {
+                EmitAwaitExpression(awaitedExpression);
                 return;
             }
 
@@ -5250,6 +5537,15 @@ public static class CSharpEmitter
                 else
                     _sb.Append($"{SimplifyTypeName(typePart)}.{memberPart}()");
             }
+        }
+
+        void EmitAwaitExpression(ILAstExpression awaited)
+        {
+            _sb.Append("await ");
+            bool wrap = IsBinaryOp(awaited.OpCode);
+            if (wrap) _sb.Append('(');
+            EmitExpression(awaited);
+            if (wrap) _sb.Append(')');
         }
 
         bool TryEmitInlineArrayAsSpanExpression(ILAstExpression expr, string memberPart)

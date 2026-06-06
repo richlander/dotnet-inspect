@@ -58,6 +58,63 @@ public class RuntimeAsyncEmitterTests
         Assert.Null(Record.Exception(() => EmitRuntimeAsync("AwaitValue")));
     }
 
+    [Fact]
+    public void CustomAwait_RendersAwaitedAwaitable()
+    {
+        string code = EmitRuntimeAsync("AwaitCustomValue");
+
+        Assert.Contains("return await t", code);
+        Assert.DoesNotContain("GetAwaiter", code);
+        Assert.DoesNotContain("IsCompleted", code);
+        Assert.DoesNotContain("AwaitAwaiter", code);
+        Assert.DoesNotContain("GetResult", code);
+    }
+
+    [Fact]
+    public void CustomAwait_BrfalseHelperPath_RendersAwaitedAwaitable()
+    {
+        string code = EmitRuntimeAsync("AwaitCustomValueBrfalse");
+
+        Assert.Contains("return await t", code);
+        Assert.DoesNotContain("GetAwaiter", code);
+        Assert.DoesNotContain("AwaitAwaiter", code);
+        Assert.DoesNotContain("GetResult", code);
+    }
+
+    [Fact]
+    public void CustomAwait_InvertedGuard_DoesNotFoldToAwait()
+    {
+        string code = EmitRuntimeAsync("InvertedCustomAwaitGuard");
+
+        Assert.DoesNotContain("return await t", code);
+        Assert.Contains("AwaitAwaiter", code);
+        Assert.Contains("GetResult", code);
+    }
+
+    [Fact]
+    public void StructCustomAwait_DoesNotRenderRefAwaitOperand()
+    {
+        string code = EmitRuntimeAsync("AwaitCustomStructValue");
+
+        Assert.Contains("return await t", code);
+        Assert.DoesNotContain("await ref t", code);
+        Assert.DoesNotContain("GetAwaiter", code);
+        Assert.DoesNotContain("AwaitAwaiter", code);
+        Assert.DoesNotContain("GetResult", code);
+    }
+
+    [Fact]
+    public void StructArrayElementCustomAwait_DoesNotRenderRefAwaitOperand()
+    {
+        string code = EmitRuntimeAsync("AwaitCustomStructArrayElement");
+
+        Assert.Contains("return await values[0]", code);
+        Assert.DoesNotContain("await ref values[0]", code);
+        Assert.DoesNotContain("GetAwaiter", code);
+        Assert.DoesNotContain("AwaitAwaiter", code);
+        Assert.DoesNotContain("GetResult", code);
+    }
+
     static string EmitRuntimeAsync(string methodName)
     {
         using var stream = BuildRuntimeAsyncAssembly();
@@ -98,7 +155,62 @@ public class RuntimeAsyncEmitterTests
         awaitGenericIl.Emit(OpCodes.Ldloc, defaultLocal);
         awaitGenericIl.Emit(OpCodes.Ret);
 
+        var awaitAwaiterGeneric = helpers.DefineMethod(
+            "AwaitAwaiter", MethodAttributes.Public | MethodAttributes.Static);
+        var awaiterTp = awaitAwaiterGeneric.DefineGenericParameters("TAwaiter")[0];
+        awaitAwaiterGeneric.SetReturnType(typeof(void));
+        awaitAwaiterGeneric.SetParameters(awaiterTp);
+        var awaitAwaiterIl = awaitAwaiterGeneric.GetILGenerator();
+        awaitAwaiterIl.Emit(OpCodes.Ret);
+
         helpers.CreateType();
+
+        var awaiterType = module.DefineType("CustomAwaiter", TypeAttributes.Public | TypeAttributes.Class);
+        var awaiterCtor = awaiterType.DefineDefaultConstructor(MethodAttributes.Public);
+        var isCompleted = awaiterType.DefineMethod(
+            "get_IsCompleted",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(bool),
+            Type.EmptyTypes);
+        var isCompletedIl = isCompleted.GetILGenerator();
+        isCompletedIl.Emit(OpCodes.Ldc_I4_0);
+        isCompletedIl.Emit(OpCodes.Ret);
+
+        var getResult = awaiterType.DefineMethod(
+            "GetResult",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        var getResultIl = getResult.GetILGenerator();
+        getResultIl.Emit(OpCodes.Ldc_I4, 42);
+        getResultIl.Emit(OpCodes.Ret);
+        var customAwaiter = awaiterType.CreateType();
+
+        var awaitableType = module.DefineType("CustomAwaitable", TypeAttributes.Public | TypeAttributes.Class);
+        awaitableType.DefineDefaultConstructor(MethodAttributes.Public);
+        var getAwaiter = awaitableType.DefineMethod(
+            "GetAwaiter",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            customAwaiter,
+            Type.EmptyTypes);
+        var getAwaiterIl = getAwaiter.GetILGenerator();
+        getAwaiterIl.Emit(OpCodes.Newobj, awaiterCtor);
+        getAwaiterIl.Emit(OpCodes.Ret);
+        var customAwaitable = awaitableType.CreateType();
+
+        var structAwaitableType = module.DefineType(
+            "CustomStructAwaitable",
+            TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+            typeof(ValueType));
+        var structGetAwaiter = structAwaitableType.DefineMethod(
+            "GetAwaiter",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            customAwaiter,
+            Type.EmptyTypes);
+        var structGetAwaiterIl = structGetAwaiter.GetILGenerator();
+        structGetAwaiterIl.Emit(OpCodes.Newobj, awaiterCtor);
+        structGetAwaiterIl.Emit(OpCodes.Ret);
+        var customStructAwaitable = structAwaitableType.CreateType();
 
         var sample = module.DefineType("RuntimeAsyncSample", TypeAttributes.Public | TypeAttributes.Class);
 
@@ -137,6 +249,120 @@ public class RuntimeAsyncEmitterTests
         receiverIl.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Length")!);
         receiverIl.Emit(OpCodes.Ret);
         awaitReceiverCaller.SetImplementationFlags(AsyncImplFlag);
+
+        var awaitCustomAwaiter = awaitAwaiterGeneric.MakeGenericMethod(customAwaiter);
+        var awaitCustomCaller = sample.DefineMethod(
+            "AwaitCustomValue", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(Task<int>), [customAwaitable]);
+        awaitCustomCaller.DefineParameter(1, ParameterAttributes.None, "t");
+        var customIl = awaitCustomCaller.GetILGenerator();
+        var awaiterLocal = customIl.DeclareLocal(customAwaiter);
+        var afterAwait = customIl.DefineLabel();
+        customIl.Emit(OpCodes.Ldarg_0);
+        customIl.Emit(OpCodes.Callvirt, getAwaiter);
+        customIl.Emit(OpCodes.Stloc, awaiterLocal);
+        customIl.Emit(OpCodes.Ldloc, awaiterLocal);
+        customIl.Emit(OpCodes.Callvirt, isCompleted);
+        customIl.Emit(OpCodes.Brtrue_S, afterAwait);
+        customIl.Emit(OpCodes.Ldloc, awaiterLocal);
+        customIl.Emit(OpCodes.Call, awaitCustomAwaiter);
+        customIl.MarkLabel(afterAwait);
+        customIl.Emit(OpCodes.Ldloc, awaiterLocal);
+        customIl.Emit(OpCodes.Callvirt, getResult);
+        customIl.Emit(OpCodes.Ret);
+        awaitCustomCaller.SetImplementationFlags(AsyncImplFlag);
+
+        var awaitCustomBrfalseCaller = sample.DefineMethod(
+            "AwaitCustomValueBrfalse", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(Task<int>), [customAwaitable]);
+        awaitCustomBrfalseCaller.DefineParameter(1, ParameterAttributes.None, "t");
+        var customBrfalseIl = awaitCustomBrfalseCaller.GetILGenerator();
+        var brfalseAwaiterLocal = customBrfalseIl.DeclareLocal(customAwaiter);
+        var brfalseHelper = customBrfalseIl.DefineLabel();
+        var afterBrfalseAwait = customBrfalseIl.DefineLabel();
+        customBrfalseIl.Emit(OpCodes.Ldarg_0);
+        customBrfalseIl.Emit(OpCodes.Callvirt, getAwaiter);
+        customBrfalseIl.Emit(OpCodes.Stloc, brfalseAwaiterLocal);
+        customBrfalseIl.Emit(OpCodes.Ldloc, brfalseAwaiterLocal);
+        customBrfalseIl.Emit(OpCodes.Callvirt, isCompleted);
+        customBrfalseIl.Emit(OpCodes.Brfalse_S, brfalseHelper);
+        customBrfalseIl.Emit(OpCodes.Br_S, afterBrfalseAwait);
+        customBrfalseIl.MarkLabel(brfalseHelper);
+        customBrfalseIl.Emit(OpCodes.Ldloc, brfalseAwaiterLocal);
+        customBrfalseIl.Emit(OpCodes.Call, awaitCustomAwaiter);
+        customBrfalseIl.MarkLabel(afterBrfalseAwait);
+        customBrfalseIl.Emit(OpCodes.Ldloc, brfalseAwaiterLocal);
+        customBrfalseIl.Emit(OpCodes.Callvirt, getResult);
+        customBrfalseIl.Emit(OpCodes.Ret);
+        awaitCustomBrfalseCaller.SetImplementationFlags(AsyncImplFlag);
+
+        var invertedGuardCaller = sample.DefineMethod(
+            "InvertedCustomAwaitGuard", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(Task<int>), [customAwaitable]);
+        invertedGuardCaller.DefineParameter(1, ParameterAttributes.None, "t");
+        var invertedIl = invertedGuardCaller.GetILGenerator();
+        var invertedAwaiterLocal = invertedIl.DeclareLocal(customAwaiter);
+        var invertedHelper = invertedIl.DefineLabel();
+        var afterInverted = invertedIl.DefineLabel();
+        invertedIl.Emit(OpCodes.Ldarg_0);
+        invertedIl.Emit(OpCodes.Callvirt, getAwaiter);
+        invertedIl.Emit(OpCodes.Stloc, invertedAwaiterLocal);
+        invertedIl.Emit(OpCodes.Ldloc, invertedAwaiterLocal);
+        invertedIl.Emit(OpCodes.Callvirt, isCompleted);
+        invertedIl.Emit(OpCodes.Brtrue_S, invertedHelper);
+        invertedIl.Emit(OpCodes.Br_S, afterInverted);
+        invertedIl.MarkLabel(invertedHelper);
+        invertedIl.Emit(OpCodes.Ldloc, invertedAwaiterLocal);
+        invertedIl.Emit(OpCodes.Call, awaitCustomAwaiter);
+        invertedIl.MarkLabel(afterInverted);
+        invertedIl.Emit(OpCodes.Ldloc, invertedAwaiterLocal);
+        invertedIl.Emit(OpCodes.Callvirt, getResult);
+        invertedIl.Emit(OpCodes.Ret);
+        invertedGuardCaller.SetImplementationFlags(AsyncImplFlag);
+
+        var awaitCustomStructCaller = sample.DefineMethod(
+            "AwaitCustomStructValue", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(Task<int>), [customStructAwaitable]);
+        awaitCustomStructCaller.DefineParameter(1, ParameterAttributes.None, "t");
+        var customStructIl = awaitCustomStructCaller.GetILGenerator();
+        var structAwaiterLocal = customStructIl.DeclareLocal(customAwaiter);
+        var afterStructAwait = customStructIl.DefineLabel();
+        customStructIl.Emit(OpCodes.Ldarga_S, (byte)0);
+        customStructIl.Emit(OpCodes.Call, structGetAwaiter);
+        customStructIl.Emit(OpCodes.Stloc, structAwaiterLocal);
+        customStructIl.Emit(OpCodes.Ldloc, structAwaiterLocal);
+        customStructIl.Emit(OpCodes.Callvirt, isCompleted);
+        customStructIl.Emit(OpCodes.Brtrue_S, afterStructAwait);
+        customStructIl.Emit(OpCodes.Ldloc, structAwaiterLocal);
+        customStructIl.Emit(OpCodes.Call, awaitCustomAwaiter);
+        customStructIl.MarkLabel(afterStructAwait);
+        customStructIl.Emit(OpCodes.Ldloc, structAwaiterLocal);
+        customStructIl.Emit(OpCodes.Callvirt, getResult);
+        customStructIl.Emit(OpCodes.Ret);
+        awaitCustomStructCaller.SetImplementationFlags(AsyncImplFlag);
+
+        var awaitCustomStructArrayCaller = sample.DefineMethod(
+            "AwaitCustomStructArrayElement", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(Task<int>), [customStructAwaitable.MakeArrayType()]);
+        awaitCustomStructArrayCaller.DefineParameter(1, ParameterAttributes.None, "values");
+        var customStructArrayIl = awaitCustomStructArrayCaller.GetILGenerator();
+        var structArrayAwaiterLocal = customStructArrayIl.DeclareLocal(customAwaiter);
+        var afterStructArrayAwait = customStructArrayIl.DefineLabel();
+        customStructArrayIl.Emit(OpCodes.Ldarg_0);
+        customStructArrayIl.Emit(OpCodes.Ldc_I4_0);
+        customStructArrayIl.Emit(OpCodes.Ldelema, customStructAwaitable);
+        customStructArrayIl.Emit(OpCodes.Call, structGetAwaiter);
+        customStructArrayIl.Emit(OpCodes.Stloc, structArrayAwaiterLocal);
+        customStructArrayIl.Emit(OpCodes.Ldloc, structArrayAwaiterLocal);
+        customStructArrayIl.Emit(OpCodes.Callvirt, isCompleted);
+        customStructArrayIl.Emit(OpCodes.Brtrue_S, afterStructArrayAwait);
+        customStructArrayIl.Emit(OpCodes.Ldloc, structArrayAwaiterLocal);
+        customStructArrayIl.Emit(OpCodes.Call, awaitCustomAwaiter);
+        customStructArrayIl.MarkLabel(afterStructArrayAwait);
+        customStructArrayIl.Emit(OpCodes.Ldloc, structArrayAwaiterLocal);
+        customStructArrayIl.Emit(OpCodes.Callvirt, getResult);
+        customStructArrayIl.Emit(OpCodes.Ret);
+        awaitCustomStructArrayCaller.SetImplementationFlags(AsyncImplFlag);
 
         sample.CreateType();
 
