@@ -164,4 +164,11 @@ if (showInfo)
     MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
 }
 
+var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
+if (cacheMaintenance.BytesFreed > 0)
+{
+    Console.Error.WriteLine();
+    Console.Error.WriteLine($"Removed {CacheOutputFormatter.FormatSize(cacheMaintenance.BytesFreed)} from obsolete cache entries.");
+}
+
 return exitCode;
