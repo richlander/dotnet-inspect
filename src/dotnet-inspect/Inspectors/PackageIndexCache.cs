@@ -15,7 +15,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    private const string Category = "pkg-index-v7";
+    private const string Category = "pkg-index-v8";
 
     /// <summary>
     /// Tries to load a cached InspectionResult for a package version.
