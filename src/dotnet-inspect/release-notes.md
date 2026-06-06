@@ -2,6 +2,10 @@
 
 ## v0.9.4
 
+### Cache
+
+- Cleans obsolete versioned cache categories, such as older package-index schema caches, in the background after cache misses.
+
 ### Lowered C# output
 
 - Recovers more recent C# lowering patterns, including `lock` statements, null-conditional assignments, and span collection expressions backed by inline-array helpers.

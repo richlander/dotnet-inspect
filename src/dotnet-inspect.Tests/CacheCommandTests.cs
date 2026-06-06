@@ -1,4 +1,5 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 
@@ -52,5 +53,28 @@ public class CacheCommandTests : IDisposable
 
         // Should succeed even if cache is empty
         Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public void CacheMiss_CleansObsoleteVersionedCategories()
+    {
+        var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v7");
+        var currentDir = Path.Combine(_cacheBasePath, "pkg-index-v8");
+        Directory.CreateDirectory(oldDir);
+        Directory.CreateDirectory(currentDir);
+        File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
+        File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
+
+        CoreCache.RegisterVersionedCategory("pkg-index-v", "pkg-index-v8");
+
+        Assert.Null(CoreCache.TryGet("versions", $"missing-{Guid.NewGuid():N}", extension: "txt"));
+        Assert.True(SpinWait.SpinUntil(() => !Directory.Exists(oldDir), TimeSpan.FromSeconds(5)));
+
+        var result = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(1));
+
+        Assert.False(Directory.Exists(oldDir));
+        Assert.True(Directory.Exists(currentDir));
+        Assert.True(result.BytesFreed > 0);
+        Assert.True(result.DirectoriesDeleted >= 1);
     }
 }
