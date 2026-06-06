@@ -621,6 +621,15 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void NullConditionalPropertyCompoundAssignment_EmitsConditionalAssignment()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullConditionalPropertyCompoundAssignment));
+
+        Assert.Contains("target?.Count += value;", code);
+        Assert.DoesNotContain("if (target != null)", code);
+    }
+
+    [Fact]
     public void NullConditionalIndexerAssignment_EmitsConditionalAssignment()
     {
         var code = EmitMethod(nameof(CfgSampleClass.NullConditionalIndexerAssignment));
