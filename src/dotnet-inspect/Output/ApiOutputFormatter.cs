@@ -338,7 +338,7 @@ public static class ApiOutputFormatter
             {
                 var kindLabel = GetTreeKindLabel(group.Key, group.Count());
                 var memberSignatures = group
-                    .OrderBy(m => m.Name)
+                    .OrderBy(m => m.Name, StringComparer.Ordinal)
                     .Select(m => m.Signature ?? OperatorNames.FormatDisplayName(m.Name))
                     .ToList();
 
@@ -461,7 +461,10 @@ public static class ApiOutputFormatter
         foreach (var group in kindGroups)
         {
             var kind = group.Key;
-            var members = group.OrderBy(m => m.Name).ThenBy(m => m.Signature).ToList();
+            var members = group
+                .OrderBy(m => m.Name, StringComparer.Ordinal)
+                .ThenBy(m => m.Signature ?? "", StringComparer.Ordinal)
+                .ToList();
 
             // Pre-compute overload counts and indices for --show-index
             var overloadCounts = showSelect
@@ -733,7 +736,8 @@ public static class ApiOutputFormatter
                         var lowered = Decompiler.CSharpEmitter.Emit(context);
                         if (!string.IsNullOrWhiteSpace(lowered))
                         {
-                            memberCode.DecompiledSourceCode = new CodeSection("csharp", lowered.TrimEnd());
+                            var source = FormatLoweredSourceWithDeclaration(type, method, context, lowered);
+                            memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
                             hasCode = true;
                         }
                     }
@@ -778,6 +782,131 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    private static string FormatLoweredSourceWithDeclaration(ApiType type, ApiMember member, Decompiler.MethodBodyContext context, string lowered)
+    {
+        var declaration = FormatMemberDeclaration(type, member, context);
+        var body = lowered.TrimEnd();
+        if (string.IsNullOrWhiteSpace(declaration))
+            return body;
+
+        var indentedBody = string.Join(
+            Environment.NewLine,
+            body.ReplaceLineEndings("\n").Split('\n').Select(line => line.Length == 0 ? "" : $"    {line}"));
+
+        return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+    }
+
+    private static string FormatMemberDeclaration(ApiType type, ApiMember member, Decompiler.MethodBodyContext context)
+    {
+        var signature = member.Signature ?? member.ReturnType ?? "";
+        if (string.IsNullOrWhiteSpace(signature))
+            return "";
+
+        if (member.Kind == "constructor")
+        {
+            var typeName = FormatConstructorTypeName(type.Name);
+            signature = $"{typeName}{SignatureParser.FormatConstructorCall(signature)}";
+        }
+        else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
+        {
+            signature = FormatOperatorSignature(signature, member.Name);
+        }
+        else if (member.Kind == "method")
+        {
+            if (context.GenericContext?.MethodParameters is { Count: > 0 } methodParameters)
+                signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
+            if (member.IsExtension)
+                signature = AddExtensionThisModifier(signature);
+        }
+
+        List<string> modifiers = [member.Accessibility ?? "public"];
+        if (member.IsStatic)
+            modifiers.Add("static");
+
+        return $"{string.Join(" ", modifiers)} {signature}";
+    }
+
+    private static string FormatOperatorSignature(string signature, string methodName)
+    {
+        var parenStart = signature.IndexOf('(');
+        if (parenStart <= 0)
+            return signature;
+
+        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return signature;
+
+        var returnType = signature[..nameIndex].TrimEnd();
+        var parameters = signature[parenStart..];
+
+        if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
+            && TryGetCheckedOperatorSymbol(methodName["op_Checked".Length..]) is { } checkedSymbol)
+            return $"{returnType} operator checked {checkedSymbol}{parameters}";
+
+        return methodName switch
+        {
+            "op_Implicit" => $"implicit operator {returnType}{parameters}",
+            "op_Explicit" => $"explicit operator {returnType}{parameters}",
+            "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
+            _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
+        };
+    }
+
+    private static string? TryGetCheckedOperatorSymbol(string suffix) => suffix switch
+    {
+        "Addition" => "+",
+        "Subtraction" => "-",
+        "Multiply" => "*",
+        "Division" => "/",
+        "Increment" => "++",
+        "Decrement" => "--",
+        "UnaryNegation" => "-",
+        _ => null
+    };
+
+    private static string FormatConstructorTypeName(string name)
+    {
+        var arityIndex = name.IndexOf('`');
+        return arityIndex < 0 ? name : name[..arityIndex];
+    }
+
+    private static string AddMethodGenericParameters(string signature, string methodName, IReadOnlyList<string> methodParameters)
+    {
+        if (methodParameters.Count == 0 || string.IsNullOrEmpty(methodName))
+            return signature;
+
+        var parenStart = signature.IndexOf('(');
+        if (parenStart <= 0)
+            return signature;
+
+        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return signature;
+
+        var insertAt = nameIndex + methodName.Length;
+        if (insertAt < parenStart && signature[insertAt] == '<')
+            return signature;
+
+        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
+    }
+
+    private static string AddExtensionThisModifier(string signature)
+    {
+        var parenStart = signature.IndexOf('(');
+        var parenEnd = signature.LastIndexOf(')');
+        if (parenStart < 0 || parenEnd <= parenStart + 1)
+            return signature;
+
+        var firstParameterStart = parenStart + 1;
+        while (firstParameterStart < signature.Length && char.IsWhiteSpace(signature[firstParameterStart]))
+            firstParameterStart++;
+
+        if (signature.AsSpan(firstParameterStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
+            return signature;
+
+        return signature.Insert(firstParameterStart, "this ");
     }
 
     // ===== Helper Methods =====

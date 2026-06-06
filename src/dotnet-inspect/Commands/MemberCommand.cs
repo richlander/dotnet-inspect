@@ -147,6 +147,10 @@ public static class MemberCommand
                 var overloads = apiType.Members
                     .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
                     .ToList();
+                var displayOverloads = overloads
+                    .OrderBy(m => m.Name, StringComparer.Ordinal)
+                    .ThenBy(m => m.Signature ?? "", StringComparer.Ordinal)
+                    .ToList();
 
                 int idx = effectiveOptions.OverloadIndex.Value;
                 if (idx < 1 || idx > overloads.Count)
@@ -155,9 +159,13 @@ public static class MemberCommand
                     return 1;
                 }
 
-                var selected = overloads[idx - 1];
+                var selected = displayOverloads[idx - 1];
                 apiType.Members = [selected];
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                effectiveOptions = effectiveOptions with
+                {
+                    DllPath = apiDllPath,
+                    OverloadIndex = overloads.IndexOf(selected) + 1
+                };
             }
 
             // --params / -of: select overload by parameter type matching

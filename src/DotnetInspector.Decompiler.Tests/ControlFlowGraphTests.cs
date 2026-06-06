@@ -414,6 +414,37 @@ public class CfgSampleClass
         flag = true;
     }
 
+    public static void CallByRefTarget(int value)
+    {
+        ByRefTarget(ref value);
+    }
+
+    public static void ByRefTarget(ref int value)
+    {
+        value++;
+    }
+
+    public static void CallInTarget(int value)
+    {
+        InTarget(in value);
+    }
+
+    public static void InTarget(in int value)
+    {
+        Console.WriteLine(value);
+    }
+
+    public static void CallOutTarget()
+    {
+        OutTarget(out int value);
+        Console.WriteLine(value);
+    }
+
+    public static void OutTarget(out int value)
+    {
+        value = 42;
+    }
+
     public static bool BoolAnd(int x, int y)
     {
         return x > 0 && y > 0;

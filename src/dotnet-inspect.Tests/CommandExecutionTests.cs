@@ -697,6 +697,8 @@ public class CommandExecutionTests
         Assert.Contains("## IL", output);
         Assert.Contains("## IL (Annotated)", output);
         Assert.DoesNotContain("## Original Source", output);
+        Assert.Contains("WriteNode(in value", output);
+        Assert.DoesNotContain("ref ref", output);
     }
 
     [Fact]
@@ -719,7 +721,126 @@ public class CommandExecutionTests
         Assert.Contains("GetTypeInfo", output);
         Assert.Contains("WriteElement", output);
         Assert.DoesNotContain("## Original Source", output);
-        Assert.DoesNotContain("public static JsonElement SerializeToElement", output);
+        Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOperator_SelectDecompiledSource_RendersCSharpOperatorDeclaration()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "String",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "op_Equality" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public static bool operator ==(string? a, string? b)", output);
+        Assert.DoesNotContain("public static bool op_Equality", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedCheckedOperator_SelectDecompiledSource_RendersCSharpCheckedOperatorDeclaration()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "Int128",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "op_CheckedAddition" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public static System.Int128 operator checked +(System.Int128 left, System.Int128 right)", output);
+        Assert.DoesNotContain("System.Int128 checked operator +", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedCheckedConversion_SelectDecompiledSource_RendersCSharpCheckedConversionDeclaration()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "Int128",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "op_CheckedExplicit" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public static explicit operator checked System.Int128(double value)", output);
+        Assert.DoesNotContain("checked explicit operator System.Int128", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedExtensionMethod_SelectDecompiledSource_RendersThisParameter()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Linq",
+            TypeName = "Enumerable",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Where" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public static System.Collections.Generic.IEnumerable<TSource> Where<TSource>(this System.Collections.Generic.IEnumerable<TSource> source, System.Func<TSource, bool> predicate)", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectDecompiledSource_UsesDisplayedOverloadIndex()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "Enum",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Parse" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public static TEnum Parse<TEnum>(System.ReadOnlySpan<char> value)", output);
+        Assert.DoesNotContain("public static object Parse(System.Type enumType, string value)", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedGenericTypeConstructor_SelectDecompiledSource_RendersUngenericConstructorName()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "List<T>",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public List()", output);
+        Assert.DoesNotContain("public List<T>()", output);
     }
 
     [Fact]
