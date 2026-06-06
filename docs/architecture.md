@@ -13,7 +13,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 
 ## Command Structure
 
-The tool is organized around seven commands plus a meta command, each targeting a different level of abstraction:
+The tool is organized around source inspection, API lookup, relationship, and utility commands:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -23,20 +23,26 @@ The tool is organized around seven commands plus a meta command, each targeting 
 │                        library                              │
 │  PE headers, SourceLink, determinism audit                   │
 ├─────────────────────────────────────────────────────────────┤
-│                          api                                 │
-│  Public API surface: types, methods, signatures              │
-├─────────────────────────────────────────────────────────────┤
 │                         type                                 │
-│  Single type: hierarchy, interfaces, members (shape view)    │
+│  Type shape, public signatures, and summaries                │
+├─────────────────────────────────────────────────────────────┤
+│                        member                               │
+│  Member docs, overload selection, Source/IL drill-in         │
+├─────────────────────────────────────────────────────────────┤
+│                         find                                 │
+│  Search for types across packages, platform, and assets      │
 ├─────────────────────────────────────────────────────────────┤
 │                         diff                                 │
-│  Compare API surfaces between two package versions           │
+│  Compare API surfaces between package/platform versions      │
 ├─────────────────────────────────────────────────────────────┤
-│                        samples                               │
-│  Extract code sample references from XML doc comments        │
+│            depends / extensions / implements                 │
+│  Relationship discovery for APIs, packages, and libraries    │
 ├─────────────────────────────────────────────────────────────┤
-│                       platform                               │
-│  List platform/framework libraries from installed SDK       │
+│                        source                               │
+│  SourceLink URLs, source text, and token+IL offset mapping   │
+├─────────────────────────────────────────────────────────────┤
+│                      cache / skill                           │
+│  Cache inspection and embedded agent guidance                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -58,22 +64,13 @@ Inspects .NET library files (PE/COFF format):
 - SourceLink and determinism audit
 - Unsafe code detection
 
-### api
+### type and member
 
-Extracts public API surface using reflection metadata:
+Extract public API surface using metadata:
 
-- All public types or filtered by glob pattern
-- Full method signatures with parameter names
-- Filtering by member name, unsafe signatures, hidden/obsolete
-- Source URLs via SourceLink
-
-### type
-
-Displays a single type's shape in shape format:
-
-- Inheritance chain (base classes)
-- Implemented interfaces
-- Members grouped by kind
+- `type` renders type shape, summaries, members, and `--shape` declarations
+- `member` renders member tables, docs, overload selectors, SourceLink source, lowered C#, and IL
+- Both support package/platform/library sources and section/field projection
 
 ### diff
 
@@ -83,21 +80,17 @@ Compares API surfaces between two package versions:
 - Member-level changes within types
 - Version range syntax: `Package@v1..v2`
 
-### samples
+### find
 
-Extracts code sample references from XML doc comments:
+Searches for types across packages, platform libraries, projects, and local assets.
 
-- Sandcastle-style `<code source=...>` references
-- `<seealso href=...>` file references
-- Region extraction from source files
+### relationships
 
-### platform
+`depends`, `extensions`, and `implements` expose dependency graphs, extension methods/properties, implementors, and subclasses.
 
-Lists platform/framework libraries from the installed .NET SDK:
+### source
 
-- Available frameworks and versions
-- Library listing per framework
-- Useful for inspecting BCL types
+Resolves SourceLink URLs, source text, and MethodDef token + IL offset pairs to source locations.
 
 ## LLM Integration
 

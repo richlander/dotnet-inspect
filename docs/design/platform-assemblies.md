@@ -24,10 +24,10 @@ Reference assemblies contain only public API metadata. They are:
 - **Do not contain** implementation code, private members, or debug information
 - Located in: `/usr/local/share/dotnet/packs/` (macOS/Linux) or `C:\Program Files\dotnet\packs\` (Windows)
 
-Commands that use ref assemblies for primary data:
+Commands that use ref assemblies for primary API data:
 
-- `api` - Extracting public API surface
 - `type` - Displaying type structure
+- `member` - Inspecting member docs/signatures
 - `find` - Searching for types
 - `diff` - Comparing API surfaces
 
@@ -46,11 +46,11 @@ Commands that use runtime assemblies:
 
 - `library` - Full library inspection (always uses runtime for `--platform`)
 - `library -S Signals` - library signals for platform-looking targets
-- PDB/SourceLink resolution for `--docs`, `--samples`, or source URL extraction
+- PDB/SourceLink resolution for source URL extraction and implementation drill-in
 
 ## Hybrid Resolution Pattern
 
-For commands that need both API information and source resolution (like `api` with SourceLink), we use a **hybrid pattern**:
+For commands that need both API information and source resolution, dotnet-inspect uses a **hybrid pattern**:
 
 1. **Resolve ref assembly** for API extraction (complete public surface)
 2. **Resolve runtime assembly** for PDB lookup (has CodeView debug info)
@@ -59,7 +59,7 @@ For commands that need both API information and source resolution (like `api` wi
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                        api --platform                           │
+│                  type/member/source --platform                  │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. Resolve ref assembly     →  Extract public types/methods    │
 │  2. Resolve runtime assembly →  Query MSDL for PDB              │
@@ -136,8 +136,8 @@ can use it:
 
 `find` uses ref packs and reports the canonical assembly name (e.g.,
 `System.Collections` for `List<T>`). This preserves the user-facing .NET API
-surface model. Commands that need PDBs or method bodies (`source`, `api` with
-`--docs`) follow forwarders transparently at the type-resolution level.
+surface model. Commands that need PDBs or method bodies (`source`, `member -v:d`)
+follow forwarders transparently at the type-resolution level.
 Mixing ref and runtime data within a single concern is avoided.
 
 ## Framework Mappings
@@ -154,8 +154,8 @@ Note: `netstandard` has no runtime assemblies. It's a reference-only framework t
 
 | Command | Primary Source | PDB Source | Notes |
 | ------- | -------------- | ---------- | ----- |
-| `api --platform` | Ref | Runtime | Hybrid: API from ref, PDB from runtime |
 | `type --platform` | Ref | Runtime | Hybrid: structure from ref, source from runtime |
+| `member --platform` | Ref | Runtime | Hybrid: member metadata from ref, source/IL from runtime |
 | `source --platform` | Ref | Runtime (+forwarders) | Follows type forwarders to implementation assembly PDB |
 | `find --platform` | Ref | *(none)* | Ref only: no PDB needed for search |
 | `diff --platform` | Ref | *(none)* | Ref only: comparing public API |
@@ -187,13 +187,13 @@ Both ref and runtime assemblies support version specifiers:
 
 ```bash
 # Latest version (default)
-dotnet-inspect api --platform System.Text.Json
+dotnet-inspect type JsonSerializer --platform System.Text.Json --shape
 
 # Specific shared runtime version (library/audit)
 dotnet-inspect library --platform System.Text.Json --version 9.0.12
 
 # Optional framework family restriction
-dotnet-inspect api --platform Microsoft.AspNetCore.Mvc --framework aspnetcore
+dotnet-inspect type ControllerBase --platform Microsoft.AspNetCore.Mvc --framework aspnetcore
 ```
 
 The resolver:

@@ -2,6 +2,8 @@
 
 The section-model doc describes the UX: `-D` discovers, `-S` selects, `--fields`/`--columns` project, and renderers format. This doc describes the system beneath that UX — query operations over view model schemas that live in Markout alongside the rendering system.
 
+The uppercase `-D`/`-S` spellings are part of the query design. They create a distinct cross-command query namespace for discovery and selection, avoiding common lowercase option collisions while signaling that these flags do more than format output.
+
 Markout already owns the schema through its attributes (`[MarkoutSection]`, `[MarkoutField]`, etc.) and its source generator. Rather than defining a parallel schema in a separate library, the query system extends Markout. One schema definition, two uses: rendering and querying.
 
 ## The problem

@@ -107,6 +107,10 @@ dotnet-inspect depends Stream --markdown --mermaid
 
 dotnet-inspect is [designed for LLM-driven development](docs/llm-design.md). The embedded skill (`dotnet-inspect skill`) is also distributed through the [dotnet/skills](https://github.com/dotnet/skills) marketplace.
 
+## Contributor and agent docs
+
+Start with [docs/overview.md](docs/overview.md) for system context. `AGENTS.md` is the agent resolver for this repo, and [taste/skill-guidance.md](taste/skill-guidance.md) captures good and bad examples for maintaining the embedded skill.
+
 ## License
 
 MIT

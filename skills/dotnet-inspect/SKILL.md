@@ -16,7 +16,7 @@ dnx dotnet-inspect -y -- <command>
 
 Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--oneline` for compact tabular output like `docker images` when you need one result per row. Use `--json` for structured automation. Use `-v:d` when you need source/decompiled C#/IL detail.
 
-Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 

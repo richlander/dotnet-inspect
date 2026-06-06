@@ -18,6 +18,8 @@ There are three query paths, each offering a different level of curation and cus
 
 3. **Discovery + projection** (complete customization) — `-D <section>` drills into a section's schema, then `--fields` or `--columns` projects exactly the fields or columns you want. This is the power-user path. Note that the current UX only allows showing one section at a time when using field or column projection.
 
+The uppercase `-S` and `-D` flags are deliberate. They reserve a small, cross-command query namespace for section selection and discovery, reducing collisions with command-specific lowercase options. This is more important than it would be for a pure output-template flag (for example Docker-style `-f` format templates), because section selection can also drive data collection and network backpressure.
+
 These paths share a common starting point: both bare `-S` and bare `-D` list the available sections, so you can orient yourself before choosing a path.
 
 ```bash=

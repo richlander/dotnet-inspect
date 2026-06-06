@@ -11,7 +11,7 @@ dotnet-inspect works with .NET libraries. There are three ways to specify where 
 | Command | Source | Example |
 | --------- | -------- | --------- |
 | `package X` | NuGet package | `package System.Text.Json` |
-| `platform X` | Local SDK/runtime | `platform System.Text.Json` |
+| `library --platform X` or bare platform-looking `library X` | Installed platform/runtime packs | `library System.Text.Json` |
 | `library ./path` | Local file | `library ./bin/MyLib.dll` |
 
 These commands expose library/package inspection views. Use `-S Signals` when the goal is provenance, compatibility, or supply-chain signal reporting.
@@ -35,10 +35,10 @@ Use inspection commands for detailed exploration:
 - Keeps high-cost source reachability and integrity work in explicit SourceLink sections
 
 ```bash
-dotnet inspect package Markout@0.1.4 -S Signals       # package metadata signals
-dotnet inspect library System.Text.Json -S Signals    # platform library metadata signals
-dotnet inspect library ./bin/MyLib.dll -S Signals     # local file metadata signals
-dotnet inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
+dotnet-inspect package Markout@0.1.4 -S Signals       # package metadata signals
+dotnet-inspect library System.Text.Json -S Signals    # platform library metadata signals
+dotnet-inspect library ./bin/MyLib.dll -S Signals     # local file metadata signals
+dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
 ```
 
 High-cost audit work is exposed as opt-in sections rather than broad flags. For packages, select `Signals` for package and registry-backed signals. For libraries, select `SourceLink Availability`, `SourceLink Missing Files`, or `SourceLink Integrity` for per-source-file network/content checks.
@@ -50,10 +50,10 @@ High-cost audit work is exposed as opt-in sections rather than broad flags. For 
 Start with a package, drill down into details:
 
 ```bash
-dotnet inspect package Newtonsoft.Json           # metadata
-dotnet inspect package Newtonsoft.Json --library # library info
-dotnet inspect package Newtonsoft.Json -S Signals # signals
-dotnet inspect package Newtonsoft.Json --api      # public API
+dotnet-inspect package Newtonsoft.Json             # metadata
+dotnet-inspect package Newtonsoft.Json -S Signals  # signals
+dotnet-inspect type JsonConvert --package Newtonsoft.Json --shape
+dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject
 ```
 
 ### Platform-centric workflow
@@ -61,9 +61,9 @@ dotnet inspect package Newtonsoft.Json --api      # public API
 Inspect libraries from the local .NET SDK/runtime:
 
 ```bash
-dotnet inspect platform                          # list frameworks
-dotnet inspect platform System.Text.Json         # inspect library
-dotnet inspect library System.Text.Json -S Signals # platform library signals
+dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect type JsonSerializer --platform System.Text.Json --shape
+dotnet-inspect diff --platform System.Runtime@9.0.0..10.0.0 --additive
 ```
 
 ### File-centric workflow
@@ -71,8 +71,8 @@ dotnet inspect library System.Text.Json -S Signals # platform library signals
 Inspect local library files:
 
 ```bash
-dotnet inspect library ./bin/MyLib.dll          # basic info
-dotnet inspect library ./bin/MyLib.dll -S Signals # signals
+dotnet-inspect library ./bin/MyLib.dll            # basic info
+dotnet-inspect library ./bin/MyLib.dll -S Signals # signals
 ```
 
 ### Quick audit workflow
@@ -80,7 +80,7 @@ dotnet inspect library ./bin/MyLib.dll -S Signals # signals
 For CI or quick checks:
 
 ```bash
-dotnet inspect package Markout@0.1.4 -S Signals -v:q
+dotnet-inspect package Markout@0.1.4 -S Signals -v:q
 # SourceLink: passed
 # Deterministic: passed
 ```
@@ -91,18 +91,18 @@ Some commands are aliases or have equivalent forms:
 
 ```bash
 # These are equivalent
-dotnet inspect platform System.Text.Json
-dotnet inspect library System.Text.Json --platform
+dotnet-inspect library System.Text.Json
+dotnet-inspect library --platform System.Text.Json
 
 # Use explicit package signals when package routing matters
-dotnet inspect package Markout@0.1.4 -S Signals
+dotnet-inspect package Markout@0.1.4 -S Signals
 ```
 
 ## Stability Guarantees
 
 The following are considered stable and will not change without a major version bump:
 
-1. **Command names**: `package`, `platform`, `library`, `api`, `find`, `type`, `diff`
+1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `depends`, `extensions`, `implements`, `source`, `cache`, `skill`
 2. **Input syntax**: Package references use `name@version` format
 3. **Exit codes**: Zero for success, non-zero for failure
 4. **JSON output**: Schema for `--json` output is stable per command
