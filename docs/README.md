@@ -14,21 +14,15 @@ Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the c
 ## Quick Example
 
 ```bash
-$ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
+$ dotnet-inspect type JsonSerializer --package System.Text.Json --shape
 
 # System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
-**Kind:** class
-**Modifiers:** static, abstract, sealed
-
-## Members
-
-| Member | Kind | Signature |
-|--------|------|-----------|
-| Serialize | method | `string Serialize(object value, Type inputType, JsonSerializerOptions options)` |
-| Serialize | method | `string Serialize(TValue value, JsonSerializerOptions options)` |
-| Serialize | method | `void Serialize(Stream utf8Json, TValue value, JsonSerializerOptions options)` |
-...
+System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
+   ├─ string Serialize<TValue>(TValue value, JsonSerializerOptions? options = null)
+   ├─ string Serialize(object? value, Type inputType, JsonSerializerOptions? options = null)
+   ├─ void Serialize<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)
+   └─ ...
 ```
 
 ## Documentation
@@ -37,6 +31,7 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 
 | Document | Description |
 | -------- | ----------- |
+| [Overview](overview.md) | Minimum system and architecture context |
 | [Architecture](architecture.md) | Tool overview, commands, and design philosophy |
 | [LLM Design](llm-design.md) | Why output is structured for AI-assisted development |
 | [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages |
@@ -51,6 +46,7 @@ $ dotnet-inspect api JsonSerializer --package System.Text.Json -m Serialize
 | [Style Guide](design/style-guide.md) | Output formatting conventions |
 | [Rendering Model](design/rendering-model.md) | Verbosity vs mode-switch flags: how output is controlled |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool |
+| [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill |
 
 ## Getting Started
 

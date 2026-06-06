@@ -1,5 +1,18 @@
 # Agent Instructions
 
+## Repository map
+
+Read this file first, then use the docs it points to:
+
+- `README.md`: human and agent entrypoint for capabilities, commands, and common examples.
+- `docs/overview.md`: minimum system/architecture context for this repo.
+- `docs/architecture.md`: deeper architecture and command model details.
+- `docs/design/`: focused design notes for rendering, sections, schemas, version resolution, and related systems.
+- `taste/skill-guidance.md`: examples and rules for maintaining `skills/dotnet-inspect/SKILL.md`.
+- `skills/dotnet-inspect/SKILL.md`: embedded agent skill printed by `dotnet-inspect skill`; keep it workflow-focused and current.
+
+Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENT.md`.
+
 ## File-Based Apps
 
 Do NOT use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files. Always use file-based apps (new in .NET 10). Always prefer file-based apps over Python, unless a specific Python library is needed.
