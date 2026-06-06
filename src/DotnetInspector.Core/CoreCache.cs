@@ -110,6 +110,42 @@ public static class CoreCache
     }
 
     /// <summary>
+    /// Throws unless <paramref name="path"/> is inside the active cache root or the legacy cache root.
+    /// Use before deleting cache paths to prevent path traversal or accidental user-file deletion.
+    /// </summary>
+    public static void EnsurePathInCacheContext(string path)
+    {
+        if (!IsPathInCacheContext(path))
+        {
+            Console.Error.WriteLine($"Warning: refusing to delete path outside dotnet-inspect cache: {path}");
+            throw new InvalidOperationException($"Refusing to delete path outside dotnet-inspect cache: {path}");
+        }
+    }
+
+    /// <summary>
+    /// Returns true when a path is the active cache root, the legacy cache root, or a child of either.
+    /// </summary>
+    public static bool IsPathInCacheContext(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (IsSameOrChildPath(fullPath, GetBasePath()))
+                return true;
+
+            var legacy = GetLegacyBasePath();
+            return legacy != null && IsSameOrChildPath(fullPath, legacy);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Registers a versioned cache category family for best-effort cleanup.
     /// For example, prefix <c>pkg-index-v</c> with current <c>pkg-index-v8</c>
     /// causes maintenance to delete sibling directories such as <c>pkg-index-v7</c>.
@@ -281,6 +317,7 @@ public static class CoreCache
     public static long Clear(string? category = null)
     {
         var targetPath = category != null ? GetCategoryPath(category) : GetBasePath();
+        EnsurePathInCacheContext(targetPath);
         if (!Directory.Exists(targetPath))
             return 0;
 
@@ -429,6 +466,8 @@ public static class CoreCache
                     continue;
                 if (!name.StartsWith(category.Prefix, StringComparison.OrdinalIgnoreCase))
                     continue;
+                if (!IsSameOrChildPath(directory, root))
+                    continue;
 
                 var size = GetDirectorySizeBestEffort(directory);
                 try
@@ -465,6 +504,16 @@ public static class CoreCache
         return new DirectoryInfo(path)
             .EnumerateFiles("*", SearchOption.AllDirectories)
             .Sum(f => f.Length);
+    }
+
+    private static bool IsSameOrChildPath(string path, string root)
+    {
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+
+        return fullPath.Equals(fullRoot, StringComparison.OrdinalIgnoreCase)
+            || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 }
 

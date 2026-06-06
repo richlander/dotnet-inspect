@@ -75,4 +75,28 @@ public class CacheCommandTests : IDisposable
         Assert.True(result.BytesFreed > 0);
         Assert.True(result.DirectoriesDeleted >= 1);
     }
+
+    [Fact]
+    public async Task CoreCache_Clear_RejectsTraversalOutsideCacheRoot()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("Warning: refusing to delete path outside dotnet-inspect cache", error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithInvalidSessionName_ReturnsError()
+    {
+        var options = new CacheOptions(Clean: true, Verbose: false, Session: "../user-data");
+
+        var (result, _, error) = await ConsoleCapture.RunAsync(
+            () => CacheCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, result);
+        Assert.Contains("Session name must not contain path separators", error);
+    }
 }

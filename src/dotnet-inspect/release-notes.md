@@ -5,6 +5,7 @@
 ### Cache
 
 - Cleans obsolete versioned cache categories, such as older package-index schema caches, in the background after cache misses.
+- Cache deletion paths are guarded so cache clearing and cleanup refuse to delete outside the active or legacy dotnet-inspect cache roots.
 
 ### Lowered C# output
 

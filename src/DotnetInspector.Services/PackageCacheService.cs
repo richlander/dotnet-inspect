@@ -79,6 +79,7 @@ public static class PackageCacheService
 
     private static long DeleteCacheDirectory(string path)
     {
+        CoreCache.EnsurePathInCacheContext(path);
         if (!Directory.Exists(path))
             return 0;
 

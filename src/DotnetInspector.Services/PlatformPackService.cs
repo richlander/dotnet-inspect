@@ -290,7 +290,15 @@ public static class PlatformPackService
         }
         catch (Exception)
         {
-            try { if (Directory.Exists(packDir)) Directory.Delete(packDir, recursive: true); } catch { }
+            try
+            {
+                if (Directory.Exists(packDir))
+                {
+                    CoreCache.EnsurePathInCacheContext(packDir);
+                    Directory.Delete(packDir, recursive: true);
+                }
+            }
+            catch { }
             return null;
         }
         finally
@@ -325,7 +333,10 @@ public static class PlatformPackService
 
             var destDir = Path.Combine(destination, dirName);
             if (Directory.Exists(destDir))
+            {
+                CoreCache.EnsurePathInCacheContext(destDir);
                 Directory.Delete(destDir, recursive: true);
+            }
             Directory.Move(dir, destDir);
         }
 
