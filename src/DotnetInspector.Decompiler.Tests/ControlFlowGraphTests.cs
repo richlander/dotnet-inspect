@@ -555,6 +555,11 @@ public class CfgSampleClass
         target?.Text = value;
     }
 
+    public static void NullConditionalPropertyCompoundAssignment(CfgNullableTarget? target, int value)
+    {
+        target?.Count += value;
+    }
+
     public static void NullConditionalIndexerAssignment(CfgNullableTarget? target, int value)
     {
         target?[0] = value;
@@ -596,6 +601,8 @@ public sealed class CfgNullableTarget
     public int Value;
 
     public string? Text { get; set; }
+
+    public int Count { get; set; }
 
     public int this[int index]
     {
