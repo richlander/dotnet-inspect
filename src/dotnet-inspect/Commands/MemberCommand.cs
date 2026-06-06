@@ -122,18 +122,6 @@ public static class MemberCommand
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
 
-            // When filtering to specific members, exclude type-level context sections
-            // (leftover from when member and type shared the same view).
-            if (effectiveOptions.MemberFilter.Count > 0)
-            {
-                var memberSections = ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames;
-                var include = effectiveOptions.IncludeSections ?? new HashSet<string>(memberSections, StringComparer.OrdinalIgnoreCase);
-                include.Remove(SectionNames.TypeParameters);
-                include.Remove(SectionNames.TypeInterfaces);
-                include.Remove(SectionNames.Baseclass);
-                effectiveOptions = effectiveOptions with { IncludeSections = include };
-            }
-
             // Auto-select the overload index when there's exactly one member with one overload.
             // This lets "member Foo.Bar" show code sections without requiring ":1".
             if (!effectiveOptions.OverloadIndex.HasValue && effectiveOptions.MemberFilter.Count == 1)
@@ -238,15 +226,18 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
-            // Resolve method source code for --index view (after PDB acquisition)
-            if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null)
+            // Resolve PDB/source only when selected detail sections need them.
+            if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null
+                && NeedsMemberSourceResolution(apiType, effectiveOptions))
             {
                 var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
+                bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
+                    .Contains(SectionNames.OriginalSource);
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, apiType.FullName,
                     effectiveOptions.MemberFilter.First(),
                     effectiveOptions.OverloadIndex.Value - 1,
-                    effectiveOptions, context.HttpClient, logger);
+                    effectiveOptions, context.HttpClient, logger, fetchSource);
 
                 effectiveOptions = effectiveOptions with
                 {
@@ -257,7 +248,8 @@ public static class MemberCommand
 
             if (effectiveOptions.EffectiveDiscovery)
             {
-                return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
+                return ApiCommand.ExecuteEffectiveDiscovery(
+                    apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
             }
 
 
@@ -314,5 +306,18 @@ public static class MemberCommand
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+    }
+
+    private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
+    {
+        var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
+        if (sections.Contains(SectionNames.OriginalSource))
+            return true;
+
+        bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
+                             || options.Verbosity >= Verbosity.Detailed;
+        return pdbAuthorized
+               && (sections.Contains(SectionNames.DecompiledSource)
+                   || sections.Contains(SectionNames.ILAnnotated));
     }
 }

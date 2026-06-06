@@ -5,6 +5,9 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class SectionNames
 {
+    /// <summary>Headless compact context section.</summary>
+    public const string Summary = "Summary";
+
     // ===== Type Sections (ApiTypeSectionDescriptors) =====
 
     /// <summary>Section for class types.</summary>
@@ -26,6 +29,9 @@ public static class SectionNames
 
     /// <summary>Section for enum values.</summary>
     public const string Values = "Values";
+
+    /// <summary>Section for a single selected member signature.</summary>
+    public const string Signature = "Signature";
 
     /// <summary>Section for type parameters.</summary>
     public const string TypeParameters = "Type Parameters";
@@ -57,8 +63,11 @@ public static class SectionNames
     /// <summary>Section for custom attributes on methods.</summary>
     public const string CustomAttributes = "Custom Attributes";
 
-    /// <summary>Section for method source code.</summary>
-    public const string Source = "Source";
+    /// <summary>Section for lowered/decompiled C# method body.</summary>
+    public const string DecompiledSource = "Decompiled Source";
+
+    /// <summary>Section for original method source code resolved via SourceLink.</summary>
+    public const string OriginalSource = "Original Source";
 
     /// <summary>Section for IL disassembly.</summary>
     public const string IL = "IL";
@@ -66,6 +75,4 @@ public static class SectionNames
     /// <summary>Section for annotated IL disassembly.</summary>
     public const string ILAnnotated = "IL (Annotated)";
 
-    /// <summary>Section for lowered C# (decompiled).</summary>
-    public const string LoweredCSharp = "Lowered C#";
 }

@@ -24,7 +24,7 @@ Use inspection commands for detailed exploration:
 | ------- | ----- |
 | `package` | Package metadata, versions, dependencies, files, TFMs. |
 | `library` | Library metadata, symbols, SourceLink, references, resources. |
-| `type`/`member` | API shape, docs, source, decompiled C#, and IL. |
+| `type`/`member` | API shape, docs, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 
 ### Signals
 

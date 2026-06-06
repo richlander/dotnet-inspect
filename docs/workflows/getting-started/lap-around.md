@@ -183,25 +183,25 @@ Create
 ```
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -v:d -S Source
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -S "Decompiled Source"
 ```
 
 ```expect
-## Source
+## Decompiled Source
 ```
 
 ```expect
 ```csharp
 ```
 
-The four code sections for any SourceLink-enabled method:
+Selected overloads expose implementation sections through the same detailed/enabled and explicit-only split as other commands:
 
 | Section | What it shows |
 | ------- | ------------- |
-| **Source** | Original C# source (via SourceLink PDB) |
-| **Lowered C#** | Decompiled C# faithful to IL semantics |
-| **IL** | Raw IL disassembly with resolved tokens |
-| **IL (Annotated)** | IL with pre-execution stack state |
+| **Decompiled Source** | Lowered C# reconstructed from IL; enabled at normal verbosity |
+| **Original Source** | Original C# source via SourceLink PDB, when available; enabled at detailed verbosity |
+| **IL** | Raw IL disassembly with resolved tokens; enabled at normal verbosity |
+| **IL (Annotated)** | IL with pre-execution stack state; enabled at normal verbosity |
 
 ## 5. Source URLs
 

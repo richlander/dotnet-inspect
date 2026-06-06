@@ -23,6 +23,12 @@ public static class SelectResolver
 {
     public const string AllSelector = "All";
 
+    public static bool IsAllSelector(string[]? select)
+        => select?.Any(value => value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase)) == true;
+
+    public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
+        => IsAllSelector(select) && includeSections is { Count: > 1 };
+
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
     /// When <paramref name="singleGlob"/> is true, a glob must match exactly one section

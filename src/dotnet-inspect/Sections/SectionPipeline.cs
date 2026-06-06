@@ -91,6 +91,33 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Computes the canonical render order for <c>-S All</c>: the Minimal/default
+    /// sections first (excluding headless Summary context), then every remaining
+    /// renderable section in alpha order.
+    /// </summary>
+    public List<string> GetAllSelectorSections(TModel model)
+    {
+        var all = _entries
+            .Where(entry => entry.CanRender(model))
+            .Select(entry => entry.Name)
+            .Where(name => !string.Equals(name, "Summary", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var primary = GetEffectiveSections(model, Verbosity.Minimal)
+            .Where(name => !string.Equals(name, "Summary", StringComparison.OrdinalIgnoreCase))
+            .Where(name => all.Contains(name, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var remaining = all
+            .Where(name => !primary.Contains(name, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
+
+        return [.. primary, .. remaining];
+    }
+
+    /// <summary>
     /// Returns sections that were requested via <paramref name="include"/> but
     /// filtered out by <see cref="SectionEntry{TModel}.CanRender"/> (no data).
     /// Empty when no explicit include was set or all requested sections have data.
@@ -131,9 +158,14 @@ public sealed class SectionPipeline<TModel>
     /// all sections should be rendered (no filtering needed).
     /// </summary>
     public HashSet<string>? ComputeIncludeSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null)
+        HashSet<string>? include = null, bool allSelector = false)
     {
-        var effective = GetEffectiveSections(model, verbosity, include);
+        var effective = allSelector
+            ? GetAllSelectorSections(model)
+            : GetEffectiveSections(model, verbosity, include);
+
+        if (allSelector)
+            return [.. effective];
 
         // If all registered sections are effective, no filter needed
         if (effective.Count == _entries.Count)

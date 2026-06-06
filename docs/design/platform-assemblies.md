@@ -136,7 +136,7 @@ can use it:
 
 `find` uses ref packs and reports the canonical assembly name (e.g.,
 `System.Collections` for `List<T>`). This preserves the user-facing .NET API
-surface model. Commands that need PDBs or method bodies (`source`, `member -v:d`)
+surface model. Commands that need PDBs or method bodies (`source`, `member -S "Decompiled Source"`)
 follow forwarders transparently at the type-resolution level.
 Mixing ref and runtime data within a single concern is avoided.
 

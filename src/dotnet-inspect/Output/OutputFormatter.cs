@@ -26,10 +26,13 @@ public static class OutputFormatter
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
+        bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool includeContext = ShouldRenderPackageContext(options);
         var view = new InspectionResultView(result, includeTitleVersion: !includeContext);
         var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
+        if (selectAll)
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
         markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
         return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
     }
@@ -59,8 +62,9 @@ public static class OutputFormatter
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
     {
+        var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
-            result, options.Verbosity, options.IncludeSections);
+            result, options.Verbosity, options.IncludeSections, selectAll);
         if (includeContext && includeSections is { Count: > 0 })
             includeSections = [PackageSections.Summary, .. includeSections];
 
@@ -75,10 +79,11 @@ public static class OutputFormatter
     public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
-            inspection, options.Verbosity, options.IncludeSections);
+            inspection, options.Verbosity, options.IncludeSections, selectAll);
         var writerOpts = new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
@@ -88,6 +93,8 @@ public static class OutputFormatter
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+            if (selectAll)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
             return;
@@ -114,12 +121,16 @@ public static class OutputFormatter
         else if (options.VerbosityEnabled)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
+            if (selectAll)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and oneline wasn't explicitly requested
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
+            if (selectAll)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -131,6 +142,7 @@ public static class OutputFormatter
     public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var report = new LibraryInspectionReport
         {
@@ -140,13 +152,15 @@ public static class OutputFormatter
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = pipeline.ComputeIncludeSections(
-                inspections[0], options.Verbosity, options.IncludeSections),
+                inspections[0], options.Verbosity, options.IncludeSections, selectAll),
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
+            if (selectAll)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
             return;
@@ -161,6 +175,8 @@ public static class OutputFormatter
         if (options.VerbosityEnabled)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
+            if (selectAll)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -169,7 +185,7 @@ public static class OutputFormatter
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var includeSections = pipeline.ComputeIncludeSections(
-                    inspection, options.Verbosity, options.IncludeSections);
+                    inspection, options.Verbosity, options.IncludeSections, selectAll);
                 var writerOpts = new MarkoutWriterOptions
                 {
                     IncludeSections = includeSections,
@@ -202,11 +218,13 @@ public static class OutputFormatter
     internal static bool ShouldRenderLibraryContext(AssemblyOptions options) =>
         options.Verbosity == Verbosity.Quiet
         || (options.IncludeSections is { Count: > 0 }
+            && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
             && !options.Count
             && !options.JsonOutput);
 
     internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
         options.IncludeSections is { Count: > 0 }
+        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.OneLine;

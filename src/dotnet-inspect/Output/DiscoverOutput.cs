@@ -72,7 +72,8 @@ public static class DiscoverOutput
     /// </summary>
     public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false, int verbosity = 0,
-        string? rootLabel = null, DocumentSchema? fullSchema = null)
+        string? rootLabel = null, DocumentSchema? fullSchema = null,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -96,7 +97,7 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, verbosity, rootLabel);
+        return Execute(discover, filtered, tree, markdown, json, verbosity, rootLabel, sectionCostAnnotations);
     }
 
     /// <summary>
@@ -139,8 +140,8 @@ public static class DiscoverOutput
 
     /// <summary>
     /// Restricts effective section names to those the discovery schema can represent.
-    /// The single-type member pipeline reports decompiler code sections (Source, IL,
-    /// IL (Annotated), Lowered C#) as renderable whenever the type has methods, but these
+    /// The single-type member pipeline reports member-detail code sections (Decompiled Source,
+    /// Original Source, IL, IL (Annotated)) as renderable whenever the type has methods, but these
     /// are member-detail sections produced only for a specific member selection — they are
     /// not part of the type schema. Dropping them keeps effective discovery consistent
     /// with <c>-D</c> and ensures every listed section is queryable via <c>-D &lt;Section&gt;</c>.
