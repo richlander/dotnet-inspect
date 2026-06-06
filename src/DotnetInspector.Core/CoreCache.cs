@@ -366,6 +366,7 @@ public static class CoreCache
             return;
 
         VersionedCacheCategory[] categories;
+        string root;
         lock (s_maintenanceLock)
         {
             if (s_maintenanceScheduled != 0)
@@ -373,28 +374,27 @@ public static class CoreCache
             if (s_versionedCategories.Count == 0)
                 return;
 
+            try
+            {
+                root = GetBasePath();
+            }
+            catch
+            {
+                return;
+            }
             s_maintenanceScheduled = 1;
             categories = [.. s_versionedCategories];
             s_maintenanceCts = new CancellationTokenSource();
             var token = s_maintenanceCts.Token;
-            s_maintenanceTask = Task.Run(() => CleanupVersionedCategories(categories, token), CancellationToken.None);
+            s_maintenanceTask = Task.Run(() => CleanupVersionedCategories(root, categories, token), CancellationToken.None);
         }
     }
 
     private static void CleanupVersionedCategories(
+        string root,
         IReadOnlyList<VersionedCacheCategory> categories,
         CancellationToken cancellationToken)
     {
-        string root;
-        try
-        {
-            root = GetBasePath();
-        }
-        catch
-        {
-            return;
-        }
-
         if (!Directory.Exists(root))
             return;
 

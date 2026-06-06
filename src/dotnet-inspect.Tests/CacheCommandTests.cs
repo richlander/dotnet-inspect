@@ -68,9 +68,7 @@ public class CacheCommandTests : IDisposable
         CoreCache.RegisterVersionedCategory("pkg-index-v", "pkg-index-v8");
 
         Assert.Null(CoreCache.TryGet("versions", $"missing-{Guid.NewGuid():N}", extension: "txt"));
-        Assert.True(SpinWait.SpinUntil(() => !Directory.Exists(oldDir), TimeSpan.FromSeconds(5)));
-
-        var result = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(1));
+        var result = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(5));
 
         Assert.False(Directory.Exists(oldDir));
         Assert.True(Directory.Exists(currentDir));
