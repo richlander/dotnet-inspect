@@ -116,7 +116,10 @@ public static class CoreCache
     public static void EnsurePathInCacheContext(string path)
     {
         if (!IsPathInCacheContext(path))
+        {
+            Console.Error.WriteLine($"Warning: refusing to delete path outside dotnet-inspect cache: {path}");
             throw new InvalidOperationException($"Refusing to delete path outside dotnet-inspect cache: {path}");
+        }
     }
 
     /// <summary>

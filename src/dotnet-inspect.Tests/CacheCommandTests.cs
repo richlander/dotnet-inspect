@@ -77,9 +77,15 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
-    public void CoreCache_Clear_RejectsTraversalOutsideCacheRoot()
+    public async Task CoreCache_Clear_RejectsTraversalOutsideCacheRoot()
     {
-        Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("Warning: refusing to delete path outside dotnet-inspect cache", error);
     }
 
     [Fact]
