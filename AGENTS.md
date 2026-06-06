@@ -11,7 +11,7 @@ Read this file first, then use the docs it points to:
 - `taste/skill-guidance.md`: examples and rules for maintaining `skills/dotnet-inspect/SKILL.md`.
 - `skills/dotnet-inspect/SKILL.md`: embedded agent skill printed by `dotnet-inspect skill`; keep it workflow-focused and current.
 
-Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENT.md`.
+Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENTS.md`.
 
 ## File-Based Apps
 
