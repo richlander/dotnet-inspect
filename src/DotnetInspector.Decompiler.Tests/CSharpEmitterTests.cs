@@ -558,6 +558,87 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void ReadOnlySpanCollectionExpression_EmitsCollectionExpression()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ReadOnlySpanCollectionExpression));
+
+        Assert.Contains("[a, 42]", code);
+        Assert.DoesNotContain("InlineArray", code);
+        Assert.DoesNotContain("new ReadOnlySpan", code);
+        Assert.DoesNotContain("new int[]", code);
+    }
+
+    [Fact]
+    public void ClassicLock_EmitsLockStatement()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.ClassicLock));
+
+        Assert.Contains("lock (gate)", code);
+        Assert.DoesNotContain("Monitor.Enter", code);
+        Assert.DoesNotContain("Monitor.Exit", code);
+        Assert.DoesNotContain("try", code);
+        Assert.DoesNotContain("finally", code);
+    }
+
+    [Fact]
+    public void SystemThreadingLock_EmitsLockStatement()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.SystemThreadingLock));
+
+        Assert.Contains("lock (gate)", code);
+        Assert.DoesNotContain("EnterScope", code);
+        Assert.DoesNotContain("Dispose", code);
+        Assert.DoesNotContain("using var", code);
+        Assert.DoesNotContain("try", code);
+        Assert.DoesNotContain("finally", code);
+    }
+
+    [Fact]
+    public void NullConditionalFieldAssignment_EmitsConditionalAssignment()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullConditionalFieldAssignment));
+
+        Assert.Contains("target?.Value = value;", code);
+        Assert.DoesNotContain("if (target != null)", code);
+    }
+
+    [Fact]
+    public void NullConditionalFieldCompoundAssignment_EmitsConditionalAssignment()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullConditionalFieldCompoundAssignment));
+
+        Assert.Contains("target?.Value += value;", code);
+        Assert.DoesNotContain("if (target != null)", code);
+    }
+
+    [Fact]
+    public void NullConditionalPropertyAssignment_EmitsConditionalAssignment()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullConditionalPropertyAssignment));
+
+        Assert.Contains("target?.Text = value;", code);
+        Assert.DoesNotContain("if (target != null)", code);
+    }
+
+    [Fact]
+    public void NullConditionalPropertyCompoundAssignment_EmitsConditionalAssignment()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullConditionalPropertyCompoundAssignment));
+
+        Assert.Contains("target?.Count += value;", code);
+        Assert.DoesNotContain("if (target != null)", code);
+    }
+
+    [Fact]
+    public void NullConditionalIndexerAssignment_EmitsConditionalAssignment()
+    {
+        var code = EmitMethod(nameof(CfgSampleClass.NullConditionalIndexerAssignment));
+
+        Assert.Contains("target?[0] = value;", code);
+        Assert.DoesNotContain("if (target != null)", code);
+    }
+
+    [Fact]
     public void UnsafeReadThroughAddress_EmitsPointerDereference()
     {
         var code = EmitMethod(nameof(CfgSampleClass.UnsafeReadThroughAddress));
