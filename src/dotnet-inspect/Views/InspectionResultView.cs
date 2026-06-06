@@ -149,7 +149,10 @@ public class InspectionResultView
 
     public string? Authors => _data.Authors;
     public string? License => _data.License;
+    public string? LicenseUrl => _data.LicenseUrl;
     public string? Repository => _data.Repository;
+    public string? RepositoryType => _data.RepositoryType;
+    public string? RepositoryCommit => _data.RepositoryCommit;
 
     [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutPropertyName("Built")]
@@ -171,6 +174,11 @@ public class InspectionResultView
 
     [MarkoutSkipDefault]
     public bool HasReadme => _data.HasReadme;
+
+    [MarkoutPropertyName("Readme")]
+    public string? ReadmeFile => _data.HasReadme
+        ? _data.ReadmeFile ?? "README.md"
+        : _data.ReadmeFile;
 
     [MarkoutSkipDefault]
     public bool IsToolPackage => _data.IsToolPackage;
@@ -293,8 +301,14 @@ public class InspectionResultView
             fields.Add(new("Owners", string.Join(", ", _data.Owners)));
         if (!string.IsNullOrWhiteSpace(_data.License))
             fields.Add(new("License", _data.License));
+        if (!string.IsNullOrWhiteSpace(_data.LicenseUrl))
+            fields.Add(new("License URL", _data.LicenseUrl));
         if (!string.IsNullOrWhiteSpace(_data.Repository))
             fields.Add(new("Repository", _data.Repository));
+        if (!string.IsNullOrWhiteSpace(_data.RepositoryType))
+            fields.Add(new("Repository Type", _data.RepositoryType));
+        if (!string.IsNullOrWhiteSpace(_data.RepositoryCommit))
+            fields.Add(new("Repository Commit", _data.RepositoryCommit));
 
         if (_data.IsVerified == true)
             fields.Add(new("Verified", "Yes"));
@@ -309,7 +323,7 @@ public class InspectionResultView
         if (_data.AssemblyCount > 1)
             fields.Add(new("Libraries", _data.AssemblyCount.ToString()));
         if (_data.HasReadme)
-            fields.Add(new("Readme", "Yes"));
+            fields.Add(new("Readme", _data.ReadmeFile ?? "README.md"));
         if (_data.Vulnerabilities is { Count: > 0 })
             fields.Add(new("Vulnerabilities", _data.Vulnerabilities.Count.ToString()));
 

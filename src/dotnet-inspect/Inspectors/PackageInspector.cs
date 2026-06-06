@@ -59,7 +59,10 @@ internal static class PackageInspector
             result.Description = nuspec.Description;
             result.Authors = nuspec.Authors;
             result.Repository = nuspec.Repository;
+            result.RepositoryType = nuspec.RepositoryType;
+            result.RepositoryCommit = nuspec.RepositoryCommit;
             result.License = nuspec.License;
+            result.LicenseUrl = nuspec.LicenseUrl;
             result.PackageTypes = nuspec.PackageTypes;
             result.IsToolPackage = nuspec.IsToolPackage;
             result.ReadmeFile = nuspec.ReadmeFile;

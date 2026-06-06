@@ -26,7 +26,10 @@ public static class NuspecParser
         result.Version = metadata.Element(ns + "version")?.Value;
         result.Description = metadata.Element(ns + "description")?.Value;
         result.Authors = metadata.Element(ns + "authors")?.Value;
-        result.Repository = metadata.Element(ns + "repository")?.Attribute("url")?.Value;
+        var repositoryElement = metadata.Element(ns + "repository");
+        result.Repository = repositoryElement?.Attribute("url")?.Value;
+        result.RepositoryType = repositoryElement?.Attribute("type")?.Value;
+        result.RepositoryCommit = repositoryElement?.Attribute("commit")?.Value;
 
         // Parse license (prefer expression over file or URL)
         var licenseElement = metadata.Element(ns + "license");
@@ -46,6 +49,7 @@ public static class NuspecParser
         if (string.IsNullOrEmpty(result.License))
         {
             var licenseUrl = metadata.Element(ns + "licenseUrl")?.Value;
+            result.LicenseUrl = licenseUrl;
             if (!string.IsNullOrEmpty(licenseUrl) && !licenseUrl.Contains("LICENSE"))
             {
                 if (licenseUrl.StartsWith("https://licenses.nuget.org/"))
@@ -53,6 +57,10 @@ public static class NuspecParser
                     result.License = licenseUrl.Replace("https://licenses.nuget.org/", "");
                 }
             }
+        }
+        else
+        {
+            result.LicenseUrl = metadata.Element(ns + "licenseUrl")?.Value;
         }
 
         // Parse package types

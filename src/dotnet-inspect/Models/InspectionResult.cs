@@ -24,7 +24,10 @@ public class InspectionResult
 
     public string? Authors { get; set; }
     public string? License { get; set; }
+    public string? LicenseUrl { get; set; }
     public string? Repository { get; set; }
+    public string? RepositoryType { get; set; }
+    public string? RepositoryCommit { get; set; }
 
     /// <summary>
     /// When this package version was published to NuGet (from NuGet API).

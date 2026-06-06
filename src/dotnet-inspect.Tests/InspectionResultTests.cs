@@ -94,6 +94,32 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageInfo_RendersNuspecMetadataDetails()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            License = "MIT",
+            LicenseUrl = "https://licenses.nuget.org/MIT",
+            Repository = "https://github.com/example/test",
+            RepositoryType = "git",
+            RepositoryCommit = "abcdef",
+            HasReadme = true,
+            ReadmeFile = "docs/README.md"
+        };
+
+        var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
+
+        Assert.Contains("| License | MIT |", output);
+        Assert.Contains("| License URL | https://licenses.nuget.org/MIT |", output);
+        Assert.Contains("| Repository | https://github.com/example/test |", output);
+        Assert.Contains("| Repository Type | git |", output);
+        Assert.Contains("| Repository Commit | abcdef |", output);
+        Assert.Contains("| Readme | docs/README.md |", output);
+    }
+
+    [Fact]
     public void Manifest_RendersManifestVersionWhenPresent()
     {
         var result = new InspectionResult
