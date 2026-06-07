@@ -703,6 +703,14 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void FindCommand_WithDiscover_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "-D"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void FindCommand_WithPlatformBoolFlag_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform"]);

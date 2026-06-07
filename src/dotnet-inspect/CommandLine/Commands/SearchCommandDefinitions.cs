@@ -68,6 +68,8 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(findCommand);
         findCommand.Options.Add(packagePrefixOption);
+        findCommand.Options.Add(opts.Discover);
+        findCommand.Options.Add(opts.Tree);
         findCommand.Options.Add(opts.Columns);
         findCommand.Options.Add(opts.Fields);
         opts.AddOutputOptionsTo(findCommand);

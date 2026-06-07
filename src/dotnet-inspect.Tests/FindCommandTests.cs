@@ -150,14 +150,34 @@ public class FindCommandTests
         Assert.Contains("LongerType", output);
     }
 
-    private static string RenderFindTable(FindResultView view, bool tsv, bool showHeader) =>
+    [Fact]
+    public void TableFormatter_ColumnsAcceptStableTsvHeaderKeys()
+    {
+        var results = new List<TypeFindResult>
+        {
+            new() { Pattern = "Json", Match = MatchKind.Partial, Similarity = 0.50,
+                     Type = "IsLong", Namespace = "System.Runtime.CompilerServices", Kind = "class", Library = "VisualC", Source = "runtime" }
+        };
+
+        var view = FindOutputFormatter.BuildView(results);
+        var output = RenderFindTable(view, tsv: true, showHeader: true, columns: ["type", "similarity"]);
+
+        Assert.Equal("type\tsimilarity\nIsLong\t0.50\n", output.ReplaceLineEndings("\n"));
+    }
+
+    private static string RenderFindTable(FindResultView view, bool tsv, bool showHeader, string[]? columns = null) =>
         OutputFormatter.RenderTable(tsv, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(
                 view,
                 writer,
                 formatter,
                 SearchViewContext.Default,
-                OutputFormatter.CreateTableWriterOptions(tsv)));
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions
+                    {
+                        Projection = OutputFormatter.BuildProjection(columns)
+                    },
+                    tsv)));
 }
 
 /// <summary>
