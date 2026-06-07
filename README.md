@@ -81,7 +81,7 @@ dotnet-inspect library System.Text.Json -S "Async*" --count
 dotnet-inspect library System.Text.Json -S Signals
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders the curated Info view. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections; it renders the default section first, then remaining sections alphabetically.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a curated high-density view. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections; it renders the default section first, then remaining sections alphabetically.
 
 ## Common examples
 

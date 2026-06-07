@@ -1,8 +1,8 @@
 # Bare `-S` Info view
 
-Bare `-S` renders the curated Info view. It is not discovery; use `-D` to discover effective sections and columns.
+Bare `-S` renders a curated high-density view. It is not discovery; use `-D` to discover effective sections and columns.
 
-The Info view is a high-density preset for the question an agent or human is most likely asking after the default output is too thin but before exhaustive inspection is warranted. It should answer one bullseye question with a small set of stable sections.
+This view is a high-density preset for the question an agent or human is most likely asking after the default output is too thin but before exhaustive inspection is warranted. It should answer one bullseye question with a small set of stable sections.
 
 ## Design contract
 

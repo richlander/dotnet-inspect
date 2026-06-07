@@ -28,7 +28,7 @@ Minimal/default views use a summary strategy: keep the answer close to one scree
 
 ## Section selection
 
-Bare `-S` renders a curated high-density Info view. `-S <name>` selects sections by name or wildcard:
+Bare `-S` renders a curated high-density view. `-S <name>` selects sections by name or wildcard:
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
@@ -43,7 +43,7 @@ Section selection does two things:
 
 For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
 
-The Info view is command/context-specific: package uses `Package Info` and `Library Files`; library uses `Library Info`; type/member list views use compact member summaries; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` Info view](info-view.md) for the bullseye question each preset is meant to answer.
+Bare `-S` is command/context-specific: package uses `Package Info` and `Library Files`; library uses `Library Info`; type/member list views use compact member summaries; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` Info view](info-view.md) for the bullseye question each preset is meant to answer.
 
 For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`.
 
