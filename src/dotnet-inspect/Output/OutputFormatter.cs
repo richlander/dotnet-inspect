@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using Markout;
 using Markout.Formatting;
+using System.Text;
 
 namespace DotnetInspector.Output;
 
@@ -29,6 +30,59 @@ public static class OutputFormatter
 
     public static void WriteTable(bool tsv, TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize) =>
         output.Write(RenderTable(tsv, showHeader, serialize));
+
+    public static MarkoutWriterOptions ConfigureTableWriterOptions(MarkoutWriterOptions options, bool tsv)
+    {
+        if (tsv)
+            options.FormatTableHeader = header => ToMachineHeader(header.Name);
+        return options;
+    }
+
+    public static MarkoutWriterOptions CreateTableWriterOptions(bool tsv) =>
+        ConfigureTableWriterOptions(new MarkoutWriterOptions(), tsv);
+
+    private static string ToMachineHeader(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "";
+
+        var sb = new StringBuilder(name.Length + 4);
+        var lastWasSeparator = true;
+
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (!char.IsLetterOrDigit(c))
+            {
+                AppendSeparator(sb, ref lastWasSeparator);
+                continue;
+            }
+
+            if (char.IsUpper(c))
+            {
+                var previousIsLowerOrDigit = i > 0 && (char.IsLower(name[i - 1]) || char.IsDigit(name[i - 1]));
+                var nextIsLower = i + 1 < name.Length && char.IsLower(name[i + 1]);
+                if (sb.Length > 0 && !lastWasSeparator && (previousIsLowerOrDigit || nextIsLower))
+                    AppendSeparator(sb, ref lastWasSeparator);
+            }
+
+            sb.Append(char.ToLowerInvariant(c));
+            lastWasSeparator = false;
+        }
+
+        if (sb.Length > 0 && sb[^1] == '_')
+            sb.Length--;
+        return sb.ToString();
+    }
+
+    private static void AppendSeparator(StringBuilder sb, ref bool lastWasSeparator)
+    {
+        if (!lastWasSeparator && sb.Length > 0)
+        {
+            sb.Append('_');
+            lastWasSeparator = true;
+        }
+    }
 
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
@@ -56,6 +110,7 @@ public static class OutputFormatter
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
+        ConfigureTableWriterOptions(writerOpts, options.Tsv);
         var view = new InspectionResultView(result);
         WriteTable(options.Tsv, Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
@@ -159,6 +214,7 @@ public static class OutputFormatter
         }
         else
         {
+            ConfigureTableWriterOptions(writerOpts, options.Tsv);
             WriteTable(options.Tsv, Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
         }
@@ -221,6 +277,7 @@ public static class OutputFormatter
                     IncludeSections = includeSections,
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
+                ConfigureTableWriterOptions(writerOpts, options.Tsv);
                 WriteTable(options.Tsv, Console.Out, !options.NoHeader,
                     (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
             }

@@ -715,6 +715,7 @@ public static class SourceCommand
         {
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
+        OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
         OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SourceViewContext.Default, writerOpts));
     }

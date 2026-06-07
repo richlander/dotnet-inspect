@@ -110,7 +110,7 @@ public class FindCommandTests
         var view = FindOutputFormatter.BuildView(results);
         var output = RenderFindTable(view, tsv: true, showHeader: true);
 
-        Assert.Contains("Type\tNamespace\tKind\tLibrary\tSource", output);
+        Assert.Contains("type\tnamespace\tkind\tlibrary\tsource", output);
         Assert.Contains("TestA", output);
     }
 
@@ -152,7 +152,12 @@ public class FindCommandTests
 
     private static string RenderFindTable(FindResultView view, bool tsv, bool showHeader) =>
         OutputFormatter.RenderTable(tsv, showHeader,
-            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default));
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                SearchViewContext.Default,
+                OutputFormatter.CreateTableWriterOptions(tsv)));
 }
 
 /// <summary>

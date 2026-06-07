@@ -548,6 +548,7 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
+            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
             OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
         }
@@ -764,6 +765,7 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
+            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
             OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
         }

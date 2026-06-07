@@ -126,7 +126,7 @@ public class PackageCommand
 
             OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
             {
-                var versionWriter = new Markout.MarkoutWriter(writer, formatter);
+                var versionWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
                 versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
                 versionWriter.Flush();
             });
@@ -373,7 +373,11 @@ public class PackageCommand
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
                     var rendered = OutputFormatter.RenderTable(options.Tsv, !options.NoHeader,
-                        (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
+                        (writer, formatter) =>
+                        {
+                            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+                            MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
+                        });
                     ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
                     Console.Out.Write(rendered);
                 }
@@ -601,7 +605,7 @@ public class PackageCommand
 
         OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
         {
-            var fileWriter = new Markout.MarkoutWriter(writer, formatter);
+            var fileWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
             fileWriter.WriteList(results.ToArray());
             fileWriter.Flush();
         });
@@ -642,7 +646,7 @@ public class PackageCommand
 
         OutputFormatter.WriteTable(tsv, Console.Out, showHeader: false, (writer, formatter) =>
         {
-            var tfmWriter = new Markout.MarkoutWriter(writer, formatter);
+            var tfmWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(tsv));
             tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
             tfmWriter.Flush();
         });

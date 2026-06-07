@@ -148,6 +148,7 @@ public class ImplementsCommand
             {
                 Projection = OutputFormatter.BuildProjection(columns, fields)
             };
+            OutputFormatter.ConfigureTableWriterOptions(writerOpts, tsv);
             OutputFormatter.WriteTable(tsv, Console.Out, !noHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOpts));
         }

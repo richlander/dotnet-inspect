@@ -19,7 +19,7 @@ Default output is Markdown. Use Markdown for readable evidence with headings, se
 Format promises:
 
 - Markdown table cell values do not contain escaped pipes (`\|`); pipe characters in values are normalized.
-- `--tsv` table cells never contain embedded tabs or newlines.
+- `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
 - `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
 
 Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
