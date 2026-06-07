@@ -233,7 +233,7 @@ public class SharedOptions
         bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateTabularFlags(tableFlag, tsvFlag, hasVerbosity);
+        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag, hasVerbosity);
         return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, defaultFormat);
     }
 
@@ -334,17 +334,26 @@ public class SharedOptions
                string.IsNullOrWhiteSpace(parseResult.GetValue(option));
     }
 
-    private static void ValidateTabularFlags(bool tableFlag, bool tsvFlag, bool hasVerbosity)
+    private static void ValidateRendererFlags(
+        bool jsonFlag,
+        bool markdownFlag,
+        bool plainTextFlag,
+        bool mermaidFlag,
+        bool tabularFlag,
+        bool hasVerbosity)
     {
-        if (tableFlag && tsvFlag)
+        if (!tabularFlag)
+            return;
+
+        if (jsonFlag)
         {
-            Console.Error.WriteLine("--table and --tsv cannot be combined.");
+            Console.Error.WriteLine("--json cannot be combined with --table or --tsv.");
             throw new OperationCanceledException();
         }
 
-        if ((tableFlag || tsvFlag) && hasVerbosity)
+        if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
         {
-            Console.Error.WriteLine("--table/--tsv and -v cannot be combined. Use --markdown with -v, or omit -v for tabular output.");
+            Console.Error.WriteLine("--table/--tsv cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
             throw new OperationCanceledException();
         }
     }

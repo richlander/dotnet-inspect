@@ -155,6 +155,28 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_WithTableAndTsv_UsesTsvOutput()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--tsv");
+
+        Assert.True(options.OneLine);
+        Assert.True(options.Tsv);
+        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.FormatExplicitlySet);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithJsonAndTsv_IsRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--json", "--tsv"]);
+        Assert.Empty(parseResult.Errors);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithOneline_SetsTableCompatOutput()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--oneline");
