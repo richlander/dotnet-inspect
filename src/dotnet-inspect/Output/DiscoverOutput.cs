@@ -52,7 +52,7 @@ public static class DiscoverOutput
             context.Serialize(view, Console.Out, new OneLineFormatter(showHeader: false));
         }
 
-        if (ShouldWriteAllSelectorHint(discover, json, sectionCostAnnotations))
+        if (ShouldWriteAllSelectorHint(discover, json, rows))
         {
             Console.WriteLine();
             Console.WriteLine($"Note: Use -S {SelectResolver.AllSelector} to select all sections.");
@@ -62,10 +62,10 @@ public static class DiscoverOutput
     }
 
     private static bool ShouldWriteAllSelectorHint(string[]? discover, bool json,
-        IReadOnlyDictionary<string, string>? sectionCostAnnotations)
+        IReadOnlyList<DiscoveryRow> rows)
         => !json
            && discover is null or { Length: 0 }
-           && sectionCostAnnotations?.Values.Any(v => v == SectionAnnotations.OptIn) == true;
+           && rows.Any(row => row.Kind.Contains(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Runs discovery with effective filtering (only sections with data).

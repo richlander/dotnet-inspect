@@ -33,7 +33,7 @@ What sections are available when inspecting System.Collections?
 ```
 
 ```bash
-dotnet-inspect System.Collections -S
+dotnet-inspect System.Collections -D
 ```
 
 ```expect
@@ -45,7 +45,7 @@ Type Forwarders
 ### Using `library --platform`
 
 ```bash
-dotnet-inspect library --platform System.Collections -S
+dotnet-inspect library --platform System.Collections -D
 ```
 
 ```expect
@@ -65,7 +65,7 @@ What sections can I see for System.CommandLine?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine -S
+dotnet-inspect System.CommandLine -D
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Dependencies
 ### Using `package`
 
 ```bash
-dotnet-inspect package System.CommandLine -S
+dotnet-inspect package System.CommandLine -D
 ```
 
 ```expect
@@ -91,7 +91,7 @@ Dependencies
 ### Platform path
 
 ```bash
-dotnet-inspect library --platform System.Collections -S
+dotnet-inspect library --platform System.Collections -D
 ```
 
 ```expect
@@ -103,7 +103,7 @@ Type Forwarders
 ### Package path
 
 ```bash
-dotnet-inspect library --package System.Collections -S
+dotnet-inspect library --package System.Collections -D
 ```
 
 ```expect

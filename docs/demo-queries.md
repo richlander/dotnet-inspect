@@ -60,7 +60,7 @@ dotnet-inspect member OptionsFactory --package Microsoft.Extensions.Options -m C
 
 Shows the member detail page for `OptionsFactory<TOptions>.Create` — the
 method that wires up the options pattern. `Decompiled Source` is lowered C# decompiled from
-IL; use bare `-S` to discover `Original Source`, raw `IL`, and `IL (Annotated)`
+IL; use `-D` to discover `Original Source`, raw `IL`, and `IL (Annotated)`
 when you need SourceLink-backed source or exact instruction detail.
 
 ## 6. Depends: IFloatingPointIeee754 interface hierarchy

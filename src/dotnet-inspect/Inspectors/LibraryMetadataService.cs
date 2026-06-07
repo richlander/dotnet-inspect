@@ -484,6 +484,15 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ScanInfoCounts(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        inspection.ExtensionMethods ??= ScanExtensionMethods(path, logger);
+        ScanClassifiedMethods(path, inspection, logger);
+        inspection.Resources ??= ScanResources(path, logger);
+        ScanCustomAttributes(path, inspection, logger);
+        ScanTypeForwarders(path, inspection, logger);
+    }
+
     /// <summary>
     /// Scans an assembly for manifest resources.
     /// </summary>

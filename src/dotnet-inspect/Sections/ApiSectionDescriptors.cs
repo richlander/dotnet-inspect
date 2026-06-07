@@ -98,6 +98,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Values";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Kind == "enum"
@@ -140,6 +141,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Constructors";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
@@ -149,6 +151,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Fields";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "field" && !m.EnumValue.HasValue);
@@ -158,6 +161,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Properties";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "property");
@@ -167,6 +171,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Methods";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "method");
@@ -176,6 +181,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Events";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
@@ -277,6 +283,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.Signature;
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1;
@@ -295,6 +302,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.DecompiledSource;
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)

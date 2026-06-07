@@ -46,7 +46,7 @@ public class PackageCommand
             options = options with { Verbosity = Verbosity.Detailed };
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames);
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames, pipeline.InfoSectionNames);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
@@ -308,7 +308,7 @@ public class PackageCommand
             // Output results
             if (effectiveDiscovery)
             {
-                var effective = pipeline.GetEffectiveSections(result, options.Verbosity, options.IncludeSections);
+                var effective = pipeline.GetAvailableSections(result, options.IncludeSections);
                 var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                 var fullSchemaMap = schemaMap;
 
@@ -334,7 +334,8 @@ public class PackageCommand
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
-                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap);
+                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
+                    sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };

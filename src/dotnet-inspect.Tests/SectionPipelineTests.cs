@@ -322,7 +322,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_CustomAttributesRequiresNormal()
+    public void LibraryPipeline_CustomAttributesRequiresNormalWhenSelected()
     {
         var pipeline = LibrarySections.CreatePipeline();
 
@@ -494,8 +494,11 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Extension Methods" });
 
-        Assert.Contains("Extension Methods", effective);
+        Assert.DoesNotContain("Extension Methods", effective);
+        Assert.Contains("Extension Methods", selected);
     }
 
     [Fact]
@@ -554,8 +557,11 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Async Methods" });
 
-        Assert.Contains("Async Methods", effective);
+        Assert.DoesNotContain("Async Methods", effective);
+        Assert.Contains("Async Methods", selected);
     }
 
     [Fact]
@@ -569,8 +575,11 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Resources" });
 
-        Assert.Contains("Resources", effective);
+        Assert.DoesNotContain("Resources", effective);
+        Assert.Contains("Resources", selected);
     }
 
     [Fact]
@@ -584,8 +593,11 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Custom Attributes" });
 
-        Assert.Contains("Custom Attributes", effective);
+        Assert.DoesNotContain("Custom Attributes", effective);
+        Assert.Contains("Custom Attributes", selected);
     }
 
     [Fact]
@@ -599,8 +611,11 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Type Forwarders" });
 
-        Assert.Contains("Type Forwarders", effective);
+        Assert.DoesNotContain("Type Forwarders", effective);
+        Assert.Contains("Type Forwarders", selected);
     }
 
     [Fact]
@@ -894,6 +909,14 @@ public class SectionPipelineTests
         Assert.Equal(["Dependencies", "Library Files", "Manifest", "Signals", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }
 
+    [Fact]
+    public void PackagePipeline_InfoPreset_HasDenseSections()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(["Package Info", "Library Files"], pipeline.InfoSectionNames);
+    }
+
     // ===== API type-list pipeline tests =====
 
     [Fact]
@@ -967,6 +990,14 @@ public class SectionPipelineTests
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         Assert.Equal(14, pipeline.AllSectionNames.Length);
+    }
+
+    [Fact]
+    public void LibraryPipeline_InfoPreset_HasDenseSections()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.Equal(["Library Info"], pipeline.InfoSectionNames);
     }
 
     [Fact]
@@ -1127,5 +1158,13 @@ public class SectionPipelineTests
         Assert.Contains("IL", detailed);
         Assert.Contains("IL (Annotated)", detailed);
         Assert.Empty(pipeline.GetCostAnnotations());
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_InfoPreset_HasDenseSections()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
     }
 }

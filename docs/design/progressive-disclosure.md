@@ -18,15 +18,17 @@ Verbosity is the curated path. It controls how much of the default view appears.
 | Level | Flag | Intent |
 | ----- | ---- | ------ |
 | Quiet | `-v:q` | Compact identity/context only. |
-| Minimal | `-v:m` | Default high-value section(s). |
+| Minimal | `-v:m` | Default high-value summary section(s). |
 | Normal | `-v:n` | Standard non-network sections. |
 | Detailed | `-v:d` | Broad detail, including sections that are allowed by detailed verbosity. |
 
 Verbosity should reveal more about the same subject. It should not silently run slow source-content checks or unrelated lenses.
 
+Minimal/default views use a summary strategy: keep the answer close to one screenful by showing compact fields, counts, or one row per logical item. They should not render long unbounded metadata lists. When a long list is valuable, the minimal view should expose a count or summary signal and leave the full list to a named section, higher verbosity, or `-S All`.
+
 ## Section selection
 
-`-S` selects sections by name or wildcard:
+Bare `-S` renders a curated high-density Info view. `-S <name>` selects sections by name or wildcard:
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
@@ -41,6 +43,8 @@ Section selection does two things:
 
 For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
 
+The Info view is command/context-specific: package uses `Package Info` and `Library Files`; library uses `Library Info`; type/member list views use compact member summaries; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` Info view](info-view.md) for the bullseye question each preset is meant to answer.
+
 For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`.
 
 ## Discovery
@@ -53,8 +57,6 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D Methods
 ```
 
 For target-based queries, `-D` defaults to effective discovery: it resolves the target and reports only sections/columns that can actually render for that target and option set. Use `--schema` for the static, offline schema.
-
-Bare `-S` also lists effective sections. Use `-D` when you need section fields/columns; use bare `-S` when you only need section names.
 
 ## Projection
 
@@ -102,7 +104,7 @@ These sections do not run from normal verbosity or broad default output. Select 
 Prefer:
 
 1. Start with a targeted section such as `Signals`, `Package Info`, `Library Files`, or `Async*`.
-2. Use `-D`/bare `-S` to discover more sections.
+2. Use `-D` to discover more sections.
 3. Use `-S All` only when the task truly requires exhaustive output.
 
 ## Agent guidance

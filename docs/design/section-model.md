@@ -20,10 +20,10 @@ There are three query paths, each offering a different level of curation and cus
 
 The uppercase `-S` and `-D` flags are deliberate. They reserve a small, cross-command query namespace for section selection and discovery, reducing collisions with command-specific lowercase options. This is more important than it would be for a pure output-template flag (for example Docker-style `-f` format templates), because section selection can also drive data collection and network backpressure.
 
-These paths share a common starting point: both bare `-S` and bare `-D` list the available sections, so you can orient yourself before choosing a path.
+`-D` is the discovery path. Bare `-S` is the curated Info path: it renders a small, high-density section bundle for commands that define one.
 
 ```bash=
-$ dotnet run --project src/dotnet-inspect -- System.CommandLine -S
+$ dotnet run --project src/dotnet-inspect -- System.CommandLine -D
 Dependencies             section
 Files                    section
 Library Files            section
@@ -34,8 +34,6 @@ Statistics               section
 Target Frameworks        section
 Vulnerabilities          section
 ```
-
-The same output is produced by `-D` with no argument.
 
 The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told the specific sections being requested. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
 
@@ -152,7 +150,7 @@ Support for parsing command lines, supporting both POSIX and Windows conventions
 | Readme | Yes |
 ```
 
-The detailed verbosity (`-v:d`) prints all sections. This is the curated equivalent of bare `-S` — both show you the full set, but `-v:d` runs the full pipeline with opinionated rendering.
+The detailed verbosity (`-v:d`) prints all detailed-enabled sections. Bare `-S` renders a smaller curated Info bundle, while `-S All` renders every renderable section.
 
 Each view can be paired with a formatter
 

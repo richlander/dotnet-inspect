@@ -83,7 +83,7 @@ Registry.RunScanners(requiredKeys, context)
 Markout serializer renders with IncludeSections filter
 ```
 
-For bare `-S` discovery (list effective sections):
+For effective discovery (list effective sections):
 
 ```text
 Pipeline.GetEffectiveSections(model, verbosity, userSections)

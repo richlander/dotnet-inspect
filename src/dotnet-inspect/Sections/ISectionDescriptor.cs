@@ -28,6 +28,12 @@ public interface ISectionDescriptor<TModel>
     static virtual bool ExplicitOnly => false;
 
     /// <summary>
+    /// When true, this section is part of the command/context's curated Info preset
+    /// selected by bare <c>-S</c>.
+    /// </summary>
+    static virtual bool Info => false;
+
+    /// <summary>
     /// Optional network/work capabilities this section may use to enrich itself, independent of
     /// its render behavior. Drives optional work (PDB download, source fetch) only when authorized.
     /// </summary>

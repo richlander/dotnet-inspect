@@ -661,6 +661,19 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PackageDefaultOutput_OmitsTitleVersion()
+    {
+        var result = CreateTestPackageResult();
+        var options = new InspectionOptions { Verbosity = Verbosity.Minimal };
+
+        var output = OutputFormatter.FormatResult(result, options, PackageSectionDescriptors.CreatePipeline());
+
+        Assert.StartsWith("# TestPackage", output.TrimStart());
+        Assert.DoesNotContain("# TestPackage (1.0.0)", output);
+        Assert.Contains("Version", output);
+    }
+
+    [Fact]
     public void PackageSelectedSection_IncludesCompactContextWithoutDescriptionOrTitleVersion()
     {
         var result = CreateTestPackageResult();
