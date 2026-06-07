@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -108,7 +109,12 @@ public static class ApiCommandDefinitions
             {
                 case TypeOptionsParser.Discovery d:
                     var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-                    return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree);
+                    var typeFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree,
+                        json: typeFormat == OutputFormat.Json,
+                        tsv: typeFormat == OutputFormat.Tsv,
+                        markdown: typeFormat == OutputFormat.Markdown,
+                        verbosity: (int)opts.ParseVerbosity(parseResult));
 
                 case TypeOptionsParser.ShowHelp:
                     HelpWriter.WriteHelp(typeCommand);
@@ -212,7 +218,12 @@ public static class ApiCommandDefinitions
             {
                 case MemberOptionsParser.Discovery d:
                     var memberSchemaMap = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-                    return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree);
+                    var memberFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree,
+                        json: memberFormat == OutputFormat.Json,
+                        tsv: memberFormat == OutputFormat.Tsv,
+                        markdown: memberFormat == OutputFormat.Markdown,
+                        verbosity: (int)opts.ParseVerbosity(parseResult));
 
                 case MemberOptionsParser.ShowHelp:
                     HelpWriter.WriteHelp(memberCommand);

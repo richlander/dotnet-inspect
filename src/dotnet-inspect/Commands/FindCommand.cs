@@ -27,7 +27,8 @@ public class FindCommand
             {
                 var schema = new DocumentSchema()
                     .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
-                return DiscoverOutput.Execute(options.Discover, schema, tree: options.Tree);
+                return DiscoverOutput.Execute(options.Discover, schema,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

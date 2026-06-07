@@ -65,7 +65,12 @@ public static class RouterCommandDefinition
                 case RouterOptionsParser.Discovery d:
                     // Router-level discovery: show package sections (no input required)
                     var routerSchemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
-                    return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree);
+                    var routerFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree,
+                        json: routerFormat == OutputFormat.Json,
+                        tsv: routerFormat == OutputFormat.Tsv,
+                        markdown: routerFormat == OutputFormat.Markdown,
+                        verbosity: (int)opts.ParseVerbosity(parseResult));
 
                 case RouterOptionsParser.ParseError error:
                     Console.Error.WriteLine(error.Message);

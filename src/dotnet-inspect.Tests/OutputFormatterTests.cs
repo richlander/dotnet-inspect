@@ -13,6 +13,35 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public async Task DiscoverOutput_Tsv_RendersHeaderedTsvRows()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type", "Sim");
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, tsv: true)));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            "name\tkind\nPattern\tcolumn\nType\tcolumn\nSim\tcolumn\n",
+            output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_Json_RendersJsonRows()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type");
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, json: true)));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"name\":\"Pattern\"", output);
+        Assert.Contains("\"kind\":\"column\"", output);
+    }
+
+    [Fact]
     public void CountMarkdownTableRows_CountsDataRowsOnly()
     {
         const string markdown = """

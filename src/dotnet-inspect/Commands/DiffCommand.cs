@@ -27,7 +27,7 @@ public class DiffCommand
             var schemaMap = new DocumentSchema()
                 .Add("Changes", "column", "Change", "Type", "Detail");
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: false, markdown: !options.OneLine);
+                tree: options.Tree, json: false, tsv: options.Tsv, markdown: !options.OneLine);
         }
 
         if (!hasPlatform && !hasPackage)

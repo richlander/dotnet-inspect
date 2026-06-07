@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -74,7 +75,12 @@ public static class SourceCommandDefinitions
             {
                 case SourceOptionsParser.Discovery d:
                     var schemaMap = SourceViewContext.Default.GetSchemaInfo<SourceListView>()!.ToDocumentSchema();
-                    return DiscoverOutput.Execute(d.Discover, schemaMap, tree: d.Tree);
+                    var sourceFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    return DiscoverOutput.Execute(d.Discover, schemaMap, tree: d.Tree,
+                        json: sourceFormat == OutputFormat.Json,
+                        tsv: sourceFormat == OutputFormat.Tsv,
+                        markdown: sourceFormat == OutputFormat.Markdown,
+                        verbosity: (int)opts.ParseVerbosity(parseResult));
 
                 case SourceOptionsParser.ShowHelp:
                     HelpWriter.WriteHelp(sourceCommand);
