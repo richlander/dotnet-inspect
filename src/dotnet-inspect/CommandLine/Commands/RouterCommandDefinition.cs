@@ -33,12 +33,6 @@ public static class RouterCommandDefinition
         opts.AddAllOptionsTo(routerCommand);
         opts.AddCountOptionTo(routerCommand);
 
-        var routerOneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var routerNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        routerNoHeaderOption.Aliases.Add("--nh");
-        routerCommand.Options.Add(routerOneLineOption);
-        routerCommand.Options.Add(routerNoHeaderOption);
-
         // Version query options for the router
         var routerVersionOption = new Option<bool>("--version") { Description = "Show resolved version" };
         routerCommand.Options.Add(routerVersionOption);
@@ -56,7 +50,7 @@ public static class RouterCommandDefinition
 
         var commandArgs = new RouterOptionsParser.RouterCommandArgs(
             packageNameArg, routerVersionOption, routerLatestVersionOption, routerVersionsOption,
-            routerPrereleaseOption, routerOneLineOption, routerNoHeaderOption, routerCompactOption);
+            routerPrereleaseOption, opts.OneLine, opts.NoHeaders, routerCompactOption);
 
         routerCommand.SetAction(async (parseResult, ct) =>
         {
@@ -145,6 +139,7 @@ public static class RouterCommandDefinition
                 JsonOutput = route.Options.JsonOutput,
                 PlainText = route.Options.Format == OutputFormat.PlainText,
                 OneLine = route.OneLine,
+                Tsv = route.Options.Tsv,
                 OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
                 FormatExplicitlySet = route.Options.FormatExplicitlySet,
                 NoHeader = route.NoHeader,
@@ -175,6 +170,7 @@ public static class RouterCommandDefinition
             PackageArgs = [route.OriginalArg],
             JsonOutput = route.Options.JsonOutput,
             OneLine = route.OneLine,
+            Tsv = route.Options.Tsv,
             OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
             NoHeader = route.NoHeader,
             Verbose = route.Options.Verbose,
@@ -289,10 +285,11 @@ public static class RouterCommandDefinition
             PlatformAssembly = source.PlatformAssembly,
             PlatformFramework = source.FrameworkOverride,
             JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = opts.ResolveOneLine(parseResult, commandArgs.OneLineOption),
-            OneLineExplicitlySet = parseResult.GetResult(commandArgs.OneLineOption) is { Implicit: false },
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult, commandArgs.OneLineOption),
-            NoHeader = parseResult.GetValue(commandArgs.NoHeaderOption),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
             CompactJson = parseResult.GetValue(commandArgs.CompactOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,

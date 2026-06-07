@@ -239,7 +239,7 @@ public static class TypeCommand
                     }
 
                     // Notify when a requested section matched but has no data for this type.
-                    // JSON and markdown both honor -S; one-line falls back to showing all
+                    // JSON and markdown both honor -S; tabular output falls back to showing all
                     // members and shape replaces selection, so skip those.
                     if (!effectiveOptions.OneLine
                         && effectiveOptions is not TypeOptions { ShapeOutput: true })

@@ -124,8 +124,12 @@ public class PackageCommand
                 return 1;
             }
 
-            var versionWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
-            versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
+            OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
+            {
+                var versionWriter = new Markout.MarkoutWriter(writer, formatter);
+                versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
+                versionWriter.Flush();
+            });
 
             return 0;
         }
@@ -240,7 +244,7 @@ public class PackageCommand
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
             {
-                ListPackageTfms(extractPath);
+                ListPackageTfms(extractPath, options.Tsv);
                 return 0;
             }
 
@@ -358,7 +362,7 @@ public class PackageCommand
                         return 1;
                     }
 
-                    // Narrow to the Package Info section for oneline
+                    // Narrow to the Package Info section for tabular output
                     options = options with { IncludeSections = new HashSet<string> { PackageSections.PackageInfo } };
                 }
 
@@ -368,14 +372,14 @@ public class PackageCommand
                     var sw = new StringWriter();
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
-                    MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
-                    var rendered = sw.ToString();
+                    var rendered = OutputFormatter.RenderTable(options.Tsv, !options.NoHeader,
+                        (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
                     ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
                     Console.Out.Write(rendered);
                 }
                 else
                 {
-                    OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
+                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
                 }
             }
             else
@@ -595,8 +599,12 @@ public class PackageCommand
             ? fileNames.Take(options.Limit.Value)
             : fileNames;
 
-        var fileWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
-        fileWriter.WriteList(results.ToArray());
+        OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
+        {
+            var fileWriter = new Markout.MarkoutWriter(writer, formatter);
+            fileWriter.WriteList(results.ToArray());
+            fileWriter.Flush();
+        });
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
@@ -620,7 +628,7 @@ public class PackageCommand
         return (extractPath, null);
     }
 
-    private static void ListPackageTfms(string extractPath)
+    private static void ListPackageTfms(string extractPath, bool tsv)
     {
         var dlls = TfmSelector.GetPackageDlls(extractPath);
         var tfms = dlls
@@ -632,8 +640,12 @@ public class PackageCommand
             .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
             .ToList();
 
-        var tfmWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
-        tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
+        OutputFormatter.WriteTable(tsv, Console.Out, showHeader: false, (writer, formatter) =>
+        {
+            var tfmWriter = new Markout.MarkoutWriter(writer, formatter);
+            tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
+            tfmWriter.Flush();
+        });
     }
 
     private static async Task<int> ShowDependencyTreeAsync(

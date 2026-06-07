@@ -58,9 +58,6 @@ public static class ApiCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var memberOption = new Option<string[]>("-m")
@@ -86,8 +83,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
-        typeCommand.Options.Add(oneLineOption);
-        typeCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(memberOption);
@@ -101,8 +97,8 @@ public static class ApiCommandDefinitions
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, compactOption, oneLineOption,
-            noHeaderOption, shapeOption, unsafeOption, memberOption, kindOption);
+            allOption, typeFilterOption, compactOption, opts.OneLine,
+            opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -164,9 +160,6 @@ public static class ApiCommandDefinitions
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var paramsOption = new Option<string>("--params") { Description = "Select member overload by parameter types (comma-separated)" };
@@ -191,8 +184,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Limit);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
-        memberCommand.Options.Add(oneLineOption);
-        memberCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(paramsOption);
@@ -209,7 +201,7 @@ public static class ApiCommandDefinitions
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
-            compactOption, oneLineOption, noHeaderOption,
+            compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>

@@ -183,7 +183,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
 
-        // OneLine format produces tab-separated or columnar output
+        // Tabular format produces compact row output
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.True(lines.Length > 1, "Expected multiple lines of type output");
     }

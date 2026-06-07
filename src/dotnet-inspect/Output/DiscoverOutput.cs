@@ -8,7 +8,7 @@ namespace DotnetInspector.Output;
 
 /// <summary>
 /// Handles -D/--discover output. Renders discovery results through the standard
-/// Markout pipeline (oneline, markdown, json) instead of bespoke formatting.
+/// Markout pipeline (table, markdown, json) instead of bespoke formatting.
 /// </summary>
 public static class DiscoverOutput
 {
@@ -45,11 +45,14 @@ public static class DiscoverOutput
         }
         else if (markdown)
         {
-            context.Serialize(view, Console.Out, new MarkdownFormatter());
+            var sw = new StringWriter();
+            context.Serialize(view, sw, new MarkdownFormatter());
+            Console.Write(MarkdownTableCellNormalizer.Apply(sw.ToString()));
         }
         else
         {
-            context.Serialize(view, Console.Out, new OneLineFormatter(showHeader: false));
+            OutputFormatter.WriteTable(tsv: false, Console.Out, showHeader: false,
+                (writer, formatter) => context.Serialize(view, writer, formatter));
         }
 
         if (ShouldWriteAllSelectorHint(discover, json, rows))

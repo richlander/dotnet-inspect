@@ -39,10 +39,6 @@ public static class PackageCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
         var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest stable version from nuget.org (add --preview for prerelease)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
-
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
@@ -57,8 +53,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(outOption);
-        packageCommand.Options.Add(oneLineOption);
-        packageCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
         packageCommand.Options.Add(opts.Markdown);
         packageCommand.Options.Add(opts.PlainText);
@@ -74,7 +69,7 @@ public static class PackageCommandDefinitions
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, filesOption, tfmsOption,
             libOption, toolsOption, versionsOption, prereleaseOption, readmeOption,
-            tfmOption, versionOption, latestVersionOption, outOption, oneLineOption, noHeaderOption);
+            tfmOption, versionOption, latestVersionOption, outOption, opts.OneLine, opts.NoHeaders);
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {

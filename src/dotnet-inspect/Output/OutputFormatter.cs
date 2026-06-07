@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspector.Output;
 
@@ -18,6 +19,17 @@ public record RenderDiagnostic(string Formatter, string Condition, string[] Sect
 /// </summary>
 public static class OutputFormatter
 {
+    public static string RenderTable(bool tsv, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
+    {
+        var sw = new StringWriter();
+        serialize(sw, new TableFormatter(showHeader));
+        var tabular = sw.ToString();
+        return tsv ? tabular : PrettyTableFormatter.Format(tabular);
+    }
+
+    public static void WriteTable(bool tsv, TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize) =>
+        output.Write(RenderTable(tsv, showHeader, serialize));
+
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
@@ -40,12 +52,13 @@ public static class OutputFormatter
         return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
     }
 
-    public static void WritePackageOneLine(InspectionResult result, InspectionOptions options,
+    public static void WritePackageTable(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         var view = new InspectionResultView(result);
-        MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: showHeader), InspectionContext.Default, writerOpts);
+        WriteTable(options.Tsv, Console.Out, showHeader,
+            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
     }
 
     /// <summary>
@@ -57,7 +70,7 @@ public static class OutputFormatter
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         if (writerOpts.IncludeSections is { Count: > 1 })
-            return new RenderDiagnostic("oneline", "multiple_sections",
+            return new RenderDiagnostic("table", "multiple_sections",
                 writerOpts.IncludeSections.ToArray());
         return null;
     }
@@ -136,7 +149,7 @@ public static class OutputFormatter
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
         {
-            // Auto-promote to markdown when multiple sections and oneline wasn't explicitly requested
+            // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
             if (selectAll)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
@@ -146,7 +159,8 @@ public static class OutputFormatter
         }
         else
         {
-            MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
+            WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
         }
     }
 
@@ -207,7 +221,8 @@ public static class OutputFormatter
                     IncludeSections = includeSections,
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
-                MarkoutSerializer.Serialize(auditView, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
+                WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
             }
         }
     }

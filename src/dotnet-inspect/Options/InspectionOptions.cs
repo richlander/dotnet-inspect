@@ -119,13 +119,18 @@ public record InspectionOptions
     public static InspectionOptions Default => new();
 
     /// <summary>
-    /// One result per line, columnar output.
+    /// Tabular output (pretty table or TSV).
     /// </summary>
     public bool OneLine { get; init; }
 
     /// <summary>
-    /// True when --oneline was explicitly passed (not just the default format).
-    /// Used to distinguish "user wants oneline" from "oneline is the default".
+    /// Emit tabular output as normalized TSV instead of a pretty table.
+    /// </summary>
+    public bool Tsv { get; init; }
+
+    /// <summary>
+    /// True when a tabular output flag was explicitly passed (not just the default format).
+    /// Used to distinguish explicit tabular output from a tabular default.
     /// </summary>
     public bool OneLineExplicitlySet { get; init; }
 
@@ -135,7 +140,7 @@ public record InspectionOptions
     public bool FormatExplicitlySet { get; init; }
 
     /// <summary>
-    /// Suppress column headers (use with --oneline).
+    /// Suppress column headers (use with --table or --tsv).
     /// </summary>
     public bool NoHeader { get; init; }
 

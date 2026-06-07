@@ -75,7 +75,7 @@ public class AssemblyCommand
                 ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
         }
 
-        // Explicit --oneline with multiple sections: error
+        // Explicit tabular output with multiple sections: error
         if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
         {
             Console.Error.WriteLine($"Error: Selection matches {options.IncludeSections.Count} sections: {string.Join(", ", options.IncludeSections)}.");
@@ -85,7 +85,7 @@ public class AssemblyCommand
             return 1;
         }
 
-        // Warn if --oneline combined with detailed verbosity without section selector
+        // Warn if tabular output is combined with detailed verbosity without section selector
         if (!effectiveDiscovery && !options.Count)
             OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 

@@ -64,10 +64,10 @@ grep -o 'Types: [0-9]*'
 grep -o 'Source: [A-Za-z]*'
 ```
 
-### 1b. Using `type` with oneline output
+### 1b. Using `type` with table output
 
 ```bash
-dotnet-inspect type System.CommandLine --oneline -t 5 --no-header
+dotnet-inspect type System.CommandLine --table -t 5 --no-headers
 ```
 
 ```expect
@@ -86,7 +86,7 @@ wc -l | tr -d ' '
 ### 1c. Oneline column structure
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline | head -1
+dotnet-inspect type System.Text.Json --table | head -1
 ```
 
 ```expect
@@ -135,7 +135,7 @@ Find all types starting with "Json" in System.Text.Json.
 ### 3a. Using `-t` with glob pattern
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" --oneline --no-header
+dotnet-inspect type System.Text.Json -t "Json*" --table --no-headers
 ```
 
 ```expect
@@ -155,7 +155,7 @@ wc -l | tr -d ' '
 ### 3b. Filter to specific kind
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" --oneline --no-header | grep '^enum'
+dotnet-inspect type System.Text.Json -t "Json*" --table --no-headers | grep '^enum'
 ```
 
 ```expect
@@ -234,10 +234,10 @@ grep -o 'Kind: [a-z]*'
 grep -o 'Source: [A-Za-z]*'
 ```
 
-### 4d. Member oneline column structure
+### 4d. Member table column structure
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --oneline | head -1
+dotnet-inspect type System.Text.Json JsonSerializer --table | head -1
 ```
 
 ```expect
@@ -546,10 +546,10 @@ Tips:
 
 > Goal: See types ranked by member count for API surface overview.
 
-### 8a. Using oneline with awk sort
+### 8a. Using TSV with awk sort
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline --no-header | awk '{print $NF, $2}' | sort -rn | head -5
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $NF, $2}' | sort -rn | head -5
 ```
 
 ```expect
@@ -567,7 +567,7 @@ head -3 | awk '{print $2}'
 > Goal: The `--unsafe` flag filters to types that have members with pointer signatures.
 
 ```bash
-dotnet-inspect type System.Runtime --unsafe -t 5 --oneline --no-header
+dotnet-inspect type System.Runtime --unsafe -t 5 --table --no-headers
 ```
 
 ```expect

@@ -62,7 +62,7 @@ sections:
 
 | Filter | Scope | Applies to |
 | --- | --- | --- |
-| `--columns` | Column projection | All writers (oneline, markdown, json) |
+| `--columns` | Column projection | All writers (table, TSV, markdown, JSON) |
 | `-k` / `--kind` | Row filter by member kind | Table sections |
 | `-m` / `--member` | Row filter by member name | Table sections |
 | `-t` / `--type` | Row filter by type name | Type listing sections |

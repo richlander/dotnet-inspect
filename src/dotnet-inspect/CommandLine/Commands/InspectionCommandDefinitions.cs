@@ -41,9 +41,6 @@ public static class InspectionCommandDefinitions
             AllowMultipleArgumentsPerToken = true
         };
         typeFilterOption.Aliases.Add("--type");
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
         var nameOnlyOption = new Option<bool>("--name-only") { Description = "Show only type names that changed" };
         var breakingOption = new Option<bool>("--breaking") { Description = "Show only breaking changes" };
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
@@ -56,8 +53,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
         diffCommand.Options.Add(typeFilterOption);
-        diffCommand.Options.Add(oneLineOption);
-        diffCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(diffCommand);
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
@@ -68,7 +64,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, oneLineOption, noHeaderOption, nameOnlyOption, breakingOption, additiveOption, legendOption);
+            typeFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -123,9 +119,6 @@ public static class InspectionCommandDefinitions
         var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
         var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
-        var asmNoHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        asmNoHeaderOption.Aliases.Add("--nh");
-
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
@@ -136,7 +129,6 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(extractResourcesOption);
-        assemblyCommand.Options.Add(asmNoHeaderOption);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
 
@@ -199,7 +191,8 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Markdown = parseResult.GetValue(opts.Markdown),
-                OneLine = opts.ResolveFormat(parseResult) == OutputFormat.OneLine,
+                OneLine = opts.ResolveOneLine(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
@@ -211,7 +204,7 @@ public static class InspectionCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
                 Schema = opts.ParseSchema(parseResult),
-                NoHeader = parseResult.GetValue(asmNoHeaderOption),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

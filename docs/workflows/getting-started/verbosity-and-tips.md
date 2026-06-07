@@ -41,7 +41,7 @@ dotnet-inspect System.CommandLine -v:q
 
 ## 1. Default verbosity (package)
 
-> Goal: Default shows H1, description, oneline fields, one section table, and tips on stderr.
+> Goal: Default shows H1, description, compact fields, one section table, and tips on stderr.
 
 ```prompt
 Tell me about System.CommandLine. What are the key metrics?
@@ -93,7 +93,7 @@ grep '^## '
 
 ## 3. Quiet verbosity (package)
 
-> Goal: Quiet shows only H1 and oneline field list. No sections, no tips.
+> Goal: Quiet shows only H1 and compact fields. No sections, no tips.
 
 ```prompt
 Give me a quick summary of System.CommandLine with minimal output.

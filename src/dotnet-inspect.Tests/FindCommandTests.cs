@@ -9,12 +9,12 @@ using Markout;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for FindCommand output formatting via OneLineFormatter.
+/// Tests for FindCommand output formatting via the shared table pipeline.
 /// </summary>
 public class FindCommandTests
 {
     [Fact]
-    public void OneLineFormatter_MultiPattern_OutputsColumnarResults()
+    public void TableFormatter_MultiPattern_OutputsCanonicalTsvRows()
     {
         var results = new List<TypeFindResult>
         {
@@ -27,26 +27,38 @@ public class FindCommandTests
         };
 
         var view = FindOutputFormatter.BuildView(results);
-        var sw = new StringWriter();
-        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: false), SearchViewContext.Default);
-        var lines = sw.ToString().TrimEnd().Split(Environment.NewLine);
+        var lines = RenderFindTable(view, tsv: true, showHeader: false).TrimEnd().Split(Environment.NewLine);
 
         Assert.Equal(3, lines.Length);
-        Assert.Contains("Zebra", lines[0]);
-        Assert.Contains("Alpha", lines[1]);
-        Assert.Contains("Beta", lines[2]);
+        Assert.Equal("Pattern1\tZebra\tAnimals\tclass\tZoo\truntime", lines[0]);
+        Assert.Equal("Pattern1\tAlpha\tGreek\tstruct\tLetters\truntime", lines[1]);
+        Assert.Equal("Pattern2\tBeta\tGreek\tinterface\tLetters\truntime", lines[2]);
     }
 
     [Fact]
-    public void OneLineFormatter_EmptyResults_NoOutput()
+    public void TableFormatter_NormalizesTabsAndNewlinesInTsvCells()
+    {
+        var results = new List<TypeFindResult>
+        {
+            new() { Pattern = "Pattern\t1", Match = MatchKind.Exact, Similarity = 1.0,
+                     Type = "Line\nBreak", Namespace = "Ns\r\nValue", Kind = "class", Library = "Tab\tLib", Source = "runtime" }
+        };
+
+        var view = FindOutputFormatter.BuildView(results);
+        var fields = RenderFindTable(view, tsv: true, showHeader: false).TrimEnd().Split('\t');
+
+        Assert.Equal(["Line Break", "Ns  Value", "class", "Tab Lib", "runtime"], fields);
+    }
+
+    [Fact]
+    public void TableFormatter_EmptyResults_NoOutput()
     {
         var view = FindOutputFormatter.BuildView([]);
-        var sw = new StringWriter();
-        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: false), SearchViewContext.Default);
+        var output = RenderFindTable(view, tsv: true, showHeader: false);
 
-        // OneLineFormatter doesn't support paragraphs (no IBlockFormatter),
+        // TableFormatter doesn't support paragraphs (no IBlockFormatter),
         // so the description is not rendered
-        Assert.Equal("", sw.ToString().TrimEnd());
+        Assert.Equal("", output.TrimEnd());
     }
 
     [Fact]
@@ -87,7 +99,7 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void OneLineFormatter_WithHeader_IncludesColumnHeaders()
+    public void TableFormatter_WithHeader_IncludesColumnHeaders()
     {
         var results = new List<TypeFindResult>
         {
@@ -96,16 +108,14 @@ public class FindCommandTests
         };
 
         var view = FindOutputFormatter.BuildView(results);
-        var sw = new StringWriter();
-        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: true), SearchViewContext.Default);
-        var output = sw.ToString();
+        var output = RenderFindTable(view, tsv: true, showHeader: true);
 
-        Assert.Contains("TYPE", output);
+        Assert.Contains("Type\tNamespace\tKind\tLibrary\tSource", output);
         Assert.Contains("TestA", output);
     }
 
     [Fact]
-    public void OneLineFormatter_NoHeader_OmitsColumnHeaders()
+    public void TableFormatter_NoHeader_OmitsColumnHeaders()
     {
         var results = new List<TypeFindResult>
         {
@@ -114,13 +124,35 @@ public class FindCommandTests
         };
 
         var view = FindOutputFormatter.BuildView(results);
-        var sw = new StringWriter();
-        MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: false), SearchViewContext.Default);
-        var output = sw.ToString();
+        var output = RenderFindTable(view, tsv: true, showHeader: false);
 
-        Assert.DoesNotContain("TYPE", output);
+        Assert.DoesNotContain("Type\tNamespace", output);
         Assert.Contains("TestA", output);
     }
+
+    [Fact]
+    public void PrettyTableFormatter_AlignsCanonicalTsvProjection()
+    {
+        var results = new List<TypeFindResult>
+        {
+            new() { Pattern = "A", Match = MatchKind.Exact, Similarity = 1.0,
+                     Type = "Short", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" },
+            new() { Pattern = "A", Match = MatchKind.Exact, Similarity = 1.0,
+                     Type = "LongerType", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" }
+        };
+
+        var view = FindOutputFormatter.BuildView(results);
+        var output = RenderFindTable(view, tsv: false, showHeader: true);
+
+        Assert.DoesNotContain('\t', output);
+        Assert.Contains("Type        Namespace", output);
+        Assert.Contains("Short", output);
+        Assert.Contains("LongerType", output);
+    }
+
+    private static string RenderFindTable(FindResultView view, bool tsv, bool showHeader) =>
+        OutputFormatter.RenderTable(tsv, showHeader,
+            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default));
 }
 
 /// <summary>

@@ -41,6 +41,7 @@ public record ApiOptions
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool OneLine { get; init; }
+    public bool Tsv { get; init; }
     public bool OneLineExplicitlySet { get; init; }
     public bool PlainText { get; init; }
 

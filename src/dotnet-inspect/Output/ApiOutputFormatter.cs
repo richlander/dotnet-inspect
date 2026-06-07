@@ -981,7 +981,7 @@ public static class ApiOutputFormatter
     // ===== One-Line View Builders =====
 
     /// <summary>
-    /// Builds a unified one-line view for a single type's members.
+    /// Builds a unified tabular view for a single type's members.
     /// All member kinds are merged into one table with a Kind column.
     /// </summary>
     internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
@@ -1035,7 +1035,7 @@ public static class ApiOutputFormatter
     }
 
     /// <summary>
-    /// Builds a unified one-line view for a full API surface (all types).
+    /// Builds a unified tabular view for a full API surface (all types).
     /// All type kinds are merged into one table with a Kind column.
     /// </summary>
     internal static (ApiSurfaceOneLineView view, int truncated) BuildSurfaceOneLineView(ApiSurface api, ApiOptions options)

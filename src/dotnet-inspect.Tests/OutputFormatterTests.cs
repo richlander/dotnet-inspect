@@ -154,6 +154,42 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void MarkdownTableCellNormalizer_ReplacesEscapedPipesInTableCells()
+    {
+        const string markdown = """
+        | Name | Value |
+        | ---- | ----- |
+        | A | left\|right |
+        """;
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, null);
+
+        Assert.Contains("left&#124;right", output);
+        Assert.DoesNotContain(@"\|", output);
+    }
+
+    [Fact]
+    public void MarkdownTableCellNormalizer_IgnoresEscapedPipesInCodeFences()
+    {
+        const string markdown = """
+        ```md
+        | Name |
+        | ---- |
+        | left\|right |
+        ```
+
+        | Name |
+        | ---- |
+        | left\|right |
+        """;
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, null).ReplaceLineEndings("\n");
+
+        Assert.Contains("| left\\|right |\n```", output);
+        Assert.Contains("| left&#124;right |", output.Split("```")[2]);
+    }
+
+    [Fact]
     public void MultiAssemblyReport_HasSingleH1()
     {
         var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");

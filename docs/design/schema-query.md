@@ -106,7 +106,7 @@ var result = schema.Discover("Package Info");
 // → [("Version", "field"), ("Type", "field"), ...]
 ```
 
-The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — oneline, markdown, tree, JSON.
+The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — table, TSV, markdown, tree, JSON.
 
 ### Selection
 

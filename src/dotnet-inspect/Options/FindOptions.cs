@@ -78,12 +78,17 @@ public record FindOptions : IAssemblySourceOptions
     public bool Verbose { get; init; }
 
     /// <summary>
-    /// One-line-per-result output (columnar, no headers).
+    /// Tabular output (pretty table or TSV).
     /// </summary>
     public bool OneLine { get; init; }
 
     /// <summary>
-    /// Suppress column headers in oneline output.
+    /// Emit tabular output as normalized TSV instead of a pretty table.
+    /// </summary>
+    public bool Tsv { get; init; }
+
+    /// <summary>
+    /// Suppress column headers in tabular output.
     /// </summary>
     public bool NoHeader { get; init; }
 

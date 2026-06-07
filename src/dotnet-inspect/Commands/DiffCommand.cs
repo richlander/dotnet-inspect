@@ -95,7 +95,8 @@ public class DiffCommand
                 {
                     Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
                 };
-                MarkoutSerializer.Serialize(view, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), DiffViewContext.Default, writerOpts);
+                OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                    (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOpts));
             }
             else
             {
@@ -247,9 +248,12 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            var nameWriter = new Markout.MarkoutWriter(new Markout.OneLineFormatter());
-            DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
-            return nameWriter.ToString();
+            return OutputFormatter.RenderTable(options.Tsv, showHeader: false, (writer, formatter) =>
+            {
+                var nameWriter = new Markout.MarkoutWriter(writer, formatter);
+                DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
+                nameWriter.Flush();
+            });
         }
 
         var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
@@ -289,6 +293,7 @@ public record DiffOptions
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
     public bool OneLine { get; init; }
+    public bool Tsv { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }

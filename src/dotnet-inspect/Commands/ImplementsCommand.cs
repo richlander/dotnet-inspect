@@ -79,7 +79,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.NoHeader, options.Columns, options.Fields, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.OneLine, options.Tsv, options.NoHeader, options.Columns, options.Fields, options.Rows);
             }
 
             return 0;
@@ -132,7 +132,7 @@ public class ImplementsCommand
         JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool noHeader, string[]? columns, string[]? fields, int? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool tsv, bool noHeader, string[]? columns, string[]? fields, int? rows)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
@@ -148,7 +148,8 @@ public class ImplementsCommand
             {
                 Projection = OutputFormatter.BuildProjection(columns, fields)
             };
-            MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !noHeader), SearchViewContext.Default, writerOpts);
+            OutputFormatter.WriteTable(tsv, Console.Out, !noHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOpts));
         }
         else
         {

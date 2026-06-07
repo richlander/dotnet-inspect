@@ -33,7 +33,7 @@ internal static class TypeSearchService
             return await FindSinglePatternAsync(patterns[0], options, logger, tempDirs, httpClient);
         }
 
-        // Multi-pattern or oneline: collect all types, then match each pattern
+        // Multi-pattern or tabular output: collect all types, then match each pattern
         return await FindMultiPatternAsync(patterns, options, logger, tempDirs, httpClient);
     }
 

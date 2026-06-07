@@ -105,7 +105,7 @@ public class ApiCommand
                 options = options with { Verbosity = requiredVerbosity };
         }
 
-        // Warn if --oneline combined with detailed verbosity without section selector
+        // Warn if tabular output is combined with detailed verbosity without section selector
         if (!options.Count)
             OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
@@ -397,7 +397,7 @@ public class ApiCommand
     /// but produced no data for this type (e.g. the enum-only "Values" section on a class).
     /// This distinguishes "valid but empty" from a typo (which yields a "not found" error)
     /// and from a silent empty render. Only meaningful for section-rendering output, so the
-    /// caller must skip JSON (ignores -S), shape, and one-line output.
+    /// caller must skip JSON (ignores -S), shape, and tabular output.
     /// </summary>
     internal static void WarnEmptySelectedSections(ApiType type, ApiOptions options, SectionPipeline<ApiType> pipeline)
     {
@@ -548,7 +548,8 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            MarkoutSerializer.Serialize(oneLineView, Console.Out, new Markout.OneLineFormatter(showHeader: !options.NoHeader), ApiViewContext.Default, writerOpts);
+            OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
         }
         else
         {
@@ -763,7 +764,8 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            MarkoutSerializer.Serialize(oneLineView, sink, new Markout.OneLineFormatter(showHeader: !options.NoHeader), ApiViewContext.Default, writerOpts);
+            OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
         }
         else
         {

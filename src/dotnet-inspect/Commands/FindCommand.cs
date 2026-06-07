@@ -88,7 +88,8 @@ public class FindCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), SearchViewContext.Default, writerOpts);
+            OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOpts));
         }
         else
         {

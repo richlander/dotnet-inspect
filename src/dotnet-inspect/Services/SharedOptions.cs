@@ -17,6 +17,10 @@ public class SharedOptions
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
+    public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
+    public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
+    public Option<bool> OneLine { get; } = new("--oneline") { Description = "Compatibility alias for --table", Hidden = true };
+    public Option<bool> NoHeaders { get; } = new("--no-headers") { Description = "Suppress table/TSV column headers" };
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
@@ -97,6 +101,9 @@ public class SharedOptions
             Description = "Filter fields by name (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
+
+        NoHeaders.Aliases.Add("--no-header");
+        NoHeaders.Aliases.Add("--nh");
     }
 
     /// <summary>
@@ -119,6 +126,14 @@ public class SharedOptions
     public void AddJsonOptionTo(Command command)
     {
         command.Options.Add(Json);
+    }
+
+    public void AddTableOptionsTo(Command command)
+    {
+        command.Options.Add(Table);
+        command.Options.Add(Tsv);
+        command.Options.Add(OneLine);
+        command.Options.Add(NoHeaders);
     }
 
     /// <summary>
@@ -164,6 +179,7 @@ public class SharedOptions
         command.Options.Add(Markdown);
         command.Options.Add(PlainText);
         command.Options.Add(Mermaid);
+        AddTableOptionsTo(command);
         AddOutputOptionsTo(command);
         AddSectionOptionsTo(command);
         AddNuGetOptionsTo(command);
@@ -213,9 +229,12 @@ public class SharedOptions
         bool markdownFlag = parseResult.GetValue(Markdown);
         bool plainTextFlag = parseResult.GetValue(PlainText);
         bool mermaidFlag = parseResult.GetValue(Mermaid);
+        bool tableFlag = IsExplicitTrue(parseResult, Table) || IsExplicitTrue(parseResult, OneLine);
+        bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, defaultFormat);
+        ValidateTabularFlags(tableFlag, tsvFlag, hasVerbosity);
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, defaultFormat);
     }
 
     /// <summary>
@@ -225,36 +244,26 @@ public class SharedOptions
         => OutputFormatResolver.IsEmbeddedMermaid(parseResult.GetValue(Markdown), parseResult.GetValue(Mermaid));
 
     /// <summary>
-    /// Resolves whether oneline output should be used, considering the --oneline flag and format resolution.
-    /// Explicit --oneline always wins; otherwise derived from ResolveFormat.
-    /// Throws if --oneline is combined with -v (contradictory: -v implies markdown).
+    /// Resolves whether tabular output should be used, considering --table, --tsv, and the --oneline compatibility alias.
+    /// Throws if a tabular flag is combined with -v (contradictory: -v implies markdown).
     /// </summary>
-    public bool ResolveOneLine(ParseResult parseResult, Option<bool> oneLineOption, OutputFormat defaultFormat = OutputFormat.Markdown)
+    public bool ResolveOneLine(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
-        bool explicitOneLine = parseResult.GetResult(oneLineOption) is { Implicit: false };
-        bool explicitVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
-
-        if (explicitOneLine && explicitVerbosity)
-        {
-            Console.Error.WriteLine("--oneline and -v cannot be combined. Use another formatter instead, or omit -v for oneline.");
-            throw new OperationCanceledException();
-        }
-
-        // Explicit --oneline flag always wins
-        if (explicitOneLine)
-            return parseResult.GetValue(oneLineOption);
-
-        return ResolveFormat(parseResult, defaultFormat) == OutputFormat.OneLine;
+        var format = ResolveFormat(parseResult, defaultFormat);
+        return format is OutputFormat.Table or OutputFormat.Tsv;
     }
+
+    public bool ResolveTsv(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown) =>
+        ResolveFormat(parseResult, defaultFormat) == OutputFormat.Tsv;
 
     /// <summary>
     /// Returns true when the user explicitly chose an output format via CLI flags
-    /// (--json, --markdown, --plain-text, --oneline, or -v).
+    /// (--json, --markdown, --plain-text, --table, --tsv, --oneline, or -v).
     /// When false, commands are free to apply their own default format.
     /// </summary>
-    public bool IsFormatExplicitlySet(ParseResult parseResult, Option<bool>? oneLineOption = null)
+    public bool IsFormatExplicitlySet(ParseResult parseResult)
     {
-        if (oneLineOption != null && parseResult.GetResult(oneLineOption) is { Implicit: false }) return true;
+        if (IsTableExplicitlySet(parseResult)) return true;
         if (parseResult.GetResult(Json) is { Implicit: false }) return true;
         if (parseResult.GetResult(Markdown) is { Implicit: false }) return true;
         if (parseResult.GetResult(PlainText) is { Implicit: false }) return true;
@@ -262,6 +271,9 @@ public class SharedOptions
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
         return false;
     }
+
+    public bool IsTableExplicitlySet(ParseResult parseResult) =>
+        IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, OneLine);
 
     /// <summary>
     /// Parses select list from parse result.
@@ -321,6 +333,27 @@ public class SharedOptions
         return parseResult.GetResult(option) is { Implicit: false } &&
                string.IsNullOrWhiteSpace(parseResult.GetValue(option));
     }
+
+    private static void ValidateTabularFlags(bool tableFlag, bool tsvFlag, bool hasVerbosity)
+    {
+        if (tableFlag && tsvFlag)
+        {
+            Console.Error.WriteLine("--table and --tsv cannot be combined.");
+            throw new OperationCanceledException();
+        }
+
+        if ((tableFlag || tsvFlag) && hasVerbosity)
+        {
+            Console.Error.WriteLine("--table/--tsv and -v cannot be combined. Use --markdown with -v, or omit -v for tabular output.");
+            throw new OperationCanceledException();
+        }
+    }
+
+    private static bool IsExplicit(ParseResult parseResult, Option<bool> option) =>
+        parseResult.GetResult(option) is { Implicit: false };
+
+    private static bool IsExplicitTrue(ParseResult parseResult, Option<bool> option) =>
+        IsExplicit(parseResult, option) && parseResult.GetValue(option);
 
     private static readonly char[] ListSeparators = [',', ';'];
 

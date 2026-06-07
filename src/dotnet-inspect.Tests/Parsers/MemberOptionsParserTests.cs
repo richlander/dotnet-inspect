@@ -33,8 +33,6 @@ public class MemberOptionsParserTests
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor");
         var compactOption = new Option<bool>("--compact");
-        var oneLineOption = new Option<bool>("--oneline");
-        var noHeaderOption = new Option<bool>("--no-header");
         var unsafeOption = new Option<bool>("--unsafe");
         var indexOption = new Option<int?>("--index");
         var paramsOption = new Option<string>("--params");
@@ -55,8 +53,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(opts.Limit);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
-        memberCommand.Options.Add(oneLineOption);
-        memberCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(paramsOption);
@@ -74,7 +71,7 @@ public class MemberOptionsParserTests
         var root = new RootCommand { memberCommand };
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, memberOption, ctorOption, compactOption, oneLineOption, noHeaderOption,
+            allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, paramsOption, ofOption, selectOption, kindOption);
 
         return (root, opts, args);
@@ -132,6 +129,40 @@ public class MemberOptionsParserTests
         Assert.Equal("IChatClient", options.TypeName);
         // PackagePath preserves the @version suffix for downstream resolution
         Assert.Contains("Microsoft.Extensions.AI.Abstractions", options.PackagePath!);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithTable_SetsTabularOutput()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table");
+
+        Assert.True(options.OneLine);
+        Assert.False(options.Tsv);
+        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.FormatExplicitlySet);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithTsvAndNoHeaders_SetsTsvOutput()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers");
+
+        Assert.True(options.OneLine);
+        Assert.True(options.Tsv);
+        Assert.True(options.NoHeader);
+        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.FormatExplicitlySet);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithOneline_SetsTableCompatOutput()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--oneline");
+
+        Assert.True(options.OneLine);
+        Assert.False(options.Tsv);
+        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.FormatExplicitlySet);
     }
 
     // ── Explicit --package with type and member ──────────────────────────

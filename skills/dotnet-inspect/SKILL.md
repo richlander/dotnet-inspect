@@ -14,7 +14,13 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--oneline` for compact tabular output like `docker images` when you need one result per row. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
+
+Format promises:
+
+- Markdown table cell values do not contain escaped pipes (`\|`); pipe characters in values are normalized.
+- `--tsv` table cells never contain embedded tabs or newlines.
+- `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
 
 Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
@@ -24,14 +30,14 @@ Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6`
 
 | Goal | Start with | Drill in |
 | ---- | ---------- | -------- |
-| Find the right API | `find Pattern --oneline` | `type Type --package Foo`, then `member Type --package Foo`. |
+| Find the right API | `find Pattern --table` | `type Type --package Foo`, then `member Type --package Foo`. |
 | Fix upgrade breaks | `diff --package Foo@old..new --breaking` | Inspect replacement members with `member`. |
 | Learn what changed | `diff --package Foo@old..new --additive` or `diff --platform Lib@old..new` | Use `-t Type` to narrow. |
 | Locate source | `source Type --package Foo` | Add `-m Member`; for a selected overload use `member Type Member:1 -S "Original Source"` when you need SourceLink-backed source text. |
 | Inspect package/library signals | `library Foo -S Signals` or `package Foo -S Signals` | `Signals` resolves SourceLink for libraries; add `-S "SourceLink Availability"` for source reachability or `-S "SourceLink Integrity"` for slow content verification. |
 | Inventory package library files | `package Foo -S "Library Files"` | Lists all files under `lib/` across TFMs; use paths from this section with `library <file> --package Foo` for specific assemblies. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
-| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--tail N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
+| Keep output small | `--table`, `--tsv`, `--json`, `-S Section`, `--count`, `-n N`, `--tail N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
 
 ## Modern .NET and preview workflow
 
@@ -52,7 +58,7 @@ For preview sweeps, resolve the version once, prove one library end-to-end, then
 Use `find` when you do not know the package, library, or exact namespace.
 
 ```bash
-dnx dotnet-inspect -y -- find JsonSerializer --oneline
+dnx dotnet-inspect -y -- find JsonSerializer --table
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 ```
 
@@ -82,7 +88,7 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, or `-S IL` / `-S "IL (Annotated)"` for IL.
 
 ```bash
-dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --oneline
+dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --table
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 ```
 

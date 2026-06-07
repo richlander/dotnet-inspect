@@ -183,9 +183,9 @@ The package command has 12 registered sections:
 
 ## Format Auto-Promotion
 
-When the pipeline computes multiple sections and the output format is the default (oneline), the command auto-promotes to markdown. If the user explicitly requested `--oneline`, a diagnostic error is returned instead.
+When the pipeline computes multiple sections and the output format is the default table format, the command auto-promotes to markdown. If the user explicitly requested `--table` or `--tsv`, a diagnostic error is returned instead.
 
-This is tracked via `OneLineExplicitlySet` on options objects, which distinguishes the default format from an explicit `--oneline` flag.
+This is tracked via `OneLineExplicitlySet` on options objects, which distinguishes the default format from an explicit tabular flag.
 
 ## Design Decisions
 
