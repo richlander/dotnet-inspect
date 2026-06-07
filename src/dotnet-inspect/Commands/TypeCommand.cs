@@ -90,10 +90,11 @@ public static class TypeCommand
                 {
                     ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-                    var effective = typePipeline.GetEffectiveSections(api, Verbosity.Detailed, options.IncludeSections);
+                    var effective = typePipeline.GetAvailableSections(api, options.IncludeSections);
                     return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
                         tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
-                        verbosity: (int)options.Verbosity);
+                        verbosity: (int)options.Verbosity,
+                        sectionCostAnnotations: typePipeline.GetCostAnnotations());
                 }
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);

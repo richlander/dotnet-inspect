@@ -85,7 +85,8 @@ public class ApiCommand
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, knownSections);
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, knownSections,
+            singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
@@ -712,7 +713,7 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
             }
-            else if (options.Verbosity == Verbosity.Minimal && !isMember)
+            else if (options.Verbosity == Verbosity.Minimal)
             {
                 ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
             }
@@ -793,6 +794,11 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
                 }
+                else if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+                }
                 sink.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
             }
         }
@@ -837,14 +843,15 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetEffectiveSections(filteredType, Verbosity.Detailed, options.IncludeSections);
+        var effective = memberPipeline.GetAvailableSections(filteredType, options.IncludeSections);
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var rendered = RenderTypeSectionsMarkdown(filteredType, options);
         effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
-            verbosity: (int)options.Verbosity, fullSchema: fullSchema);
+            verbosity: (int)options.Verbosity, fullSchema: fullSchema,
+            sectionCostAnnotations: memberPipeline.GetCostAnnotations());
     }
 
     /// <summary>
@@ -876,7 +883,7 @@ public class ApiCommand
         {
             if (renderOptions is MemberOptions { OverloadIndex: not null })
                 ApiOutputFormatter.PopulateMemberSignature(view, type, renderOptions);
-            else if (renderOptions.Verbosity == Verbosity.Minimal && !isMember)
+            else if (renderOptions.Verbosity == Verbosity.Minimal)
                 ApiOutputFormatter.PopulateMemberSummarySections(view, type, renderOptions);
             else
                 ApiOutputFormatter.PopulateMemberSections(view, type, renderOptions);

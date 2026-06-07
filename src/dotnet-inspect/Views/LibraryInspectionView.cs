@@ -138,6 +138,11 @@ public class LibraryInspectionView
         FileSize = _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null,
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
+        AsyncMethods = CountOrZero(_data.AsyncMethods),
+        CustomAttributes = CountOrZero(_data.CustomAttributes),
+        ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
+        Resources = CountOrZero(_data.Resources),
+        TypeForwarders = CountOrZero(_data.TypeForwarders),
         Source = _data.Source,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
     };
@@ -318,6 +323,11 @@ public class LibraryInspectionView
         _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
     };
 
+    private static int CountOrZero<T>(List<T>? values) => values?.Count ?? 0;
+
+    private static int CountExtensionMethods(List<ExtensionMethodSummary>? methods)
+        => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
+
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -418,6 +428,11 @@ public class LibraryInfoSection
     public string? FileSize { get; init; }
     public string? InformationalVersion { get; init; }
     public string? Methods { get; init; }
+    public int AsyncMethods { get; init; }
+    public int CustomAttributes { get; init; }
+    public int ExtensionMethods { get; init; }
+    public int Resources { get; init; }
+    public int TypeForwarders { get; init; }
     public string? Modified { get; init; }
     public string? Name { get; init; }
     public string? Product { get; init; }

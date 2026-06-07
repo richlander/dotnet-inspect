@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -264,23 +265,19 @@ public class SharedOptions
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, or populated array with section names.
+    /// Returns null if not specified, Info for bare -S, or populated array with section names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
-        => ParseCommaSeparatedList(parseResult.GetValue(Select));
+        => IsBareFlag(parseResult, Select)
+            ? [SelectResolver.InfoSelector]
+            : ParseCommaSeparatedList(parseResult.GetValue(Select));
 
     /// <summary>
     /// Parses discover flag from parse result.
-    /// Returns null if not specified, empty array for bare -D or bare -S, or populated array with section name.
+    /// Returns null if not specified, empty array for bare -D, or populated array with section name.
     /// </summary>
     public string[]? ParseDiscover(ParseResult parseResult)
-    {
-        var discover = ParseProjectionList(parseResult, Discover);
-        // Bare -S (no value) also triggers section discovery
-        if (discover == null && IsBareFlag(parseResult, Select))
-            return [];
-        return discover;
-    }
+        => ParseProjectionList(parseResult, Discover);
 
     /// <summary>
     /// Parses columns list from parse result.
@@ -297,16 +294,10 @@ public class SharedOptions
         => ParseCommaSeparatedList(parseResult.GetValue(Fields));
 
     /// <summary>
-    /// Returns true if -D/--discover flag is present, or bare -S (no value) is used.
+    /// Returns true if -D/--discover flag is present.
     /// </summary>
     public bool IsDiscoveryMode(ParseResult parseResult)
-    {
-        if (parseResult.GetResult(Discover) is { Implicit: false })
-            return true;
-
-        // Bare -S (no value) also triggers discovery (lists sections)
-        return IsBareFlag(parseResult, Select);
-    }
+        => parseResult.GetResult(Discover) is { Implicit: false };
 
     public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
 

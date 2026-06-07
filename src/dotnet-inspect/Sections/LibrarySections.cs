@@ -17,6 +17,7 @@ public static class LibrarySections
     public const string ScannerResources = "Resources";
     public const string ScannerCustomAttributes = "CustomAttributes";
     public const string ScannerTypeForwarders = "TypeForwarders";
+    public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
 
@@ -56,6 +57,8 @@ public static class LibrarySections
                 LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
                 LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerInfoCounts, ctx =>
+                LibraryMetadataService.ScanInfoCounts(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerAuditSignals, ctx =>
                 AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
@@ -66,7 +69,8 @@ public static class LibrarySections
     {
         public static string Name => "Library Info";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
+        public static bool Info => true;
+        public static string? ScannerKey => ScannerInfoCounts;
         public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
     }
 
@@ -158,6 +162,7 @@ public static class LibrarySections
     {
         public static string Name => "Extension Methods";
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerExtensionMethods;
         public static bool CanRender(LibraryInspection model)
             => model.ExtensionMethods is { Count: > 0 } || model.HasExtensionTypes;
@@ -185,6 +190,7 @@ public static class LibrarySections
     {
         public static string Name => "Async Methods";
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
             => model.AsyncMethods is { Count: > 0 }
@@ -195,6 +201,7 @@ public static class LibrarySections
     {
         public static string Name => "Resources";
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerResources;
         public static bool CanRender(LibraryInspection model)
             => model.Resources is { Count: > 0 } || model.HasManifestResources;
@@ -204,6 +211,7 @@ public static class LibrarySections
     {
         public static string Name => "Custom Attributes";
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerCustomAttributes;
         public static bool CanRender(LibraryInspection model)
             => model.CustomAttributes is { Count: > 0 } || model.HasAssemblyAttributes;
@@ -213,6 +221,7 @@ public static class LibrarySections
     {
         public static string Name => "Type Forwarders";
         public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerTypeForwarders;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarders is { Count: > 0 } || model.HasExportedTypeForwarders;

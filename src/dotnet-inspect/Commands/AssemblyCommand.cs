@@ -41,7 +41,7 @@ public class AssemblyCommand
             else
             {
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
+                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
@@ -55,7 +55,7 @@ public class AssemblyCommand
             options = options with { Verbosity = Verbosity.Detailed };
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames);
+        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames, pipeline.InfoSectionNames);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
@@ -293,8 +293,8 @@ public class AssemblyCommand
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
     {
-        // Compute unfiltered effective sections at Detailed verbosity for caching
-        var allEffective = pipeline.GetEffectiveSections(inspection, Verbosity.Detailed);
+        // Compute all target-available sections for caching, including opt-in sections.
+        var allEffective = pipeline.GetAvailableSections(inspection);
         var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
@@ -306,13 +306,19 @@ public class AssemblyCommand
 
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
-            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-            verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap);
+            tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+            verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
+            sectionCostAnnotations: pipeline.GetCostAnnotations());
     }
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective";
+    private const string EffectiveCategory = "effective-v3";
+
+    static AssemblyCommand()
+    {
+        CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
+    }
 
     private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath)
     {
@@ -368,8 +374,9 @@ public class AssemblyCommand
         Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-            tree: options.Tree, json: options.JsonOutput, markdown: options.Markdown,
-            verbosity: (int)userVerbosity, rootLabel: rootLabel);
+            tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+            verbosity: (int)userVerbosity, rootLabel: rootLabel,
+            sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations());
     }
 
     /// <summary>
@@ -413,6 +420,8 @@ public class AssemblyCommand
 
             if (effectiveItems.Length > 0)
                 filtered.Add(name, section.ItemKind, effectiveItems);
+            else if (section.Items.Length > 0)
+                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
             else
                 filtered.AddSection(name);
         }

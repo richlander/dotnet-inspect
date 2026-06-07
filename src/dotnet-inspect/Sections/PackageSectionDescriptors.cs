@@ -42,6 +42,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.PackageInfo;
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
     }
@@ -52,8 +53,7 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
-        public static bool CanRender(InspectionResult model)
-            => model.AuditSignals is { Count: > 0 };
+        public static bool CanRender(InspectionResult model) => true;
     }
 
     // ===== Expensive sections (require network) =====
@@ -80,6 +80,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.LibraryFiles;
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.LibraryFiles is { Count: > 0 };

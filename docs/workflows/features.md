@@ -258,12 +258,12 @@ Commit: af5ecd0 "Simplify scope flags and remove platform command (#180)"
 
 ### Section Discovery Flags
 
-`-D`/`--discover` reports schemas. Bare `-S`/`-s` lists sections; `-S <name>` selects sections:
+`-D`/`--discover` reports schemas. Bare `-S`/`-s` renders the curated Info view; `-S <name>` selects sections:
 
 | Goal | Syntax |
 | ---- | ------ |
 | Discover schema | `-D` or `--discover` |
-| List sections | bare `-S` or `-s` |
+| Curated Info view | bare `-S` or `-s` |
 | Select sections | `-S Section` or `-s Section` |
 
 ### `--fields-only` Flag (Removed)

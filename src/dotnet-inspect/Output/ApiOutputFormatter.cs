@@ -152,6 +152,7 @@ public static class ApiOutputFormatter
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
         && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+        && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.OneLine;

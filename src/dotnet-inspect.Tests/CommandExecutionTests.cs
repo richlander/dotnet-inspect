@@ -588,21 +588,22 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_DiscoverEffective_ShowIndex_ListsSelectColumn()
+    public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsSelectColumn()
     {
         var options = new MemberOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Discover = ["Methods"],
-            ShowSelect = true
+            ShowSelect = true,
+            Verbosity = Verbosity.Normal
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // With --show-index the Select column renders, so effective discovery lists it.
+        // With --show-index and full member rows, the Select column renders, so effective discovery lists it.
         Assert.Contains("| Select | column |", output);
     }
 
@@ -627,6 +628,26 @@ public class CommandExecutionTests
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## Original Source", output);
         Assert.DoesNotContain("## IL", output);
+    }
+
+    [Fact]
+    public async Task Member_ListDefault_RendersCompactSummaryRows()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer"
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Properties", output);
+        Assert.Contains("## Methods", output);
+        Assert.Contains("| Name | Return Type | Overloads |", output);
+        Assert.Contains("| SerializeToNode | System.Text.Json.Nodes.JsonNode? | 5 |", output);
+        Assert.DoesNotContain("| Name | Signature | Description |", output);
     }
 
     [Fact]
@@ -1244,39 +1265,49 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_BareSelect_DefaultsToEffectiveSections()
+    public async Task LibraryCommand_BareSelect_RendersInfoPreset()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");
 
         Assert.Equal(0, exit);
-
-        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-        var names = lines.Select(ExtractSectionName).ToArray();
-
-        Assert.Contains("Symbols", names);
-        Assert.Contains("Signals", names);
-        Assert.DoesNotContain(lines, line => line.Contains("section (expensive)", StringComparison.Ordinal));
-        Assert.DoesNotContain(lines, line => line.Contains("section (opt-in)", StringComparison.Ordinal));
-        Assert.DoesNotContain(names, name => name.StartsWith("SourceLink", StringComparison.Ordinal));
-        Assert.DoesNotContain(names, name => name.Equals("Library References (Transitive)", StringComparison.Ordinal));
-        Assert.Contains("References", names);
-        Assert.DoesNotContain(names, name => name.Equals("Library References", StringComparison.Ordinal));
-
-        static string ExtractSectionName(string line)
-        {
-            var marker = line.IndexOf("  section", StringComparison.Ordinal);
-            return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
-        }
+        Assert.Contains("## Library Info", output);
+        Assert.Contains("| Async Methods |", output);
+        Assert.Contains("| Custom Attributes |", output);
+        Assert.Contains("| Extension Methods |", output);
+        Assert.Contains("| Resources |", output);
+        Assert.Contains("| Type Forwarders |", output);
+        Assert.DoesNotContain("## Signals", output);
+        Assert.DoesNotContain("## Symbols", output);
+        Assert.DoesNotContain("## References", output);
+        Assert.DoesNotContain("## Async Methods", output);
+        Assert.DoesNotContain("## Custom Attributes", output);
+        Assert.DoesNotContain("## Extension Methods", output);
+        Assert.DoesNotContain("## Resources", output);
+        Assert.DoesNotContain("## Type Forwarders", output);
     }
 
     [Fact]
-    public async Task LibraryCommand_BareSelectSchema_GroupsOptInSections()
+    public async Task LibraryCommand_DiscoverEffective_RendersMarkdownTable()
     {
-        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "--schema");
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Name | Kind |", output);
+        Assert.Contains("| Library Info | section |", output);
+        Assert.Contains("| Async Methods | section (opt-in) |", output);
+        Assert.Contains("| Custom Attributes | section (opt-in) |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverSchema_GroupsOptInSections()
+    {
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "--schema");
 
         Assert.Equal(0, exit);
 
-        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.Contains("section", StringComparison.Ordinal))
+            .ToArray();
         var names = lines.Select(ExtractSectionName).ToArray();
 
         var symbolsIndex = Array.IndexOf(names, "Symbols");
@@ -1291,13 +1322,28 @@ public class CommandExecutionTests
             .Select(ExtractSectionName)
             .ToArray();
         Assert.Equal(
-            ["SourceLink Availability", "SourceLink Integrity", "SourceLink Missing Files"],
+            [
+                "Async Methods",
+                "Custom Attributes",
+                "Extension Methods",
+                "Resources",
+                "SourceLink Availability",
+                "SourceLink Integrity",
+                "SourceLink Missing Files",
+                "Type Forwarders"
+            ],
             optInNames);
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
 
         static string ExtractSectionName(string line)
         {
+            if (line.StartsWith('|'))
+            {
+                var cells = line.Split('|', StringSplitOptions.TrimEntries);
+                return cells.Length > 1 ? cells[1] : line.Trim();
+            }
+
             var marker = line.IndexOf("  section", StringComparison.Ordinal);
             return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
         }
@@ -1465,7 +1511,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
-            Assert.DoesNotContain("Signals", output);
+            Assert.Contains("| Signals | section (opt-in) |", output);
             Assert.Contains("Manifest", output);
             Assert.DoesNotContain("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
@@ -1498,12 +1544,12 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_BareSelectSchema_WritesAllSelectorHint()
+    public async Task Package_DiscoverSchema_WritesAllSelectorHint()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "--schema");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--schema");
 
             Assert.Equal(0, exit);
             Assert.Contains("Signals", output);
@@ -1515,6 +1561,60 @@ public class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_BareSelect_RendersInfoPreset()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Package Info", output);
+            Assert.Contains("## Library Files", output);
+            Assert.DoesNotContain("## Dependencies", output);
+            Assert.DoesNotContain("## Manifest", output);
+            Assert.DoesNotContain("## Signals", output);
+            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Library Files", StringComparison.Ordinal));
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_BareSelect_RendersInfoPreset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.SerializeToNode:1", "-S");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.DoesNotContain("## IL", output);
+        Assert.DoesNotContain("## Original Source", output);
+        Assert.True(output.IndexOf("## Signature", StringComparison.Ordinal) < output.IndexOf("## Decompiled Source", StringComparison.Ordinal));
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task MemberList_BareSelect_RendersCompactSummaryPreset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "-S");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Properties", output);
+        Assert.Contains("## Methods", output);
+        Assert.Contains("| Name | Return Type | Overloads |", output);
+        Assert.Contains("| SerializeToNode | System.Text.Json.Nodes.JsonNode? | 5 |", output);
+        Assert.DoesNotContain("| Name | Signature | Description |", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.DoesNotContain("Tip:", error);
     }
 
     [Fact]

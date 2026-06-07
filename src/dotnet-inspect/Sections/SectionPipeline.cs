@@ -11,6 +11,7 @@ public sealed class SectionEntry<TModel>
     public required string Name { get; init; }
     public required bool IsExpensive { get; init; }
     public bool ExplicitOnly { get; init; }
+    public bool Info { get; init; }
     public SectionCapabilities Capabilities { get; init; }
     public required string? ScannerKey { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
@@ -45,6 +46,7 @@ public sealed class SectionPipeline<TModel>
             Name = TDescriptor.Name,
             IsExpensive = TDescriptor.IsExpensive,
             ExplicitOnly = TDescriptor.ExplicitOnly,
+            Info = TDescriptor.Info,
             Capabilities = TDescriptor.Capabilities,
             ScannerKey = TDescriptor.ScannerKey,
             CanRender = TDescriptor.CanRender,
@@ -54,6 +56,9 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>All registered section names, in registration order.</summary>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
+
+    /// <summary>Sections in the curated Info preset, in registration order.</summary>
+    public string[] InfoSectionNames => _entries.Where(e => e.Info).Select(e => e.Name).ToArray();
 
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:
@@ -83,6 +88,24 @@ public sealed class SectionPipeline<TModel>
         {
             var entry = _entries[i];
             if (!IsRequested(entry, i, verbosity, include))
+                continue;
+            if (entry.CanRender(model))
+                result.Add(entry.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Returns sections that are available for this model, independent of whether
+    /// verbosity would auto-render them. Explicit <paramref name="include"/> still
+    /// narrows the result.
+    /// </summary>
+    public List<string> GetAvailableSections(TModel model, HashSet<string>? include = null)
+    {
+        List<string> result = [];
+        foreach (var entry in _entries)
+        {
+            if (include is { Count: > 0 } && !include.Contains(entry.Name))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);

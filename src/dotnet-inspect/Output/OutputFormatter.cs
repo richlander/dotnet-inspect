@@ -27,12 +27,15 @@ public static class OutputFormatter
         }
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool includeContext = ShouldRenderPackageContext(options);
-        var view = new InspectionResultView(result, includeTitleVersion: !includeContext);
+        var view = new InspectionResultView(result, includeTitleVersion: false);
         var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (selectAll)
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
+        else if (selectInfo)
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
         markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
         return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
     }
@@ -63,6 +66,7 @@ public static class OutputFormatter
         SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
     {
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        var selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll);
         if (includeContext && includeSections is { Count: > 0 })
@@ -71,7 +75,7 @@ public static class OutputFormatter
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext && !selectInfo,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
     }
@@ -80,6 +84,7 @@ public static class OutputFormatter
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
@@ -95,6 +100,8 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
             if (selectAll)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
+            else if (selectInfo)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
             return;
@@ -123,6 +130,8 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
             if (selectAll)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
+            else if (selectInfo)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
@@ -131,6 +140,8 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
             if (selectAll)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
+            else if (selectInfo)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -143,6 +154,7 @@ public static class OutputFormatter
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var report = new LibraryInspectionReport
         {
@@ -161,6 +173,8 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
             if (selectAll)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
+            else if (selectInfo)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
             return;
@@ -177,6 +191,8 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
             if (selectAll)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
+            else if (selectInfo)
+                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -219,12 +235,14 @@ public static class OutputFormatter
         options.Verbosity == Verbosity.Quiet
         || (options.IncludeSections is { Count: > 0 }
             && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+            && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
             && !options.Count
             && !options.JsonOutput);
 
     internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
         options.IncludeSections is { Count: > 0 }
         && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+        && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.OneLine;

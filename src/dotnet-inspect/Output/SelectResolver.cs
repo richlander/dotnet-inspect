@@ -22,12 +22,19 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
 public static class SelectResolver
 {
     public const string AllSelector = "All";
+    public const string InfoSelector = "Info";
 
     public static bool IsAllSelector(string[]? select)
         => select?.Any(value => value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase)) == true;
 
     public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
         => IsAllSelector(select) && includeSections is { Count: > 1 };
+
+    public static bool IsInfoSelector(string[]? select)
+        => select?.Any(value => value.Equals(InfoSelector, StringComparison.OrdinalIgnoreCase)) == true;
+
+    public static bool IsActiveInfoSelector(string[]? select, HashSet<string>? includeSections)
+        => IsInfoSelector(select) && includeSections is { Count: > 0 };
 
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
@@ -70,7 +77,7 @@ public static class SelectResolver
     /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
     /// Returns matched sections and any unresolved values with suggestions.
     /// </summary>
-    public static SelectResult ResolveSelectAsSections(string[]? select, string[] knownSections)
+    public static SelectResult ResolveSelectAsSections(string[]? select, string[] knownSections, string[]? infoSections = null)
     {
         if (select is not { Length: > 0 })
             return new(null, []);
@@ -84,6 +91,20 @@ public static class SelectResolver
             {
                 foreach (var section in knownSections)
                     matched.Add(section);
+                continue;
+            }
+
+            if (value.Equals(InfoSelector, StringComparison.OrdinalIgnoreCase))
+            {
+                if (infoSections is { Length: > 0 })
+                {
+                    foreach (var section in infoSections)
+                        matched.Add(section);
+                }
+                else
+                {
+                    unresolved.Add(new SelectMiss(value, knownSections.ToList()));
+                }
                 continue;
             }
 
