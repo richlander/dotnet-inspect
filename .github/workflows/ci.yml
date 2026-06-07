@@ -38,11 +38,7 @@ jobs:
           DOCS=false
           while IFS= read -r file; do
             case "$file" in
-              src/*)
-                case "$file" in
-                  *.md|*.txt) ;;
-                  *) CODE=true ;;
-                esac ;;
+              src/*) CODE=true ;;
               *.props|*.sln) CODE=true ;;
               .github/workflows/*) CODE=true ;;
             esac
