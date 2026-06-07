@@ -20,7 +20,7 @@ There are three query paths, each offering a different level of curation and cus
 
 The uppercase `-S` and `-D` flags are deliberate. They reserve a small, cross-command query namespace for section selection and discovery, reducing collisions with command-specific lowercase options. This is more important than it would be for a pure output-template flag (for example Docker-style `-f` format templates), because section selection can also drive data collection and network backpressure.
 
-`-D` is the discovery path. Bare `-S` is the curated Info path: it renders a small, high-density section bundle for commands that define one.
+`-D` is the discovery path. Bare `-S` renders a small, curated high-density section bundle for commands that define one.
 
 ```bash=
 $ dotnet run --project src/dotnet-inspect -- System.CommandLine -D
@@ -150,7 +150,7 @@ Support for parsing command lines, supporting both POSIX and Windows conventions
 | Readme | Yes |
 ```
 
-The detailed verbosity (`-v:d`) prints all detailed-enabled sections. Bare `-S` renders a smaller curated Info bundle, while `-S All` renders every renderable section.
+The detailed verbosity (`-v:d`) prints all detailed-enabled sections. Bare `-S` renders a smaller curated high-density bundle, while `-S All` renders every renderable section.
 
 Each view can be paired with a formatter
 
