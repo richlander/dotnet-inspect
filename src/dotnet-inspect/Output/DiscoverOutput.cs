@@ -45,9 +45,7 @@ public static class DiscoverOutput
         }
         else if (markdown)
         {
-            var sw = new StringWriter();
-            context.Serialize(view, sw, new MarkdownFormatter());
-            Console.Write(MarkdownTableCellNormalizer.Apply(sw.ToString()));
+            context.Serialize(view, Console.Out, new MarkdownFormatter());
         }
         else
         {

@@ -5,7 +5,7 @@ internal static class MarkdownTableRowLimiter
     public static string Apply(string markdown, int? maxRows)
     {
         if (maxRows is null or < 0)
-            return MarkdownTableCellNormalizer.Apply(markdown);
+            return markdown;
 
         var normalized = markdown.ReplaceLineEndings("\n");
         var lines = normalized.Split('\n');
@@ -15,14 +15,14 @@ internal static class MarkdownTableRowLimiter
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (MarkdownTableCellNormalizer.IsCodeFence(line))
+            if (IsCodeFence(line))
             {
                 inCodeFence = !inCodeFence;
                 output.Add(line);
                 continue;
             }
 
-            if (inCodeFence || !MarkdownTableCellNormalizer.IsTableLine(line) || i + 1 >= lines.Length || !IsSeparatorLine(lines[i + 1]))
+            if (inCodeFence || !IsTableLine(line) || i + 1 >= lines.Length || !IsSeparatorLine(lines[i + 1]))
             {
                 output.Add(line);
                 continue;
@@ -32,7 +32,7 @@ internal static class MarkdownTableRowLimiter
             output.Add(lines[++i]);
 
             var rows = 0;
-            while (i + 1 < lines.Length && MarkdownTableCellNormalizer.IsTableLine(lines[i + 1]))
+            while (i + 1 < lines.Length && IsTableLine(lines[i + 1]))
             {
                 i++;
                 if (IsSeparatorLine(lines[i]))
@@ -49,12 +49,21 @@ internal static class MarkdownTableRowLimiter
             }
         }
 
-        return MarkdownTableCellNormalizer.Apply(string.Join('\n', output));
+        return string.Join('\n', output);
     }
+
+    private static bool IsTableLine(string line)
+    {
+        var trimmed = line.Trim();
+        return trimmed.Length >= 2 && trimmed.StartsWith('|') && trimmed.EndsWith('|');
+    }
+
+    private static bool IsCodeFence(string line)
+        => line.TrimStart().StartsWith("```", StringComparison.Ordinal);
 
     private static bool IsSeparatorLine(string line)
     {
-        if (!MarkdownTableCellNormalizer.IsTableLine(line))
+        if (!IsTableLine(line))
             return false;
 
         var cells = line.Trim().Trim('|').Split('|', StringSplitOptions.TrimEntries);
