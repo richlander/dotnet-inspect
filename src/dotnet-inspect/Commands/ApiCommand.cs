@@ -768,14 +768,24 @@ public class ApiCommand
         }
         else if (options.OneLine)
         {
-            var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
-            var writerOpts = new MarkoutWriterOptions
+            if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
-                Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
-            };
-            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
-            OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
+                var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+                OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
+                    (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, ApiViewContext.Default, writerOpts));
+            }
+            else
+            {
+                var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
+                var writerOpts = new MarkoutWriterOptions
+                {
+                    Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+                };
+                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+                OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
+                    (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
+            }
         }
         else
         {
