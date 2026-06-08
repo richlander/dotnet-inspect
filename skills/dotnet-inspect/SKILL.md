@@ -22,9 +22,11 @@ Format promises:
 - `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
 - `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
 
-Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. Query primitives compose with output modes: use `-D --tsv` or `-D Section --tsv` for compact schema handoff, and use `-S Section --tsv` for selected rows. Prefer `--tsv` for agent/tool handoff even when discovery returns only a few rows because it preserves stable field boundaries and keys without Markdown/table parsing. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
+
+The query system, output modes, and limiters compose as independent axes: first choose a shape with `-D`, `-S`, `--columns`, or `--fields`; then choose a renderer with Markdown, `--table`, `--tsv`, or `--json`; then bound the result with `-n`, `--tail`, `--rows`, or `--count`. For example, `-D Section --tsv` returns the section schema as stable tab-separated rows, while `-S Section --columns Name,Signature --rows -10` renders the same projected shape as a bounded Markdown table.
 
 ## Workflow map
 
