@@ -66,8 +66,8 @@ public class PackageCommand
         if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
         {
             var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
-            foreach (var section in options.IncludeSections)
-                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
+            if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
+                return 1;
         }
 
         if (packageArgs.Length < 1)

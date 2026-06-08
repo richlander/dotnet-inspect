@@ -219,8 +219,8 @@ public static class TypeCommand
                     if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
                         var projSchema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-                        foreach (var section in effectiveOptions.IncludeSections)
-                            ProjectionDiagnostics.ValidateProjection(projSchema, section, effectiveOptions.Fields, effectiveOptions.Columns);
+                        if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                            return 1;
                     }
 
                     if (tabularProjection)

@@ -1,6 +1,6 @@
 # Release Notes
 
-## v0.9.7
+## v0.10.0
 
 ### Table and TSV output
 

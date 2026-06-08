@@ -865,7 +865,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SelectWithUnknownColumn_WarnsNotFound()
+    public async Task Type_SelectWithUnknownColumn_ReturnsError()
     {
         var options = new TypeOptions
         {
@@ -878,8 +878,9 @@ public class CommandExecutionTests
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Contains("column 'Bogus' not found in section 'Properties'", error);
+        Assert.Contains("No columns matched projection: Bogus", error);
     }
 
     [Fact]
