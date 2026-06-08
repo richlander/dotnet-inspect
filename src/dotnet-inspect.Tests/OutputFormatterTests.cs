@@ -13,6 +13,50 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void BuildShapeView_GroupsMethodOverloadsByLogicalName()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "method", Name = "Parse", Signature = "Widget Parse(string value)" },
+                new() { Kind = "method", Name = "Parse", Signature = "Widget Parse(ReadOnlySpan<char> value)" },
+                new() { Kind = "method", Name = "Format", Signature = "string Format()" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(type, foundIn: null, packageName: null, packageVersion: null, []);
+
+        var methods = Assert.Single(view.Members);
+        Assert.Equal("Methods (2 logical, 3 overloads)", methods.Text);
+        Assert.NotNull(methods.Children);
+        Assert.Equal(["string Format()", "Parse (2 overloads)"], methods.Children.Select(c => c.Text));
+    }
+
+    [Fact]
+    public void BuildShapeView_KeepsSingleOverloadSignature()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "method", Name = "Format", Signature = "string Format()" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(type, foundIn: null, packageName: null, packageVersion: null, []);
+
+        var methods = Assert.Single(view.Members);
+        Assert.Equal("Methods (1)", methods.Text);
+        var child = Assert.Single(methods.Children!);
+        Assert.Equal("string Format()", child.Text);
+    }
+
+    [Fact]
     public async Task DiscoverOutput_Tsv_RendersHeaderedTsvRows()
     {
         var schema = new DocumentSchema()

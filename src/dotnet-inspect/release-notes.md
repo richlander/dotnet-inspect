@@ -9,6 +9,10 @@
 - Keeps `--oneline` as a hidden compatibility alias for `--table`.
 - Normalizes Markdown table cell pipe characters to `&#124;` instead of escaped pipes.
 
+### Type shape output
+
+- Collapses overload-heavy default single-type trees by logical member name, while leaving full overload signatures available through `-v:n`, `-v:d`, and targeted member queries.
+
 ## v0.9.4
 
 ### Cache
