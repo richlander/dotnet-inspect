@@ -925,10 +925,10 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SelectWithSelectColumn_WarnsNoData()
+    public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {
-        // Select is valid in the schema but only renders with --show-index, so on the
-        // plain type path it produces no data and must be flagged (not silently ignored).
+        // Select is valid in the static schema but only renders with --show-index. The
+        // active table shape has no matching column, so strict projection returns an error.
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -940,15 +940,16 @@ public class CommandExecutionTests
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
-        Assert.Contains("no data: Select", error);
+        Assert.Equal(1, exit);
+        Assert.Contains("No columns matched projection: Select", error);
     }
 
     [Fact]
-    public async Task Type_SelectWithColumnNotShownAtVerbosity_WarnsNoData()
+    public async Task Type_SelectWithColumnNotShownAtVerbosity_ReturnsError()
     {
-        // Signature is a valid Properties column but only renders at Detailed verbosity;
-        // at the default verbosity it is absent and must be flagged.
+        // Signature is valid in the static schema but does not render at the default
+        // verbosity. The active table shape has no matching column, so strict projection
+        // returns an error.
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -960,8 +961,8 @@ public class CommandExecutionTests
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
-        Assert.Contains("no data: Signature", error);
+        Assert.Equal(1, exit);
+        Assert.Contains("No columns matched projection: Signature", error);
     }
 
     [Fact]
