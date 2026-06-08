@@ -83,6 +83,7 @@ public static class ApiMemberSectionDescriptors
             .Add<Constructors>()
             .Add<Fields>()
             .Add<Properties>()
+            .Add<MethodGroups>()
             .Add<Methods>()
             .Add<Events>()
             .Add<MethodAttributes>()
@@ -169,7 +170,16 @@ public static class ApiMemberSectionDescriptors
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
-        public static string Name => "Methods";
+        public static string Name => SectionNames.Methods;
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "method");
+    }
+
+    public sealed class MethodGroups : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.MethodGroups;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static string? ScannerKey => null;
@@ -245,12 +255,59 @@ public static class ApiMemberSectionPipelines
     public static SectionPipeline<ApiType> Create(ApiOptions options)
         => UsesDetailPipeline(options)
             ? ApiMemberDetailSectionDescriptors.CreatePipeline()
+            : UsesOverloadInventoryPipeline(options)
+                ? ApiMemberOverloadSectionDescriptors.CreatePipeline()
             : ApiMemberSectionDescriptors.CreatePipeline();
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }
            || options is MemberOptions { ParamTypes: not null }
            || options is MemberOptions { FirstParamType: not null };
+
+    public static bool UsesOverloadInventoryPipeline(ApiOptions options)
+        => options is MemberOptions
+           {
+               OverloadIndex: null,
+               ParamTypes: null,
+               FirstParamType: null,
+               MemberFilter.Count: > 0
+           };
+}
+
+/// <summary>
+/// Section descriptors for member-name-scoped overload inventories.
+/// </summary>
+public static class ApiMemberOverloadSectionDescriptors
+{
+    public static SectionPipeline<ApiType> CreatePipeline()
+    {
+        return new SectionPipeline<ApiType>()
+            .Add<ApiMemberSectionDescriptors.Values>()
+            .Add<ApiMemberSectionDescriptors.TypeParameters>()
+            .Add<ApiMemberSectionDescriptors.TypeInterfaces>()
+            .Add<ApiMemberSectionDescriptors.Baseclass>()
+            .Add<ApiMemberSectionDescriptors.Constructors>()
+            .Add<ApiMemberSectionDescriptors.Fields>()
+            .Add<ApiMemberSectionDescriptors.Properties>()
+            .Add<ApiMemberDetailSectionDescriptors.Signature>()
+            .Add<Methods>()
+            .Add<ApiMemberSectionDescriptors.Events>()
+            .Add<ApiMemberSectionDescriptors.MethodAttributes>()
+            .Add<ApiMemberSectionDescriptors.DecompiledSource>()
+            .Add<ApiMemberSectionDescriptors.OriginalSource>()
+            .Add<ApiMemberSectionDescriptors.ILBody>()
+            .Add<ApiMemberSectionDescriptors.AnnotatedIL>();
+    }
+
+    public sealed class Methods : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Methods;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "method");
+    }
 }
 
 /// <summary>

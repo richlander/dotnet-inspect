@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.10.1
+
+### Member output
+
+- Splits logical method summaries into `Method Groups`, reserving `Methods` for actual method rows and overload signatures.
+- Makes `member Type -m Name` render overload rows by default, with full signatures and optional `--show-index` selectors.
+
 ## v0.10.0
 
 ### Table and TSV output

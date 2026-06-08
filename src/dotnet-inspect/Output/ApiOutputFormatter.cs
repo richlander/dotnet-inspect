@@ -157,6 +157,39 @@ public static class ApiOutputFormatter
         && !options.JsonOutput
         && !options.OneLine;
 
+    internal static bool ShouldRenderMemberGroups(ApiOptions options)
+    {
+        if (ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options))
+            return false;
+
+        if (SectionRequested(options.IncludeSections, SectionNames.MethodGroups)
+            || DiscoveryRequests(options, SectionNames.MethodGroups))
+            return true;
+
+        return options.Verbosity == Verbosity.Minimal
+            && !SectionRequested(options.IncludeSections, SectionNames.Methods)
+            && !DiscoveryRequests(options, SectionNames.Methods);
+    }
+
+    internal static bool ShouldRenderMemberRows(ApiOptions options) =>
+        options.Verbosity != Verbosity.Minimal
+        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
+        || SectionRequested(options.IncludeSections, SectionNames.Methods)
+        || DiscoveryRequests(options, SectionNames.Methods);
+
+    private static bool SectionRequested(HashSet<string>? sections, string name)
+        => sections?.Contains(name) == true;
+
+    private static bool DiscoveryRequests(ApiOptions options, string name)
+        => options.Discover is { Length: > 0 } discover
+           && discover.Any(d => string.Equals(d, name, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ShouldAbbreviateMemberSignatures(ApiOptions options) =>
+        options.Verbosity == Verbosity.Minimal
+        && !ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
+        && !SectionRequested(options.IncludeSections, SectionNames.Methods)
+        && !DiscoveryRequests(options, SectionNames.Methods);
+
     // ===== Shape Output (--shape) =====
 
     public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
@@ -495,7 +528,7 @@ public static class ApiOutputFormatter
         bool docsRequested = options.ShowDocs
             || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
-        bool abbreviate = options.Verbosity == Verbosity.Minimal;
+        bool abbreviate = ShouldAbbreviateMemberSignatures(options);
         bool showSelect = options is MemberOptions mo && mo.ShowSelect;
 
         foreach (var group in kindGroups)
@@ -608,9 +641,14 @@ public static class ApiOutputFormatter
     /// Groups members by name within each kind, with kind-specific columns
     /// matching the old QuietMemberFormatter design.
     /// </summary>
-    internal static (int truncated, string noun) PopulateMemberSummarySections(TypeView view, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSummarySections(
+        TypeView view, ApiType type, ApiOptions options, bool methodGroupsOnly = false)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        if (methodGroupsOnly)
+            grouped = grouped
+                .Where(kvp => kvp.Key == "method")
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (0, "");
 
         // Flatten all unique-name entries across kinds for --limit
@@ -1178,6 +1216,7 @@ public static class ApiOutputFormatter
                 case "Properties":
                     kinds.Add("property");
                     break;
+                case "Method Groups":
                 case "Methods":
                     kinds.Add("method");
                     break;

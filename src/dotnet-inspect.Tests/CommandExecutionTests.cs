@@ -397,7 +397,7 @@ public class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Methods | section |", output);
+        Assert.Contains("| Method Groups | section |", output);
         // JsonSerializer has no custom attributes, so effective-by-default must drop it.
         Assert.DoesNotContain("| Custom Attributes | section |", output);
     }
@@ -437,7 +437,7 @@ public class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Methods | section |", output);
+        Assert.Contains("| Method Groups | section |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
 
@@ -456,7 +456,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
-        Assert.Contains("| Methods | section |", output);
+        Assert.Contains("| Method Groups | section |", output);
         // Code sections (Decompiled Source, Original Source, IL, IL (Annotated)) are member-detail
         // sections not present in the type schema. They must not appear in effective
         // discovery, since they are not queryable via -D <Section>.
@@ -480,7 +480,7 @@ public class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Methods | section |", output);
+        Assert.Contains("| Method Groups | section |", output);
         // Custom Attributes is in the type schema, but its CanRender probe is a coarse
         // "type has methods" proxy; the section only has data when a specific member's
         // attributes are read. JsonSerializer has none, so effective discovery must not list it.
@@ -644,10 +644,120 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Properties", output);
-        Assert.Contains("## Methods", output);
+        Assert.Contains("## Method Groups", output);
         Assert.Contains("| Name | Return Type | Overloads |", output);
         Assert.Contains("| SerializeToNode | System.Text.Json.Nodes.JsonNode? | 5 |", output);
         Assert.DoesNotContain("| Name | Signature | Description |", output);
+    }
+
+    [Fact]
+    public async Task Member_FilteredDefault_RendersOverloadRows()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
+            ShowSelect = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Methods", output);
+        Assert.Contains("| Select | Name | Signature |", output);
+        Assert.Contains("`SerializeToNode:1`", output);
+        Assert.Contains("JsonNode? SerializeToNode(", output);
+        Assert.DoesNotContain("## Method Groups", output);
+        Assert.DoesNotContain("| Name | Return Type | Overloads |", output);
+    }
+
+    [Fact]
+    public async Task Member_SingleOverloadFilter_DefaultStaysOverloadInventory()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializerOptions",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
+            ShowSelect = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Methods", output);
+        Assert.Contains("| Select | Name | Signature |", output);
+        Assert.Contains("`GetConverter`", output);
+        Assert.DoesNotContain("## Signature", output);
+
+        options = options with { Select = ["Methods"] };
+        (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Methods", output);
+        Assert.Contains("| Select | Name | Signature |", output);
+        Assert.DoesNotContain("## Signature", output);
+    }
+
+    [Fact]
+    public async Task Member_SingleOverloadFilter_ParamsStillValidatedWithDetailSection()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializerOptions",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
+            ParamTypes = ["Bogus"],
+            Select = ["IL"]
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("No overload of GetConverter matches --params", error);
+    }
+
+    [Fact]
+    public async Task Member_SingleOverloadFilter_MixedInfoAndDetailSelect_RendersDetail()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializerOptions",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
+            Select = ["Info", "IL"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## IL", output);
+        Assert.Contains("IL_0000:", output);
+    }
+
+    [Fact]
+    public async Task Member_SingleOverloadFilter_SelectSignature_RendersSignature()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializerOptions",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
+            Select = ["Signature"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("GetConverter(System.Type typeToConvert)", output);
     }
 
     [Fact]
@@ -1652,7 +1762,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Properties", output);
-        Assert.Contains("## Methods", output);
+        Assert.Contains("## Method Groups", output);
         Assert.Contains("| Name | Return Type | Overloads |", output);
         Assert.Contains("| SerializeToNode | System.Text.Json.Nodes.JsonNode? | 5 |", output);
         Assert.DoesNotContain("| Name | Signature | Description |", output);

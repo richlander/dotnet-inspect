@@ -122,9 +122,9 @@ public static class MemberCommand
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
 
-            // Auto-select the overload index when there's exactly one member with one overload.
-            // This lets "member Foo.Bar" show code sections without requiring ":1".
-            if (!effectiveOptions.OverloadIndex.HasValue && effectiveOptions.MemberFilter.Count == 1)
+            // Keep member-name lookups as overload inventories. Only auto-select the lone
+            // overload when the user explicitly asks for a selected-overload detail section.
+            if (!effectiveOptions.OverloadIndex.HasValue && ShouldAutoSelectSingleOverload(effectiveOptions))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = apiType.Members
@@ -315,6 +315,29 @@ public static class MemberCommand
             }
         }
     }
+
+    private static bool ShouldAutoSelectSingleOverload(MemberOptions options)
+    {
+        if (options.MemberFilter.Count != 1)
+            return false;
+        if (options.ParamTypes != null || options.FirstParamType != null)
+            return false;
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return false;
+        if (IsPureSelector(options.Select, SelectResolver.InfoSelector)
+            || IsPureSelector(options.Select, SelectResolver.AllSelector))
+            return false;
+
+        return sections.Contains(SectionNames.Signature)
+               || sections.Contains(SectionNames.CustomAttributes)
+               || sections.Contains(SectionNames.DecompiledSource)
+               || sections.Contains(SectionNames.OriginalSource)
+               || sections.Contains(SectionNames.IL)
+               || sections.Contains(SectionNames.ILAnnotated);
+    }
+
+    private static bool IsPureSelector(string[]? select, string name) =>
+        select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {

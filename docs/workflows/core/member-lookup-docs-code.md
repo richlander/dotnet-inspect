@@ -53,7 +53,7 @@ dotnet-inspect member --package System.CommandLine Command
 # System.CommandLine.Command
 ## Constructors
 ## Properties
-## Methods
+## Method Groups
 ```
 
 ```expect-not

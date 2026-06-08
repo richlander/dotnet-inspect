@@ -54,7 +54,10 @@ public static class SectionNames
     /// <summary>Section for properties.</summary>
     public const string Properties = "Properties";
 
-    /// <summary>Section for methods.</summary>
+    /// <summary>Section for logical method-name groups.</summary>
+    public const string MethodGroups = "Method Groups";
+
+    /// <summary>Section for method overload rows.</summary>
     public const string Methods = "Methods";
 
     /// <summary>Section for events.</summary>

@@ -470,6 +470,7 @@ Interfaces
 Baseclass
 Constructors
 Properties
+Method Groups
 Methods
 ```
 
@@ -500,7 +501,7 @@ dotnet-inspect type System.Text.Json JsonSerializer -m 'Deseri*'
 
 ```expect
 # System.Text.Json.JsonSerializer
-## Methods
+## Method Groups
 Deserialize
 DeserializeAsync
 ```

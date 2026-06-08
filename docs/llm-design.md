@@ -41,13 +41,13 @@ Agents should prefer built-in query and limiter options over shell pipes:
 
 ## Efficient API workflows
 
-For public signatures and overload inventories, prefer type shape:
+For compact type overviews and overload counts, prefer type shape:
 
 ```bash
 dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --shape
 ```
 
-Use `member` when you need docs, stable overload selectors, decompiled/lowered C#, SourceLink-backed original source, or IL:
+Use `member -m Name` when you need a specific overload inventory, docs, stable overload selectors, decompiled/lowered C#, SourceLink-backed original source, or IL:
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --show-index

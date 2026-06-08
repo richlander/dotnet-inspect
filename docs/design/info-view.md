@@ -26,7 +26,8 @@ Sections are stable content units. Presets decide where those sections appear. T
 | `package X` | What is this package, and what does it ship? | `Package Info`, `Library Files` | Identity/metadata plus asset shape answer most package triage questions without a dependency inventory. |
 | `library X` | What is this assembly, and what dense metadata signals are present? | `Library Info` | Library Info includes identity plus counts for large metadata lists, avoiding noisy inventories while signaling what exists. |
 | selected `member Type.Member:N` | What is this overload, and what does it do? | `Signature`, `Decompiled Source` | Contract plus readable implementation usually answers the first implementation question without IL or SourceLink source. |
-| `type Type` or `member Type` list view | What API members are in this type space? | Member summary sections (`Constructors`, `Properties`, `Methods`, etc.) | Compact per-member-kind summaries show return types and overload counts without full signatures. |
+| `type Type` or broad `member Type` list view | What API member groups are in this type space? | Member summary sections (`Constructors`, `Properties`, `Method Groups`, etc.) | Compact per-member-kind summaries show return types and overload counts without full signatures. |
+| `member Type -m Name` | Which overloads exist for this logical member? | `Methods` or the matching member-kind section | The query is already narrowed to one member name, so overload rows with signatures are the bounded high-value answer. |
 
 ## Non-presets and open questions
 
