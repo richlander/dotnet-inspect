@@ -57,6 +57,21 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void GetMemberSignatureSortKey_StripsMethodGenericListOnly()
+    {
+        var member = new ApiMember
+        {
+            Kind = "method",
+            Name = "Task",
+            Signature = "System.Threading.Tasks.Task<T> Task<T>(T value)"
+        };
+
+        Assert.Equal(
+            "System.Threading.Tasks.Task<T> Task(T value)",
+            ApiOutputFormatter.GetMemberSignatureSortKey(member));
+    }
+
+    [Fact]
     public async Task DiscoverOutput_Tsv_RendersHeaderedTsvRows()
     {
         var schema = new DocumentSchema()

@@ -386,7 +386,7 @@ public static class ApiOutputFormatter
                     .Select(g =>
                     {
                         var ordered = g
-                            .OrderBy(m => m.Signature ?? "", StringComparer.Ordinal)
+                            .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                             .ToList();
                         if (ordered.Count == 1)
                             return new TreeNode(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name));
@@ -536,7 +536,7 @@ public static class ApiOutputFormatter
             var kind = group.Key;
             var members = group
                 .OrderBy(m => m.Name, StringComparer.Ordinal)
-                .ThenBy(m => m.Signature ?? "", StringComparer.Ordinal)
+                .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                 .ToList();
 
             // Pre-compute overload counts and indices for --show-index
@@ -1033,6 +1033,46 @@ public static class ApiOutputFormatter
     {
         var displayName = FormatGenericTypeName(type.Name, type.TypeParameters);
         return string.IsNullOrEmpty(type.Namespace) ? displayName : $"{type.Namespace}.{displayName}";
+    }
+
+    internal static string GetMemberSignatureSortKey(ApiMember member)
+    {
+        var signature = member.Signature ?? "";
+        if (signature.Length == 0 || member.Name.Length == 0)
+            return signature;
+
+        var searchStart = 0;
+        while (searchStart < signature.Length)
+        {
+            var nameIndex = signature.IndexOf(member.Name, searchStart, StringComparison.Ordinal);
+            if (nameIndex < 0)
+                return signature;
+
+            var genericStart = nameIndex + member.Name.Length;
+            if (genericStart < signature.Length && signature[genericStart] == '<')
+            {
+                var depth = 0;
+                for (var i = genericStart; i < signature.Length; i++)
+                {
+                    if (signature[i] == '<')
+                        depth++;
+                    else if (signature[i] == '>')
+                    {
+                        depth--;
+                        if (depth == 0)
+                        {
+                            if (i + 1 < signature.Length && signature[i + 1] == '(')
+                                return signature.Remove(genericStart, i - genericStart + 1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            searchStart = nameIndex + member.Name.Length;
+        }
+
+        return signature;
     }
 
     private static string PluralizeKind(string kind) => kind switch

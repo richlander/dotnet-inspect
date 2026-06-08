@@ -64,6 +64,7 @@ public class ApiSurfaceExtractorTests
         Assert.NotNull(method);
 
         // Should have both the generic type and parameter name
+        Assert.Contains("GenericMethod<T>", method.Signature);
         Assert.Contains("T item", method.Signature);
     }
 

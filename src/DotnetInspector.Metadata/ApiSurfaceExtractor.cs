@@ -467,7 +467,10 @@ public static class ApiSurfaceExtractor
         }
 
         string paramStr2 = string.Join(", ", parameters);
-        return $"{treeSignature.ReturnType.Render()} {name}({paramStr2})";
+        var methodName = context.MethodParameters.Count > 0
+            ? $"{name}<{string.Join(", ", context.MethodParameters)}>"
+            : name;
+        return $"{treeSignature.ReturnType.Render()} {methodName}({paramStr2})";
     }
 
     private static (string? name, bool isParams, bool hasDefault, object? defaultValue) GetParameterInfo(

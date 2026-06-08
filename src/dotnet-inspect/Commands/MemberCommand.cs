@@ -149,7 +149,7 @@ public static class MemberCommand
                     .ToList();
                 var displayOverloads = overloads
                     .OrderBy(m => m.Name, StringComparer.Ordinal)
-                    .ThenBy(m => m.Signature ?? "", StringComparer.Ordinal)
+                    .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
                     .ToList();
 
                 int idx = effectiveOptions.OverloadIndex.Value;

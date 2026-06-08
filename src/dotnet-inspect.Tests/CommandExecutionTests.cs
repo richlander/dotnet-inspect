@@ -1771,6 +1771,29 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task MemberList_ExplicitPackageQualifiedType_DoesNotSplitTrailingTypeName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Type 'System.Text.Json' not found", error);
+        Assert.Contains("# System.Text.Json.JsonSerializer", output);
+        Assert.Contains("## Method Groups", output);
+    }
+
+    [Fact]
+    public async Task Member_FilteredGenericMethod_RendersMethodTypeParameters()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "--rows", "-n", "10", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Serialize<TValue>(TValue value", output);
+    }
+
+    [Fact]
     public async Task Package_SelectAll_IncludesOptInSignals()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
