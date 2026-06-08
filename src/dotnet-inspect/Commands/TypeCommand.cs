@@ -218,7 +218,7 @@ public static class TypeCommand
                     // (catches typos) when a specific section is selected, mirroring the package path.
                     if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
-                        var projSchema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+                        var projSchema = ApiCommand.GetTypeDocumentSchema(effectiveOptions);
                         if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))
                             return 1;
                     }

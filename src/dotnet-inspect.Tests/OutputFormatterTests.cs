@@ -1,6 +1,7 @@
 using DotnetInspector.Models;
 using DotnetInspector.Views;
 using DotnetInspector;
+using DotnetInspector.Commands;
 using DotnetInspector.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -69,6 +70,26 @@ public class OutputFormatterTests
         Assert.Equal(
             "System.Threading.Tasks.Task<T> Task(T value)",
             ApiOutputFormatter.GetMemberSignatureSortKey(member));
+    }
+
+    [Fact]
+    public void TypeViewSchema_DoesNotOwnFirstClassMemberRows()
+    {
+        var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+
+        Assert.Null(schema.GetSection("Method Groups"));
+        Assert.Null(schema.GetSection("Methods"));
+        Assert.Null(schema.GetSection("Events"));
+    }
+
+    [Fact]
+    public void TypeDocumentSchema_MergesFirstClassMemberViews()
+    {
+        var schema = ApiCommand.GetTypeDocumentSchema(new MemberOptions());
+
+        Assert.NotNull(schema.GetSection("Method Groups"));
+        Assert.NotNull(schema.GetSection("Methods"));
+        Assert.NotNull(schema.GetSection("Events"));
     }
 
     [Fact]

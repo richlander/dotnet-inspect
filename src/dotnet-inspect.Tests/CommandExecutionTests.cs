@@ -1043,6 +1043,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectMethodsAndEvents_PreservesPipelineOrder()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "AppDomain", "--platform", "System.Private.CoreLib",
+            "-S", "Methods,Events", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(
+            output.IndexOf("## Methods", StringComparison.Ordinal)
+            < output.IndexOf("## Events", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Member_EnumValueFilter_TsvAppliesMemberFilter()
     {
         var (exit, output, error) = await RunAppAsync(
