@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetInspector.Commands;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -38,10 +39,6 @@ public static class SourceCommandDefinitions
         var catOption = new Option<bool>("--cat") { Description = "Print source file contents to stdout" };
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "Method token+IL offset to resolve (e.g., 0x6000001+0x5)" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
-
         sourceCommand.Arguments.Add(argsArg);
         sourceCommand.Options.Add(packageOption);
         sourceCommand.Options.Add(assemblyOption);
@@ -57,8 +54,7 @@ public static class SourceCommandDefinitions
         sourceCommand.Options.Add(ilOffsetOption);
         sourceCommand.Options.Add(opts.Json);
         sourceCommand.Options.Add(compactOption);
-        sourceCommand.Options.Add(oneLineOption);
-        sourceCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(sourceCommand);
         opts.AddSectionOptionsTo(sourceCommand);
         sourceCommand.Options.Add(opts.Markdown);
         sourceCommand.Options.Add(opts.PlainText);
@@ -69,7 +65,7 @@ public static class SourceCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, typeFilterOption, verifyOption, browsableUrlsOption, catOption,
             ilOffsetOption,
-            compactOption, oneLineOption, noHeaderOption);
+            compactOption, opts.OneLine, opts.NoHeaders);
 
         sourceCommand.SetAction(async (parseResult, ct) =>
         {
@@ -79,7 +75,12 @@ public static class SourceCommandDefinitions
             {
                 case SourceOptionsParser.Discovery d:
                     var schemaMap = SourceViewContext.Default.GetSchemaInfo<SourceListView>()!.ToDocumentSchema();
-                    return DiscoverOutput.Execute(d.Discover, schemaMap, tree: d.Tree);
+                    var sourceFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    return DiscoverOutput.Execute(d.Discover, schemaMap, tree: d.Tree,
+                        json: sourceFormat == OutputFormat.Json,
+                        tsv: sourceFormat == OutputFormat.Tsv,
+                        markdown: sourceFormat == OutputFormat.Markdown,
+                        verbosity: (int)opts.ParseVerbosity(parseResult));
 
                 case SourceOptionsParser.ShowHelp:
                     HelpWriter.WriteHelp(sourceCommand);

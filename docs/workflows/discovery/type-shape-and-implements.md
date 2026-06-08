@@ -280,7 +280,7 @@ System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver | class | im
 ### 7a. With header
 
 ```bash
-dotnet-inspect implements Stream --oneline -t 3
+dotnet-inspect implements Stream --table -t 3
 ```
 
 ```expect
@@ -294,7 +294,7 @@ SOURCE
 ### 7b. Without header for piping
 
 ```bash
-dotnet-inspect implements Stream --oneline --no-header -t 3
+dotnet-inspect implements Stream --table --no-headers -t 3
 ```
 
 ```expect

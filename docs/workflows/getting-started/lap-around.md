@@ -208,7 +208,7 @@ Selected overloads expose implementation sections through the same detailed/enab
 The `source` command resolves SourceLink URLs for types and members.
 
 ```bash
-dotnet-inspect source JsonSerializer --platform System.Text.Json --oneline
+dotnet-inspect source JsonSerializer --platform System.Text.Json --table
 ```
 
 ```expect

@@ -11,8 +11,8 @@ public static class ProjectionDiagnostics
 {
     /// <summary>
     /// Validates --fields/--columns names against the section schema.
-    /// Writes warnings to stderr for unrecognized names with prefix suggestions.
-    /// Returns true if all names are valid, false if any are unknown.
+    /// Writes warnings to stderr for partially unrecognized names with prefix suggestions.
+    /// Returns false when a projection has no matches and the caller should stop before rendering.
     /// </summary>
     public static bool ValidateProjection(DocumentSchema schema, string? sectionName,
         string[]? fields, string[]? columns)
@@ -27,6 +27,26 @@ public static class ProjectionDiagnostics
 
         if (columns is { Length: > 0 })
             allValid &= ValidateNames(schema, sectionName, columns, "column");
+
+        return allValid;
+    }
+
+    /// <summary>
+    /// Validates --fields/--columns names against multiple selected sections.
+    /// Returns false when any section has a projection with no matches.
+    /// </summary>
+    public static bool ValidateProjection(DocumentSchema schema, IReadOnlyCollection<string>? sectionNames,
+        string[]? fields, string[]? columns)
+    {
+        if ((fields is not { Length: > 0 } && columns is not { Length: > 0 })
+            || sectionNames is not { Count: > 0 })
+        {
+            return true;
+        }
+
+        var allValid = true;
+        foreach (var section in sectionNames)
+            allValid &= ValidateProjection(schema, section, fields, columns);
 
         return allValid;
     }
@@ -60,6 +80,10 @@ public static class ProjectionDiagnostics
             Console.Error.WriteLine(msg);
         }
 
+        if (validation.Resolved.Length > 0)
+            return true;
+
+        Console.Error.WriteLine($"Error: No {kind}s matched projection: {string.Join(", ", names)}");
         return false;
     }
 }

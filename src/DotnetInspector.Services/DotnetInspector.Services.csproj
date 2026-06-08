@@ -23,13 +23,6 @@
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
   </ItemGroup>
 
-  <!-- Use ProjectReference for local Markout development, PackageReference for releases -->
-  <!-- ProjectReference: local development
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
-  </ItemGroup>
-  -->
-  <!-- PackageReference: releases -->
   <ItemGroup>
     <PackageReference Include="MarkdownTable.Formatting" />
     <PackageReference Include="NuGet.Versioning" />

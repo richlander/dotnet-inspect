@@ -48,9 +48,6 @@ public static class SearchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
@@ -69,9 +66,10 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
-        findCommand.Options.Add(oneLineOption);
-        findCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(findCommand);
         findCommand.Options.Add(packagePrefixOption);
+        findCommand.Options.Add(opts.Discover);
+        findCommand.Options.Add(opts.Tree);
         findCommand.Options.Add(opts.Columns);
         findCommand.Options.Add(opts.Fields);
         opts.AddOutputOptionsTo(findCommand);
@@ -80,7 +78,7 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, extensionsOption,
             aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, oneLineOption, noHeaderOption, packagePrefixOption);
+            typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders, packagePrefixOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -144,9 +142,6 @@ public static class SearchCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
-        var oneLineOption = new Option<bool>("--oneline") { Description = "One result per line, columnar output" };
-        var noHeaderOption = new Option<bool>("--no-header") { Description = "Suppress column headers (use with --oneline)" };
-        noHeaderOption.Aliases.Add("--nh");
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
@@ -162,8 +157,7 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(typeFilterOption);
         implCommand.Options.Add(opts.Json);
         implCommand.Options.Add(compactOption);
-        implCommand.Options.Add(oneLineOption);
-        implCommand.Options.Add(noHeaderOption);
+        opts.AddTableOptionsTo(implCommand);
         implCommand.Options.Add(packagePrefixOption);
         implCommand.Options.Add(opts.Columns);
         implCommand.Options.Add(opts.Fields);
@@ -210,8 +204,9 @@ public static class SearchCommandDefinitions
                 Rows = opts.ParseRows(parseResult),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = opts.ResolveOneLine(parseResult, oneLineOption),
-                NoHeader = parseResult.GetValue(noHeaderOption),
+                OneLine = opts.ResolveOneLine(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),

@@ -392,7 +392,7 @@ TValue?
 > Goal: Get columnar output suitable for piping to other tools.
 
 ```bash
-dotnet-inspect member --package System.CommandLine Command --oneline --no-header -n 10
+dotnet-inspect member --package System.CommandLine Command --table --no-headers -n 10
 ```
 
 ```expect

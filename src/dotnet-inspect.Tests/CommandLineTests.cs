@@ -260,6 +260,22 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void MemberCommand_WithTable_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--table"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void MemberCommand_WithTsvNoHeaders_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void TypeCommand_WithPlatform_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--shape"]);
@@ -671,6 +687,30 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void FindCommand_WithTable_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--table"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithTsv_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--tsv"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void FindCommand_WithDiscover_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "-D"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void FindCommand_WithPlatformBoolFlag_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform"]);
@@ -754,6 +794,22 @@ public class CommandLineTests
     public void DiffCommand_WithOneLine_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--oneline"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTable_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--table"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void DiffCommand_WithTsvNoHeaderAlias_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--tsv", "--no-header"]);
 
         Assert.Empty(result.Errors);
     }

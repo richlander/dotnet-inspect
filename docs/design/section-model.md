@@ -65,7 +65,7 @@ Target Frameworks  2
 Readme             Yes
 ```
 
-In this case, we see oneline since that's the default. You can also print multiple sections.
+In this case, we see compact table output since that's the default. You can also print multiple sections.
 
 ```bash
 dotnet run --project src/dotnet-inspect -- System.CommandLine -S "Stats*,files, Target Frameworks,Foo"
@@ -75,7 +75,7 @@ You can ask for multiple and they can use globs, invariant case, have a leading 
 
 A wrong section like "Foo" won't block the overall query. An error will be written for just that one request.
 
-Oneline doesn't support multiple sections, so that would flip over to markdown by default. The user could also request JSON. An explict request for
+Table and TSV output don't support multiple sections, so a default compact-table flow flips over to Markdown when multiple sections are selected. The user can also request JSON. An explicit `--table` or `--tsv` request with multiple sections returns a diagnostic and asks the user to select a single section or use Markdown/JSON.
 
 We can also ask for the list of fields if we want to know what to query for.
 
@@ -155,19 +155,19 @@ The detailed verbosity (`-v:d`) prints all detailed-enabled sections. Bare `-S` 
 Each view can be paired with a formatter
 
 ```bash=
-dotnet run --project src/dotnet-inspect -- System.CommandLine -v:q --oneline
+dotnet run --project src/dotnet-inspect -- System.CommandLine -v:q --table
 dotnet run --project src/dotnet-inspect -- System.CommandLine -v:d --markdown
 dotnet run --project src/dotnet-inspect -- System.CommandLine -v:d --json
-dotnet run --project src/dotnet-inspect -- System.CommandLine -v:d --oneline # this is an error since oneline cannot render multiple sections
+dotnet run --project src/dotnet-inspect -- System.CommandLine -v:d --table # this is an error since table output cannot render multiple sections
 ```
 
-All verbosity queries default to markdown, when explicitly specified. We previously played with the idea of `-v:m` being oneline. That doesn't actually makes sense. The problem is that `-v:q` and `-v:d` are markdown. We could also make`-v:q` markdown to break the tie, but that also doesn't makes sense. The markdown rendering is a really tight 3 lines. It's really a nicer experience for quiet. That leads to the idea that the default view is online, but when explicit commands are used (like v:anything), the rendering pops over to something else.
+All explicit verbosity queries default to Markdown. We previously explored making `-v:m` a compact table view, but that doesn't compose well when `-v:q` and `-v:d` are Markdown. The quiet Markdown rendering is already concise, while explicit verbosity means the user is asking for a richer document view.
 
 ## View models
 
 Each of these views have a certain shape. Some of the shapes are the same even if the rendering is different. Getting the shapes right is as important as the section backpressure, for example. The users sees the effect of a correctly carved shape but may not feel the benefit of the backpressure scheme.
 
-Oneline is (almost) always the same shape. It only differs by columns. Markdown is the most dynamic. JSON should match the general shape of markdown, but with a different syntax.
+Table and TSV output are almost always the same row/column shape; they differ only by renderer and header style. Markdown is the most dynamic. JSON should match the general shape of Markdown, but with structured syntax.
 
 There are some commands that should produce JSONL. They are really no different. It's just a prefernce for rows being presented as complete JSON documents and for the higher level structure to be represented by the presence of multiple lines.
 
@@ -186,9 +186,9 @@ In addition, the top-n view is not available to other writers. Perhaps `--fields
 
 This has already been covered, implicitly, but we should write down.
 
-- oneline is the default writer. It's chosen because it is terse and easy to parse with `awk` or `sed`. It's just limited in terms of what it can show.
+- compact table output is the default writer. It's chosen because it is terse and easy to scan. Use TSV when stable field splitting with `awk` or `sed` matters. These formats are limited to one table at a time.
 - `-v` or `-v:*` implies `--markdown`
-- `-S` queries with multiple sections implies `--markdown`; `--json` can override
+- `-S` queries with multiple sections imply Markdown unless `--json` is requested; explicit `--table`/`--tsv` is an error
 - `type` defaults to tree
 - Some other commands have different default, but that's details for implementation not the model.
 
@@ -219,10 +219,10 @@ That's a really good model that we should use throughput the tool. It's basicall
 For example, this command should produce a happy 404.
 
 ```bash=
-dotnet run --project src/dotnet-inspect -- System.Text.Json -S Symbols,Resources --oneline
+dotnet run --project src/dotnet-inspect -- System.Text.Json -S Symbols,Resources --table
 ```
 
-The request for >1 sections will pop over to markdown by default, but if there is an explicit oneline request, that should be force a message about oneline not supporting >1 sections.
+The request for >1 sections will pop over to Markdown by default, but an explicit `--table` or `--tsv` request should return a message that row-oriented output only supports one section at a time.
 
 Most of these flows should not be hard-coded, but a sort of emergent effect of the way that the formatter capabilities and the views and the data compose.
 
@@ -365,7 +365,7 @@ DuckDB's CLI modes map almost 1:1 to our formatter selection:
 
 | DuckDB | dotnet-inspect |
 | ------ | -------------- |
-| `.mode line` | `--oneline` |
+| `.mode line` | `--table` / `--tsv` |
 | `.mode markdown` | `--markdown` |
 | `.mode json` | `--json` |
 
@@ -381,7 +381,7 @@ Same data, different rendering. The formatter is orthogonal to the query.
 | gh | `--json field1,field2` | `--json` (combined) | No | No |
 | PowerShell | `Select-Object` | `Format-Table/List/Wide` | No | No |
 | DuckDB | SQL `SELECT` | `.mode` | SQL `WHERE` | No |
-| dotnet-inspect | `--columns`/`--fields` | `--oneline/--markdown/--json` | `-S` sections | **Yes** |
+| dotnet-inspect | `--columns`/`--fields` | `--table`/`--tsv`/`--markdown`/`--json` | `-S` sections | **Yes** |
 
 The pattern most tools share is flat column projection. Our model's differentiator is hierarchical scoping — sections first, then columns/fields within them. `-S Package --columns Version,TFM` is a two-level projection that none of these tools express natively. It's closer to a GraphQL "pick your subtree" model than a traditional CLI column selector.
 

@@ -183,7 +183,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
 
-        // OneLine format produces tab-separated or columnar output
+        // Tabular format produces compact row output
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.True(lines.Length > 1, "Expected multiple lines of type output");
     }
@@ -865,7 +865,48 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SelectWithUnknownColumn_WarnsNotFound()
+    public async Task Member_TsvWithMultipleSelectedSections_ReturnsError()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods", "Properties"],
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Selection matches 2 sections", error);
+        Assert.Contains("--table and --tsv display one section at a time", error);
+    }
+
+    [Fact]
+    public async Task Library_TsvWithMultipleSelectedSections_ReturnsError()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            Select = ["Library Info", "Signals"],
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Selection matches 2 sections", error);
+        Assert.Contains("--table and --tsv display one section at a time", error);
+    }
+
+    [Fact]
+    public async Task Type_SelectWithUnknownColumn_ReturnsError()
     {
         var options = new TypeOptions
         {
@@ -878,15 +919,16 @@ public class CommandExecutionTests
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Contains("column 'Bogus' not found in section 'Properties'", error);
+        Assert.Contains("No columns matched projection: Bogus", error);
     }
 
     [Fact]
-    public async Task Type_SelectWithSelectColumn_WarnsNoData()
+    public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {
-        // Select is valid in the schema but only renders with --show-index, so on the
-        // plain type path it produces no data and must be flagged (not silently ignored).
+        // Select is valid in the static schema but only renders with --show-index. The
+        // active table shape has no matching column, so strict projection returns an error.
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -898,15 +940,16 @@ public class CommandExecutionTests
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
-        Assert.Contains("no data: Select", error);
+        Assert.Equal(1, exit);
+        Assert.Contains("No columns matched projection: Select", error);
     }
 
     [Fact]
-    public async Task Type_SelectWithColumnNotShownAtVerbosity_WarnsNoData()
+    public async Task Type_SelectWithColumnNotShownAtVerbosity_ReturnsError()
     {
-        // Signature is a valid Properties column but only renders at Detailed verbosity;
-        // at the default verbosity it is absent and must be flagged.
+        // Signature is valid in the static schema but does not render at the default
+        // verbosity. The active table shape has no matching column, so strict projection
+        // returns an error.
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -918,8 +961,8 @@ public class CommandExecutionTests
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
-        Assert.Contains("no data: Signature", error);
+        Assert.Equal(1, exit);
+        Assert.Contains("No columns matched projection: Signature", error);
     }
 
     [Fact]

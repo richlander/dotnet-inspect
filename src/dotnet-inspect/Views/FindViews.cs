@@ -25,7 +25,7 @@ public class FindResultView
         => rows?.Select(r => r.Match).Distinct().Count() <= 1;
 
     public static bool SimIsUniform(List<FindRow>? rows)
-        => rows?.All(r => r.Sim is "1.00" or "-") ?? true;
+        => rows?.All(r => r.Similarity is "1.00" or "-") ?? true;
 }
 
 [MarkoutSerializable]
@@ -37,7 +37,7 @@ public record FindRow(
     string Library,
     string Source,
     string Match,
-    string Sim);
+    [property: MarkoutPropertyName("Sim")] string Similarity);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(FindResultView))]

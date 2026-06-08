@@ -39,7 +39,7 @@ public class SourceListView
 }
 
 /// <summary>
-/// View model for the source command: all-types oneline (default).
+/// View model for the source command: all-types table (default).
 /// Just the table, no header fields.
 /// </summary>
 [MarkoutSerializable]
@@ -53,7 +53,7 @@ public class SourceOneLineView
 }
 
 /// <summary>
-/// View model for the source command: single-type oneline (default).
+/// View model for the source command: single-type table (default).
 /// URL-only rows (no Type column since the type is already known).
 /// </summary>
 [MarkoutSerializable]

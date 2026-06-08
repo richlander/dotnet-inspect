@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.10.0
+
+### Table and TSV output
+
+- Adds `--table` for compact pretty-printed rows and `--tsv` for normalized tab-separated rows.
+- Treats `--table` and `--tsv` as single-table formats; select one section with `-S` or use Markdown/JSON for multi-section output.
+- Keeps `--oneline` as a hidden compatibility alias for `--table`.
+- Normalizes Markdown table cell pipe characters to `&#124;` instead of escaped pipes.
+
+### Type shape output
+
+- Collapses overload-heavy default single-type trees by logical member name, while leaving full overload signatures available through `-v:n`, `-v:d`, and targeted member queries.
+
 ## v0.9.4
 
 ### Cache
@@ -61,7 +74,7 @@
 
 ### Highlights
 
-- `source --il-offset` maps MethodDef token + IL offset pairs to source file locations, with Markdown, oneline, and JSON output.
+- `source --il-offset` maps MethodDef token + IL offset pairs to source file locations, with Markdown, table/TSV, and JSON output.
 - `--count` returns a single integer row count when exactly one table section is selected.
 - `library -S "Async*"` lists async methods and classifies them as runtime async or classic state-machine async.
 - Platform assembly resolution is SemVer/prerelease-aware and resolves runtime-only assemblies such as `System.Private.CoreLib`.

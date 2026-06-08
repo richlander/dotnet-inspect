@@ -8,7 +8,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 
 1. **Structured output** - Markdown tables and JSON that LLMs can parse reliably
 2. **Progressive disclosure** - Verbosity controls let you request exactly the detail level needed
-3. **Minimal tokens** - `--oneline` and `--compact` options reduce output size
+3. **Minimal tokens** - `--table`, `--tsv`, and `--compact` options reduce output size
 4. **Self-documenting** - `skill` command prints the SKILL.md; `--help` and `-v` show CLI structure
 
 ## Command Structure
@@ -370,7 +370,8 @@ Formatter implementations live in `Output/ValueFormatters.cs` (`ByteSizeFormatte
 | Mode | Flag | Description |
 | ---- | ---- | ----------- |
 | Markdown | (default) | Tables with headers, powered by Markout |
-| One-line | `--oneline` | One result per line, columnar output |
+| Table | `--table` | One result per line, pretty-printed columns |
+| TSV | `--tsv` | Normalized tab-separated rows for agents and shell tools |
 | JSON | `--json` | Full structured output |
 | Compact JSON | `--json --compact` | Minified, omits false/null values |
 

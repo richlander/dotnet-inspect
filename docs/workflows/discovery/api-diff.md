@@ -136,7 +136,7 @@ wc -l | tr -d ' '
 ### 6a. With header
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --oneline | head -5
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table | head -5
 ```
 
 ```expect
@@ -148,7 +148,7 @@ DETAIL
 ### 6b. Without header
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --oneline --no-header | head -5
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table --no-headers | head -5
 ```
 
 ```expect

@@ -92,8 +92,9 @@ public static class FindOptionsParser
             Rows = opts.ParseRows(parseResult),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
-            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
-            NoHeader = parseResult.GetValue(args.NoHeaderOption),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
@@ -126,7 +127,7 @@ public static class FindOptionsParser
             return
             [
                 new(MemberCommand.Name, $"<TypeName> {pinnedSourceFlag} --library <LibraryName>", "inspect the type you found"),
-                new(FindCommand.Name, $"{pattern} {sourceFlag} --oneline", "compact output"),
+                new(FindCommand.Name, $"{pattern} {sourceFlag} --table", "compact output"),
                 new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results")
             ];
         }
@@ -134,7 +135,7 @@ public static class FindOptionsParser
         return
         [
             new(MemberCommand.Name, "<TypeName> --platform <LibraryName>", "inspect the type you found"),
-            new(FindCommand.Name, $"{pattern} --platform --oneline", "compact output"),
+            new(FindCommand.Name, $"{pattern} --platform --table", "compact output"),
             new(FindCommand.Name, $"{pattern} --platform -v:d", "detailed results")
         ];
     }

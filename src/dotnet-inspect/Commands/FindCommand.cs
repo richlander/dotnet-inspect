@@ -27,7 +27,8 @@ public class FindCommand
             {
                 var schema = new DocumentSchema()
                     .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
-                return DiscoverOutput.Execute(options.Discover, schema, tree: options.Tree);
+                return DiscoverOutput.Execute(options.Discover, schema,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -88,7 +89,9 @@ public class FindCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), SearchViewContext.Default, writerOpts);
+            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+            OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOpts));
         }
         else
         {

@@ -1,34 +1,34 @@
 ---
-id: oneline-output
-description: Compact one-line-per-item output for scripting and agents
-commands: [--oneline]
+id: table-output
+description: Compact table and TSV output for scripting and agents
+commands: [--table, --tsv]
 areas: [output, agents, scripting]
 ---
 
-# Oneline Output
+# Table and TSV Output
 
-> The `--oneline` flag produces compact, machine-friendly output with one item per line. The format is a mix of `docker images` (columnar with header) and `git log --oneline` (one item per line). Combined with `--no-header`, it's ideal for piping to other tools or parsing by agents.
+> `--table` produces compact pretty-printed rows for humans. `--tsv` uses the same normalized tabular projection with tab-separated fields for agents and shell tools. Both formats render one table/section at a time; use Markdown or JSON for multi-section output. Combine either with `--no-headers` to suppress column headers.
 
 ## Preconditions
 
 Isolated session. This workflow uses only platform libraries (no cache priming needed).
 
 ```bash
-export DOTNET_INSPECT_ISOLATED=oneline-output
+export DOTNET_INSPECT_ISOLATED=table-output
 ```
 
-## 1. Member listing with oneline
+## 1. Member listing with table output
 
 > Goal: Show members in compact tabular format, one per line.
 
-### 1a. Using `--oneline`
+### 1a. Using `--table`
 
 ```prompt
 List JsonSerializer members in a compact one-per-line format.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --oneline -m 3 --no-header
+dotnet-inspect type System.Text.Json JsonSerializer --table -m 3 --no-headers
 ```
 
 ```expect
@@ -47,7 +47,7 @@ head -3
 ### 1b. With header
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --oneline -m 3
+dotnet-inspect type System.Text.Json JsonSerializer --table -m 3
 ```
 
 ```expect
@@ -64,14 +64,14 @@ Tips:
 head -4
 ```
 
-## 2. Type listing with oneline
+## 2. Type listing with table output
 
 > Goal: Show types in compact tabular format with kind, name, and member count.
 
 ### 2a. Full listing
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline
+dotnet-inspect type System.Text.Json --table
 ```
 
 ```expect
@@ -93,7 +93,7 @@ wc -l
 ### 2b. Limited results
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline -t 3 --no-header
+dotnet-inspect type System.Text.Json --table -t 3 --no-headers
 ```
 
 ```expect
@@ -109,14 +109,14 @@ KIND
 wc -l
 ```
 
-## 3. Oneline output for grep
+## 3. Table output for grep
 
-> Goal: Pipe oneline output to grep for filtering.
+> Goal: Pipe table output to grep for filtering.
 
 ### 3a. Filter methods only
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --oneline --no-header | grep '^method'
+dotnet-inspect type System.Text.Json JsonSerializer --table --no-headers | grep '^method'
 ```
 
 ```expect
@@ -131,14 +131,14 @@ property
 wc -l
 ```
 
-## 4. Oneline output for awk
+## 4. TSV output for awk
 
-> Goal: Extract specific columns with awk for further processing.
+> Goal: Extract specific columns with awk using stable tab delimiters.
 
 ### 4a. Extract type names only
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline --no-header | awk '{print $2}' | head -5
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $2}' | head -5
 ```
 
 ```expect
@@ -158,7 +158,7 @@ head -3
 ### 4b. Sum member counts
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline --no-header | awk '{sum += $3} END {print "Total members:", sum}'
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{sum += $3} END {print "Total members:", sum}'
 ```
 
 ```expect
@@ -172,7 +172,7 @@ grep -oE '[0-9]+'
 ### 4c. Filter by member count threshold
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline --no-header | awk '$3 > 50 {print $2, $3}'
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
 ```
 
 ```expect
@@ -188,7 +188,7 @@ wc -l
 ### 4d. Sort structs by member count
 
 ```bash
-dotnet-inspect type System.Text.Json --oneline --no-header | awk '$1 == "struct" {print $3, $2}' | sort -rn | head -5
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$1 == "struct" {print $3, $2}' | sort -rn | head -5
 ```
 
 ```expect

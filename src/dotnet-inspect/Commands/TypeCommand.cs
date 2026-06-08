@@ -92,7 +92,7 @@ public static class TypeCommand
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var effective = typePipeline.GetAvailableSections(api, options.IncludeSections);
                     return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-                        tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations());
                 }
@@ -219,8 +219,8 @@ public static class TypeCommand
                     if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
                         var projSchema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
-                        foreach (var section in effectiveOptions.IncludeSections)
-                            ProjectionDiagnostics.ValidateProjection(projSchema, section, effectiveOptions.Fields, effectiveOptions.Columns);
+                        if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                            return 1;
                     }
 
                     if (tabularProjection)
@@ -239,7 +239,7 @@ public static class TypeCommand
                     }
 
                     // Notify when a requested section matched but has no data for this type.
-                    // JSON and markdown both honor -S; one-line falls back to showing all
+                    // JSON and markdown both honor -S; tabular output falls back to showing all
                     // members and shape replaces selection, so skip those.
                     if (!effectiveOptions.OneLine
                         && effectiveOptions is not TypeOptions { ShapeOutput: true })

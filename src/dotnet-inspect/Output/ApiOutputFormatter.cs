@@ -337,14 +337,53 @@ public static class ApiOutputFormatter
 
             foreach (var group in membersByKind)
             {
-                var kindLabel = GetTreeKindLabel(group.Key, group.Count());
-                var memberSignatures = group
-                    .OrderBy(m => m.Name, StringComparer.Ordinal)
-                    .Select(m => m.Signature ?? OperatorNames.FormatDisplayName(m.Name))
-                    .ToList();
-
-                nodes.Add(new TreeNode(kindLabel) { Children = memberSignatures.Select(s => new TreeNode(s)).ToList() });
+                var children = BuildShapeMemberNodes(group.Key, group);
+                var kindLabel = GetShapeKindLabel(group.Key, group.Count(), children.Count);
+                nodes.Add(new TreeNode(kindLabel) { Children = children });
             }
+        }
+
+        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members)
+        {
+            if (kind is "method" or "constructor")
+            {
+                return members
+                    .GroupBy(m => m.Name)
+                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                    .Select(g =>
+                    {
+                        var ordered = g
+                            .OrderBy(m => m.Signature ?? "", StringComparer.Ordinal)
+                            .ToList();
+                        if (ordered.Count == 1)
+                            return new TreeNode(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name));
+
+                        var displayName = OperatorNames.FormatDisplayName(g.Key);
+                        return new TreeNode($"{displayName} ({ordered.Count} overloads)");
+                    })
+                    .ToList();
+            }
+
+            return members
+                .OrderBy(m => m.Name, StringComparer.Ordinal)
+                .Select(m => new TreeNode(m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                .ToList();
+        }
+
+        static string GetShapeKindLabel(string kind, int overloadCount, int logicalCount)
+        {
+            if (kind is "method" or "constructor" && overloadCount != logicalCount)
+            {
+                var noun = kind switch
+                {
+                    "constructor" => "Constructors",
+                    "method" => "Methods",
+                    _ => GetTreeKindLabel(kind, overloadCount).Split(' ')[0]
+                };
+                return $"{noun} ({logicalCount} logical, {overloadCount} overloads)";
+            }
+
+            return GetTreeKindLabel(kind, overloadCount);
         }
 
         // Structural nodes (suppress when a filter is active but matched nothing)
@@ -981,7 +1020,7 @@ public static class ApiOutputFormatter
     // ===== One-Line View Builders =====
 
     /// <summary>
-    /// Builds a unified one-line view for a single type's members.
+    /// Builds a unified tabular view for a single type's members.
     /// All member kinds are merged into one table with a Kind column.
     /// </summary>
     internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
@@ -1035,7 +1074,7 @@ public static class ApiOutputFormatter
     }
 
     /// <summary>
-    /// Builds a unified one-line view for a full API surface (all types).
+    /// Builds a unified tabular view for a full API surface (all types).
     /// All type kinds are merged into one table with a Kind column.
     /// </summary>
     internal static (ApiSurfaceOneLineView view, int truncated) BuildSurfaceOneLineView(ApiSurface api, ApiOptions options)

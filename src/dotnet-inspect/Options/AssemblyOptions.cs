@@ -72,17 +72,22 @@ public record AssemblyOptions
     public bool Markdown { get; init; }
 
     /// <summary>
-    /// One result per line, columnar output.
+    /// Tabular output (pretty table or TSV).
     /// </summary>
     public bool OneLine { get; init; }
 
     /// <summary>
-    /// Suppress column headers (use with --oneline).
+    /// Emit tabular output as normalized TSV instead of a pretty table.
+    /// </summary>
+    public bool Tsv { get; init; }
+
+    /// <summary>
+    /// Suppress column headers (use with --table or --tsv).
     /// </summary>
     public bool NoHeader { get; init; }
 
     /// <summary>
-    /// True when --oneline was explicitly passed (not just the default format).
+    /// True when a tabular output flag was explicitly passed (not just the default format).
     /// </summary>
     public bool OneLineExplicitlySet { get; init; }
 
@@ -181,7 +186,7 @@ public record AssemblyOptions
     };
 
     /// <summary>
-    /// True when no explicit output format was selected (default → oneline).
+    /// True when no explicit output format was selected (default → table).
     /// </summary>
     public bool IsDefaultInvocation => OneLine && !JsonOutput;
 

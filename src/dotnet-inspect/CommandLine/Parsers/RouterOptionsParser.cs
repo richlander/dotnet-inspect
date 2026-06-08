@@ -127,9 +127,10 @@ public static class RouterOptionsParser
                     IncludeMetadata = true,
                     JsonOutput = parseResult.GetValue(opts.Json),
                     Markdown = parseResult.GetValue(opts.Markdown),
-                    OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
-                    OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
-                    FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult, args.OneLineOption),
+                    OneLine = opts.ResolveOneLine(parseResult),
+                    Tsv = opts.ResolveTsv(parseResult),
+                    OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+                    FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                     Format = opts.ResolveFormat(parseResult),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     Verbosity = opts.ParseVerbosity(parseResult),
@@ -169,7 +170,7 @@ public static class RouterOptionsParser
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
             var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
-            var noHeader = parseResult.GetValue(args.NoHeaderOption);
+            var noHeader = parseResult.GetValue(opts.NoHeaders);
             return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
         }
 
@@ -201,10 +202,11 @@ public static class RouterOptionsParser
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             Limit = showLatestVersion ? 1 : routerVersionsValue,
             JsonOutput = parseResult.GetValue(opts.Json),
-            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
-            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult, args.OneLineOption),
-            NoHeader = parseResult.GetValue(args.NoHeaderOption),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             Discover = opts.ParseDiscover(parseResult),
@@ -249,9 +251,10 @@ public static class RouterOptionsParser
             PlatformFramework = platformFrameworkSpec,
             JsonOutput = parseResult.GetValue(opts.Json),
             Markdown = parseResult.GetValue(opts.Markdown),
-            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
-            OneLineExplicitlySet = parseResult.GetResult(args.OneLineOption) is { Implicit: false },
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult, args.OneLineOption),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             Format = opts.ResolveFormat(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
@@ -260,7 +263,7 @@ public static class RouterOptionsParser
             Select = opts.ParseSelect(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
-            NoHeader = parseResult.GetValue(args.NoHeaderOption),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),

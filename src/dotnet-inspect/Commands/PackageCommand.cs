@@ -34,7 +34,7 @@ public class PackageCommand
         {
             var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations());
         }
@@ -54,6 +54,9 @@ public class PackageCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
 
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
+            return 1;
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -66,8 +69,8 @@ public class PackageCommand
         if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
         {
             var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
-            foreach (var section in options.IncludeSections)
-                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
+            if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
+                return 1;
         }
 
         if (packageArgs.Length < 1)
@@ -124,8 +127,12 @@ public class PackageCommand
                 return 1;
             }
 
-            var versionWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
-            versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
+            OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
+            {
+                var versionWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
+                versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
+                versionWriter.Flush();
+            });
 
             return 0;
         }
@@ -240,7 +247,7 @@ public class PackageCommand
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
             {
-                ListPackageTfms(extractPath);
+                ListPackageTfms(extractPath, options.Tsv);
                 return 0;
             }
 
@@ -333,7 +340,7 @@ public class PackageCommand
                 }
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
                     sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
@@ -349,16 +356,7 @@ public class PackageCommand
                 var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
                 if (diagnostic != null)
                 {
-                    if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
-                    {
-                        Console.Error.WriteLine($"Error: Selection matches {diagnostic.Sections.Length} sections: {string.Join(", ", diagnostic.Sections)}.");
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Oneline format displays one section at a time.");
-                        Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
-                        return 1;
-                    }
-
-                    // Narrow to the Package Info section for oneline
+                    // Narrow to the Package Info section for tabular output
                     options = options with { IncludeSections = new HashSet<string> { PackageSections.PackageInfo } };
                 }
 
@@ -368,14 +366,18 @@ public class PackageCommand
                     var sw = new StringWriter();
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
-                    MarkoutSerializer.Serialize(view, sw, new OneLineFormatter(showHeader: !options.NoHeader), InspectionContext.Default, writerOpts);
-                    var rendered = sw.ToString();
+                    var rendered = OutputFormatter.RenderTable(options.Tsv, !options.NoHeader,
+                        (writer, formatter) =>
+                        {
+                            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+                            MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
+                        });
                     ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
                     Console.Out.Write(rendered);
                 }
                 else
                 {
-                    OutputFormatter.WritePackageOneLine(result, options, pipeline, showHeader: !options.NoHeader);
+                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
                 }
             }
             else
@@ -595,8 +597,12 @@ public class PackageCommand
             ? fileNames.Take(options.Limit.Value)
             : fileNames;
 
-        var fileWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
-        fileWriter.WriteList(results.ToArray());
+        OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
+        {
+            var fileWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
+            fileWriter.WriteList(results.ToArray());
+            fileWriter.Flush();
+        });
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
@@ -620,7 +626,7 @@ public class PackageCommand
         return (extractPath, null);
     }
 
-    private static void ListPackageTfms(string extractPath)
+    private static void ListPackageTfms(string extractPath, bool tsv)
     {
         var dlls = TfmSelector.GetPackageDlls(extractPath);
         var tfms = dlls
@@ -632,8 +638,12 @@ public class PackageCommand
             .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
             .ToList();
 
-        var tfmWriter = new Markout.MarkoutWriter(Console.Out, new Markout.OneLineFormatter(showHeader: false));
-        tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
+        OutputFormatter.WriteTable(tsv, Console.Out, showHeader: false, (writer, formatter) =>
+        {
+            var tfmWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(tsv));
+            tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
+            tfmWriter.Flush();
+        });
     }
 
     private static async Task<int> ShowDependencyTreeAsync(

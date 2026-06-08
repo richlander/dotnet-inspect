@@ -41,7 +41,7 @@ public class AssemblyCommand
             else
             {
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
@@ -71,21 +71,14 @@ public class AssemblyCommand
         // Pre-render validation: check --fields/--columns names against the section schema
         if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
         {
-            foreach (var section in options.IncludeSections)
-                ProjectionDiagnostics.ValidateProjection(schemaMap, section, options.Fields, options.Columns);
+            if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
+                return 1;
         }
 
-        // Explicit --oneline with multiple sections: error
-        if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
-        {
-            Console.Error.WriteLine($"Error: Selection matches {options.IncludeSections.Count} sections: {string.Join(", ", options.IncludeSections)}.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Oneline format displays one section at a time.");
-            Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
             return 1;
-        }
 
-        // Warn if --oneline combined with detailed verbosity without section selector
+        // Warn if tabular output is combined with detailed verbosity without section selector
         if (!effectiveDiscovery && !options.Count)
             OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
 
@@ -306,7 +299,7 @@ public class AssemblyCommand
 
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
-            tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations());
     }
@@ -374,7 +367,7 @@ public class AssemblyCommand
         Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-            tree: options.Tree, json: options.JsonOutput, markdown: !options.OneLine && !options.JsonOutput,
+            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations());
     }

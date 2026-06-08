@@ -80,7 +80,8 @@ The `api` command extracts the public API surface from a library. Its default vi
 | ---- | ---- | ----------- |
 | `--docs` | Documentation | XML doc comments fetched from source |
 | `--samples` | Code samples | Sample references from XML docs |
-| `--oneline` | Columnar output | One result per line, docker-style columns |
+| `--table` | Pretty table output | One table/section at a time, one result per line, space-padded columns |
+| `--tsv` | TSV output | One table/section at a time, one result per line, normalized tab-separated fields |
 
 `--docs` enriches the member table with a Description column rather than replacing the view, but it still functions as a lens -- it fetches external data (source files via SourceLink) that is not part of the library's identity metadata.
 
@@ -107,8 +108,8 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--files`, `--readme`, `--versions`, `-S Signals` |
-| `api` | Type fields, Members table | `--docs`, `--samples`, `--oneline` |
+| `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | Change summary | `--oneline`, `--name-only` |
+| `diff` | Change summary | `--table`, `--tsv`, `--name-only` |

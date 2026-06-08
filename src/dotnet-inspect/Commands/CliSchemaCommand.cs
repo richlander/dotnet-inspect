@@ -31,7 +31,7 @@ public class CliSchemaCommand
                 verbosity = Verbosity.Detailed;
         }
 
-        // Quiet: use DocumentSchema + DiscoverOutput for consistent oneline output
+        // Quiet: use DocumentSchema + DiscoverOutput for consistent table output
         if (verbosity == Verbosity.Quiet)
         {
             var schema = rootCommand.ToDocumentSchema();

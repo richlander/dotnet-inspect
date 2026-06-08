@@ -39,9 +39,10 @@
 | `-x` section exclusion | 9a9f154 | 0.2.x | Exclude sections by name |
 | `--compact` JSON | e7297bb | 0.1.0 | Minified JSON output |
 | `--json` output | e7297bb | 0.1.0 | JSON output format |
-| `--oneline` output | — | 0.1.x | One result per line, columnar (opt-in since 0.7.0) |
+| `--table` output | — | 0.9.x | One result per line, pretty-printed columns |
+| `--tsv` output | — | 0.9.x | Normalized tab-separated rows |
 | Markdown default | 2c6e9e0 | 0.7.0 | Markdown is the default output format |
-| `--no-header` | — | 0.2.x | Suppress column headers |
+| `--no-headers` | — | 0.9.x | Suppress table/TSV column headers |
 | `--signatures-only` | d718525 | 0.1.3 | Minimal output with signatures only |
 | `--out` file output | 627a0a0 | 0.2.x | Write output to file |
 | Tips system | 935a39b | 0.2.x | Contextual suggestions on stderr |

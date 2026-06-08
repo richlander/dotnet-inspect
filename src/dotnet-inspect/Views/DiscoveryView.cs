@@ -9,7 +9,7 @@ namespace DotnetInspector.Views;
 public record DiscoveryRow(string Name, string Kind);
 
 /// <summary>
-/// List view for discovery results. Rendered as oneline table, markdown table, or JSON array.
+/// List view for discovery results. Rendered as a compact table, markdown table, or JSON array.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
 public class DiscoveryListView

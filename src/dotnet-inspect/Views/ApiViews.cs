@@ -423,7 +423,7 @@ public class TypeShapeView
 }
 
 /// <summary>
-/// View model for --oneline single-type output: one unified table of all members.
+/// View model for tabular single-type output: one unified table of all members.
 /// </summary>
 [MarkoutSerializable]
 public class ApiTypeOneLineView
@@ -433,7 +433,7 @@ public class ApiTypeOneLineView
 }
 
 /// <summary>
-/// View model for --oneline full-API output: one unified table of all types.
+/// View model for tabular full-API output: one unified table of all types.
 /// </summary>
 [MarkoutSerializable]
 public class ApiSurfaceOneLineView

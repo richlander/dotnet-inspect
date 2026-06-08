@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.9.2
+version: 0.10.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, and version-to-version API changes.
 ---
 
@@ -14,24 +14,32 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--oneline` for compact tabular output like `docker images` when you need one result per row. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. Verbosity controls document breadth: default views stay compact, bare `-S` gives a curated high-density view, and `-v:n`/`-v:d` expand fuller section detail such as overload signatures and docs. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`. Markdown and JSON can represent multi-section documents. Table and TSV are single-table formats; when a query matches multiple sections, select one with `-S` or use Markdown/JSON.
 
-Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+Format promises:
+
+- Markdown table cell values do not contain escaped pipes (`\|`); pipe characters in values are normalized.
+- `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
+- `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
+
+Start with the default Markdown view for readable evidence, or bare `-S` for the curated high-density view. Use the query system when you need to drill into specific detail that those views do not expose: `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
+
+The query system, output modes, and limiters compose as independent axes: first choose a shape with `-D`, `-S`, `--columns`, or `--fields`; then choose a renderer with Markdown, `--table`, `--tsv`, or `--json`; then bound the result with `-n`, `--tail`, `--rows`, or `--count`. Markdown and JSON can carry multiple sections; `--table` and `--tsv` are single-table renderers, so pair them with one selected section. For example, `-D Section --tsv` returns the section schema as stable tab-separated rows, while `-S Section --columns Name,Signature --rows -10` renders the same projected shape as a bounded Markdown table.
 
 ## Workflow map
 
 | Goal | Start with | Drill in |
 | ---- | ---------- | -------- |
-| Find the right API | `find Pattern --oneline` | `type Type --package Foo`, then `member Type --package Foo`. |
+| Find the right API | `find Pattern --table` | `type Type --package Foo`, then `member Type --package Foo`. |
 | Fix upgrade breaks | `diff --package Foo@old..new --breaking` | Inspect replacement members with `member`. |
 | Learn what changed | `diff --package Foo@old..new --additive` or `diff --platform Lib@old..new` | Use `-t Type` to narrow. |
 | Locate source | `source Type --package Foo` | Add `-m Member`; for a selected overload use `member Type Member:1 -S "Original Source"` when you need SourceLink-backed source text. |
 | Inspect package/library signals | `library Foo -S Signals` or `package Foo -S Signals` | `Signals` resolves SourceLink for libraries; add `-S "SourceLink Availability"` for source reachability or `-S "SourceLink Integrity"` for slow content verification. |
 | Inventory package library files | `package Foo -S "Library Files"` | Lists all files under `lib/` across TFMs; use paths from this section with `library <file> --package Foo` for specific assemblies. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package/platform scope as needed. |
-| Keep output small | `--oneline`, `--json`, `-S Section`, `--count`, `-n N`, `--tail N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
+| Keep output small | `--table`, `--tsv`, `--json`, `-S Section`, `--count`, `-n N`, `--tail N`, `--rows -n N` or `--rows -6` | Prefer built-in limits over shell pipes. `--rows` requires a head count and cannot combine with `--tail`. |
 
 ## Modern .NET and preview workflow
 
@@ -52,7 +60,7 @@ For preview sweeps, resolve the version once, prove one library end-to-end, then
 Use `find` when you do not know the package, library, or exact namespace.
 
 ```bash
-dnx dotnet-inspect -y -- find JsonSerializer --oneline
+dnx dotnet-inspect -y -- find JsonSerializer --table
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 ```
 
@@ -82,7 +90,7 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, or `-S IL` / `-S "IL (Annotated)"` for IL.
 
 ```bash
-dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --oneline
+dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --table
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 ```
 
@@ -111,10 +119,11 @@ For package structure, use `package X -S Manifest` to see manifest version/packa
 
 ## Output and query workflow
 
-Discover sections, then select or project fields.
+Discover sections, then select or project fields. Use `--tsv` for discovery when another tool or agent will consume the schema; the output is small, but the delimiter and stable keys prevent ambiguity.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D Methods --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -S Methods --columns "Name;Signature;Obsolete"
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10

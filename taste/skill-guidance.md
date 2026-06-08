@@ -51,7 +51,7 @@ Why it is bad:
 
 - Lead with the best first command for the task.
 - Prefer workflow guidance over implementation inventory.
-- Use familiar CLI analogies when they clarify behavior (`--oneline` like `docker images`, `-n`/`--tail` like `head`/`tail`).
+- Use familiar CLI analogies when they clarify behavior (`--table` as pretty-printed rows, `--tsv` as stable tab-separated rows, `-n`/`--tail` like `head`/`tail`).
 - Describe `-D`/`-S` as the uppercase cross-command query namespace when explaining discovery and section selection.
 - Explain `--preview` as the single prerelease opt-in alias in the skill, even when other aliases exist.
 - Keep SourceLink/PDB wording precise: PDBs carry SourceLink data; they are not SourceLink themselves.

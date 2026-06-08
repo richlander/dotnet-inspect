@@ -102,8 +102,9 @@ public static class DiffOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
-            OneLine = opts.ResolveOneLine(parseResult, args.OneLineOption),
-            NoHeader = parseResult.GetValue(args.NoHeaderOption),
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
             Additive = parseResult.GetValue(args.AdditiveOption),
@@ -147,7 +148,7 @@ public static class DiffOptionsParser
                 if (!options.OneLine && !options.NameOnly)
                     tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
                 if (!options.OneLine)
-                    tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --oneline", "summary statistics"));
+                    tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --table", "summary statistics"));
             }
         }
 

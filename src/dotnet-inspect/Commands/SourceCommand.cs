@@ -443,7 +443,7 @@ public static class SourceCommand
         }
 
         // Dispatch output based on format — match member command pattern:
-        // default (no -v) = oneline, -v = markdown
+        // default (no -v) = table, -v = markdown
         if (options.IsDefaultInvocation || (options.OneLine && !options.JsonOutput))
         {
             // Oneline: URL-only table (no Type column, type is already known)
@@ -715,7 +715,9 @@ public static class SourceCommand
         {
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
         };
-        MarkoutSerializer.Serialize(view, Console.Out, new OneLineFormatter(showHeader: !options.NoHeader), SourceViewContext.Default, writerOpts);
+        OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+        OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, SourceViewContext.Default, writerOpts));
     }
 
     private static void WriteMarkdown<T>(T view, SourceOptions options) where T : class
