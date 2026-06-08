@@ -188,6 +188,25 @@ public static class ApiOutputFormatter
         return grouped.Count == 1;
     }
 
+    internal static void SerializeTypeDocument(
+        TypeView view,
+        EventsView? eventsView,
+        MethodGroupsView? methodGroupsView,
+        MethodsView? methodsView,
+        MemberCodeView? memberCodeView,
+        MarkoutWriter writer)
+    {
+        ApiViewContext.Default.Serialize(view, writer);
+        if (methodGroupsView is { HasRows: true })
+            ApiViewContext.Default.Serialize(methodGroupsView, writer);
+        if (methodsView is { HasRows: true })
+            ApiViewContext.Default.Serialize(methodsView, writer);
+        if (eventsView is { HasRows: true })
+            ApiViewContext.Default.Serialize(eventsView, writer);
+        if (memberCodeView != null)
+            ApiViewContext.Default.Serialize(memberCodeView, writer);
+    }
+
     private static bool SectionRequested(HashSet<string>? sections, string name)
         => sections?.Contains(name) == true;
 
@@ -519,7 +538,8 @@ public static class ApiOutputFormatter
             view.EnumValues = rows;
     }
 
-    internal static (int truncated, string noun) PopulateMemberSections(TypeView view, ApiType type, ApiOptions options)
+    internal static (int truncated, string noun) PopulateMemberSections(
+        TypeView view, MethodsView methodsView, EventsView eventsView, ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (grouped.Count == 0) return (0, "");
@@ -613,15 +633,15 @@ public static class ApiOutputFormatter
                     break;
                 case "method":
                     if (showSelect)
-                    { if (hasDocs) view.MethodSelectRowsWithDocs = rows; else view.MethodSelectRows = rows; }
+                    { if (hasDocs) methodsView.SelectRowsWithDocs = rows; else methodsView.SelectRows = rows; }
                     else
-                    { if (hasDocs) view.MethodRowsWithDocs = rows; else view.MethodRows = rows; }
+                    { if (hasDocs) methodsView.RowsWithDocs = rows; else methodsView.Rows = rows; }
                     break;
                 case "event":
                     if (showSelect)
-                    { if (hasDocs) view.EventSelectRowsWithDocs = rows; else view.EventSelectRows = rows; }
+                    { if (hasDocs) eventsView.SelectRowsWithDocs = rows; else eventsView.SelectRows = rows; }
                     else
-                    { if (hasDocs) view.EventRowsWithDocs = rows; else view.EventRows = rows; }
+                    { if (hasDocs) eventsView.RowsWithDocs = rows; else eventsView.Rows = rows; }
                     break;
             }
         }
@@ -661,7 +681,8 @@ public static class ApiOutputFormatter
     /// matching the old QuietMemberFormatter design.
     /// </summary>
     internal static (int truncated, string noun) PopulateMemberSummarySections(
-        TypeView view, ApiType type, ApiOptions options, bool methodGroupsOnly = false)
+        TypeView view, MethodGroupsView methodGroupsView, EventsView eventsView,
+        ApiType type, ApiOptions options, bool methodGroupsOnly = false)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         if (methodGroupsOnly)
@@ -717,9 +738,9 @@ public static class ApiOutputFormatter
                             SignatureParser.ExtractReturnType(e.members[0].Signature),
                             e.members.Count.ToString())).ToList();
                     if (hasOverloads)
-                        view.MethodSummaryRowsWithOverloads = rows;
+                        methodGroupsView.RowsWithOverloads = rows;
                     else
-                        view.MethodSummaryRows = rows;
+                        methodGroupsView.Rows = rows;
                     break;
                 }
                 case "property":
@@ -749,7 +770,7 @@ public static class ApiOutputFormatter
                         var m = e.members[0];
                         return new EventSummaryRow(m.Name, m.ReturnType ?? m.Signature ?? "");
                     }).ToList();
-                    view.EventSummaryRows = rows;
+                    eventsView.SummaryRows = rows;
                     break;
                 }
             }

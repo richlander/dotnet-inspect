@@ -468,7 +468,11 @@ public class ApiCommand
 
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
     {
-        var schema = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+        var schema = MergeSchemas(
+            ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<EventsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<MethodGroupsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<MethodsView>()!.ToDocumentSchema());
         if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
             return schema;
 
@@ -702,12 +706,14 @@ public class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        EventsView? eventsView = null;
+        MethodGroupsView? methodGroupsView = null;
+        MethodsView? methodsView = null;
 
         // Populate enum values declaratively (pipeline controls visibility via IncludeSections)
         if (type.Kind == "enum")
             ApiOutputFormatter.PopulateEnumValues(view, type, options);
 
-        bool isMember = options is MemberOptions;
         bool fullSerializer = options.Verbosity != Verbosity.Quiet;
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
@@ -726,10 +732,18 @@ public class ApiCommand
                 var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
                 var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
                 if (renderMemberGroups)
+                {
+                    methodGroupsView ??= new MethodGroupsView();
+                    eventsView ??= new EventsView();
                     ApiOutputFormatter.PopulateMemberSummarySections(
-                        view, type, options, methodGroupsOnly: renderMemberRows);
+                        view, methodGroupsView, eventsView, type, options, methodGroupsOnly: renderMemberRows);
+                }
                 if (renderMemberRows)
-                    ApiOutputFormatter.PopulateMemberSections(view, type, options);
+                {
+                    methodsView ??= new MethodsView();
+                    eventsView ??= new EventsView();
+                    ApiOutputFormatter.PopulateMemberSections(view, methodsView, eventsView, type, options);
+                }
             }
 
             // --index: populate code sections and custom attributes
@@ -758,11 +772,7 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var sw = new StringWriter();
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-            ApiViewContext.Default.Serialize(view, writer);
-
-            if (view.MemberCode != null)
-                ApiViewContext.Default.Serialize(view.MemberCode, writer);
-
+            ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(MarkdownTableRowLimiter.Apply(sw.ToString(), options.Rows));
         }
@@ -773,7 +783,12 @@ public class ApiCommand
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
                 OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, ApiViewContext.Default, writerOpts));
+                    (writer, formatter) =>
+                    {
+                        var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
+                        ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, markoutWriter);
+                        markoutWriter.Flush();
+                    });
             }
             else
             {
@@ -793,22 +808,14 @@ public class ApiCommand
             if (options.PlainText)
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
-                ApiViewContext.Default.Serialize(view, writer);
-
-                if (view.MemberCode != null)
-                    ApiViewContext.Default.Serialize(view.MemberCode, writer);
-
+                ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
                 writer.Flush();
             }
             else
             {
                 var sw = new StringWriter();
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-                ApiViewContext.Default.Serialize(view, writer);
-
-                if (view.MemberCode != null)
-                    ApiViewContext.Default.Serialize(view.MemberCode, writer);
-
+                ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
                 if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
@@ -896,11 +903,13 @@ public class ApiCommand
         };
 
         var view = ApiOutputFormatter.BuildTypeView(type, null, null, null, null, null, renderOptions);
+        EventsView? eventsView = null;
+        MethodGroupsView? methodGroupsView = null;
+        MethodsView? methodsView = null;
 
         if (type.Kind == "enum")
             ApiOutputFormatter.PopulateEnumValues(view, type, renderOptions);
 
-        bool isMember = renderOptions is MemberOptions;
         if (view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
             if (renderOptions is MemberOptions { OverloadIndex: not null })
@@ -910,10 +919,18 @@ public class ApiCommand
                 var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(renderOptions);
                 var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(renderOptions);
                 if (renderMemberGroups)
+                {
+                    methodGroupsView ??= new MethodGroupsView();
+                    eventsView ??= new EventsView();
                     ApiOutputFormatter.PopulateMemberSummarySections(
-                        view, type, renderOptions, methodGroupsOnly: renderMemberRows);
+                        view, methodGroupsView, eventsView, type, renderOptions, methodGroupsOnly: renderMemberRows);
+                }
                 if (renderMemberRows)
-                    ApiOutputFormatter.PopulateMemberSections(view, type, renderOptions);
+                {
+                    methodsView ??= new MethodsView();
+                    eventsView ??= new EventsView();
+                    ApiOutputFormatter.PopulateMemberSections(view, methodsView, eventsView, type, renderOptions);
+                }
             }
 
             if (renderOptions is MemberOptions { OverloadIndex: not null, DllPath: not null } memberOptions)
@@ -938,9 +955,7 @@ public class ApiCommand
         var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, renderOptions);
         var sw = new StringWriter();
         var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), writerOptions);
-        ApiViewContext.Default.Serialize(view, writer);
-        if (view.MemberCode != null)
-            ApiViewContext.Default.Serialize(view.MemberCode, writer);
+        ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
         writer.Flush();
         return sw.ToString();
     }

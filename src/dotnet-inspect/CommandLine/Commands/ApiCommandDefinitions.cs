@@ -217,7 +217,7 @@ public static class ApiCommandDefinitions
             switch (result)
             {
                 case MemberOptionsParser.Discovery d:
-                    var memberSchemaMap = ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema();
+                    var memberSchemaMap = ApiCommand.GetTypeDocumentSchema(new MemberOptions());
                     var memberFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
                     return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree,
                         json: memberFormat == OutputFormat.Json,

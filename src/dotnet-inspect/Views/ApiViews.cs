@@ -118,24 +118,6 @@ public class TypeView
     [JsonIgnore]
     public List<MemberRow>? PropertyRowsWithDocs { get; set; }
 
-    [MarkoutSection(Name = "Methods", IgnoreProperty = "Description,Select")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? MethodRows { get; set; }
-    [MarkoutSection(Name = "Methods", IgnoreProperty = "Select")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? MethodRowsWithDocs { get; set; }
-
-    [MarkoutSection(Name = "Events", IgnoreProperty = "Description,Select")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? EventRows { get; set; }
-    [MarkoutSection(Name = "Events", IgnoreProperty = "Select")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? EventRowsWithDocs { get; set; }
-
     // With --show-index: show Select column
     [MarkoutSection(Name = "Constructors", IgnoreProperty = "Description")]
     [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
@@ -163,24 +145,6 @@ public class TypeView
     [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     [JsonIgnore]
     public List<MemberRow>? PropertySelectRowsWithDocs { get; set; }
-
-    [MarkoutSection(Name = "Methods", IgnoreProperty = "Description")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? MethodSelectRows { get; set; }
-    [MarkoutSection(Name = "Methods")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? MethodSelectRowsWithDocs { get; set; }
-
-    [MarkoutSection(Name = "Events", IgnoreProperty = "Description")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? EventSelectRows { get; set; }
-    [MarkoutSection(Name = "Events")]
-    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
-    [JsonIgnore]
-    public List<MemberRow>? EventSelectRowsWithDocs { get; set; }
 
     public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
         => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
@@ -210,18 +174,6 @@ public class TypeView
     [JsonIgnore]
     public List<PropertySummaryRow>? PropertySummaryRows { get; set; }
 
-    [MarkoutSection(Name = "Method Groups", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
-    [JsonIgnore]
-    public List<MethodSummaryRow>? MethodSummaryRows { get; set; }
-
-    [MarkoutSection(Name = "Method Groups")]
-    [JsonIgnore]
-    public List<MethodSummaryRow>? MethodSummaryRowsWithOverloads { get; set; }
-
-    [MarkoutSection(Name = "Events")]
-    [JsonIgnore]
-    public List<EventSummaryRow>? EventSummaryRows { get; set; }
-
     // Index mode sections (--index path)
     [MarkoutSection(Name = "Signature")]
     [MarkoutIgnoreColumnWhen(nameof(SignatureObsoleteIsAllNull), "Obsolete")]
@@ -237,6 +189,83 @@ public class TypeView
     [JsonIgnore]
     public MemberCodeView? MemberCode { get; set; }
 
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class EventsView
+{
+    [MarkoutSection(Name = "Events", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Events", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? RowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Events", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRows { get; set; }
+
+    [MarkoutSection(Name = "Events")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Events")]
+    public List<EventSummaryRow>? SummaryRows { get; set; }
+
+    public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
+
+    [MarkoutIgnore]
+    public bool HasRows =>
+        Rows is { Count: > 0 }
+        || RowsWithDocs is { Count: > 0 }
+        || SelectRows is { Count: > 0 }
+        || SelectRowsWithDocs is { Count: > 0 }
+        || SummaryRows is { Count: > 0 };
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class MethodGroupsView
+{
+    [MarkoutSection(Name = "Method Groups", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
+    public List<MethodSummaryRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Method Groups")]
+    public List<MethodSummaryRow>? RowsWithOverloads { get; set; }
+
+    [MarkoutIgnore]
+    public bool HasRows => Rows is { Count: > 0 } || RowsWithOverloads is { Count: > 0 };
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class MethodsView
+{
+    [MarkoutSection(Name = "Methods", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Methods", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? RowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Methods", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRows { get; set; }
+
+    [MarkoutSection(Name = "Methods")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRowsWithDocs { get; set; }
+
+    public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
+
+    [MarkoutIgnore]
+    public bool HasRows =>
+        Rows is { Count: > 0 }
+        || RowsWithDocs is { Count: > 0 }
+        || SelectRows is { Count: > 0 }
+        || SelectRowsWithDocs is { Count: > 0 };
 }
 
 [MarkoutSerializable]
@@ -481,6 +510,9 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(CliApiSurface))]
 [MarkoutContext(typeof(TypeView))]
+[MarkoutContext(typeof(EventsView))]
+[MarkoutContext(typeof(MethodGroupsView))]
+[MarkoutContext(typeof(MethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]
