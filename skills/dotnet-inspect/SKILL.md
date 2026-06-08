@@ -14,12 +14,12 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. These output modes also apply to query/discovery output such as `-D` and `-D Section`; prefer `--tsv` for agent handoff even when discovery returns only a few rows because it preserves stable field boundaries and keys without Markdown/table parsing. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
 
 Format promises:
 
 - Markdown table cell values do not contain escaped pipes (`\|`); pipe characters in values are normalized.
-- `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
+- `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines. This includes discovery rows from `-D`.
 - `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
 
 Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
@@ -117,10 +117,11 @@ For package structure, use `package X -S Manifest` to see manifest version/packa
 
 ## Output and query workflow
 
-Discover sections, then select or project fields.
+Discover sections, then select or project fields. Use `--tsv` for discovery when another tool or agent will consume the schema; the output is small, but the delimiter and stable keys prevent ambiguity.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D Methods --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -S Methods --columns "Name;Signature;Obsolete"
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
