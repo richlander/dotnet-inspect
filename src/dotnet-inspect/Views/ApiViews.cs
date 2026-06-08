@@ -210,11 +210,11 @@ public class TypeView
     [JsonIgnore]
     public List<PropertySummaryRow>? PropertySummaryRows { get; set; }
 
-    [MarkoutSection(Name = "Methods", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
+    [MarkoutSection(Name = "Method Groups", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
     [JsonIgnore]
     public List<MethodSummaryRow>? MethodSummaryRows { get; set; }
 
-    [MarkoutSection(Name = "Methods")]
+    [MarkoutSection(Name = "Method Groups")]
     [JsonIgnore]
     public List<MethodSummaryRow>? MethodSummaryRowsWithOverloads { get; set; }
 

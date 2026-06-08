@@ -87,8 +87,8 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
-        // Oneline tree view lists individual methods (no overload grouping)
-        Assert.Contains("Methods", output);
+        // Minimal type view keeps logical method groups bounded.
+        Assert.Contains("Method Groups", output);
     }
 
     // ── member command ───────────────────────────────────────────────

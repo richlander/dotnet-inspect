@@ -406,6 +406,9 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
+        if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+            return;
 
         var filtered = BuildFilteredTypeForSections(type, options);
         var (empty, _) = pipeline.GetEmptySections(filtered, options.Verbosity, options.IncludeSections);
@@ -718,13 +721,15 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
             }
-            else if (options.Verbosity == Verbosity.Minimal)
-            {
-                ApiOutputFormatter.PopulateMemberSummarySections(view, type, options);
-            }
             else
             {
-                ApiOutputFormatter.PopulateMemberSections(view, type, options);
+                var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
+                var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
+                if (renderMemberGroups)
+                    ApiOutputFormatter.PopulateMemberSummarySections(
+                        view, type, options, methodGroupsOnly: renderMemberRows);
+                if (renderMemberRows)
+                    ApiOutputFormatter.PopulateMemberSections(view, type, options);
             }
 
             // --index: populate code sections and custom attributes
@@ -890,10 +895,16 @@ public class ApiCommand
         {
             if (renderOptions is MemberOptions { OverloadIndex: not null })
                 ApiOutputFormatter.PopulateMemberSignature(view, type, renderOptions);
-            else if (renderOptions.Verbosity == Verbosity.Minimal)
-                ApiOutputFormatter.PopulateMemberSummarySections(view, type, renderOptions);
             else
-                ApiOutputFormatter.PopulateMemberSections(view, type, renderOptions);
+            {
+                var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(renderOptions);
+                var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(renderOptions);
+                if (renderMemberGroups)
+                    ApiOutputFormatter.PopulateMemberSummarySections(
+                        view, type, renderOptions, methodGroupsOnly: renderMemberRows);
+                if (renderMemberRows)
+                    ApiOutputFormatter.PopulateMemberSections(view, type, renderOptions);
+            }
 
             if (renderOptions is MemberOptions { OverloadIndex: not null, DllPath: not null } memberOptions)
             {
@@ -979,6 +990,7 @@ public class ApiCommand
             [SectionNames.Values] = m => m.Kind == "field" && m.EnumValue.HasValue,
             [SectionNames.Fields] = m => m.Kind == "field" && !m.EnumValue.HasValue,
             [SectionNames.Properties] = m => m.Kind == "property",
+            [SectionNames.MethodGroups] = m => m.Kind == "method",
             [SectionNames.Methods] = m => m.Kind == "method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
             [SectionNames.Events] = m => m.Kind == "event",

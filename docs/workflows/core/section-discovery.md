@@ -175,7 +175,7 @@ Tips:
 > Goal: `-D` on type/member queries reports the effective queryable schema by default; `--schema` opts back into the static schema.
 
 ```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json -D Methods
+dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -D Methods
 ```
 
 ```expect
@@ -184,7 +184,7 @@ Signature
 ```
 
 ```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json -D Methods --schema
+dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -D Methods --schema
 ```
 
 ```expect

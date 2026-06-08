@@ -220,6 +220,16 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_WithQualifiedTypeOnly_PreservesQualifiedType()
+    {
+        var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json");
+
+        Assert.Equal("System.Text.Json.JsonSerializer", options.TypeName);
+        Assert.Equal("System.Text.Json", options.PackagePath);
+        Assert.Empty(options.MemberFilter);
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithMultipleMOptions_SetsAllMembers()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Serialize", "-m", "Deserialize");

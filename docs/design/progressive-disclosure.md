@@ -43,7 +43,7 @@ Section selection does two things:
 
 For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
 
-Bare `-S` is command/context-specific: package uses `Package Info` and `Library Files`; library uses `Library Info`; type/member list views use compact member summaries; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` Info view](info-view.md) for the bullseye question each preset is meant to answer.
+Bare `-S` is command/context-specific: package uses `Package Info` and `Library Files`; library uses `Library Info`; type and broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` Info view](info-view.md) for the bullseye question each preset is meant to answer.
 
 For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`.
 
@@ -53,7 +53,8 @@ For selected overloads, the default high-value section is `Signature`. Normal ve
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json -D
-dotnet-inspect member JsonSerializer --package System.Text.Json -D Methods
+dotnet-inspect member JsonSerializer --package System.Text.Json -D "Method Groups"
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -D Methods
 ```
 
 For target-based queries, `-D` defaults to effective discovery: it resolves the target and reports only sections/columns that can actually render for that target and option set. Use `--schema` for the static, offline schema.
@@ -63,7 +64,7 @@ For target-based queries, `-D` defaults to effective discovery: it resolves the 
 After selecting a section, `--columns` and `--fields` project the data:
 
 ```bash
-dotnet-inspect member JsonSerializer --package System.Text.Json -S Methods --columns "Name;Signature;Obsolete"
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature;Obsolete"
 ```
 
 Projection is validated against the selected section schema. Unknown fields/columns produce diagnostics; valid-but-empty fields are reported as no data.

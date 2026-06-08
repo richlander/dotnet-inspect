@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.10.0
+version: 0.10.1
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, and version-to-version API changes.
 ---
 
@@ -14,7 +14,7 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. Verbosity controls document breadth: default views stay compact, bare `-S` gives a curated high-density view, and `-v:n`/`-v:d` expand fuller section detail such as overload signatures and docs. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`. Markdown and JSON can represent multi-section documents. Table and TSV are single-table formats; when a query matches multiple sections, select one with `-S` or use Markdown/JSON.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. Verbosity controls document breadth: default type views stay compact with `Method Groups`, narrowed member-name views show overload rows, bare `-S` gives a curated high-density view, and `-v:n`/`-v:d` expand fuller section detail such as docs. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`. Markdown and JSON can represent multi-section documents. Table and TSV are single-table formats; when a query matches multiple sections, select one with `-S` or use Markdown/JSON.
 
 Format promises:
 
@@ -66,7 +66,7 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 
 Carry resolved context forward. Bare names use the router: platform-looking names are tried as installed platform libraries first, then fall back to NuGet packages if platform resolution fails. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
 
-For full public signature or overload inventories, start with `type Type --package Foo --shape`; it gives the clean declaration shape with parameter names, nullable annotations, defaults, and generic parameters. Use `member Type --package Foo -m Name --show-index` when you need docs or stable `Name:N` overload selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
+Use `type Type --package Foo --shape` for a compact type overview and overload counts. For a specific overload inventory, use `member Type --package Foo -m Name --show-index`; this renders the `Methods` overload rows with full signatures and stable `Name:N` selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
 
 ## Upgrade and compatibility workflow
 
@@ -123,13 +123,14 @@ Discover sections, then select or project fields. Use `--tsv` for discovery when
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D Methods --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -S Methods --columns "Name;Signature;Obsolete"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D "Method Groups" --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D Methods --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature;Obsolete"
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. Bare `-S` renders a curated high-density view (`Package Info`/`Library Files`, `Library Info` with counts, compact type/member summaries, or selected-overload `Signature`/`Decompiled Source`). Minimal/default and bare `-S` views favor summaries, counts, and one row per logical item; use named sections or `-S All` for long lists. `-S`, `--columns`, and `--fields` accept comma-separated or semicolon-separated lists. In section output, `section (opt-in)` means the section never runs from normal verbosity or `-v:d`; select it explicitly with `-S` when needed. Focused library/member `-S Section` output keeps a compact context row before the selected section. `-S All` produces an exhaustive document: default section first, remaining sections alphabetically, no compact context row.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. Bare `-S` renders a curated high-density view (`Package Info`/`Library Files`, `Library Info` with counts, compact type/member summaries, narrowed member-name `Methods`, or selected-overload `Signature`/`Decompiled Source`). Minimal/default type views favor summaries, counts, and one row per logical item under `Method Groups`; narrowed member-name views use `Methods` overload rows. `-S`, `--columns`, and `--fields` accept comma-separated or semicolon-separated lists. In section output, `section (opt-in)` means the section never runs from normal verbosity or `-v:d`; select it explicitly with `-S` when needed. Focused library/member `-S Section` output keeps a compact context row before the selected section. `-S All` produces an exhaustive document: default section first, remaining sections alphabetically, no compact context row.
 
 `-n N` and shorthand values like `-6` normally limit output lines. Add `--rows` to reinterpret that head count as data rows per rendered Markdown table; this preserves headings/table headers and applies independently to each table. `--rows` requires `-n/--head` or numeric shorthand and cannot be combined with `--tail`. Prefer `--rows` over shell `head` when you need parseable Markdown tables.
 

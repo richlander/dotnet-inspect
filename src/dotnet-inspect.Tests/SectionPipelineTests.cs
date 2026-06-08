@@ -989,7 +989,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(14, pipeline.AllSectionNames.Length);
+        Assert.Equal(15, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1013,6 +1013,7 @@ public class SectionPipelineTests
         Assert.Contains("Constructors", names);
         Assert.Contains("Fields", names);
         Assert.Contains("Properties", names);
+        Assert.Contains("Method Groups", names);
         Assert.Contains("Methods", names);
         Assert.Contains("Events", names);
         Assert.Contains("IL", names);
@@ -1106,6 +1107,7 @@ public class SectionPipelineTests
 
         Assert.Contains("Constructors", effective);
         Assert.Contains("Properties", effective);
+        Assert.Contains("Method Groups", effective);
         Assert.Contains("Methods", effective);
         Assert.DoesNotContain("Fields", effective);
         Assert.DoesNotContain("Events", effective);
@@ -1130,6 +1132,24 @@ public class SectionPipelineTests
 
         // Remote Source section was removed — source info lives in the source command now
         Assert.DoesNotContain("Remote Source", names);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_InfoPreset_UsesMethodGroups()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+
+        Assert.Contains("Method Groups", pipeline.InfoSectionNames);
+        Assert.DoesNotContain("Methods", pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberOverloadPipeline_InfoPreset_UsesMethods()
+    {
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+
+        Assert.Contains("Methods", pipeline.InfoSectionNames);
+        Assert.DoesNotContain("Method Groups", pipeline.InfoSectionNames);
     }
 
     [Fact]
