@@ -996,6 +996,68 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NarrowedMethods_TsvProjectsOverloadRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "--show-index", "-S", "Methods",
+            "--columns", "Select;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("select\tsignature", output);
+        Assert.Contains("`Serialize:1`\t`string Serialize<TValue>", output);
+        Assert.DoesNotContain("return_type", output);
+        Assert.DoesNotContain("overloads", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_TableRendersOverloadRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "--show-index", "-S", "Methods", "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Select", output);
+        Assert.Contains("Signature", output);
+        Assert.Contains("`Serialize:1`", output);
+        Assert.DoesNotContain("Return Type", output);
+        Assert.DoesNotContain("Overloads", output);
+    }
+
+    [Fact]
+    public async Task Member_MixedKindFilter_TsvUsesUnifiedOneLineRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "-m", "IsReflectionEnabledByDefault", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("kind\tname\treturn_type\tdetail", output);
+        Assert.Contains("property\tIsReflectionEnabledByDefault\tbool\tget", output);
+        Assert.Contains("method\tSerialize\tvoid\t15", output);
+        Assert.DoesNotContain("\n\n", output);
+    }
+
+    [Fact]
+    public async Task Member_EnumValueFilter_TsvAppliesMemberFilter()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DayOfWeek", "--platform", "System.Private.CoreLib",
+            "-m", "Friday", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("name\tvalue", output);
+        Assert.Contains("Friday\t5", output);
+        Assert.DoesNotContain("Sunday", output);
+        Assert.DoesNotContain("Saturday", output);
+    }
+
+    [Fact]
     public async Task Library_TsvWithMultipleSelectedSections_ReturnsError()
     {
         var options = new AssemblyOptions

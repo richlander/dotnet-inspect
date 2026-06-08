@@ -177,6 +177,17 @@ public static class ApiOutputFormatter
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
         || DiscoveryRequests(options, SectionNames.Methods);
 
+    internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
+    {
+        if (options.IncludeSections is { Count: 1 })
+            return true;
+        if (!ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options))
+            return false;
+
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        return grouped.Count == 1;
+    }
+
     private static bool SectionRequested(HashSet<string>? sections, string name)
         => sections?.Contains(name) == true;
 
@@ -478,6 +489,14 @@ public static class ApiOutputFormatter
             .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
             .OrderBy(m => m.EnumValue)
             .ToList();
+        if (options.MemberFilter.Count > 0)
+            enumMembers = enumMembers
+                .Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter))
+                .ToList();
+        if (options.UnsafeOnly)
+            enumMembers = [];
+        if (options.KindFilter.Count > 0 && !options.KindFilter.Contains("field"))
+            enumMembers = [];
 
         if (enumMembers.Count == 0)
             return;
