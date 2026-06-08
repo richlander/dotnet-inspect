@@ -75,15 +75,8 @@ public class AssemblyCommand
                 return 1;
         }
 
-        // Explicit tabular output with multiple sections: error
-        if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
-        {
-            Console.Error.WriteLine($"Error: Selection matches {options.IncludeSections.Count} sections: {string.Join(", ", options.IncludeSections)}.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Oneline format displays one section at a time.");
-            Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
             return 1;
-        }
 
         // Warn if tabular output is combined with detailed verbosity without section selector
         if (!effectiveDiscovery && !options.Count)

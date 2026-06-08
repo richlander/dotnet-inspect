@@ -14,7 +14,7 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`. Markdown and JSON can represent multi-section documents. Table and TSV are single-table formats; when a query matches multiple sections, select one with `-S` or use Markdown/JSON.
 
 Format promises:
 
@@ -22,11 +22,11 @@ Format promises:
 - `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
 - `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
 
-Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+Start with the default Markdown view for readable evidence, or bare `-S` for the curated high-density view. Use the query system when you need to drill into specific detail that those views do not expose: `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
-The query system, output modes, and limiters compose as independent axes: first choose a shape with `-D`, `-S`, `--columns`, or `--fields`; then choose a renderer with Markdown, `--table`, `--tsv`, or `--json`; then bound the result with `-n`, `--tail`, `--rows`, or `--count`. For example, `-D Section --tsv` returns the section schema as stable tab-separated rows, while `-S Section --columns Name,Signature --rows -10` renders the same projected shape as a bounded Markdown table.
+The query system, output modes, and limiters compose as independent axes: first choose a shape with `-D`, `-S`, `--columns`, or `--fields`; then choose a renderer with Markdown, `--table`, `--tsv`, or `--json`; then bound the result with `-n`, `--tail`, `--rows`, or `--count`. Markdown and JSON can carry multiple sections; `--table` and `--tsv` are single-table renderers, so pair them with one selected section. For example, `-D Section --tsv` returns the section schema as stable tab-separated rows, while `-S Section --columns Name,Signature --rows -10` renders the same projected shape as a bounded Markdown table.
 
 ## Workflow map
 

@@ -54,6 +54,9 @@ public class PackageCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return 1;
 
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
+            return 1;
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -353,15 +356,6 @@ public class PackageCommand
                 var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
                 if (diagnostic != null)
                 {
-                    if (options.OneLineExplicitlySet && options.IncludeSections is { Count: > 1 })
-                    {
-                        Console.Error.WriteLine($"Error: Selection matches {diagnostic.Sections.Length} sections: {string.Join(", ", diagnostic.Sections)}.");
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Oneline format displays one section at a time.");
-                        Console.Error.WriteLine("Use -S with a specific section name, or --markdown for multi-section output.");
-                        return 1;
-                    }
-
                     // Narrow to the Package Info section for tabular output
                     options = options with { IncludeSections = new HashSet<string> { PackageSections.PackageInfo } };
                 }

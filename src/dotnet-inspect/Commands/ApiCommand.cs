@@ -95,6 +95,9 @@ public class ApiCommand
         if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return (null!, 1);
 
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
+            return (null!, 1);
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {

@@ -67,7 +67,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 
 ## Output and querying
 
-Default output is Markdown. Use `--table` for compact pretty-printed rows, `--tsv` for normalized tab-separated rows with stable snake_case headers, `--plaintext` for plain text, `--json` for structured data, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`.
+Default output is Markdown. Use `--table` for compact pretty-printed rows, `--tsv` for normalized tab-separated rows with stable snake_case headers, `--plaintext` for plain text, `--json` for structured data, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table` and `--tsv` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
 Sections and fields are queryable without a template language:
 

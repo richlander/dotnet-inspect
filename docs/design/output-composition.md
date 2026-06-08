@@ -12,17 +12,17 @@ Related docs:
 ## 1. The Base Model: Section Selection
 
 Everything is section selection. The `-v` flags are curated presets that
-map to a set of sections. The `-s` flag is direct section selection. They
+map to a set of sections. The `-S` flag is direct section selection. They
 use the same mechanism.
 
 | Input | Sections generated | Presentation |
 | --- | --- | --- |
-| `-v:q` | Root section, top fields only | OneLine (default) |
-| `-v:m` | Root section, all fields + primary table | OneLine (default) |
-| `-v:n` | Standard sections | OneLine (default) |
+| `-v:q` | Root section, top fields only | Table (default) |
+| `-v:m` | Root section, all fields + primary table | Table (default) |
+| `-v:n` | Standard sections | Table (default) |
 | `-v:d` | All sections | Markdown (implied) |
-| `-s Symbols` | Symbols section only | Whatever writer is in scope |
-| `-v:d -s Symbols` | Symbols section only (at detailed depth) | Whatever writer is in scope |
+| `-S Symbols` | Symbols section only | Whatever writer is in scope |
+| `-v:d -S Symbols` | Symbols section only (at detailed depth) | Whatever writer is in scope |
 
 The last two rows produce the same rendered output. The difference is work
 performed:
@@ -75,7 +75,7 @@ The writer (renderer) is selected independently from section selection:
 
 | Writer | Capabilities | Implied by |
 | --- | --- | --- |
-| OneLine | Tables, fields (inline), lists | Default when ≤1 section |
+| Table/TSV | One table at a time, fields (inline), lists | Default when ≤1 section, or explicit `--table`/`--tsv` |
 | Markdown | Tables, fields, code blocks, trees, headings | `-v:d`, `--markdown` |
 | JSON | Full model serialization | `--json` |
 | Shape | Single code-block view | `--shape` |
@@ -87,7 +87,7 @@ The writer (renderer) is selected independently from section selection:
 3. `--shape` → Shape (always)
 4. `-v:d` → Markdown (multi-section content needs a multi-section writer)
 5. `-v:q`, `-v:m`, `-v:n` → do NOT imply markdown; use default writer
-6. Default → OneLine
+6. Default → Table
 
 The key change from the current model: **`-v:m` is the default and does
 not imply markdown.** Only `-v:d` implies markdown because it produces
@@ -110,26 +110,28 @@ Each writer implements only the interfaces it supports:
 
 | Writer | IFieldWriter | ITableWriter | ITreeWriter | ICodeBlockWriter | IHeadingWriter |
 | --- | :---: | :---: | :---: | :---: | :---: |
-| OneLine | inline | yes | — | — | — |
+| Table/TSV | inline | yes | — | — | — |
 | Markdown | block | yes | yes | yes | yes |
 
 This gives a capabilities model: the system can report that a writer
 doesn't support a particular shape. When a section needs code blocks and
-the writer is OneLine, the section is skipped with a diagnostic rather
+the writer is table/TSV, the section is skipped with a diagnostic rather
 than silently producing garbage.
 
-## 6. Cardinality and the OneLine Constraint
+## 6. Cardinality and the Table/TSV Constraint
 
-OneLine can render one table at a time. When section selection produces
-multiple sections:
+Table and TSV output render one table at a time. Markdown and JSON can
+represent multi-section documents. When section selection produces multiple
+sections:
 
-- If section filter (`-s`) selects one section → render that section
+- If section filter (`-S`) selects one section → render that section
 - If no filter and only one section in scope (e.g., `-v:m`) → render it
-- If no filter and multiple sections in scope (e.g., `-v:d`) → warn and
-  suggest `-s` or `--markdown`
+- If no filter and multiple sections are computed → auto-promote to Markdown
+- If the user explicitly requested `--table` or `--tsv` with multiple sections
+  → return a diagnostic and suggest `-S`, `--markdown`, or `--json`
 
-This is the existing `WarnIfOneLineDetailMismatch` logic, but now grounded
-in the composition model rather than ad-hoc.
+This is grounded in the composition model: choose one section for row-oriented
+formats, or choose a multi-section renderer.
 
 ## 7. CLI Namespace (Future)
 

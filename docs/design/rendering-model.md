@@ -80,8 +80,8 @@ The `api` command extracts the public API surface from a library. Its default vi
 | ---- | ---- | ----------- |
 | `--docs` | Documentation | XML doc comments fetched from source |
 | `--samples` | Code samples | Sample references from XML docs |
-| `--table` | Pretty table output | One result per line, space-padded columns |
-| `--tsv` | TSV output | One result per line, normalized tab-separated fields |
+| `--table` | Pretty table output | One table/section at a time, one result per line, space-padded columns |
+| `--tsv` | TSV output | One table/section at a time, one result per line, normalized tab-separated fields |
 
 `--docs` enriches the member table with a Description column rather than replacing the view, but it still functions as a lens -- it fetches external data (source files via SourceLink) that is not part of the library's identity metadata.
 

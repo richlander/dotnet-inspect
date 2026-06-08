@@ -100,9 +100,25 @@ public static class OutputFormatResolver
     {
         if (tabular && verbosity >= Verbosity.Normal && includeSections == null)
         {
-            Console.Error.WriteLine("--table and --tsv show one table at a time. Use -S <section> to select a section, or --markdown for the full view.");
+            Console.Error.WriteLine("--table and --tsv show one table at a time. Use -S <section> to select a section, or --markdown/--json for the full view.");
             return true;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// Validates that explicit table/TSV output targets at most one selected section.
+    /// Markdown and JSON can represent multi-section documents; table/TSV are one table at a time.
+    /// </summary>
+    public static bool ValidateSingleSectionForTabular(bool tabularExplicitlySet, IReadOnlyCollection<string>? includeSections)
+    {
+        if (!tabularExplicitlySet || includeSections is not { Count: > 1 })
+            return true;
+
+        Console.Error.WriteLine($"Error: Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("--table and --tsv display one section at a time.");
+        Console.Error.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
         return false;
     }
 

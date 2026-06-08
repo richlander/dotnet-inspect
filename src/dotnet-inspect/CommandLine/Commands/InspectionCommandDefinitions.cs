@@ -193,6 +193,8 @@ public static class InspectionCommandDefinitions
                 Markdown = parseResult.GetValue(opts.Markdown),
                 OneLine = opts.ResolveOneLine(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
+                OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+                FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),

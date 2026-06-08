@@ -5,6 +5,7 @@
 ### Table and TSV output
 
 - Adds `--table` for compact pretty-printed rows and `--tsv` for normalized tab-separated rows.
+- Treats `--table` and `--tsv` as single-table formats; select one section with `-S` or use Markdown/JSON for multi-section output.
 - Keeps `--oneline` as a hidden compatibility alias for `--table`.
 - Normalizes Markdown table cell pipe characters to `&#124;` instead of escaped pipes.
 

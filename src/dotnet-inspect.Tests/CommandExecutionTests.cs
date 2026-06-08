@@ -865,6 +865,47 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_TsvWithMultipleSelectedSections_ReturnsError()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods", "Properties"],
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Selection matches 2 sections", error);
+        Assert.Contains("--table and --tsv display one section at a time", error);
+    }
+
+    [Fact]
+    public async Task Library_TsvWithMultipleSelectedSections_ReturnsError()
+    {
+        var options = new AssemblyOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            Select = ["Library Info", "Signals"],
+            OneLine = true,
+            Tsv = true,
+            OneLineExplicitlySet = true
+        };
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => AssemblyCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Selection matches 2 sections", error);
+        Assert.Contains("--table and --tsv display one section at a time", error);
+    }
+
+    [Fact]
     public async Task Type_SelectWithUnknownColumn_ReturnsError()
     {
         var options = new TypeOptions
