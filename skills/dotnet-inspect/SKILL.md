@@ -14,15 +14,15 @@ Invoke with `dnx`:
 dnx dotnet-inspect -y -- <command>
 ```
 
-Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. These output modes also apply to query/discovery output such as `-D` and `-D Section`; prefer `--tsv` for agent handoff even when discovery returns only a few rows because it preserves stable field boundaries and keys without Markdown/table parsing. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact pretty-printed rows, and `--tsv` for normalized tab-separated rows when agents or shell tools need stable field splitting. Use `--json` for structured automation. For selected overload implementation bodies, use `-S "Decompiled Source"`, `-S "Original Source"`, `-S IL`, or `-S "IL (Annotated)"`.
 
 Format promises:
 
 - Markdown table cell values do not contain escaped pipes (`\|`); pipe characters in values are normalized.
-- `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines. This includes discovery rows from `-D`.
+- `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
 - `--table` renders the same projection as `--tsv`, with each column starting at a uniform position across rows.
 
-Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+Use the query system when you need a specific slice instead of a fixed template. `-D` discovers sections/columns; bare `-S` renders a curated high-density view; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. Query primitives compose with output modes: use `-D --tsv` or `-D Section --tsv` for compact schema handoff, and use `-S Section --tsv` for selected rows. Prefer `--tsv` for agent/tool handoff even when discovery returns only a few rows because it preserves stable field boundaries and keys without Markdown/table parsing. The uppercase `-D`/`-S` flags are the cross-command query namespace. This serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
