@@ -363,28 +363,7 @@ public class XmlDocFileParser
         return NormalizeSimpleTypeName(type);
     }
 
-    private static string NormalizeSimpleTypeName(string type)
-        => type switch
-        {
-            "bool" => "System.Boolean",
-            "byte" => "System.Byte",
-            "char" => "System.Char",
-            "decimal" => "System.Decimal",
-            "double" => "System.Double",
-            "float" => "System.Single",
-            "int" => "System.Int32",
-            "long" => "System.Int64",
-            "nint" => "System.IntPtr",
-            "nuint" => "System.UIntPtr",
-            "object" => "System.Object",
-            "sbyte" => "System.SByte",
-            "short" => "System.Int16",
-            "string" => "System.String",
-            "uint" => "System.UInt32",
-            "ulong" => "System.UInt64",
-            "ushort" => "System.UInt16",
-            _ => type
-        };
+    private static string NormalizeSimpleTypeName(string type) => PrimitiveTypeNames.ToClrFullName(type);
 
     private static string RemoveNullableAnnotations(string type)
         => type.Replace("?", "", StringComparison.Ordinal);
