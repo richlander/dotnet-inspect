@@ -201,7 +201,7 @@ public record AssemblyOptions
     public bool VerbosityEnabled => !OneLine && !JsonOutput;
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ExtractResources != null || Count;
 }

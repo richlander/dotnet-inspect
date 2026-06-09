@@ -126,7 +126,7 @@ public static class DiffOutputFormatter
                 if (change.Kind == ChangeKind.MemberSignatureChanged &&
                     change.OldValue != null && change.NewValue != null)
                 {
-                    message += $": `{change.OldValue}` -> `{change.NewValue}`";
+                    message += $": {MarkoutInline.Code(change.OldValue)} -> {MarkoutInline.Code(change.NewValue)}";
                 }
                 rows.Add(new DiffChangeRow(typeName, message));
             }

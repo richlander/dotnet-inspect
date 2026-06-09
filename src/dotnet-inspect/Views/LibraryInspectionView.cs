@@ -1,5 +1,6 @@
 using DotnetInspector.Models;
 using DotnetInspector.Metadata;
+using DotnetInspector.Output;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -214,7 +215,7 @@ public class LibraryInspectionView
         Verified = _data.SourceIntegrityVerified,
         Mismatched = _data.SourceIntegrityMismatched,
         MismatchedFiles = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
-            ? string.Join(", ", mismatches.Select(f => $"`{f}`"))
+            ? string.Join(", ", mismatches.Select(MarkoutInline.Code))
             : null,
         CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
             ? $"{_data.SourceIntegrityLineEndingNormalized} normalized"
@@ -230,7 +231,7 @@ public class LibraryInspectionView
         _data.MissingSourceFiles?
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .Take(10)
-            .Select(f => $"`{f}`")
+            .Select(MarkoutInline.Code)
             .ToList();
 
     [MarkoutSection(Name = "Symbols")]

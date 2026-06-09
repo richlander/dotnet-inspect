@@ -1006,7 +1006,8 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.StartsWith("select\tsignature", output);
-        Assert.Contains("`Serialize:1`\t`string Serialize<TValue>", output);
+        Assert.Contains("Serialize:1\tstring Serialize<TValue>", output);
+        Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
     }
@@ -1022,7 +1023,8 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("Select", output);
         Assert.Contains("Signature", output);
-        Assert.Contains("`Serialize:1`", output);
+        Assert.Contains("Serialize:1", output);
+        Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("Return Type", output);
         Assert.DoesNotContain("Overloads", output);
     }
@@ -1044,7 +1046,8 @@ public class CommandExecutionTests
         Assert.True(first.RootElement.TryGetProperty("select", out var select));
         Assert.True(first.RootElement.TryGetProperty("signature", out var signature));
         Assert.Contains("Serialize", signature.GetString());
-        Assert.StartsWith("`Serialize:", select.GetString());
+        Assert.StartsWith("Serialize:", select.GetString());
+        Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
     }

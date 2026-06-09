@@ -95,7 +95,7 @@ public record ApiOptions
         PlainText ? new PlainTextFormatter() : new MarkdownFormatter();
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public virtual bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || Count;
 }
@@ -120,7 +120,7 @@ public record TypeOptions : ApiOptions
     public bool IsDefaultInvocation => !FormatExplicitlySet && !ShapeExplicitlySet;
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public override bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ShapeOutput || Count;
 }

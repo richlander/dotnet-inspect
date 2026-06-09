@@ -56,11 +56,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Markout" />
     <PackageReference Include="MarkdownTable.Formatting" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <PackageReference Include="Markout" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="ShellComplete" />
     <PackageReference Include="System.CommandLine" />

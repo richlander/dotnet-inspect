@@ -124,9 +124,9 @@ public static class RouterCommandDefinition
         {
             var assemblyExitCode = await AssemblyCommand.ExecuteAsync(route.Options);
 
-            if (assemblyExitCode == 0 && !route.Options.IsRawOutput)
+            if (assemblyExitCode == 0 && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
             {
-                var platformTipLevel = route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+                var platformTipLevel = route.Options.FormatExplicitlySet || route.Verbosity != Verbosity.Minimal || route.Options.Select != null || route.Options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                     ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
                 TipWriter.WritePlatformTips(route.BareName, platformTipLevel, route.Verbosity);
             }
@@ -177,7 +177,7 @@ public static class RouterCommandDefinition
                 Count = route.Options.Count,
                 Schema = opts.ParseSchema(parseResult),
                 SourceOptions = route.Options.SourceOptions,
-                TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+                TipLevel = route.Options.FormatExplicitlySet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
             };
 
             return await ApiCommand.ExecuteAsync(typeOptions);
@@ -208,13 +208,13 @@ public static class RouterCommandDefinition
             SourceOptions = route.Options.SourceOptions
         };
 
-        var tipLevel = options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
         var exitCode = await PackageCommand.ExecuteAsync(options);
 
-        if (exitCode == 0 && !options.IsRawOutput)
+        if (exitCode == 0 && !options.FormatExplicitlySet && !options.IsRawOutput)
             TipWriter.WritePackageTips(route.BareName, tipLevel, options.Verbosity);
 
         return exitCode;
@@ -325,7 +325,7 @@ public static class RouterCommandDefinition
             Count = parseResult.GetValue(opts.Count),
             Schema = opts.ParseSchema(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+            TipLevel = opts.IsFormatExplicitlySet(parseResult) || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
         return await ApiCommand.ExecuteAsync(typeOptions);
@@ -388,7 +388,7 @@ public static class RouterCommandDefinition
             Schema = opts.ParseSchema(parseResult),
             Rows = opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
-            TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+            TipLevel = opts.IsFormatExplicitlySet(parseResult) || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet
                 : opts.ParseTipLevel(parseResult)
         };
@@ -398,7 +398,7 @@ public static class RouterCommandDefinition
     {
         var exitCode = await PackageCommand.ExecuteAsync(route.Options);
 
-        if (exitCode == 0 && !route.Options.IsRawOutput)
+        if (exitCode == 0 && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;
