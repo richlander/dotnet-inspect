@@ -53,12 +53,11 @@
     <ProjectReference Include="..\DotnetInspector.Metadata\DotnetInspector.Metadata.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
-    <ProjectReference Include="..\..\..\markout\src\MarkdownTable.Formatting\MarkdownTable.Formatting.csproj" />
-    <ProjectReference Include="..\..\..\markout\src\Markout\Markout.csproj" />
-    <ProjectReference Include="..\..\..\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj"
-                      PrivateAssets="all"
-                      ReferenceOutputAssembly="false"
-                      OutputItemType="Analyzer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markout" />
+    <PackageReference Include="MarkdownTable.Formatting" />
   </ItemGroup>
 
   <ItemGroup>

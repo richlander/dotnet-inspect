@@ -21,10 +21,10 @@
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.Metadata/DotnetInspector.Metadata.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
-    <ProjectReference Include="../../../markout/src/MarkdownTable.Formatting/MarkdownTable.Formatting.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MarkdownTable.Formatting" />
     <PackageReference Include="NuGet.Versioning" />
   </ItemGroup>
 
