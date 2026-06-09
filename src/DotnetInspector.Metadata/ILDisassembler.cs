@@ -77,26 +77,38 @@ public static class ILDisassembler
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            var fullName = reader.GetFullTypeName(typeDef);
-
-            if (fullName != typeName)
+            if (reader.GetFullTypeName(typeDef) != typeName)
                 continue;
 
-            int matchCount = 0;
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != methodName)
-                    continue;
+            return DisassembleMethod(peReader, reader, typeDefHandle, methodName, overloadIndex, publicOnly);
+        }
 
-                if (publicOnly && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-                    continue;
+        return null;
+    }
 
-                if (matchCount == overloadIndex)
-                    return Disassemble(peReader, reader, method);
+    /// <summary>
+    /// Overload for callers that have already resolved the declaring type handle, avoiding a repeated
+    /// TypeDefinitions scan per method.
+    /// </summary>
+    public static List<ILInstruction>? DisassembleMethod(
+        PEReader peReader, MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly = false)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
 
-                matchCount++;
-            }
+        int matchCount = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+
+            if (publicOnly && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                continue;
+
+            if (matchCount == overloadIndex)
+                return Disassemble(peReader, reader, method);
+
+            matchCount++;
         }
 
         return null;

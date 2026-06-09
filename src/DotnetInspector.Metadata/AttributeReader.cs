@@ -184,11 +184,23 @@ public static class AttributeReader
     public static List<(string Name, string? Value)> GetMethodAttributes(
         PEReader peReader, string fullTypeName, string methodName, int overloadIndex, bool publicOnly = true)
     {
-        List<(string Name, string? Value)> results = [];
-        if (!peReader.HasMetadata) return results;
+        if (!peReader.HasMetadata) return [];
 
         var reader = peReader.GetMetadataReader();
-        var methodHandle = FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly);
+        return ReadMethodAttributes(reader, FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly));
+    }
+
+    /// <summary>
+    /// Overload for callers that have already resolved the declaring type handle (e.g. the API output
+    /// formatter, which resolves each method's type once instead of re-scanning per section).
+    /// </summary>
+    public static List<(string Name, string? Value)> GetMethodAttributes(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly = true)
+        => ReadMethodAttributes(reader, FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly));
+
+    private static List<(string Name, string? Value)> ReadMethodAttributes(MetadataReader reader, MethodDefinitionHandle methodHandle)
+    {
+        List<(string Name, string? Value)> results = [];
         if (methodHandle.IsNil) return results;
 
         var method = reader.GetMethodDefinition(methodHandle);
@@ -213,22 +225,30 @@ public static class AttributeReader
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
-            var name = TypeResolver.GetFullName(reader, typeDef);
-            if (name != fullTypeName) continue;
+            if (TypeResolver.GetFullName(reader, typeDef) != fullTypeName) continue;
 
-            int matchIndex = 0;
-            foreach (var mHandle in typeDef.GetMethods())
-            {
-                var method = reader.GetMethodDefinition(mHandle);
-                if (publicOnly && (method.Attributes & MethodAttributes.Public) == 0)
-                    continue;
-                if (reader.GetString(method.Name) != methodName)
-                    continue;
+            return FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly);
+        }
 
-                if (matchIndex == overloadIndex)
-                    return mHandle;
-                matchIndex++;
-            }
+        return default;
+    }
+
+    private static MethodDefinitionHandle FindMethodHandleInType(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        int matchIndex = 0;
+        foreach (var mHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(mHandle);
+            if (publicOnly && (method.Attributes & MethodAttributes.Public) == 0)
+                continue;
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+
+            if (matchIndex == overloadIndex)
+                return mHandle;
+            matchIndex++;
         }
 
         return default;

@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Metadata;
@@ -870,6 +872,10 @@ public static class ApiOutputFormatter
     {
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
+        if (!peReader.HasMetadata)
+            return;
+
+        var reader = peReader.GetMetadataReader();
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
@@ -877,6 +883,12 @@ public static class ApiOutputFormatter
         bool wantsDecompiledSource = requestedSections.Contains(SectionNames.DecompiledSource);
         bool wantsIL = requestedSections.Contains(SectionNames.IL);
         bool wantsAnnotatedIL = requestedSections.Contains(SectionNames.ILAnnotated);
+
+        // Resolve each method's declaring type once via an index, instead of having every helper
+        // (attributes, IL, decompiled source, annotated IL) re-scan all TypeDefinitions per method.
+        var typeIndex = new Dictionary<string, System.Reflection.Metadata.TypeDefinitionHandle>(StringComparer.Ordinal);
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+            typeIndex.TryAdd(reader.GetFullTypeName(reader.GetTypeDefinition(typeDefHandle)), typeDefHandle);
 
         foreach (var method in methods)
         {
@@ -886,11 +898,14 @@ public static class ApiOutputFormatter
                 : overloadIndex;
             var publicOnly = method.Kind != "explicit-interface-implementation";
 
+            if (!typeIndex.TryGetValue(lookupType, out var typeHandle))
+                continue;
+
             // Custom attributes
             if (wantsAttributes)
             {
                 var attributes = AttributeReader.GetMethodAttributes(
-                    peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                    reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
                 if (attributes.Count > 0)
                 {
                     view.MethodAttributeRows = attributes
@@ -899,22 +914,30 @@ public static class ApiOutputFormatter
                 }
             }
 
-            // Lowered C#
-            if (wantsDecompiledSource)
+            // Decompiled source and annotated IL share one method-body context (it is immutable),
+            // so the PDB is opened and the method body decoded once rather than per section.
+            Decompiler.MethodBodyContext? context = null;
+            if (wantsDecompiledSource || wantsAnnotatedIL)
             {
                 try
                 {
-                    var context = Decompiler.MethodBodyContext.Create(
-                        peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
-                    if (context != null)
+                    context = Decompiler.MethodBodyContext.Create(
+                        peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
+                }
+                catch { }
+            }
+
+            // Lowered C#
+            if (wantsDecompiledSource && context != null)
+            {
+                try
+                {
+                    var lowered = Decompiler.CSharpEmitter.Emit(context);
+                    if (!string.IsNullOrWhiteSpace(lowered))
                     {
-                        var lowered = Decompiler.CSharpEmitter.Emit(context);
-                        if (!string.IsNullOrWhiteSpace(lowered))
-                        {
-                            var source = FormatLoweredSourceWithDeclaration(type, method, context, lowered);
-                            memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
-                            hasCode = true;
-                        }
+                        var source = FormatLoweredSourceWithDeclaration(type, method, context, lowered);
+                        memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
+                        hasCode = true;
                     }
                 }
                 catch { }
@@ -924,7 +947,7 @@ public static class ApiOutputFormatter
             if (wantsIL)
             {
                 var instructions = ILDisassembler.DisassembleMethod(
-                    peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly);
+                    peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
                 if (instructions is { Count: > 0 })
                 {
                     var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
@@ -934,21 +957,16 @@ public static class ApiOutputFormatter
             }
 
             // Annotated IL
-            if (wantsAnnotatedIL)
+            if (wantsAnnotatedIL && context != null)
             {
                 try
                 {
-                    var context = Decompiler.MethodBodyContext.Create(
-                        peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
-                    if (context != null)
+                    var annotated = Decompiler.AnnotatedILEmitter.Emit(
+                        context, Decompiler.ILAnnotationDepth.Structured);
+                    if (!string.IsNullOrWhiteSpace(annotated))
                     {
-                        var annotated = Decompiler.AnnotatedILEmitter.Emit(
-                            context, Decompiler.ILAnnotationDepth.Structured);
-                        if (!string.IsNullOrWhiteSpace(annotated))
-                        {
-                            memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
-                            hasCode = true;
-                        }
+                        memberCode.AnnotatedIL = new CodeSection("il", annotated.TrimEnd());
+                        hasCode = true;
                     }
                 }
                 catch { }
