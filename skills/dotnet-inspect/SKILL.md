@@ -40,7 +40,7 @@ dnx dotnet-inspect -y -- <command>
 
 Default output is Markdown. Use Markdown for readable evidence and narrative with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact human scanning, `--tsv` for normalized tab-separated rows when agents or scripts need stable field splitting, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs.
 
-Markdown and JSON can represent multi-section documents. Table, TSV, and JSONL are single-table formats; when a query matches multiple sections, select one with `-S` or use Markdown/JSON.
+Markdown and JSON can represent multi-section documents. Table, TSV, and JSONL are single-table formats for commands or projections that produce one table.
 
 Format promises:
 
