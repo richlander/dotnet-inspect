@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace DotnetInspector.Services;
 
 /// <summary>
@@ -79,35 +77,5 @@ public static class GitHubUrlResolver
     public static string ConvertRawToBlobUrl(string url)
     {
         return url.Replace("/raw/", "/blob/");
-    }
-
-    /// <summary>
-    /// Converts a raw.githubusercontent.com URL to a github.com/raw/ URL for display.
-    /// </summary>
-    public static string? ConvertToGitHubRawUrl(string? rawUrl)
-    {
-        if (rawUrl == null) return null;
-
-        var match = Regex.Match(rawUrl,
-            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
-        if (match.Success)
-            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}/raw/{match.Groups[3].Value}/{match.Groups[4].Value}";
-
-        return rawUrl;
-    }
-
-    /// <summary>
-    /// Converts a github.com raw/blob URL to a raw.githubusercontent.com URL for fetching content.
-    /// </summary>
-    public static string ConvertToRawGitHubContentUrl(string url)
-    {
-        if (url.Contains("github.com"))
-        {
-            var match = Regex.Match(url,
-                @"https://github\.com/([^/]+)/([^/]+)/(raw|blob)/([^/]+)/(.+)");
-            if (match.Success)
-                return $"https://raw.githubusercontent.com/{match.Groups[1].Value}/{match.Groups[2].Value}/{match.Groups[4].Value}/{match.Groups[5].Value}";
-        }
-        return url;
     }
 }
