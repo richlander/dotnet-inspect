@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -15,7 +16,7 @@ public static class NuspecParser
     {
         var result = new NuspecData();
 
-        XDocument doc = XDocument.Load(nuspecPath);
+        XDocument doc = HardenedXml.LoadXDocument(nuspecPath);
         XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
         result.ManifestVersion = GetManifestVersion(ns);
 

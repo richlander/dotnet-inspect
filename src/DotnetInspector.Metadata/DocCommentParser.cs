@@ -258,7 +258,9 @@ public partial class DocCommentParser
 
         try
         {
-            var doc = new XmlDocument();
+            // Content is wrapped in <doc>…</doc>, so a DTD cannot appear at document start; null
+            // resolver is belt-and-suspenders against external-entity resolution.
+            var doc = new XmlDocument { XmlResolver = null };
             doc.LoadXml(xmlContent);
 
             string? summary = GetElementText(doc, "//summary");

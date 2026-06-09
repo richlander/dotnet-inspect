@@ -182,7 +182,7 @@ internal static class SourceEnricher
 
             if ((options.ShowDocs || options.ShowSamples) && sourceInfo?.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher(httpClient);
+                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
                 var parser = new DocCommentParser();
 
                 List<(string Url, string FilePath)> sourceFilesToFetch =
@@ -323,7 +323,7 @@ internal static class SourceEnricher
 
         logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allUrlsToFetch.Count} unique source URLs ({stopwatch.ElapsedMilliseconds}ms)");
 
-        var fetcher = new SourceFetcher(httpClient);
+        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
         Dictionary<string, string?> contentCache = [];
 

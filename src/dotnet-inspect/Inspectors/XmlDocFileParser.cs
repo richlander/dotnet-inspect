@@ -24,8 +24,7 @@ public partial class XmlDocFileParser
 
         try
         {
-            var doc = new XmlDocument { XmlResolver = null };
-            doc.Load(xmlPath);
+            var doc = DotnetInspector.Core.HardenedXml.LoadXmlDocument(xmlPath);
 
             var members = doc.SelectNodes("/doc/members/member");
             if (members == null)

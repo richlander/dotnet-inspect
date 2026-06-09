@@ -33,7 +33,7 @@ internal static class SourceIntegrityService
             if (doc.IsEmbedded)
                 continue; // present in the artifact; nothing to fetch
             if (doc.ResolvedUrl == null || doc.Checksum is not { Length: > 0 } || doc.ChecksumAlgorithm == null
-                || !IsAllowedScheme(doc.ResolvedUrl))
+                || !Core.HttpClientFactory.IsAllowedFetchScheme(doc.ResolvedUrl))
             {
                 unverifiable++;
                 continue;
@@ -127,10 +127,6 @@ internal static class SourceIntegrityService
         inspection.SourceIntegrityUnverifiable = unverifiable;
         inspection.SourceIntegrityMismatches = mismatches.IsEmpty ? null : [.. mismatches.OrderBy(f => f)];
     }
-
-    private static bool IsAllowedScheme(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var uri)
-        && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 
     private static string? SafeHost(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : null;
