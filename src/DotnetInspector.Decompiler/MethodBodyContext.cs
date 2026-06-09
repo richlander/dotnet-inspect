@@ -202,6 +202,27 @@ public sealed class MethodBodyContext
     public static MethodBodyContext? Create(PEReader peReader, string typeName, string methodName, int overloadIndex = 0, bool publicOnly = false, string? externalPdbPath = null)
     {
         var reader = peReader.GetMetadataReader();
+
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            if (reader.GetFullTypeName(typeDef) != typeName)
+                continue;
+
+            return Create(peReader, reader, typeDefHandle, methodName, overloadIndex, publicOnly, externalPdbPath);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Overload for callers that have already resolved the declaring type handle, avoiding a repeated
+    /// TypeDefinitions scan per method.
+    /// </summary>
+    public static MethodBodyContext? Create(
+        PEReader peReader, MetadataReader reader, TypeDefinitionHandle typeHandle,
+        string methodName, int overloadIndex = 0, bool publicOnly = false, string? externalPdbPath = null)
+    {
         MetadataReader? pdbReader = TryGetEmbeddedPdbReader(peReader);
 
         // Fall back to an external portable PDB (e.g. acquired from a symbol server) when the
@@ -229,24 +250,18 @@ public sealed class MethodBodyContext
                 }
             }
 
-            foreach (var typeDefHandle in reader.TypeDefinitions)
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            int matchCount = 0;
+            foreach (var methodHandle in typeDef.GetMethods())
             {
-                var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                if (reader.GetFullTypeName(typeDef) != typeName)
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != methodName)
                     continue;
-
-                int matchCount = 0;
-                foreach (var methodHandle in typeDef.GetMethods())
-                {
-                    var method = reader.GetMethodDefinition(methodHandle);
-                    if (reader.GetString(method.Name) != methodName)
-                        continue;
-                    if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
-                        continue;
-                    if (matchCount == overloadIndex)
-                        return Create(peReader, reader, method, pdbReader, methodHandle);
-                    matchCount++;
-                }
+                if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.Public) == 0)
+                    continue;
+                if (matchCount == overloadIndex)
+                    return Create(peReader, reader, method, pdbReader, methodHandle);
+                matchCount++;
             }
 
             return null;

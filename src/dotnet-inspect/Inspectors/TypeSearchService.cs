@@ -326,17 +326,41 @@ internal static class TypeSearchService
             var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
             logger.Log($"Searching {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
 
-            foreach (var asmInfo in frameworkAssemblies)
+            void Tag(List<TypeSearchResult> types)
             {
-                if (ReachedLimit()) break;
-
-                var types = CollectFromAssembly(asmInfo.Path, pattern, options.IncludeAll, logger);
                 foreach (var t in types)
                 {
                     t.Source = framework;
                     t.SourceVersion = resolvedVersion;
                 }
-                results.AddRange(types);
+            }
+
+            // With an active result limit, scan sequentially to honor the early-exit (which results
+            // appear when capped must stay deterministic). Otherwise the per-assembly scans are
+            // independent and CPU-bound, so run them in parallel and reassemble in discovery order.
+            if (pattern != null && options.Limit.HasValue)
+            {
+                foreach (var asmInfo in frameworkAssemblies)
+                {
+                    if (ReachedLimit()) break;
+
+                    var types = CollectFromAssembly(asmInfo.Path, pattern, options.IncludeAll, logger);
+                    Tag(types);
+                    results.AddRange(types);
+                }
+            }
+            else
+            {
+                var perAssembly = new List<TypeSearchResult>[frameworkAssemblies.Count];
+                Parallel.For(0, frameworkAssemblies.Count, i =>
+                {
+                    var types = CollectFromAssembly(frameworkAssemblies[i].Path, pattern, options.IncludeAll, logger);
+                    Tag(types);
+                    perAssembly[i] = types;
+                });
+
+                foreach (var types in perAssembly)
+                    results.AddRange(types);
             }
         }
 
