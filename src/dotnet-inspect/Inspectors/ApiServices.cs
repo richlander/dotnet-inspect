@@ -416,7 +416,7 @@ internal static class ApiServices
                     {
                         type.IsForwarded = true;
                         api.Types.Add(type);
-                        api.PublicMethodCount += type.Members.Count(m => m.Kind == "method" || m.Kind == "constructor");
+                        api.PublicMethodCount += type.Members.Count(DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
                         api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
                         api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
                         api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");

@@ -388,7 +388,7 @@ public class ApiCommand
             }
             api.Types = api.Types.Where(t => t.Members.Count > 0).ToList();
             api.PublicTypeCount = api.Types.Count;
-            api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(m => m.Kind is "method" or "constructor"));
+            api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(ApiMemberSectionDescriptors.IsMethodLike));
             api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
             api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
             api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
@@ -470,9 +470,12 @@ public class ApiCommand
     {
         var schema = MergeSchemas(
             ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema(),
-            ApiViewContext.Default.GetSchemaInfo<EventsView>()!.ToDocumentSchema(),
             ApiViewContext.Default.GetSchemaInfo<MethodGroupsView>()!.ToDocumentSchema(),
-            ApiViewContext.Default.GetSchemaInfo<MethodsView>()!.ToDocumentSchema());
+            ApiViewContext.Default.GetSchemaInfo<MethodsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<OperatorsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<ExplicitInterfaceImplementationsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<ExtensionMethodsView>()!.ToDocumentSchema(),
+            ApiViewContext.Default.GetSchemaInfo<EventsView>()!.ToDocumentSchema());
         if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
             return schema;
 
@@ -583,7 +586,8 @@ public class ApiCommand
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
-        ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true)
+        ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
+        bool publicOnly = true)
     {
         try
         {
@@ -609,7 +613,7 @@ public class ApiCommand
             if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly: true);
+            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly);
             if (methodInfo?.SourceUrl == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
@@ -709,6 +713,9 @@ public class ApiCommand
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
+        OperatorsView? operatorsView = null;
+        ExplicitInterfaceImplementationsView? explicitInterfaceImplementationsView = null;
+        ExtensionMethodsView? extensionMethodsView = null;
 
         // Populate enum values declaratively (pipeline controls visibility via IncludeSections)
         if (type.Kind == "enum")
@@ -731,6 +738,7 @@ public class ApiCommand
             {
                 var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
                 var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
+                var renderSupplementalRows = ApiOutputFormatter.ShouldRenderSupplementalMemberRows(options);
                 if (renderMemberGroups)
                 {
                     methodGroupsView ??= new MethodGroupsView();
@@ -738,11 +746,23 @@ public class ApiCommand
                     ApiOutputFormatter.PopulateMemberSummarySections(
                         view, methodGroupsView, eventsView, type, options, methodGroupsOnly: renderMemberRows);
                 }
-                if (renderMemberRows)
+                if (renderMemberRows || renderSupplementalRows)
                 {
                     methodsView ??= new MethodsView();
+                    operatorsView ??= new OperatorsView();
+                    explicitInterfaceImplementationsView ??= new ExplicitInterfaceImplementationsView();
+                    extensionMethodsView ??= new ExtensionMethodsView();
                     eventsView ??= new EventsView();
-                    ApiOutputFormatter.PopulateMemberSections(view, methodsView, eventsView, type, options);
+                    ApiOutputFormatter.PopulateMemberSections(
+                        view,
+                        methodsView,
+                        operatorsView,
+                        explicitInterfaceImplementationsView,
+                        extensionMethodsView,
+                        eventsView,
+                        type,
+                        options,
+                        renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
                 }
             }
 
@@ -751,7 +771,7 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
+                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method" && !m.IsAbstract)
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath,
@@ -772,7 +792,9 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var sw = new StringWriter();
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-            ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
+            ApiOutputFormatter.SerializeTypeDocument(
+                view, eventsView, methodGroupsView, methodsView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(MarkdownTableRowLimiter.Apply(sw.ToString(), options.Rows));
         }
@@ -786,7 +808,9 @@ public class ApiCommand
                     (writer, formatter) =>
                     {
                         var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
-                        ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, markoutWriter);
+                        ApiOutputFormatter.SerializeTypeDocument(
+                            view, eventsView, methodGroupsView, methodsView, operatorsView,
+                            explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
                     });
             }
@@ -808,14 +832,18 @@ public class ApiCommand
             if (options.PlainText)
             {
                 var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
-                ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
+                ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
             }
             else
             {
                 var sw = new StringWriter();
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-                ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
+                ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
                 if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
@@ -906,6 +934,9 @@ public class ApiCommand
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
+        OperatorsView? operatorsView = null;
+        ExplicitInterfaceImplementationsView? explicitInterfaceImplementationsView = null;
+        ExtensionMethodsView? extensionMethodsView = null;
 
         if (type.Kind == "enum")
             ApiOutputFormatter.PopulateEnumValues(view, type, renderOptions);
@@ -918,6 +949,7 @@ public class ApiCommand
             {
                 var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(renderOptions);
                 var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(renderOptions);
+                var renderSupplementalRows = ApiOutputFormatter.ShouldRenderSupplementalMemberRows(renderOptions);
                 if (renderMemberGroups)
                 {
                     methodGroupsView ??= new MethodGroupsView();
@@ -925,11 +957,23 @@ public class ApiCommand
                     ApiOutputFormatter.PopulateMemberSummarySections(
                         view, methodGroupsView, eventsView, type, renderOptions, methodGroupsOnly: renderMemberRows);
                 }
-                if (renderMemberRows)
+                if (renderMemberRows || renderSupplementalRows)
                 {
                     methodsView ??= new MethodsView();
+                    operatorsView ??= new OperatorsView();
+                    explicitInterfaceImplementationsView ??= new ExplicitInterfaceImplementationsView();
+                    extensionMethodsView ??= new ExtensionMethodsView();
                     eventsView ??= new EventsView();
-                    ApiOutputFormatter.PopulateMemberSections(view, methodsView, eventsView, type, renderOptions);
+                    ApiOutputFormatter.PopulateMemberSections(
+                        view,
+                        methodsView,
+                        operatorsView,
+                        explicitInterfaceImplementationsView,
+                        extensionMethodsView,
+                        eventsView,
+                        type,
+                        renderOptions,
+                        renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
                 }
             }
 
@@ -937,7 +981,7 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" && !m.IsAbstract)
+                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method" && !m.IsAbstract)
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
@@ -955,7 +999,9 @@ public class ApiCommand
         var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, renderOptions);
         var sw = new StringWriter();
         var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), writerOptions);
-        ApiOutputFormatter.SerializeTypeDocument(view, eventsView, methodGroupsView, methodsView, view.MemberCode, writer);
+        ApiOutputFormatter.SerializeTypeDocument(
+            view, eventsView, methodGroupsView, methodsView, operatorsView,
+            explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
         writer.Flush();
         return sw.ToString();
     }
@@ -967,6 +1013,9 @@ public class ApiCommand
 
         if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
+
+        if (options.KindFilter.Count > 0)
+            members = members.Where(m => options.KindFilter.Contains(m.Kind)).ToList();
 
         if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -1017,6 +1066,9 @@ public class ApiCommand
             [SectionNames.Properties] = m => m.Kind == "property",
             [SectionNames.MethodGroups] = m => m.Kind == "method",
             [SectionNames.Methods] = m => m.Kind == "method",
+            [SectionNames.Operators] = m => m.Kind == "operator",
+            [SectionNames.ExplicitInterfaceImplementations] = m => m.Kind == "explicit-interface-implementation",
+            [SectionNames.ExtensionMethods] = m => m.Kind == "extension-method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
             [SectionNames.Events] = m => m.Kind == "event",
         };

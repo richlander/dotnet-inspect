@@ -989,7 +989,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(15, pipeline.AllSectionNames.Length);
+        Assert.Equal(18, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1015,6 +1015,9 @@ public class SectionPipelineTests
         Assert.Contains("Properties", names);
         Assert.Contains("Method Groups", names);
         Assert.Contains("Methods", names);
+        Assert.Contains("Operators", names);
+        Assert.Contains("Explicit Interface Implementations", names);
+        Assert.Contains("Extension Methods", names);
         Assert.Contains("Events", names);
         Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
@@ -1100,6 +1103,7 @@ public class SectionPipelineTests
                 new ApiMember { Name = ".ctor", Kind = "constructor" },
                 new ApiMember { Name = "Count", Kind = "property" },
                 new ApiMember { Name = "GetValue", Kind = "method" },
+                new ApiMember { Name = "op_Equality", Kind = "operator" },
             ]
         };
 
@@ -1109,6 +1113,7 @@ public class SectionPipelineTests
         Assert.Contains("Properties", effective);
         Assert.Contains("Method Groups", effective);
         Assert.Contains("Methods", effective);
+        Assert.Contains("Operators", effective);
         Assert.DoesNotContain("Fields", effective);
         Assert.DoesNotContain("Events", effective);
     }
@@ -1140,6 +1145,9 @@ public class SectionPipelineTests
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
 
         Assert.Contains("Method Groups", pipeline.InfoSectionNames);
+        Assert.Contains("Operators", pipeline.InfoSectionNames);
+        Assert.Contains("Explicit Interface Implementations", pipeline.InfoSectionNames);
+        Assert.Contains("Extension Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Methods", pipeline.InfoSectionNames);
     }
 

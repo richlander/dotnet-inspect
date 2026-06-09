@@ -60,6 +60,15 @@ public static class SectionNames
     /// <summary>Section for method overload rows.</summary>
     public const string Methods = "Methods";
 
+    /// <summary>Section for operators.</summary>
+    public const string Operators = "Operators";
+
+    /// <summary>Section for explicit interface implementations.</summary>
+    public const string ExplicitInterfaceImplementations = "Explicit Interface Implementations";
+
+    /// <summary>Section for extension methods defined in the inspected binary.</summary>
+    public const string ExtensionMethods = "Extension Methods";
+
     /// <summary>Section for events.</summary>
     public const string Events = "Events";
 

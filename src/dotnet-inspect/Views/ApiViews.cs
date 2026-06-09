@@ -52,6 +52,16 @@ public class TypeView
     [MarkoutSkipNull] public int? Fields { get; set; }
     [MarkoutSkipNull] public int? Properties { get; set; }
     [MarkoutSkipNull] public int? Methods { get; set; }
+    [MarkoutSkipNull] public int? Operators { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Explicit Interface Implementations")]
+    public int? ExplicitInterfaceImplementations { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Extension Methods")]
+    public int? ExtensionMethods { get; set; }
+
     [MarkoutSkipNull] public int? Events { get; set; }
 
     /// <summary>
@@ -254,6 +264,96 @@ public class MethodsView
     public List<MemberRow>? SelectRows { get; set; }
 
     [MarkoutSection(Name = "Methods")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRowsWithDocs { get; set; }
+
+    public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
+
+    [MarkoutIgnore]
+    public bool HasRows =>
+        Rows is { Count: > 0 }
+        || RowsWithDocs is { Count: > 0 }
+        || SelectRows is { Count: > 0 }
+        || SelectRowsWithDocs is { Count: > 0 };
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class OperatorsView
+{
+    [MarkoutSection(Name = "Operators", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Operators", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? RowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Operators", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRows { get; set; }
+
+    [MarkoutSection(Name = "Operators")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRowsWithDocs { get; set; }
+
+    public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
+
+    [MarkoutIgnore]
+    public bool HasRows =>
+        Rows is { Count: > 0 }
+        || RowsWithDocs is { Count: > 0 }
+        || SelectRows is { Count: > 0 }
+        || SelectRowsWithDocs is { Count: > 0 };
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class ExplicitInterfaceImplementationsView
+{
+    [MarkoutSection(Name = "Explicit Interface Implementations", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Explicit Interface Implementations", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? RowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Explicit Interface Implementations", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRows { get; set; }
+
+    [MarkoutSection(Name = "Explicit Interface Implementations")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRowsWithDocs { get; set; }
+
+    public static bool ObsoleteIsAllNull(List<MemberRow>? rows)
+        => rows is null || rows.All(r => string.IsNullOrEmpty(r.Obsolete));
+
+    [MarkoutIgnore]
+    public bool HasRows =>
+        Rows is { Count: > 0 }
+        || RowsWithDocs is { Count: > 0 }
+        || SelectRows is { Count: > 0 }
+        || SelectRowsWithDocs is { Count: > 0 };
+}
+
+[MarkoutSerializable(AutoFields = false)]
+public class ExtensionMethodsView
+{
+    [MarkoutSection(Name = "Extension Methods", IgnoreProperty = "Description,Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? Rows { get; set; }
+
+    [MarkoutSection(Name = "Extension Methods", IgnoreProperty = "Select")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? RowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Extension Methods", IgnoreProperty = "Description")]
+    [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
+    public List<MemberRow>? SelectRows { get; set; }
+
+    [MarkoutSection(Name = "Extension Methods")]
     [MarkoutIgnoreColumnWhen(nameof(ObsoleteIsAllNull), "Obsolete")]
     public List<MemberRow>? SelectRowsWithDocs { get; set; }
 
@@ -513,6 +613,9 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(EventsView))]
 [MarkoutContext(typeof(MethodGroupsView))]
 [MarkoutContext(typeof(MethodsView))]
+[MarkoutContext(typeof(OperatorsView))]
+[MarkoutContext(typeof(ExplicitInterfaceImplementationsView))]
+[MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(TypeSummaryRow))]
 [MarkoutContext(typeof(ForwarderSummaryRow))]

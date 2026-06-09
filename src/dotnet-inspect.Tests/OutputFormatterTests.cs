@@ -79,6 +79,9 @@ public class OutputFormatterTests
 
         Assert.Null(schema.GetSection("Method Groups"));
         Assert.Null(schema.GetSection("Methods"));
+        Assert.Null(schema.GetSection("Operators"));
+        Assert.Null(schema.GetSection("Explicit Interface Implementations"));
+        Assert.Null(schema.GetSection("Extension Methods"));
         Assert.Null(schema.GetSection("Events"));
     }
 
@@ -89,6 +92,9 @@ public class OutputFormatterTests
 
         Assert.NotNull(schema.GetSection("Method Groups"));
         Assert.NotNull(schema.GetSection("Methods"));
+        Assert.NotNull(schema.GetSection("Operators"));
+        Assert.NotNull(schema.GetSection("Explicit Interface Implementations"));
+        Assert.NotNull(schema.GetSection("Extension Methods"));
         Assert.NotNull(schema.GetSection("Events"));
     }
 

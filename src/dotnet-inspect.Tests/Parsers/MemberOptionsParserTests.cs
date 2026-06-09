@@ -347,6 +347,18 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task KindQualifiedOverloadShorthand_SetsKindFilterAndIndex()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "explicit:System.IConvertible.ToBoolean:1");
+
+        Assert.Contains("System.IConvertible.ToBoolean", options.MemberFilter);
+        Assert.Contains("explicit-interface-implementation", options.KindFilter);
+        Assert.Equal(1, options.OverloadIndex);
+    }
+
+    [Fact]
     public async Task IndexOption_SetsOverloadIndex()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize", "--index", "1");

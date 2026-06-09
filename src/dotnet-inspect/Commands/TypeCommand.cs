@@ -258,7 +258,7 @@ public static class TypeCommand
                             ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
 
                         var overloadGroups = apiType.Members
-                            .Where(m => m.Kind is "method" or "constructor")
+                            .Where(ApiMemberSectionDescriptors.IsMethodLike)
                             .GroupBy(m => m.Name)
                             .OrderByDescending(g => g.Count())
                             .ToList();
