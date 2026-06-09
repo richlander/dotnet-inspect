@@ -27,15 +27,6 @@ dnx dotnet-inspect -y -- <command>
 | Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"` or `-S IL`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
-## Query tips
-
-- Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string` or `type 'List<T>'`.
-- After `find`, reuse the package/library it reports in follow-up commands. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
-- Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`. Use `<T>` rather than `<>` for generic type queries.
-- Wildcards are supported for type names and section/schema selection; quote shell patterns, such as `type 'Json*' --package System.Text.Json`, `-S "Async*"`, or `-D "SourceLink*"`.
-- `type` uses `-t` for type filters; `member` uses `-m` for member filters. Dotted member syntax works: `-m JsonSerializer.Deserialize`.
-- Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`. Obsolete members are shown by default; use `--all` for non-public, hidden, and extra members.
-
 ## Output modes and limits
 
 Default output is Markdown. Use Markdown for readable evidence and narrative with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact human scanning, `--tsv` for normalized tab-separated rows when agents or scripts need stable field splitting, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs.
@@ -50,6 +41,30 @@ Format promises:
 - `--table` renders the same projection as `--tsv` and `--jsonl`, with each column starting at a uniform position across rows.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
+
+## Query system
+
+Use the query system when default views do not expose the detail you need. `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D "Method Groups" --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D Methods --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature;Obsolete"
+dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
+dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
+```
+
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. Bare `-S` renders a curated high-density view (`Package Info`/`Library Files`, `Library Info` with counts, compact type/member summaries, narrowed member-name `Methods`, or selected-overload `Signature`/`Decompiled Source`). Minimal/default type views favor summaries, counts, and one row per logical item under `Method Groups`; narrowed member-name views use `Methods` overload rows. In section output, `section (opt-in)` means the section never runs from normal verbosity or `-v:d`; select it explicitly with `-S` when needed. Focused library/member `-S Section` output keeps a compact context row before the selected section. `-S All` produces an exhaustive document: default section first, remaining sections alphabetically, no compact context row.
+
+## General tips
+
+- Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string` or `type 'List<T>'`.
+- After `find`, reuse the package/library it reports in follow-up commands. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
+- Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`. Use `<T>` rather than `<>` for generic type queries.
+- Wildcards are supported for type names and section/schema selection; quote shell patterns, such as `type 'Json*' --package System.Text.Json`, `-S "Async*"`, or `-D "SourceLink*"`.
+- `type` uses `-t` for type filters; `member` uses `-m` for member filters. Dotted member syntax works: `-m JsonSerializer.Deserialize`.
+- Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`. Obsolete members are shown by default; use `--all` for non-public, hidden, and extra members.
 
 ## API lookup workflow
 
@@ -129,18 +144,3 @@ dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.
 ```
 
 Scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. Add `--mermaid` to `depends` when a diagram is more useful than a table.
-
-## Output and query workflow
-
-Use the query system when default views do not expose the detail you need. `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
-
-```bash
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D "Method Groups" --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D Methods --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature;Obsolete"
-dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
-dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
-```
-
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can render for that query. Add `--schema` for the static schema. Bare `-S` renders a curated high-density view (`Package Info`/`Library Files`, `Library Info` with counts, compact type/member summaries, narrowed member-name `Methods`, or selected-overload `Signature`/`Decompiled Source`). Minimal/default type views favor summaries, counts, and one row per logical item under `Method Groups`; narrowed member-name views use `Methods` overload rows. In section output, `section (opt-in)` means the section never runs from normal verbosity or `-v:d`; select it explicitly with `-S` when needed. Focused library/member `-S Section` output keeps a compact context row before the selected section. `-S All` produces an exhaustive document: default section first, remaining sections alphabetically, no compact context row.
