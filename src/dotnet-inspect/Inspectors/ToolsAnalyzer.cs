@@ -182,7 +182,7 @@ public static class ToolsAnalyzer
     {
         try
         {
-            var doc = XDocument.Load(settingsFile);
+            var doc = DotnetInspector.Core.HardenedXml.LoadXDocument(settingsFile);
             var root = doc.Root;
 
             string? version = root?.Attribute("Version")?.Value;

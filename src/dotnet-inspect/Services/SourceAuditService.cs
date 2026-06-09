@@ -35,7 +35,9 @@ internal static class SourceAuditService
                 continue;
             }
 
-            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath))
+            // ResolvedUrl comes from untrusted PDB SourceLink data; only probe absolute http/https.
+            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath)
+                || !Core.HttpClientFactory.IsAllowedFetchScheme(doc.ResolvedUrl))
             {
                 missingFiles.Add(doc.FilePath);
                 continue;

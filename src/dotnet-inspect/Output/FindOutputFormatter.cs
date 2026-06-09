@@ -28,13 +28,10 @@ public static class FindOutputFormatter
                 r.Match == MatchKind.NotFound ? "-" : r.Namespace,
                 r.Match == MatchKind.NotFound ? "-" : r.Kind,
                 r.Match == MatchKind.NotFound ? "-" : r.Library,
-                r.Match == MatchKind.NotFound ? "-" : FormatSource(r.Source, r.SourceVersion),
+                r.Match == MatchKind.NotFound ? "-" : SourceColumn.Format(r.Source, r.SourceVersion),
                 r.Match.ToString().ToLowerInvariant(),
                 r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-"
             )).ToList()
         };
     }
-
-    private static string FormatSource(string source, string? version)
-        => string.IsNullOrEmpty(version) ? source : $"{source}@{version}";
 }

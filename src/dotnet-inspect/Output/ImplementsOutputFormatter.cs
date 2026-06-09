@@ -19,11 +19,8 @@ public static class ImplementsOutputFormatter
                 .OrderBy(r => r.TypeName)
                 .Select(r => new ImplementerRow(
                     r.TypeName, r.Kind, r.Relationship,
-                    r.Assembly ?? "", FormatSource(r)))
+                    r.Assembly ?? "", SourceColumn.Format(r.Source, r.SourceVersion)))
                 .ToList()
         };
     }
-
-    private static string FormatSource(ImplementerResult r)
-        => r.SourceVersion != null ? $"{r.Source}@{r.SourceVersion}" : r.Source ?? "";
 }

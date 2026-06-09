@@ -15,6 +15,15 @@ public class SourceLinkResolver
 {
     private readonly SLF.SourceLinkResolver _slfResolver;
 
+    // Lazily-built per-reader indexes so batched enrichment (one ResolveTypeSource call per API
+    // type) does not re-scan every TypeDefinition / PDB Document row for each type. Keyed by reader
+    // instance because the metadata/pdb readers are passed in per call.
+    private MetadataReader? _typeIndexReader;
+    private Dictionary<string, TypeDefinitionHandle>? _fullNameIndex;
+    private Dictionary<string, TypeDefinitionHandle>? _simpleNameIndex;
+    private MetadataReader? _docIndexReader;
+    private Dictionary<string, List<string>>? _docsByFirstSegment;
+
     public enum SourceResolutionMethod
     {
         /// <summary>Source resolved from method debug info (sequence points).</summary>
@@ -171,22 +180,31 @@ public class SourceLinkResolver
         => _slfResolver.ExtractCommitHash();
 
     /// <summary>
-    /// Finds a TypeDefinitionHandle by type name in the metadata reader.
+    /// Finds a TypeDefinitionHandle by type name, preferring a full-name match over a simple-name
+    /// match. Uses a per-reader index so repeated lookups don't re-scan all TypeDefinitions.
     /// </summary>
-    private static TypeDefinitionHandle? FindTypeDefinitionHandle(MetadataReader reader, string typeName)
+    private TypeDefinitionHandle? FindTypeDefinitionHandle(MetadataReader reader, string typeName)
     {
-        foreach (var typeDefHandle in reader.TypeDefinitions)
+        if (_typeIndexReader != reader || _fullNameIndex == null)
         {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            string name = reader.GetString(typeDef.Name);
-            string fullName = reader.GetFullTypeName(typeDef);
-
-            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
-                name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+            var fullNames = new Dictionary<string, TypeDefinitionHandle>(StringComparer.OrdinalIgnoreCase);
+            var simpleNames = new Dictionary<string, TypeDefinitionHandle>(StringComparer.OrdinalIgnoreCase);
+            foreach (var typeDefHandle in reader.TypeDefinitions)
             {
-                return typeDefHandle;
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                // TryAdd preserves the original "first row wins" behavior on duplicate names.
+                fullNames.TryAdd(reader.GetFullTypeName(typeDef), typeDefHandle);
+                simpleNames.TryAdd(reader.GetString(typeDef.Name), typeDefHandle);
             }
+            _fullNameIndex = fullNames;
+            _simpleNameIndex = simpleNames;
+            _typeIndexReader = reader;
         }
+
+        if (_fullNameIndex.TryGetValue(typeName, out var handle))
+            return handle;
+        if (_simpleNameIndex!.TryGetValue(typeName, out handle))
+            return handle;
         return null;
     }
 
@@ -224,23 +242,40 @@ public class SourceLinkResolver
     /// </summary>
     private List<PartialSourceFile> FindDocumentsMatchingTypeName(MetadataReader pdb, string typeName)
     {
-        List<PartialSourceFile> matches = [];
-
-        foreach (var docHandle in pdb.Documents)
+        // Index documents by the filename segment before the first '.', so {TypeName}.cs and
+        // {TypeName}.*.cs both bucket under {TypeName}. Built once per PDB reader instead of
+        // scanning every Document for each type.
+        if (_docIndexReader != pdb || _docsByFirstSegment == null)
         {
-            var document = pdb.GetDocument(docHandle);
-            string filePath = pdb.GetString(document.Name);
-            string fileName = Path.GetFileName(filePath);
-
-            // Match {TypeName}.cs or {TypeName}.*.cs patterns
-            if (fileName.Equals($"{typeName}.cs", StringComparison.OrdinalIgnoreCase) ||
-                (fileName.StartsWith($"{typeName}.", StringComparison.OrdinalIgnoreCase) &&
-                 fileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
+            var index = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var docHandle in pdb.Documents)
             {
-                string? sourceUrl = ApplySourceLinkMapping(filePath);
-                string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
-                matches.Add(new PartialSourceFile(filePath, sourceUrl, browseUrl));
+                string filePath = pdb.GetString(pdb.GetDocument(docHandle).Name);
+                string fileName = Path.GetFileName(filePath);
+                int firstDot = fileName.IndexOf('.');
+                string segment = firstDot >= 0 ? fileName[..firstDot] : fileName;
+                if (!index.TryGetValue(segment, out var list))
+                    index[segment] = list = [];
+                list.Add(filePath);
             }
+            _docsByFirstSegment = index;
+            _docIndexReader = pdb;
+        }
+
+        if (!_docsByFirstSegment.TryGetValue(typeName, out var candidates))
+            return [];
+
+        // Within the bucket the first segment already equals typeName, so the original pattern
+        // reduces to "ends with .cs".
+        List<PartialSourceFile> matches = [];
+        foreach (var filePath in candidates)
+        {
+            if (!Path.GetFileName(filePath).EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string? sourceUrl = ApplySourceLinkMapping(filePath);
+            string? browseUrl = ConvertToGitHubBrowseUrl(sourceUrl);
+            matches.Add(new PartialSourceFile(filePath, sourceUrl, browseUrl));
         }
 
         return matches;

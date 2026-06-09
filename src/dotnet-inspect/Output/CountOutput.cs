@@ -25,7 +25,7 @@ public static class CountOutput
 
         for (var i = 0; i < lines.Length - 1; i++)
         {
-            if (IsCodeFence(lines[i]))
+            if (MarkdownScan.IsCodeFence(lines[i]))
             {
                 inCodeFence = !inCodeFence;
                 continue;
@@ -34,13 +34,13 @@ public static class CountOutput
             if (inCodeFence)
                 continue;
 
-            if (!IsTableLine(lines[i]) || !IsSeparatorLine(lines[i + 1]))
+            if (!MarkdownScan.IsTableLine(lines[i]) || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
                 continue;
 
             i += 2;
-            while (i < lines.Length && IsTableLine(lines[i]))
+            while (i < lines.Length && MarkdownScan.IsTableLine(lines[i]))
             {
-                if (!IsSeparatorLine(lines[i]))
+                if (!MarkdownScan.IsSeparatorLine(lines[i]))
                     count++;
                 i++;
             }
@@ -53,27 +53,4 @@ public static class CountOutput
     {
         Console.WriteLine(CountMarkdownTableRows(markdown));
     }
-
-    private static bool IsTableLine(string line)
-    {
-        var trimmed = line.Trim();
-        return trimmed.Length >= 2 && trimmed.StartsWith('|') && trimmed.EndsWith('|');
-    }
-
-    private static bool IsCodeFence(string line)
-        => line.TrimStart().StartsWith("```", StringComparison.Ordinal);
-
-    private static bool IsSeparatorLine(string line)
-    {
-        if (!IsTableLine(line))
-            return false;
-
-        var cells = line.Trim().Trim('|').Split('|', StringSplitOptions.TrimEntries);
-        return cells.Length > 0 && cells.All(IsSeparatorCell);
-    }
-
-    private static bool IsSeparatorCell(string cell)
-        => cell.Length > 0
-           && cell.Any(c => c == '-')
-           && cell.All(c => c is '-' or ':' or ' ');
 }

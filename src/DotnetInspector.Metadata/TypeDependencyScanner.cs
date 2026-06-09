@@ -177,7 +177,7 @@ public static class TypeDependencyScanner
         if (!visited.Add(normalized))
             return;
 
-        var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalized));
+        var matchKey = ResolveTransitiveKey(typeIndex, normalized);
         if (matchKey == null)
             return;
 
@@ -215,13 +215,26 @@ public static class TypeDependencyScanner
     {
         var normalizedName = TypeMatcher.Normalize(typeName);
 
-        var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedName));
+        var matchKey = ResolveTransitiveKey(typeIndex, normalizedName);
         if (matchKey == null)
             return [];
 
         var match = typeIndex[matchKey];
         return BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
     }
+
+    /// <summary>
+    /// Resolves a base/interface name (already a full ECMA name from metadata) to an index key.
+    /// Tries an exact dictionary hit first — the common case for transitive walks — and only falls
+    /// back to the fuzzy namespace-suffix scan, so closure traversal is O(1) per node instead of
+    /// O(index size). The user-supplied root pattern still uses the fuzzy scan directly.
+    /// </summary>
+    private static string? ResolveTransitiveKey(
+        Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
+        string normalized)
+        => typeIndex.ContainsKey(normalized)
+            ? normalized
+            : typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalized));
 
     private static bool IsSystemRoot(string typeName)
     {

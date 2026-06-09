@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using DotnetInspector.Metadata;
 using DotnetInspector.Options;
@@ -182,7 +183,7 @@ internal static class SourceEnricher
 
             if ((options.ShowDocs || options.ShowSamples) && sourceInfo?.SourceUrl != null)
             {
-                var fetcher = new SourceFetcher(httpClient);
+                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
                 var parser = new DocCommentParser();
 
                 List<(string Url, string FilePath)> sourceFilesToFetch =
@@ -323,20 +324,16 @@ internal static class SourceEnricher
 
         logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allUrlsToFetch.Count} unique source URLs ({stopwatch.ElapsedMilliseconds}ms)");
 
-        var fetcher = new SourceFetcher(httpClient);
+        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var urlList = allUrlsToFetch.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).ToList();
-        Dictionary<string, string?> contentCache = [];
+        var contentCache = new ConcurrentDictionary<string, string?>();
 
         logger.Log($"Phase 2: Fetching {urlList.Count} URLs (max 16 concurrent)");
         await Parallel.ForEachAsync(urlList,
             new ParallelOptions { MaxDegreeOfParallelism = 16 },
             async (url, ct) =>
             {
-                var content = await fetcher.FetchSourceAsync(url);
-                lock (contentCache)
-                {
-                    contentCache[url] = content;
-                }
+                contentCache[url] = await fetcher.FetchSourceAsync(url);
             });
 
         logger.Log($"Phase 2: Fetched {contentCache.Count(kv => kv.Value != null)} of {contentCache.Count} URLs ({stopwatch.ElapsedMilliseconds}ms)");

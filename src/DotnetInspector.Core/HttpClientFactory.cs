@@ -14,6 +14,7 @@ public static class HttpClientFactory
     private static bool _offline;
     private static bool _denyNetwork;
     private static HttpClient? _shared;
+    private static HttpClient? _sharedUntrustedFetch;
 
     /// <summary>
     /// Configure the factory before first use. Safe to call multiple times;
@@ -40,13 +41,32 @@ public static class HttpClientFactory
     /// Resets the shared instance so the next access creates a fresh one.
     /// Test-only: allows toggling offline mode between tests.
     /// </summary>
-    internal static void ResetSharedForTesting() => _shared = null;
+    internal static void ResetSharedForTesting()
+    {
+        _shared = null;
+        _sharedUntrustedFetch = null;
+    }
 
     /// <summary>
     /// Gets the shared HttpClient instance for the application.
     /// This instance should be used throughout the app lifetime and not disposed.
     /// </summary>
     public static HttpClient Shared => _shared ??= CreateNew();
+
+    /// <summary>
+    /// Shared, process-lifetime SSRF-hardened client for fetching content from URLs that originate
+    /// in untrusted artifacts (SourceLink URLs embedded in a PDB, etc.). Use this — not <see cref="Shared"/> —
+    /// for any URL that came from inspected package/PDB data. Do not dispose.
+    /// </summary>
+    public static HttpClient SharedUntrustedFetch => _sharedUntrustedFetch ??= CreateUntrustedFetchClient();
+
+    /// <summary>
+    /// Whether <paramref name="url"/> is an absolute http/https URL. Untrusted-source fetches restrict
+    /// themselves to these schemes so attacker-supplied SourceLink data cannot reach file://, etc.
+    /// </summary>
+    public static bool IsAllowedFetchScheme(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 
     /// <summary>
     /// Creates a new HttpClient with standard configuration including User-Agent header

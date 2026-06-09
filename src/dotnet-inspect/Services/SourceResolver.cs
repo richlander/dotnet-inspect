@@ -186,29 +186,11 @@ public static class SourceResolver
 
     private static string NormalizeCoreLibTypeQuery(string name)
     {
+        // Case-insensitive (a user may type "String"); falls back to the original cased input.
         var trimmed = name.Trim();
-        return trimmed.ToLowerInvariant() switch
-        {
-            "bool" => "System.Boolean",
-            "byte" => "System.Byte",
-            "sbyte" => "System.SByte",
-            "char" => "System.Char",
-            "decimal" => "System.Decimal",
-            "double" => "System.Double",
-            "float" => "System.Single",
-            "int" => "System.Int32",
-            "uint" => "System.UInt32",
-            "nint" => "System.IntPtr",
-            "nuint" => "System.UIntPtr",
-            "long" => "System.Int64",
-            "ulong" => "System.UInt64",
-            "object" => "System.Object",
-            "short" => "System.Int16",
-            "ushort" => "System.UInt16",
-            "string" => "System.String",
-            "void" => "System.Void",
-            _ => trimmed
-        };
+        return DotnetInspector.Metadata.PrimitiveTypeNames.TryToClrFullName(trimmed.ToLowerInvariant(), out var full)
+            ? full
+            : trimmed;
     }
 
     private static string? FindUniquePublicType(string assemblyPath, string typeName)
@@ -299,8 +281,8 @@ public static class SourceResolver
 
             // Normalize C#-style generic notation to CLR backtick notation.
             // e.g., "Dictionary<TKey,TValue>" → "Dictionary`2", "List<T>" → "List`1"
-            if (packagePath != null) packagePath = GenericTypeNameConverter.Convert(packagePath);
-            if (typeName != null) typeName = GenericTypeNameConverter.Convert(typeName);
+            if (packagePath != null) packagePath = DotnetInspector.Metadata.TypeMatcher.Normalize(packagePath);
+            if (typeName != null) typeName = DotnetInspector.Metadata.TypeMatcher.Normalize(typeName);
 
             // Check for version number passed as separate argument
             if (CommandLineHelpers.LooksLikeVersionNumber(typeName))

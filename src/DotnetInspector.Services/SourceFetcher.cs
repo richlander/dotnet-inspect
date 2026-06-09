@@ -17,6 +17,15 @@ public class SourceFetcher(HttpClient httpClient)
     /// </summary>
     public async Task<string?> FetchSourceAsync(string url)
     {
+        // URLs originate in untrusted artifacts (SourceLink data in a PDB). Restrict to absolute
+        // http/https so attacker-supplied mappings cannot reach file:// or other schemes. The
+        // injected HttpClient is additionally SSRF-hardened against private/internal IPs.
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            || (parsed.Scheme != Uri.UriSchemeHttps && parsed.Scheme != Uri.UriSchemeHttp))
+        {
+            return null;
+        }
+
         // Check in-memory cache first
         if (_memoryCache.TryGetValue(url, out string? cached))
         {

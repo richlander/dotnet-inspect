@@ -157,8 +157,8 @@ public static class PackageExtractor
         string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
         string extractPath = Path.Combine(tempDir, "extracted");
 
-        // Try each source in order
-        byte[]? packageBytes = null;
+        // Try each source in order, streaming the package straight to disk (no in-memory buffer).
+        string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
         string? successfulSource = null;
 
         foreach (var source in sources)
@@ -171,8 +171,9 @@ public static class PackageExtractor
 
             try
             {
-                packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl, auth: source.GetAuthHeader()).ConfigureAwait(false);
-                if (packageBytes != null)
+                var ok = await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client, nupkgUrl, nupkgPath, log: log, auth: source.GetAuthHeader()).ConfigureAwait(false);
+                if (ok)
                 {
                     successfulSource = source.Name;
                     break;
@@ -185,7 +186,7 @@ public static class PackageExtractor
             }
         }
 
-        if (packageBytes == null)
+        if (successfulSource == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
 
@@ -197,11 +198,8 @@ public static class PackageExtractor
             return PackageExtractionOutcome.Error($"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
         }
 
-        string? nupkgPath = null;
         try
         {
-            nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-            await File.WriteAllBytesAsync(nupkgPath, packageBytes).ConfigureAwait(false);
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
             log?.Invoke($"Package downloaded successfully from {successfulSource}.");
 
@@ -247,6 +245,81 @@ public static class PackageExtractor
                 baseAddress += "/";
 
             return $"{baseAddress}{packageName}/{version}/{packageName}.{version}.nupkg";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Builds the flat-container URL for a package's .nuspec ({base}/{id}/{version}/{id}.nuspec),
+    /// or null if the source exposes no flat-container endpoint.
+    /// </summary>
+    private static async Task<string?> GetNuspecUrlAsync(
+        HttpClient client,
+        NuGetSource source,
+        string packageName,
+        string version,
+        Action<string>? log)
+    {
+        var flatContainerUrl = source.GetFlatContainerUrl();
+        if (flatContainerUrl != null)
+            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.nuspec";
+
+        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
+        if (baseAddress != null)
+        {
+            if (!baseAddress.EndsWith('/'))
+                baseAddress += "/";
+            return $"{baseAddress}{packageName}/{version}/{packageName}.nuspec";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Fetches just a package's .nuspec XML — from the extracted NuGet cache if present, otherwise
+    /// downloading only the nuspec (not the whole .nupkg) from the flat-container endpoint. Used by
+    /// transitive dependency resolution, which needs nothing but the dependency groups. Returns null
+    /// if the nuspec could not be obtained from any source.
+    /// </summary>
+    public static async Task<string?> TryGetNuspecXmlAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageId.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+
+        // Cache hit: read the nuspec straight from the already-extracted package.
+        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+        {
+            var cachedNuspec = Directory
+                .GetFiles(cachedPath, "*.nuspec", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+            if (cachedNuspec != null)
+                return await File.ReadAllTextAsync(cachedNuspec).ConfigureAwait(false);
+        }
+
+        foreach (var source in NuGetSourceResolver.ResolveSources(sourceOptions))
+        {
+            var url = await GetNuspecUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
+            if (url == null)
+                continue;
+
+            try
+            {
+                var xml = await HttpRetryHelper.GetStringWithRetryAsync(
+                    client, url, log: log, auth: source.GetAuthHeader()).ConfigureAwait(false);
+                if (xml != null)
+                    return xml;
+            }
+            catch (HttpRequestException ex)
+            {
+                log?.Invoke($"Nuspec fetch from {source.Name} failed: {ex.Message}");
+            }
         }
 
         return null;

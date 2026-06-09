@@ -255,96 +255,114 @@ public static class ExtensionMethodScanner
         toProcess.Enqueue((targetType, "", maxDepth));
         visited.Add(targetType);
 
-        while (toProcess.Count > 0)
+        // Open every assembly once and index its types, rather than re-opening and re-scanning all
+        // assemblies for each BFS node. Readers/streams stay alive for the whole walk (signatures
+        // are decoded lazily) and are disposed at the end.
+        var disposables = new List<IDisposable>();
+        var byFullName = new Dictionary<string, (MetadataReader Reader, TypeDefinitionHandle Handle)>(StringComparer.OrdinalIgnoreCase);
+        var bySimpleName = new Dictionary<string, (MetadataReader Reader, TypeDefinitionHandle Handle)>(StringComparer.OrdinalIgnoreCase);
+        try
         {
-            var (currentType, currentPath, remainingDepth) = toProcess.Dequeue();
-            if (remainingDepth <= 0) continue;
-
-            // Find this type in any assembly
             foreach (var assemblyPath in assemblyPaths)
             {
                 try
                 {
-                    using var stream = File.OpenRead(assemblyPath);
-                    using var peReader = new PEReader(stream);
-                    if (!peReader.HasMetadata) continue;
+                    var stream = File.OpenRead(assemblyPath);
+                    var peReader = new PEReader(stream);
+                    if (!peReader.HasMetadata)
+                    {
+                        peReader.Dispose();
+                        stream.Dispose();
+                        continue;
+                    }
+                    disposables.Add(peReader);
+                    disposables.Add(stream);
 
                     var reader = peReader.GetMetadataReader();
-
                     foreach (var typeDefHandle in reader.TypeDefinitions)
                     {
                         var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                        string typeName = reader.GetString(typeDef.Name);
-                        string fullName = reader.GetFullTypeName(typeDef);
-
-                        // Match by simple name or full name
-                        if (!typeName.Equals(currentType, StringComparison.OrdinalIgnoreCase) &&
-                            !fullName.Equals(currentType, StringComparison.OrdinalIgnoreCase) &&
-                            !typeName.Equals(currentType.Split('.').Last(), StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        // Found the type - extract reachable types from its members
-                        var context = GenericContext.ForType(reader, typeDef);
-
-                        // Properties
-                        foreach (var propHandle in typeDef.GetProperties())
-                        {
-                            var prop = reader.GetPropertyDefinition(propHandle);
-                            var propName = reader.GetString(prop.Name);
-
-                            try
-                            {
-                                var sig = prop.DecodeSignature(SignatureDecoder.Instance, context);
-                                var propType = UnwrapAsyncType(sig.ReturnType);
-
-                                if (!string.IsNullOrEmpty(propType) && !IsPrimitiveType(propType) && visited.Add(propType))
-                                {
-                                    var path = $"{currentPath}.{propName}";
-                                    results.Add((propType, path));
-                                    toProcess.Enqueue((propType, path, remainingDepth - 1));
-                                }
-                            }
-                            // Skip properties with undecodable signatures
-                            catch { }
-                        }
-
-                        // Methods (return types)
-                        foreach (var methodHandle in typeDef.GetMethods())
-                        {
-                            var method = reader.GetMethodDefinition(methodHandle);
-                            if ((method.Attributes & MethodAttributes.Public) == 0) continue;
-
-                            string methodName = reader.GetString(method.Name);
-                            if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
-                                methodName.StartsWith("add_") || methodName.StartsWith("remove_") ||
-                                methodName.StartsWith("."))
-                                continue;
-
-                            try
-                            {
-                                var methodContext = GenericContext.ForMethod(reader, typeDef, method);
-                                var sig = method.DecodeSignature(SignatureDecoder.Instance, methodContext);
-                                var retType = UnwrapAsyncType(sig.ReturnType);
-
-                                if (!string.IsNullOrEmpty(retType) && retType != "void" &&
-                                    !IsPrimitiveType(retType) && visited.Add(retType))
-                                {
-                                    var path = $"{currentPath}.{methodName}()";
-                                    results.Add((retType, path));
-                                    toProcess.Enqueue((retType, path, remainingDepth - 1));
-                                }
-                            }
-                            // Skip methods with undecodable signatures
-                            catch { }
-                        }
-
-                        goto foundType;
+                        // TryAdd preserves "first assembly / first type wins".
+                        byFullName.TryAdd(reader.GetFullTypeName(typeDef), (reader, typeDefHandle));
+                        bySimpleName.TryAdd(reader.GetString(typeDef.Name), (reader, typeDefHandle));
                     }
                 }
                 // Skip assemblies with unreadable metadata
                 catch { }
             }
-            foundType:;
+
+            while (toProcess.Count > 0)
+            {
+                var (currentType, currentPath, remainingDepth) = toProcess.Dequeue();
+                if (remainingDepth <= 0) continue;
+
+                // Match by full name, then simple name, then the last segment of a qualified name.
+                if (!byFullName.TryGetValue(currentType, out var found)
+                    && !bySimpleName.TryGetValue(currentType, out found)
+                    && !bySimpleName.TryGetValue(currentType.Split('.').Last(), out found))
+                    continue;
+
+                var (reader, typeDefHandle) = found;
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                var context = GenericContext.ForType(reader, typeDef);
+
+                // Properties
+                foreach (var propHandle in typeDef.GetProperties())
+                {
+                    var prop = reader.GetPropertyDefinition(propHandle);
+                    var propName = reader.GetString(prop.Name);
+
+                    try
+                    {
+                        var sig = prop.DecodeSignature(SignatureDecoder.Instance, context);
+                        var propType = UnwrapAsyncType(sig.ReturnType);
+
+                        if (!string.IsNullOrEmpty(propType) && !IsPrimitiveType(propType) && visited.Add(propType))
+                        {
+                            var path = $"{currentPath}.{propName}";
+                            results.Add((propType, path));
+                            toProcess.Enqueue((propType, path, remainingDepth - 1));
+                        }
+                    }
+                    // Skip properties with undecodable signatures
+                    catch { }
+                }
+
+                // Methods (return types)
+                foreach (var methodHandle in typeDef.GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(methodHandle);
+                    if ((method.Attributes & MethodAttributes.Public) == 0) continue;
+
+                    string methodName = reader.GetString(method.Name);
+                    if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
+                        methodName.StartsWith("add_") || methodName.StartsWith("remove_") ||
+                        methodName.StartsWith("."))
+                        continue;
+
+                    try
+                    {
+                        var methodContext = GenericContext.ForMethod(reader, typeDef, method);
+                        var sig = method.DecodeSignature(SignatureDecoder.Instance, methodContext);
+                        var retType = UnwrapAsyncType(sig.ReturnType);
+
+                        if (!string.IsNullOrEmpty(retType) && retType != "void" &&
+                            !IsPrimitiveType(retType) && visited.Add(retType))
+                        {
+                            var path = $"{currentPath}.{methodName}()";
+                            results.Add((retType, path));
+                            toProcess.Enqueue((retType, path, remainingDepth - 1));
+                        }
+                    }
+                    // Skip methods with undecodable signatures
+                    catch { }
+                }
+            }
+        }
+        finally
+        {
+            foreach (var d in disposables)
+                d.Dispose();
         }
 
         return results;

@@ -618,7 +618,7 @@ public class ApiCommand
             if (methodInfo?.SourceUrl == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            var fetcher = new SourceFetcher(httpClient);
+            var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
             var content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
             if (content == null)
                 return new ResolvedMethodSource(null, pdbPath);

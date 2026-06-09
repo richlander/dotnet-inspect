@@ -532,25 +532,7 @@ public static class ApiSurfaceExtractor
         if (value.EndsWith("?", StringComparison.Ordinal))
             value = value[..^1];
 
-        value = value switch
-        {
-            "bool" => "System.Boolean",
-            "byte" => "System.Byte",
-            "char" => "System.Char",
-            "decimal" => "System.Decimal",
-            "double" => "System.Double",
-            "float" => "System.Single",
-            "int" => "System.Int32",
-            "long" => "System.Int64",
-            "object" => "System.Object",
-            "sbyte" => "System.SByte",
-            "short" => "System.Int16",
-            "string" => "System.String",
-            "uint" => "System.UInt32",
-            "ulong" => "System.UInt64",
-            "ushort" => "System.UInt16",
-            _ => value
-        };
+        value = PrimitiveTypeNames.ToClrFullName(value);
 
         var genericIndex = value.IndexOf('<');
         if (genericIndex > 0)

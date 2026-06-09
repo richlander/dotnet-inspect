@@ -15,14 +15,14 @@ internal static class MarkdownTableRowLimiter
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (IsCodeFence(line))
+            if (MarkdownScan.IsCodeFence(line))
             {
                 inCodeFence = !inCodeFence;
                 output.Add(line);
                 continue;
             }
 
-            if (inCodeFence || !IsTableLine(line) || i + 1 >= lines.Length || !IsSeparatorLine(lines[i + 1]))
+            if (inCodeFence || !MarkdownScan.IsTableLine(line) || i + 1 >= lines.Length || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
             {
                 output.Add(line);
                 continue;
@@ -32,10 +32,10 @@ internal static class MarkdownTableRowLimiter
             output.Add(lines[++i]);
 
             var rows = 0;
-            while (i + 1 < lines.Length && IsTableLine(lines[i + 1]))
+            while (i + 1 < lines.Length && MarkdownScan.IsTableLine(lines[i + 1]))
             {
                 i++;
-                if (IsSeparatorLine(lines[i]))
+                if (MarkdownScan.IsSeparatorLine(lines[i]))
                 {
                     output.Add(lines[i]);
                     continue;
@@ -51,27 +51,4 @@ internal static class MarkdownTableRowLimiter
 
         return string.Join('\n', output);
     }
-
-    private static bool IsTableLine(string line)
-    {
-        var trimmed = line.Trim();
-        return trimmed.Length >= 2 && trimmed.StartsWith('|') && trimmed.EndsWith('|');
-    }
-
-    private static bool IsCodeFence(string line)
-        => line.TrimStart().StartsWith("```", StringComparison.Ordinal);
-
-    private static bool IsSeparatorLine(string line)
-    {
-        if (!IsTableLine(line))
-            return false;
-
-        var cells = line.Trim().Trim('|').Split('|', StringSplitOptions.TrimEntries);
-        return cells.Length > 0 && cells.All(IsSeparatorCell);
-    }
-
-    private static bool IsSeparatorCell(string cell)
-        => cell.Length > 0
-           && cell.Any(c => c == '-')
-           && cell.All(c => c is '-' or ':' or ' ');
 }

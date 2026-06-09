@@ -1077,7 +1077,7 @@ public static class ApiOutputFormatter
         var parameters = signature[parenStart..];
 
         if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
-            && TryGetCheckedOperatorSymbol(methodName["op_Checked".Length..]) is { } checkedSymbol)
+            && OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..]) is { } checkedSymbol)
             return $"{returnType} operator checked {checkedSymbol}{parameters}";
 
         return methodName switch
@@ -1088,18 +1088,6 @@ public static class ApiOutputFormatter
             _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
         };
     }
-
-    private static string? TryGetCheckedOperatorSymbol(string suffix) => suffix switch
-    {
-        "Addition" => "+",
-        "Subtraction" => "-",
-        "Multiply" => "*",
-        "Division" => "/",
-        "Increment" => "++",
-        "Decrement" => "--",
-        "UnaryNegation" => "-",
-        _ => null
-    };
 
     private static string FormatConstructorTypeName(string name)
     {

@@ -1,20 +1,14 @@
 using System.Buffers;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Xml;
 
 namespace DotnetInspector.Metadata;
 
 /// <summary>
 /// Parses XML doc comments (///) from C# source files.
-/// Uses string-based search with compiled regex fallback for performance.
+/// Uses string-based search (SearchValues) for performance.
 /// </summary>
-public partial class DocCommentParser
+public class DocCommentParser
 {
-    // Source-generated regex for normalizing whitespace
-    [GeneratedRegex(@"\s+")]
-    private static partial Regex WhitespaceRegex();
-    
     // SearchValues for fast multi-string search of type keywords
     private static readonly SearchValues<string> TypeKeywords = 
         SearchValues.Create(["class ", "struct ", "interface ", "enum ", "record "], StringComparison.Ordinal);
@@ -258,7 +252,9 @@ public partial class DocCommentParser
 
         try
         {
-            var doc = new XmlDocument();
+            // Content is wrapped in <doc>…</doc>, so a DTD cannot appear at document start; null
+            // resolver is belt-and-suspenders against external-entity resolution.
+            var doc = new XmlDocument { XmlResolver = null };
             doc.LoadXml(xmlContent);
 
             string? summary = GetElementText(doc, "//summary");
@@ -275,7 +271,7 @@ public partial class DocCommentParser
                     string? name = node.Attributes?["name"]?.Value;
                     if (name != null)
                     {
-                        parameters[name] = NormalizeWhitespace(GetNodeTextWithRefs(node));
+                        parameters[name] = XmlDocText.NormalizeWhitespace(XmlDocText.GetNodeTextWithRefs(node));
                     }
                 }
             }
@@ -292,7 +288,7 @@ public partial class DocCommentParser
         {
             // If XML parsing fails, try to extract summary as plain text
             string plainText = string.Join(" ", lines);
-            plainText = NormalizeWhitespace(plainText);
+            plainText = XmlDocText.NormalizeWhitespace(plainText);
             if (!string.IsNullOrWhiteSpace(plainText))
             {
                 return new DocComment(plainText, null, null, null);
@@ -325,7 +321,7 @@ public partial class DocCommentParser
                 var title = node.Attributes?["title"]?.Value;
 
                 samples.Add(new SampleReference(
-                    NormalizePath(source),
+                    XmlDocText.NormalizePath(source),
                     title,
                     region
                 ));
@@ -355,7 +351,7 @@ public partial class DocCommentParser
                 var region = node.Attributes?["region"]?.Value;
 
                 samples.Add(new SampleReference(
-                    NormalizePath(href),
+                    XmlDocText.NormalizePath(href),
                     string.IsNullOrEmpty(description) ? null : description,
                     region
                 ));
@@ -420,131 +416,14 @@ public partial class DocCommentParser
         return ext is ".cs" or ".fs" or ".vb" or ".fsx" or ".csx";
     }
 
-    /// <summary>
-    /// Normalizes a path by converting backslashes to forward slashes.
-    /// </summary>
-    private static string NormalizePath(string path)
-    {
-        return path.Replace('\\', '/');
-    }
-
     private static string? GetElementText(XmlDocument doc, string xpath)
     {
         var node = doc.SelectSingleNode(xpath);
         if (node == null)
             return null;
 
-        string text = GetNodeTextWithRefs(node);
-        text = NormalizeWhitespace(text);
+        string text = XmlDocText.NormalizeWhitespace(XmlDocText.GetNodeTextWithRefs(node));
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
-    /// <summary>
-    /// Recursively extracts text from a node, replacing see/paramref/typeparamref
-    /// elements with their referenced names.
-    /// </summary>
-    private static string GetNodeTextWithRefs(XmlNode node)
-    {
-        var sb = new StringBuilder();
-
-        foreach (XmlNode child in node.ChildNodes)
-        {
-            switch (child.NodeType)
-            {
-                case XmlNodeType.Text:
-                case XmlNodeType.Whitespace:
-                case XmlNodeType.SignificantWhitespace:
-                    sb.Append(child.Value);
-                    break;
-
-                case XmlNodeType.Element:
-                    switch (child.Name)
-                    {
-                        case "see":
-                        case "seealso":
-                            // Extract cref="Type" or href="url"
-                            var cref = child.Attributes?["cref"]?.Value;
-                            if (cref != null)
-                            {
-                                sb.Append(SimplifyTypeName(cref));
-                            }
-                            else
-                            {
-                                // Might have inner text or href
-                                var innerText = child.InnerText;
-                                if (!string.IsNullOrWhiteSpace(innerText))
-                                {
-                                    sb.Append(innerText);
-                                }
-                            }
-                            break;
-
-                        case "paramref":
-                        case "typeparamref":
-                            // Extract name="paramName"
-                            var name = child.Attributes?["name"]?.Value;
-                            if (name != null)
-                            {
-                                sb.Append(name);
-                            }
-                            break;
-
-                        case "c":
-                            // Inline code - just use the text
-                            sb.Append(child.InnerText);
-                            break;
-
-                        default:
-                            // Recursively process other elements
-                            sb.Append(GetNodeTextWithRefs(child));
-                            break;
-                    }
-                    break;
-            }
-        }
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Simplifies a cref value to just the type/member name.
-    /// E.g., "T:System.String" -> "String", "M:Foo.Bar(System.Int32)" -> "Bar"
-    /// </summary>
-    private static string SimplifyTypeName(string cref)
-    {
-        // Remove type prefix (T:, M:, P:, F:, E:, N:)
-        if (cref.Length > 2 && cref[1] == ':')
-        {
-            cref = cref[2..];
-        }
-
-        // Remove method parameters
-        var parenIndex = cref.IndexOf('(');
-        if (parenIndex > 0)
-        {
-            cref = cref[..parenIndex];
-        }
-
-        // Get just the last part (simple name)
-        var lastDot = cref.LastIndexOf('.');
-        if (lastDot >= 0)
-        {
-            cref = cref[(lastDot + 1)..];
-        }
-
-        // Handle generic arity (e.g., List`1 -> List)
-        var backtick = cref.IndexOf('`');
-        if (backtick >= 0)
-        {
-            cref = cref[..backtick];
-        }
-
-        return cref;
-    }
-
-    private static string NormalizeWhitespace(string text)
-    {
-        // Collapse multiple whitespace into single space using source-generated regex
-        return WhitespaceRegex().Replace(text.Trim(), " ");
-    }
 }

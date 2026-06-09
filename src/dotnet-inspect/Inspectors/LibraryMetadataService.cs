@@ -145,7 +145,10 @@ internal static class LibraryMetadataService
 
             if (runHeadAudit && service.HasSourceLink && pdbContext.HasPdb)
             {
-                await SourceAuditService.PopulateAsync(service, inspection, httpClient, logger);
+                // SourceLink URLs are untrusted: probe them with the SSRF-hardened client, not the
+                // shared client used for trusted NuGet/symbol endpoints.
+                await SourceAuditService.PopulateAsync(
+                    service, inspection, DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch, logger);
                 if (needsAuditSignals)
                     AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }

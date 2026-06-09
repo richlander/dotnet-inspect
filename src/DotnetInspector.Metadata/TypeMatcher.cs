@@ -42,7 +42,7 @@ public static class TypeMatcher
             return true;
 
         // Match without namespace (e.g., "HttpClient" matches "System.Net.Http.HttpClient")
-        if (normalizedCandidate.EndsWith("." + normalizedTarget, StringComparison.OrdinalIgnoreCase))
+        if (EndsWithDottedSuffix(normalizedCandidate, normalizedTarget))
             return true;
 
         // Extract base names (before generic arity suffix)
@@ -51,17 +51,30 @@ public static class TypeMatcher
 
         // Match base names
         if (candidateBase.Equals(targetBase, StringComparison.OrdinalIgnoreCase) ||
-            candidateBase.EndsWith("." + targetBase, StringComparison.OrdinalIgnoreCase))
+            EndsWithDottedSuffix(candidateBase, targetBase))
             return true;
 
         return false;
     }
 
     /// <summary>
+    /// True when <paramref name="candidate"/> ends with ".<paramref name="suffix"/>" (case-insensitive)
+    /// — i.e. a namespace-qualified name ending in the simple name. Avoids allocating "." + suffix
+    /// on every call, since this runs in the inner loop of every type scanner.
+    /// </summary>
+    private static bool EndsWithDottedSuffix(string candidate, string suffix)
+        => candidate.Length > suffix.Length
+           && candidate[candidate.Length - suffix.Length - 1] == '.'
+           && candidate.AsSpan(candidate.Length - suffix.Length)
+               .Equals(suffix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Normalizes a type name by converting C#-style generic arguments to CLR backtick notation.
     /// "IEnumerable&lt;T&gt;" → "IEnumerable`1"
     /// "Dictionary&lt;string, int&gt;" → "Dictionary`2"
+    /// "List&lt;T&gt;+Enumerator" → "List`1+Enumerator" (trailing suffix preserved)
     /// Already-normalized names like "List`1" pass through unchanged.
+    /// This is the single canonical C#→CLR name converter for the tool.
     /// </summary>
     public static string Normalize(string typeName)
     {
@@ -77,8 +90,9 @@ public static class TypeMatcher
             return typeName;
 
         var baseName = typeName[..angleIdx];
-        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..(closeIdx)));
-        return arity > 0 ? $"{baseName}`{arity}" : baseName;
+        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx));
+        var suffix = closeIdx + 1 < typeName.Length ? typeName[(closeIdx + 1)..] : "";
+        return $"{baseName}`{arity}{suffix}";
     }
 
     private static int CountTypeParameters(ReadOnlySpan<char> typeParams)
@@ -218,21 +232,9 @@ public static class TypeMatcher
         if (startIdx < 0 || endIdx <= startIdx)
             return -1; // No generic notation, arity unspecified
 
-        var typeArgs = pattern[(startIdx + 1)..endIdx];
-        if (string.IsNullOrWhiteSpace(typeArgs))
-            return -1;
-
-        // Count type parameters by counting commas + 1
-        // Handle nested generics by tracking angle bracket depth
-        int arity = 1;
-        int depth = 0;
-        foreach (var c in typeArgs)
-        {
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ',' && depth == 0) arity++;
-        }
-        return arity;
+        // -1 (unspecified) for empty/whitespace args; otherwise the top-level type-parameter count.
+        var arity = CountTypeParameters(pattern.AsSpan((startIdx + 1)..endIdx));
+        return arity == 0 ? -1 : arity;
     }
 
     /// <summary>
