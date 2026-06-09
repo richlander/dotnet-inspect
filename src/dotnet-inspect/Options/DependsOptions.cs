@@ -92,7 +92,7 @@ public record DependsOptions : IAssemblySourceOptions
         PlatformFrameworks.Length > 0;
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput => JsonOutput;
 
