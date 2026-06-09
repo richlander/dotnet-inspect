@@ -25,7 +25,7 @@ Format promises:
 
 Query tips:
 
-- Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string --shape` or `type 'List<T>' --shape`.
+- Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string` or `type 'List<T>'`.
 - Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`.
 - Wildcards are supported for section and schema selection, such as `-S "Async*"` or `-D "SourceLink*"`.
 
@@ -73,7 +73,7 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 
 Carry resolved context forward. Bare names use the router: platform-looking names are tried as installed platform libraries first, then fall back to NuGet packages if platform resolution fails. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
 
-Use `type Type --package Foo --shape` for a compact type overview and overload counts. For a specific overload inventory, use `member Type --package Foo -m Name --show-index`; this renders the `Methods` overload rows with full signatures and stable `Name:N` selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
+Use `type Type --package Foo` for the default compact type shape and overload counts. For a specific overload inventory, use `member Type --package Foo -m Name --show-index`; this renders the `Methods` overload rows with full signatures and stable `Name:N` selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
 
 ## Upgrade and compatibility workflow
 
