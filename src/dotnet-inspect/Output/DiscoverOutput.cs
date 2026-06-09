@@ -18,7 +18,7 @@ public static class DiscoverOutput
     /// At Detailed verbosity, bare -D auto-promotes to tree (sections → items).
     /// </summary>
     public static int Execute(string[]? discover, DocumentSchema schema,
-        bool tree = false, bool markdown = false, bool json = false, bool tsv = false, int verbosity = 0,
+        bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
         string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
         // Auto-promote to tree when discovering items from multiple sections
@@ -49,15 +49,15 @@ public static class DiscoverOutput
         }
         else
         {
-            OutputFormatter.WriteTable(tsv, Console.Out, showHeader: tsv,
+            OutputFormatter.WriteTable(Console.Out, showHeader: tsv,
                 (writer, formatter) => context.Serialize(
                     view,
                     writer,
                     formatter,
-                    OutputFormatter.CreateTableWriterOptions(tsv)));
+                    OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
         }
 
-        if (ShouldWriteAllSelectorHint(discover, json, tsv, rows))
+        if (ShouldWriteAllSelectorHint(discover, json, tsv, jsonl, rows))
         {
             Console.WriteLine();
             Console.WriteLine($"Note: Use -S {SelectResolver.AllSelector} to select all sections.");
@@ -66,10 +66,11 @@ public static class DiscoverOutput
         return 0;
     }
 
-    private static bool ShouldWriteAllSelectorHint(string[]? discover, bool json, bool tsv,
+    private static bool ShouldWriteAllSelectorHint(string[]? discover, bool json, bool tsv, bool jsonl,
         IReadOnlyList<DiscoveryRow> rows)
         => !json
            && !tsv
+           && !jsonl
            && discover is null or { Length: 0 }
            && rows.Any(row => row.Kind.Contains(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase));
 
@@ -77,7 +78,7 @@ public static class DiscoverOutput
     /// Runs discovery with effective filtering (only sections with data).
     /// </summary>
     public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
-        bool tree = false, bool markdown = false, bool json = false, bool tsv = false, int verbosity = 0,
+        bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
         string? rootLabel = null, DocumentSchema? fullSchema = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
     {
@@ -103,7 +104,7 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, verbosity, rootLabel, sectionCostAnnotations);
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations);
     }
 
     /// <summary>

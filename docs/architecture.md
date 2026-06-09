@@ -8,7 +8,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 
 1. **Structured output** - Markdown tables and JSON that LLMs can parse reliably
 2. **Progressive disclosure** - Verbosity controls let you request exactly the detail level needed
-3. **Minimal tokens** - `--table`, `--tsv`, and `--compact` options reduce output size
+3. **Minimal tokens** - `--table`, `--tsv`, `--jsonl`, and `--compact` options reduce output size
 4. **Self-documenting** - `skill` command prints the SKILL.md; `--help` and `-v` show CLI structure
 
 ## Command Structure

@@ -19,25 +19,42 @@ public record RenderDiagnostic(string Formatter, string Condition, string[] Sect
 /// </summary>
 public static class OutputFormatter
 {
-    public static string RenderTable(bool tsv, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
+    public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
         var sw = new StringWriter();
         serialize(sw, new TableFormatter(showHeader));
         return sw.ToString();
     }
 
-    public static void WriteTable(bool tsv, TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize) =>
-        output.Write(RenderTable(tsv, showHeader, serialize));
+    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize) =>
+        output.Write(RenderTable(showHeader, serialize));
 
-    public static MarkoutWriterOptions ConfigureTableWriterOptions(MarkoutWriterOptions options, bool tsv)
+    public static MarkoutWriterOptions ConfigureTableWriterOptions(MarkoutWriterOptions options, bool tsv, bool jsonl)
     {
-        if (tsv)
+        if (jsonl)
+            options.TableMode = MarkoutTableMode.Jsonl;
+        else if (tsv)
             options.TableMode = MarkoutTableMode.Tsv;
         return options;
     }
 
-    public static MarkoutWriterOptions CreateTableWriterOptions(bool tsv) =>
-        ConfigureTableWriterOptions(new MarkoutWriterOptions(), tsv);
+    public static MarkoutWriterOptions CreateTableWriterOptions(bool tsv, bool jsonl) =>
+        ConfigureTableWriterOptions(new MarkoutWriterOptions(), tsv, jsonl);
+
+    public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
+        bool tsv, bool jsonl, TextWriter output)
+    {
+        var rows = values.Select(value => new[] { value }).ToArray();
+        WriteTable(output, showHeader: false, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            if (jsonl)
+                markoutWriter.WriteTable([displayName], [stableName], rows);
+            else
+                markoutWriter.WriteList(rows.Select(row => row[0]).ToArray());
+            markoutWriter.Flush();
+        });
+    }
 
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
@@ -65,9 +82,9 @@ public static class OutputFormatter
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
-        ConfigureTableWriterOptions(writerOpts, options.Tsv);
+        ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(result);
-        WriteTable(options.Tsv, Console.Out, showHeader,
+        WriteTable(Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
     }
 
@@ -169,8 +186,8 @@ public static class OutputFormatter
         }
         else
         {
-            ConfigureTableWriterOptions(writerOpts, options.Tsv);
-            WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+            ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+            WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
         }
     }
@@ -232,8 +249,8 @@ public static class OutputFormatter
                     IncludeSections = includeSections,
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
-                ConfigureTableWriterOptions(writerOpts, options.Tsv);
-                WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                WriteTable(Console.Out, !options.NoHeader,
                     (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts));
             }
         }

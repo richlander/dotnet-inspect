@@ -79,6 +79,7 @@ public static class SourceCommandDefinitions
                     return DiscoverOutput.Execute(d.Discover, schemaMap, tree: d.Tree,
                         json: sourceFormat == OutputFormat.Json,
                         tsv: sourceFormat == OutputFormat.Tsv,
+                        jsonl: sourceFormat == OutputFormat.Jsonl,
                         markdown: sourceFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult));
 

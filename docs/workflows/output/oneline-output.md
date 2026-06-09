@@ -1,13 +1,13 @@
 ---
 id: table-output
-description: Compact table and TSV output for scripting and agents
-commands: [--table, --tsv]
+description: Compact table, TSV, and JSONL output for scripting and agents
+commands: [--table, --tsv, --jsonl]
 areas: [output, agents, scripting]
 ---
 
-# Table and TSV Output
+# Table, TSV, and JSONL Output
 
-> `--table` produces compact pretty-printed rows for humans. `--tsv` uses the same normalized tabular projection with tab-separated fields for agents and shell tools. Both formats render one table/section at a time; use Markdown or JSON for multi-section output. Combine either with `--no-headers` to suppress column headers.
+> `--table` produces compact pretty-printed rows for humans. `--tsv` uses the same normalized tabular projection with tab-separated fields for agents and shell tools. `--jsonl` emits one JSON object per table row with the same stable projection. These formats render one table/section at a time; use Markdown or JSON for multi-section output. Combine `--table` or `--tsv` with `--no-headers` to suppress column headers.
 
 ## Preconditions
 

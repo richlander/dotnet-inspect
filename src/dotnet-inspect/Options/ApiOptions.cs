@@ -42,6 +42,7 @@ public record ApiOptions
     public bool CompactJson { get; init; }
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
+    public bool Jsonl { get; init; }
     public bool OneLineExplicitlySet { get; init; }
     public bool PlainText { get; init; }
 
@@ -96,7 +97,7 @@ public record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public virtual bool IsRawOutput => JsonOutput || OneLine || NoHeader || Count;
+    public virtual bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || Count;
 }
 
 /// <summary>
@@ -121,7 +122,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public override bool IsRawOutput => JsonOutput || OneLine || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ShapeOutput || Count;
 }
 
 /// <summary>

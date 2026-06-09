@@ -82,6 +82,11 @@ public record AssemblyOptions
     public bool Tsv { get; init; }
 
     /// <summary>
+    /// Emit tabular output as JSON Lines, one object per row.
+    /// </summary>
+    public bool Jsonl { get; init; }
+
+    /// <summary>
     /// Suppress column headers (use with --table or --tsv).
     /// </summary>
     public bool NoHeader { get; init; }
@@ -198,5 +203,5 @@ public record AssemblyOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ExtractResources != null || Count;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ExtractResources != null || Count;
 }

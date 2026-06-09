@@ -27,7 +27,7 @@ public class DiffCommand
             var schemaMap = new DocumentSchema()
                 .Add("Changes", "column", "Change", "Type", "Detail");
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: false, tsv: options.Tsv, markdown: !options.OneLine);
+                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine);
         }
 
         if (!hasPlatform && !hasPackage)
@@ -95,8 +95,8 @@ public class DiffCommand
                 {
                     Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
                 };
-                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
-                OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
                     (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOpts));
             }
             else
@@ -249,9 +249,9 @@ public class DiffCommand
 
         if (options.NameOnly)
         {
-            return OutputFormatter.RenderTable(options.Tsv, showHeader: false, (writer, formatter) =>
+            return OutputFormatter.RenderTable(showHeader: false, (writer, formatter) =>
             {
-                var nameWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
+                var nameWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl));
                 DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
                 nameWriter.Flush();
             });
@@ -295,6 +295,7 @@ public record DiffOptions
     public HashSet<string> TypeFilter { get; init; } = [];
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
+    public bool Jsonl { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
@@ -311,5 +312,5 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => OneLine || NoHeader || NameOnly;
+    public bool IsRawOutput => OneLine || Jsonl || NoHeader || NameOnly;
 }

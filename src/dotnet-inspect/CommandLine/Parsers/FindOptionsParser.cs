@@ -94,6 +94,7 @@ public static class FindOptionsParser
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
             Columns = opts.ParseColumns(parseResult),

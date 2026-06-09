@@ -104,6 +104,7 @@ public static class DiffOptionsParser
             TypeFilter = typeFilter,
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
