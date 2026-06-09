@@ -523,14 +523,14 @@ public static class AnnotatedILEmitter
                  ILOpCode.Ldvirtftn or ILOpCode.Jmp:
             {
                 int token = reader.ReadILToken();
-                return ResolveMethodToken(context.Reader, token);
+                return Metadata.ILTokenResolver.ResolveMethod(context.Reader, token);
             }
 
             case ILOpCode.Ldfld or ILOpCode.Ldsfld or ILOpCode.Stfld or ILOpCode.Stsfld or
                  ILOpCode.Ldflda or ILOpCode.Ldsflda:
             {
                 int token = reader.ReadILToken();
-                return ResolveFieldToken(context.Reader, token);
+                return Metadata.ILTokenResolver.ResolveField(context.Reader, token);
             }
 
             case ILOpCode.Castclass or ILOpCode.Isinst or ILOpCode.Newarr or ILOpCode.Box or
@@ -539,19 +539,19 @@ public static class AnnotatedILEmitter
                  ILOpCode.Ldelem or ILOpCode.Stelem or ILOpCode.Constrained:
             {
                 int token = reader.ReadILToken();
-                return ResolveTypeToken(context.Reader, token, context.GenericContext);
+                return Metadata.ILTokenResolver.ResolveType(context.Reader, token, context.GenericContext);
             }
 
             case ILOpCode.Ldstr:
             {
                 int token = reader.ReadILToken();
-                return ResolveStringToken(context.Reader, token);
+                return Metadata.ILTokenResolver.ResolveString(context.Reader, token);
             }
 
             case ILOpCode.Ldtoken:
             {
                 int token = reader.ReadILToken();
-                return ResolveGenericToken(context.Reader, token, context.GenericContext);
+                return Metadata.ILTokenResolver.ResolveToken(context.Reader, token, context.GenericContext);
             }
 
             case ILOpCode.Calli:
@@ -581,81 +581,10 @@ public static class AnnotatedILEmitter
 
     // --- Token resolution ---
 
-    static string ResolveMethodToken(MetadataReader reader, int token)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            return handle.Kind switch
-            {
-                HandleKind.MethodDefinition => FormatMethodDef(reader, (MethodDefinitionHandle)handle),
-                HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)handle),
-                HandleKind.MethodSpecification => FormatMethodSpec(reader, (MethodSpecificationHandle)handle),
-                _ => $"method:0x{token:X8}"
-            };
-        }
-        // Fallback to raw token when metadata is malformed or token is unresolvable
-        catch { return $"method:0x{token:X8}"; }
-    }
-
-    static string ResolveFieldToken(MetadataReader reader, int token)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            return handle.Kind switch
-            {
-                HandleKind.FieldDefinition => FormatFieldDef(reader, (FieldDefinitionHandle)handle),
-                HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)handle, isMethod: false),
-                _ => $"field:0x{token:X8}"
-            };
-        }
-        // Fallback to raw token when metadata is malformed or token is unresolvable
-        catch { return $"field:0x{token:X8}"; }
-    }
-
-    static string ResolveTypeToken(MetadataReader reader, int token, GenericContext? genericContext = null)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            return Metadata.TypeResolver.GetTypeName(reader, handle, genericContext) ?? $"type:0x{token:X8}";
-        }
-        // Fallback to raw token when metadata is malformed or token is unresolvable
-        catch { return $"type:0x{token:X8}"; }
-    }
-
-    static string ResolveStringToken(MetadataReader reader, int token)
-    {
-        try
-        {
-            var handle = MetadataTokens.UserStringHandle(token);
-            string value = reader.GetUserString(handle);
-            return $"\"{EscapeString(value)}\"";
-        }
-        // Fallback to raw token when metadata is malformed or token is unresolvable
-        catch { return $"string:0x{token:X8}"; }
-    }
-
-    static string ResolveGenericToken(MetadataReader reader, int token, GenericContext? genericContext = null)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            return handle.Kind switch
-            {
-                HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification =>
-                    Metadata.TypeResolver.GetTypeName(reader, handle, genericContext) ?? $"token:0x{token:X8}",
-                HandleKind.FieldDefinition => FormatFieldDef(reader, (FieldDefinitionHandle)handle),
-                HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)handle),
-                HandleKind.MethodDefinition => FormatMethodDef(reader, (MethodDefinitionHandle)handle),
-                _ => $"token:0x{token:X8}"
-            };
-        }
-        // Fallback to raw token when metadata is malformed or token is unresolvable
-        catch { return $"token:0x{token:X8}"; }
-    }
-
+    /// <summary>
+    /// Resolves a type entity handle (e.g. a catch-clause type) to a display name, honoring the
+    /// method's generic context. Operand token resolution lives in <see cref="Metadata.ILTokenResolver"/>.
+    /// </summary>
     static string ResolveTypeName(MethodBodyContext context, EntityHandle handle)
     {
         try
@@ -665,43 +594,6 @@ public static class AnnotatedILEmitter
         }
         // Fallback to raw token when metadata is malformed or token is unresolvable
         catch { return $"type:0x{MetadataTokens.GetToken(handle):X8}"; }
-    }
-
-    // --- Format helpers ---
-
-    static string FormatMethodDef(MetadataReader reader, MethodDefinitionHandle handle)
-    {
-        var method = reader.GetMethodDefinition(handle);
-        string typeName = Metadata.TypeResolver.GetTypeName(reader, method.GetDeclaringType()) ?? "?";
-        string methodName = reader.GetString(method.Name);
-        return $"{typeName}::{methodName}()";
-    }
-
-    static string FormatMemberRef(MetadataReader reader, MemberReferenceHandle handle, bool isMethod = true)
-    {
-        var memberRef = reader.GetMemberReference(handle);
-        string memberName = reader.GetString(memberRef.Name);
-        string parentName = Metadata.TypeResolver.GetTypeName(reader, memberRef.Parent) ?? "?";
-        return isMethod ? $"{parentName}::{memberName}()" : $"{parentName}::{memberName}";
-    }
-
-    static string FormatMethodSpec(MetadataReader reader, MethodSpecificationHandle handle)
-    {
-        var spec = reader.GetMethodSpecification(handle);
-        return spec.Method.Kind switch
-        {
-            HandleKind.MethodDefinition => FormatMethodDef(reader, (MethodDefinitionHandle)spec.Method),
-            HandleKind.MemberReference => FormatMemberRef(reader, (MemberReferenceHandle)spec.Method),
-            _ => $"method_spec:0x{MetadataTokens.GetToken(handle):X8}"
-        };
-    }
-
-    static string FormatFieldDef(MetadataReader reader, FieldDefinitionHandle handle)
-    {
-        var field = reader.GetFieldDefinition(handle);
-        string typeName = Metadata.TypeResolver.GetTypeName(reader, field.GetDeclaringType()) ?? "?";
-        string fieldName = reader.GetString(field.Name);
-        return $"{typeName}::{fieldName}";
     }
 
     static string FormatOpCode(ILOpCode opcode)
@@ -729,8 +621,4 @@ public static class AnnotatedILEmitter
         for (int i = 0; i < indent; i++)
             sb.Append("    ");
     }
-
-    static string EscapeString(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"")
-             .Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
 }
