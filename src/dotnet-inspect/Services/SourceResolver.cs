@@ -299,8 +299,8 @@ public static class SourceResolver
 
             // Normalize C#-style generic notation to CLR backtick notation.
             // e.g., "Dictionary<TKey,TValue>" → "Dictionary`2", "List<T>" → "List`1"
-            if (packagePath != null) packagePath = GenericTypeNameConverter.Convert(packagePath);
-            if (typeName != null) typeName = GenericTypeNameConverter.Convert(typeName);
+            if (packagePath != null) packagePath = DotnetInspector.Metadata.TypeMatcher.Normalize(packagePath);
+            if (typeName != null) typeName = DotnetInspector.Metadata.TypeMatcher.Normalize(typeName);
 
             // Check for version number passed as separate argument
             if (CommandLineHelpers.LooksLikeVersionNumber(typeName))
