@@ -143,7 +143,7 @@ public class SourceOptionsParserTests
     [Fact]
     public async Task ExplicitMarkdown_SuppressesTips()
     {
-        var options = await ParseSuccessAsync("source", "JsonSerializer", "--package", "System.Text.Json", "--markdown");
+        var options = await ParseSuccessAsync("source", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--tips", "d");
 
         Assert.True(options.FormatExplicitlySet);
         Assert.False(options.IsRawOutput);

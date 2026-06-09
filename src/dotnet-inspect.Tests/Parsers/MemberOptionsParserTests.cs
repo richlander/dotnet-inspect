@@ -146,16 +146,16 @@ public class MemberOptionsParserTests
     [Fact]
     public async Task ExplicitPackage_WithImplicitOutput_KeepsTipsEnabled()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
 
         Assert.False(options.FormatExplicitlySet);
-        Assert.Equal(TipLevel.Minimal, options.TipLevel);
+        Assert.Equal(TipLevel.Detailed, options.TipLevel);
     }
 
     [Fact]
     public async Task ExplicitPackage_WithMarkdown_SuppressesTips()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--tips", "d");
 
         Assert.True(options.FormatExplicitlySet);
         Assert.False(options.IsRawOutput);

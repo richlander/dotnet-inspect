@@ -29,7 +29,7 @@ dnx dotnet-inspect -y -- <command>
 
 ## Output modes
 
-Default output is Markdown. Use Markdown for readable evidence and narrative with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact human scanning, `--tsv` for normalized tab-separated rows when agents or scripts need stable field splitting, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--mermaid` for standalone diagrams where supported, notably `depends`, or `--markdown --mermaid` to embed diagrams in Markdown.
+Default output is Markdown. Use Markdown for readable evidence with headings, section boundaries, tables, and code fences. Use `--table` for compact human scanning, `--tsv` for stable field splitting, `--jsonl` for one JSON object per table row, `--json` for structured object graphs, and `--mermaid` for graph-shaped output such as `depends`.
 
 Markdown and JSON can represent multi-section documents. Table, TSV, and JSONL are single-table formats for commands or projections that produce one table. Mermaid is diagram output for commands that produce graph-shaped results.
 
@@ -42,11 +42,11 @@ Format promises:
 
 ## Limits
 
-Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Use command-specific limiters for command-specific result sets: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
+Prefer built-in limiters to shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines. Use `--count` to count rows in one selected table section. Use command-specific limiters for command-specific result sets: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
 ## Query system
 
-Use the query system when default views do not expose the detail you need. `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
+Use the query system when default views do not expose the detail you need. `-D` discovers available sections/columns; `-S Section` selects sections by name or wildcard; `--columns` and `--fields` project values. Discover first instead of guessing field names.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
@@ -57,7 +57,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-Bare `-S` renders a curated high-density view (`Package Info`/`Library Files`, `Library Info` with counts, compact type/member summaries, narrowed member-name `Methods`, or selected-overload `Signature`/`Decompiled Source`). Minimal/default type views favor summaries, counts, and one row per logical item under `Method Groups`; narrowed member-name views use `Methods` overload rows. In section output, `section (opt-in)` means the section never runs from normal verbosity or `-v:d`; select it explicitly with `-S` when needed. Focused library/member `-S Section` output keeps a compact context row before the selected section. `-S All` produces an exhaustive document: default section first, remaining sections alphabetically, no compact context row.
+Bare `-S` renders a curated high-density view; `-S All` renders an exhaustive document. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
 
 ## General tips
 
@@ -74,7 +74,7 @@ Bare `-S` renders a curated high-density view (`Package Info`/`Library Files`, `
 Use `find` when you do not know the package, library, or exact namespace.
 
 ```bash
-dnx dotnet-inspect -y -- find JsonSerializer --table
+dnx dotnet-inspect -y -- find JsonSerializer
 dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize --show-index
 dnx dotnet-inspect -y -- depends Stream
@@ -105,7 +105,7 @@ dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, or `-S IL` / `-S "IL (Annotated)"` for IL.
 
 ```bash
-dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --table
+dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
 ```
 
