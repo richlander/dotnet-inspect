@@ -2009,6 +2009,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task MemberList_QualifiedPlatformTypeTypo_SuggestsType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializizer", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found.", error);
+        Assert.Contains("System.Text.Json.JsonSerializer", error);
+        Assert.DoesNotContain("member requires a type name", error);
+    }
+
+    [Fact]
     public async Task Member_FilteredGenericMethod_RendersMethodTypeParameters()
     {
         var (exit, output, _) = await RunAppAsync(

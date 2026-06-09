@@ -141,6 +141,8 @@ public static class MemberOptionsParser
             && source.AssemblyPath == null)
         {
             var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
+            if (source.TypeName == null)
+                probe ??= SourceResolver.TryProbePlatformQualifiedPrefix(source.PackagePath);
             if (probe != null)
             {
                 if (source.TypeName != null)

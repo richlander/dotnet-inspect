@@ -293,6 +293,17 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task Positional_PackageType_WithPlatformPrefix_DoesNotUseTypoFallback()
+    {
+        var options = await ParseSuccessAsync("member", "System.CommandLine", "Command");
+
+        Assert.Equal("Command", options.TypeName);
+        Assert.Equal("System.CommandLine", options.PackagePath);
+        Assert.Null(options.PlatformAssembly);
+        Assert.Empty(options.MemberFilter);
+    }
+
+    [Fact]
     public async Task Positional_QualifiedTypeMember_ResolvesPlatformTypeAndMember()
     {
         var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializer.SerializeToNode");
@@ -312,6 +323,17 @@ public class MemberOptionsParserTests
         Assert.Equal("System.Text.Json", options.PlatformAssembly);
         Assert.Contains("SerializeToNode", options.MemberFilter);
         Assert.Equal(1, options.OverloadIndex);
+    }
+
+    [Fact]
+    public async Task Positional_QualifiedPlatformTypeTypo_PreservesTypeForSuggestions()
+    {
+        var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializizer");
+
+        Assert.Equal("System.Text.Json", options.PlatformAssembly);
+        Assert.Equal("JsonSerializizer", options.TypeName);
+        Assert.Null(options.PackagePath);
+        Assert.Empty(options.MemberFilter);
     }
 
     // ── Dotted member syntax (-m Type.Member) ────────────────────────────

@@ -105,6 +105,40 @@ public static class SourceResolver
     }
 
     /// <summary>
+    /// Peels a dotted name and returns the longest platform assembly prefix even when the
+    /// remaining type name is misspelled. This is intentionally platform-only to avoid
+    /// misclassifying one-argument package names as package/type pairs.
+    /// </summary>
+    internal static LocalProbeResult? TryProbePlatformQualifiedPrefix(string name)
+    {
+        var bestDot = -1;
+        for (int i = name.Length - 1; i >= 0; i--)
+        {
+            if (name[i] != '.')
+                continue;
+
+            var candidate = name[..i];
+            var remainder = name[(i + 1)..];
+            if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(remainder))
+                continue;
+
+            if (!PlatformResolver.IsPlatformCandidate(candidate))
+                continue;
+
+            var (path, _, _, _) = PlatformResolver.ResolveAssembly(candidate);
+            if (path != null)
+            {
+                bestDot = i;
+                break;
+            }
+        }
+
+        return bestDot > 0
+            ? new LocalProbeResult(name[..bestDot], name[(bestDot + 1)..], LocalSourceKind.Platform)
+            : null;
+    }
+
+    /// <summary>
     /// Lightweight type existence check using raw metadata.
     /// </summary>
     internal static bool AssemblyHasType(string assemblyPath, string typeName)
