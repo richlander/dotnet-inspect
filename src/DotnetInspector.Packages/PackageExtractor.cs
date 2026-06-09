@@ -157,8 +157,8 @@ public static class PackageExtractor
         string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
         string extractPath = Path.Combine(tempDir, "extracted");
 
-        // Try each source in order
-        byte[]? packageBytes = null;
+        // Try each source in order, streaming the package straight to disk (no in-memory buffer).
+        string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
         string? successfulSource = null;
 
         foreach (var source in sources)
@@ -171,8 +171,9 @@ public static class PackageExtractor
 
             try
             {
-                packageBytes = await HttpRetryHelper.GetBytesWithRetryAsync(client, nupkgUrl, auth: source.GetAuthHeader()).ConfigureAwait(false);
-                if (packageBytes != null)
+                var ok = await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                    client, nupkgUrl, nupkgPath, log: log, auth: source.GetAuthHeader()).ConfigureAwait(false);
+                if (ok)
                 {
                     successfulSource = source.Name;
                     break;
@@ -185,7 +186,7 @@ public static class PackageExtractor
             }
         }
 
-        if (packageBytes == null)
+        if (successfulSource == null)
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
 
@@ -197,11 +198,8 @@ public static class PackageExtractor
             return PackageExtractionOutcome.Error($"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
         }
 
-        string? nupkgPath = null;
         try
         {
-            nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-            await File.WriteAllBytesAsync(nupkgPath, packageBytes).ConfigureAwait(false);
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
             log?.Invoke($"Package downloaded successfully from {successfulSource}.");
 

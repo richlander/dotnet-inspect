@@ -286,6 +286,50 @@ public static class HttpRetryHelper
     }
 
     /// <summary>
+    /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
+    /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
+    /// the payload is never fully buffered in memory — important for large packages. Returns true on
+    /// success, false if the request ultimately failed. Throws if the advertised size exceeds the cap.
+    /// Note: a failure that occurs mid-body (after headers) is not retried.
+    /// </summary>
+    public static async Task<bool> DownloadToFileWithRetryAsync(
+        HttpClient client,
+        string url,
+        string destinationPath,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null)
+    {
+        var result = await ExecuteWithRetryAsync(
+            ct =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (auth != null)
+                    request.Headers.Authorization = auth;
+                return client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            },
+            url,
+            "GET",
+            retryCount,
+            log,
+            cancellationToken).ConfigureAwait(false);
+
+        using var response = result.Response;
+        if (response == null)
+            return false;
+
+        const long MaxDownloadSize = 500_000_000; // 500 MB
+        if (response.Content.Headers.ContentLength is > MaxDownloadSize)
+            throw new InvalidOperationException(
+                $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
+
+        await using var fs = File.Create(destinationPath);
+        await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
     /// Executes an HTTP HEAD request with retry logic.
     /// </summary>
     /// <param name="client">HTTP client to use</param>
