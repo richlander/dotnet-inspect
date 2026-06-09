@@ -12,7 +12,31 @@ namespace DotnetInspector.Inspectors;
 public partial class XmlDocFileParser
 {
     private readonly Dictionary<string, XmlNode> _members = new(StringComparer.Ordinal);
+    // Maps a member's base key (the doc key up to the first '(' or '`', e.g. "M:Ns.Type.Method")
+    // to all full keys that share it (overloads, generic-arity variants). Lets overload lookups
+    // scan only a member's own keys instead of every key in the file.
+    private readonly Dictionary<string, List<string>> _membersByBaseKey = new(StringComparer.Ordinal);
     private bool _loaded;
+
+    private static string BaseKey(string memberKey)
+    {
+        // Cut at the parameter list '(' or the method-arity marker "``" (double backtick), whichever
+        // comes first. A single backtick is the enclosing type's arity (e.g. "List`1.Add") and must
+        // stay in the base key, matching how the lookup keys are constructed.
+        int paren = memberKey.IndexOf('(');
+        int methodArity = memberKey.IndexOf("``", StringComparison.Ordinal);
+        int cut = (paren, methodArity) switch
+        {
+            ( >= 0, >= 0) => Math.Min(paren, methodArity),
+            ( >= 0, _) => paren,
+            (_, >= 0) => methodArity,
+            _ => -1,
+        };
+        return cut >= 0 ? memberKey[..cut] : memberKey;
+    }
+
+    private IEnumerable<string> CandidateKeys(string baseKey)
+        => _membersByBaseKey.TryGetValue(baseKey, out var keys) ? keys : [];
 
     /// <summary>
     /// Loads an XML documentation file.
@@ -36,6 +60,10 @@ public partial class XmlDocFileParser
                 if (name != null)
                 {
                     _members[name] = member;
+                    var baseKey = BaseKey(name);
+                    if (!_membersByBaseKey.TryGetValue(baseKey, out var keys))
+                        _membersByBaseKey[baseKey] = keys = [];
+                    keys.Add(name);
                 }
             }
 
@@ -103,7 +131,7 @@ public partial class XmlDocFileParser
             // For methods, also search for any overload
             if (prefix == "M")
             {
-                var matchingKey = _members.Keys
+                var matchingKey = CandidateKeys(xmlKey)
                     .FirstOrDefault(k => k.StartsWith($"{xmlKey}(", StringComparison.Ordinal) || k == xmlKey);
 
                 if (matchingKey != null && _members.TryGetValue(matchingKey, out node))
@@ -135,7 +163,7 @@ public partial class XmlDocFileParser
             var nonMethodSignatureParameters = GetNormalizedSignatureParameters(member.Signature, EmptyTypeParameterMap, EmptyTypeParameterMap);
             if (nonMethodSignatureParameters.Count > 0)
             {
-                var parameterizedCandidates = _members.Keys
+                var parameterizedCandidates = CandidateKeys(xmlKey)
                     .Where(k => k.StartsWith($"{xmlKey}(", StringComparison.Ordinal))
                     .ToList();
                 var matchingKey = parameterizedCandidates.FirstOrDefault(key =>
@@ -151,7 +179,7 @@ public partial class XmlDocFileParser
                 : null;
         }
 
-        var candidates = _members.Keys
+        var candidates = CandidateKeys(xmlKey)
             .Where(k =>
                 k == xmlKey
                 || k.StartsWith($"{xmlKey}(", StringComparison.Ordinal)
