@@ -15,9 +15,11 @@ public class ByteSizeFormatter : IMarkoutValueFormatter<long>
     /// </summary>
     public static string FormatBytes(long value) => value switch
     {
-        >= 1_073_741_824 => $"{value / 1_073_741_824.0:0.#} GB",
-        >= 1_048_576 => $"{value / 1_048_576.0:0.#} MB",
-        >= 1_024 => $"{value / 1_024.0:0.#} KB",
+        // Powers of 1024; the compiler folds these to constants. Divisors are parenthesized so the
+        // whole product runs before the division (a / 1024.0 * 1024 would divide then multiply).
+        >= 1024 * 1024 * 1024 => $"{value / (1024.0 * 1024 * 1024):0.#} GB",
+        >= 1024 * 1024 => $"{value / (1024.0 * 1024):0.#} MB",
+        >= 1024 => $"{value / 1024.0:0.#} KB",
         _ => $"{value} B"
     };
 }
