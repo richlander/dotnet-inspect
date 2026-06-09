@@ -266,34 +266,49 @@ public class SharedParsersTests
     public void ProcessMemberArguments_ExtractsDottedSyntax()
     {
         var members = new[] { "JsonSerializer.Deserialize", "GetValue" };
-        var (typeFilter, overloadIndex) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Equal("GetValue", members[1]);
         Assert.Null(overloadIndex);
+        Assert.Empty(kindFilter);
     }
 
     [Fact]
     public void ProcessMemberArguments_ExtractsOverloadShorthand()
     {
         var members = new[] { "GetValue:2" };
-        var (typeFilter, overloadIndex) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Null(typeFilter);
         Assert.Equal("GetValue", members[0]);
         Assert.Equal(2, overloadIndex);
+        Assert.Empty(kindFilter);
     }
 
     [Fact]
     public void ProcessMemberArguments_ExtractsBoth()
     {
         var members = new[] { "JsonSerializer.Deserialize:1" };
-        var (typeFilter, overloadIndex) = SharedParsers.ProcessMemberArguments(members);
+        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
 
         Assert.Equal("JsonSerializer", typeFilter);
         Assert.Equal("Deserialize", members[0]);
         Assert.Equal(1, overloadIndex);
+        Assert.Empty(kindFilter);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_ExtractsKindQualifiedSelector()
+    {
+        var members = new[] { "explicit:System.IConvertible.ToBoolean:1" };
+        var (typeFilter, overloadIndex, kindFilter) = SharedParsers.ProcessMemberArguments(members);
+
+        Assert.Null(typeFilter);
+        Assert.Equal("System.IConvertible.ToBoolean", members[0]);
+        Assert.Equal(1, overloadIndex);
+        Assert.Contains("explicit-interface-implementation", kindFilter);
     }
 
     // ── ParseParamTypes ──────────────────────────────────────────────────

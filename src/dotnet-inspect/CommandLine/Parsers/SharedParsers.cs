@@ -172,19 +172,30 @@ public static class SharedParsers
     /// </summary>
     /// <param name="members">The member arguments to process.</param>
     /// <returns>Extracted type filter and overload index if found.</returns>
-    public static (string? DottedTypeFilter, int? OverloadIndex) ProcessMemberArguments(string[] members)
+    public static (string? DottedTypeFilter, int? OverloadIndex, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
+        HashSet<string> kindFilter = [];
 
         for (int i = 0; i < members.Length; i++)
         {
-            // Check for dotted syntax (Type.Member)
-            var (typeFilter, memberName) = ParseDottedMember(members[i]);
-            if (typeFilter != null)
+            var kindQualified = TryParseKindQualifiedMember(members[i], out var kind, out var memberName);
+            if (kindQualified)
             {
-                dottedTypeFilter = typeFilter;
+                kindFilter.Add(kind);
                 members[i] = memberName;
+            }
+
+            // Check for dotted syntax (Type.Member)
+            if (!kindQualified)
+            {
+                var (typeFilter, dottedMemberName) = ParseDottedMember(members[i]);
+                if (typeFilter != null)
+                {
+                    dottedTypeFilter = typeFilter;
+                    members[i] = dottedMemberName;
+                }
             }
 
             // Check for overload shorthand (Name:N)
@@ -196,7 +207,24 @@ public static class SharedParsers
             }
         }
 
-        return (dottedTypeFilter, overloadIndex);
+        return (dottedTypeFilter, overloadIndex, kindFilter);
+    }
+
+    private static bool TryParseKindQualifiedMember(string value, out string kind, out string memberName)
+    {
+        foreach (var prefix in (ReadOnlySpan<string>)["operator:", "explicit:", "extension:"])
+        {
+            if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                kind = NormalizeKind(prefix[..^1]);
+                memberName = value[prefix.Length..];
+                return true;
+            }
+        }
+
+        kind = "";
+        memberName = value;
+        return false;
     }
 
     /// <summary>
@@ -207,6 +235,9 @@ public static class SharedParsers
         "prop" or "props" or "property" or "properties" => "property",
         "ctor" or "ctors" or "constructor" or "constructors" => "constructor",
         "method" or "methods" => "method",
+        "op" or "ops" or "operator" or "operators" => "operator",
+        "explicit" or "explicit-interface" or "explicit-interface-implementation" or "explicit-interface-implementations" => "explicit-interface-implementation",
+        "extension" or "extensions" or "extension-method" or "extension-methods" => "extension-method",
         "field" or "fields" => "field",
         "event" or "events" => "event",
         "class" or "classes" => "class",

@@ -141,6 +141,8 @@ public static class MemberOptionsParser
             && source.AssemblyPath == null)
         {
             var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
+            if (source.TypeName == null)
+                probe ??= SourceResolver.TryProbePlatformQualifiedPrefix(source.PackagePath);
             if (probe != null)
             {
                 if (source.TypeName != null)
@@ -184,7 +186,7 @@ public static class MemberOptionsParser
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
-        var (dottedTypeFilter, shorthandIndex) = SharedParsers.ProcessMemberArguments(allMembers);
+        var (dottedTypeFilter, shorthandIndex, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
 
         // Use extracted type name if no explicit type was provided
         if (dottedTypeFilter != null && string.IsNullOrEmpty(typeName))
@@ -197,6 +199,7 @@ public static class MemberOptionsParser
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
+        kindFilter.UnionWith(memberKindFilter);
 
         var options = new MemberOptions
         {

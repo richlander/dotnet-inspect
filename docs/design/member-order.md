@@ -49,17 +49,19 @@ The effective order is therefore:
 8. Extension Methods
 9. Events
 
-## Known gaps
+## Implementation notes
 
-Operators are currently represented through method metadata and should become a
-first-class section when the type/member views can classify them separately.
+Operators are represented in metadata as special methods with `op_` names.
+Type/member views classify them into a first-class `Operators` section so they
+do not inflate ordinary method groups.
 
-Explicit interface implementations are not currently modeled as their own
-section. They should be separated from ordinary methods/properties/events when
-the extractor has enough information to identify and render them clearly.
+Explicit interface implementations are often private method definitions, but
+they are part of the public interface contract. Type/member views include them
+without requiring `--all` and render them in `Explicit Interface
+Implementations`.
 
 Extension methods already have a relationship command and library-level
-sections. Type/member views should also expose extension methods defined in the
-inspected binary when they extend the inspected type. Broader reachable
-extension-method discovery should stay in the `extensions` command to avoid
-surprising scope expansion and extra work in default type/member views.
+sections. Type/member views expose extension methods defined in the inspected
+binary when they extend the inspected type. Broader reachable extension-method
+discovery stays in the `extensions` command to avoid surprising scope expansion
+and extra work in default type/member views.

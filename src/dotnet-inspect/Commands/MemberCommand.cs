@@ -127,9 +127,7 @@ public static class MemberCommand
             if (!effectiveOptions.OverloadIndex.HasValue && ShouldAutoSelectSingleOverload(effectiveOptions))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
-                var autoOverloads = apiType.Members
-                    .Where(m => string.Equals(m.Name, autoMemberName, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
                 if (autoOverloads.Count == 1)
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
             }
@@ -144,9 +142,7 @@ public static class MemberCommand
                 }
 
                 var memberName = effectiveOptions.MemberFilter.First();
-                var overloads = apiType.Members
-                    .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
                 var displayOverloads = overloads
                     .OrderBy(m => m.Name, StringComparer.Ordinal)
                     .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
@@ -178,9 +174,7 @@ public static class MemberCommand
                 }
 
                 var memberName = effectiveOptions.MemberFilter.First();
-                var overloads = apiType.Members
-                    .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
 
                 var matches = new List<(ApiMember member, int index)>();
                 for (int i = 0; i < overloads.Count; i++)
@@ -241,11 +235,15 @@ public static class MemberCommand
                 var pdbLookupPath = runtimeAssemblyPath ?? apiDllPath;
                 bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
                     .Contains(SectionNames.OriginalSource);
+                var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
+                var sourceTypeName = selectedMember?.DeclaringType ?? apiType.FullName;
+                var sourceOverloadIndex = (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
+                var publicOnly = selectedMember?.Kind != "explicit-interface-implementation";
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    pdbLookupPath, apiType.FullName,
+                    pdbLookupPath, sourceTypeName,
                     effectiveOptions.MemberFilter.First(),
-                    effectiveOptions.OverloadIndex.Value - 1,
-                    effectiveOptions, context.HttpClient, logger, fetchSource);
+                    sourceOverloadIndex,
+                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly);
 
                 effectiveOptions = effectiveOptions with
                 {
@@ -274,7 +272,7 @@ public static class MemberCommand
                     ? apiType.FullName[(apiType.FullName.LastIndexOf('.') + 1)..] : apiType.FullName;
 
                 var overloadGroups = apiType.Members
-                    .Where(m => m.Kind is "method" or "constructor")
+                    .Where(ApiMemberSectionDescriptors.IsMethodLike)
                     .GroupBy(m => m.Name)
                     .OrderByDescending(g => g.Count())
                     .ToList();
@@ -338,6 +336,15 @@ public static class MemberCommand
 
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
+    {
+        var members = apiType.Members
+            .Where(m => string.Equals(m.Name, memberName, StringComparison.OrdinalIgnoreCase));
+        if (options.KindFilter.Count > 0)
+            members = members.Where(m => options.KindFilter.Contains(m.Kind));
+        return members.ToList();
+    }
 
     private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {

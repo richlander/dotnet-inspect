@@ -85,6 +85,9 @@ public static class ApiMemberSectionDescriptors
             .Add<Properties>()
             .Add<MethodGroups>()
             .Add<Methods>()
+            .Add<Operators>()
+            .Add<ExplicitInterfaceImplementations>()
+            .Add<ExtensionMethods>()
             .Add<Events>()
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
@@ -197,13 +200,43 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(m => m.Kind == "event");
     }
 
+    public sealed class Operators : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Operators;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "operator");
+    }
+
+    public sealed class ExplicitInterfaceImplementations : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.ExplicitInterfaceImplementations;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "explicit-interface-implementation");
+    }
+
+    public sealed class ExtensionMethods : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.ExtensionMethods;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "extension-method");
+    }
+
     public sealed class MethodAttributes : ISectionDescriptor<ApiType>
     {
         public static string Name => "Custom Attributes";
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(IsMethodLike);
     }
 
     // ===== Expensive sections (decompiler output) =====
@@ -214,7 +247,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(IsMethodLike);
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
@@ -223,7 +256,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(IsMethodLike);
     }
 
     public sealed class AnnotatedIL : ISectionDescriptor<ApiType>
@@ -232,7 +265,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(IsMethodLike);
     }
 
     public sealed class OriginalSource : ISectionDescriptor<ApiType>
@@ -243,8 +276,11 @@ public static class ApiMemberSectionDescriptors
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(IsMethodLike);
     }
+
+    internal static bool IsMethodLike(ApiMember member) =>
+        member.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method";
 }
 
 /// <summary>
@@ -291,6 +327,9 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Properties>()
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
+            .Add<ApiMemberSectionDescriptors.Operators>()
+            .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
+            .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>()
             .Add<ApiMemberSectionDescriptors.DecompiledSource>()
@@ -352,7 +391,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
@@ -363,7 +402,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class OriginalSource : ISectionDescriptor<ApiType>
@@ -374,7 +413,7 @@ public static class ApiMemberDetailSectionDescriptors
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
@@ -383,7 +422,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class AnnotatedIL : ISectionDescriptor<ApiType>
@@ -393,6 +432,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => m.Kind is "method" or "constructor");
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 }

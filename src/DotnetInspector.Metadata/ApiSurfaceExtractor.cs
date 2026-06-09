@@ -143,12 +143,15 @@ public static class ApiSurfaceExtractor
             {
             apiType.Members = [];
 
+            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                if (methodAccess != MethodAttributes.Public && !includeAll)
+                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -163,22 +166,31 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
+                if (!includeAll
+                    && !isExplicitInterfaceImplementation
+                    && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
 
                 var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
+                var isOperator = IsOperatorMethodName(methodName);
                 var member = new ApiMember
                 {
                     Name = methodName,
-                    Kind = methodName == ".ctor" ? "constructor" : "method",
+                    Kind = methodName switch
+                    {
+                        ".ctor" => "constructor",
+                        _ when isOperator => "operator",
+                        _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
+                        _ => "method"
+                    },
                     IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
                     IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0,
                     IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
                     Signature = signature,
                     IsUnsafe = HasUnsafeSignature(signature),
-                    Accessibility = GetAccessibility(methodAccess),
+                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage
                 };
@@ -188,6 +200,7 @@ public static class ApiSurfaceExtractor
                 {
                     member.IsExtension = true;
                     member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                    member.DeclaringType = apiType.FullName;
                 }
 
                 apiType.Members.Add(member);
@@ -348,6 +361,8 @@ public static class ApiSurfaceExtractor
             surface.PublicTypeCount++;
         }
 
+        AttachLocalExtensionMethods(surface);
+
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
@@ -375,6 +390,129 @@ public static class ApiSurfaceExtractor
         }
 
         return surface;
+    }
+
+    private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
+        MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<MethodDefinitionHandle> handles = [];
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
+                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+        }
+
+        return handles;
+    }
+
+    private static bool IsOperatorMethodName(string methodName) =>
+        methodName.StartsWith("op_", StringComparison.Ordinal);
+
+    private static void AttachLocalExtensionMethods(ApiSurface surface)
+    {
+        var targets = surface.Types
+            .SelectMany(type => GetTypeMatchKeys(type).Select(key => (key, type)))
+            .GroupBy(item => item.key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().type, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var declaringType in surface.Types)
+        {
+            foreach (var extension in declaringType.Members.Where(member => member.IsExtension))
+            {
+                var key = NormalizeTypeMatchKey(extension.ExtendedType);
+                if (key == null || !targets.TryGetValue(key, out var targetType))
+                    continue;
+                if (ReferenceEquals(targetType, declaringType))
+                    continue;
+                if (targetType.Members.Any(member =>
+                    member.Kind == "extension-method"
+                    && string.Equals(member.DeclaringType, declaringType.FullName, StringComparison.Ordinal)
+                    && string.Equals(member.Name, extension.Name, StringComparison.Ordinal)
+                    && string.Equals(member.Signature, extension.Signature, StringComparison.Ordinal)))
+                    continue;
+
+                var declaringOverloadIndex = declaringType.Members
+                    .Where(member => string.Equals(member.Name, extension.Name, StringComparison.Ordinal))
+                    .ToList()
+                    .IndexOf(extension) + 1;
+
+                targetType.Members.Add(new ApiMember
+                {
+                    Name = extension.Name,
+                    Kind = "extension-method",
+                    ReturnType = extension.ReturnType,
+                    Signature = extension.Signature,
+                    IsStatic = extension.IsStatic,
+                    IsVirtual = extension.IsVirtual,
+                    IsAbstract = extension.IsAbstract,
+                    IsUnsafe = extension.IsUnsafe,
+                    IsExtension = true,
+                    ExtendedType = extension.ExtendedType,
+                    DeclaringType = declaringType.FullName,
+                    DeclaringOverloadIndex = declaringOverloadIndex,
+                    IsObsolete = extension.IsObsolete,
+                    ObsoleteMessage = extension.ObsoleteMessage,
+                    Documentation = extension.Documentation
+                });
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetTypeMatchKeys(ApiType type)
+    {
+        var fullNameKey = NormalizeTypeMatchKey(type.FullName);
+        if (fullNameKey != null)
+            yield return fullNameKey;
+    }
+
+    private static string? NormalizeTypeMatchKey(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return null;
+
+        var value = typeName.Trim();
+        foreach (var prefix in (ReadOnlySpan<string>)["ref ", "in ", "out "])
+        {
+            if (value.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                value = value[prefix.Length..].TrimStart();
+                break;
+            }
+        }
+
+        if (value.EndsWith("?", StringComparison.Ordinal))
+            value = value[..^1];
+
+        value = value switch
+        {
+            "bool" => "System.Boolean",
+            "byte" => "System.Byte",
+            "char" => "System.Char",
+            "decimal" => "System.Decimal",
+            "double" => "System.Double",
+            "float" => "System.Single",
+            "int" => "System.Int32",
+            "long" => "System.Int64",
+            "object" => "System.Object",
+            "sbyte" => "System.SByte",
+            "short" => "System.Int16",
+            "string" => "System.String",
+            "uint" => "System.UInt32",
+            "ulong" => "System.UInt64",
+            "ushort" => "System.UInt16",
+            _ => value
+        };
+
+        var genericIndex = value.IndexOf('<');
+        if (genericIndex > 0)
+            value = value[..genericIndex];
+
+        var arityIndex = value.IndexOf('`');
+        if (arityIndex > 0)
+            value = value[..arityIndex];
+
+        return value;
     }
 
     /// <summary>

@@ -175,7 +175,27 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || DiscoveryRequests(options, SectionNames.Methods);
+        || (!SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+            && (SectionRequested(options.IncludeSections, SectionNames.Operators)
+                || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
+                || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
+        || DiscoveryRequests(options, SectionNames.Methods)
+        || DiscoveryRequests(options, SectionNames.Operators)
+        || DiscoveryRequests(options, SectionNames.ExplicitInterfaceImplementations)
+        || DiscoveryRequests(options, SectionNames.ExtensionMethods);
+
+    internal static readonly HashSet<string> SupplementalMemberKinds =
+    [
+        "operator",
+        "explicit-interface-implementation",
+        "extension-method"
+    ];
+
+    internal static bool ShouldRenderSupplementalMemberRows(ApiOptions options) =>
+        options.Verbosity == Verbosity.Minimal
+        && !ShouldRenderMemberRows(options)
+        && (options.IncludeSections is null
+            || SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections));
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
@@ -193,6 +213,9 @@ public static class ApiOutputFormatter
         EventsView? eventsView,
         MethodGroupsView? methodGroupsView,
         MethodsView? methodsView,
+        OperatorsView? operatorsView,
+        ExplicitInterfaceImplementationsView? explicitInterfaceImplementationsView,
+        ExtensionMethodsView? extensionMethodsView,
         MemberCodeView? memberCodeView,
         MarkoutWriter writer)
     {
@@ -201,6 +224,12 @@ public static class ApiOutputFormatter
             ApiViewContext.Default.Serialize(methodGroupsView, writer);
         if (methodsView is { HasRows: true })
             ApiViewContext.Default.Serialize(methodsView, writer);
+        if (operatorsView is { HasRows: true })
+            ApiViewContext.Default.Serialize(operatorsView, writer);
+        if (explicitInterfaceImplementationsView is { HasRows: true })
+            ApiViewContext.Default.Serialize(explicitInterfaceImplementationsView, writer);
+        if (extensionMethodsView is { HasRows: true })
+            ApiViewContext.Default.Serialize(extensionMethodsView, writer);
         if (eventsView is { HasRows: true })
             ApiViewContext.Default.Serialize(eventsView, writer);
         if (memberCodeView != null)
@@ -216,6 +245,7 @@ public static class ApiOutputFormatter
 
     private static bool ShouldAbbreviateMemberSignatures(ApiOptions options) =>
         options.Verbosity == Verbosity.Minimal
+        && options.IncludeSections is null
         && !ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         && !SectionRequested(options.IncludeSections, SectionNames.Methods)
         && !DiscoveryRequests(options, SectionNames.Methods);
@@ -341,6 +371,9 @@ public static class ApiOutputFormatter
             Fields = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
             Properties = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
             Methods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Operators = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "operator")) : null,
+            ExplicitInterfaceImplementations = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "explicit-interface-implementation")) : null,
+            ExtensionMethods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "extension-method")) : null,
             Events = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
@@ -408,7 +441,7 @@ public static class ApiOutputFormatter
 
         static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members)
         {
-            if (kind is "method" or "constructor")
+            if (IsOverloadGroupedKind(kind))
             {
                 return members
                     .GroupBy(m => m.Name)
@@ -433,14 +466,20 @@ public static class ApiOutputFormatter
                 .ToList();
         }
 
+        static bool IsOverloadGroupedKind(string kind)
+            => kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method";
+
         static string GetShapeKindLabel(string kind, int overloadCount, int logicalCount)
         {
-            if (kind is "method" or "constructor" && overloadCount != logicalCount)
+            if (IsOverloadGroupedKind(kind) && overloadCount != logicalCount)
             {
                 var noun = kind switch
                 {
                     "constructor" => "Constructors",
                     "method" => "Methods",
+                    "operator" => "Operators",
+                    "explicit-interface-implementation" => "Explicit Interface Implementations",
+                    "extension-method" => "Extension Methods",
                     _ => GetTreeKindLabel(kind, overloadCount).Split(' ')[0]
                 };
                 return $"{noun} ({logicalCount} logical, {overloadCount} overloads)";
@@ -539,9 +578,21 @@ public static class ApiOutputFormatter
     }
 
     internal static (int truncated, string noun) PopulateMemberSections(
-        TypeView view, MethodsView methodsView, EventsView eventsView, ApiType type, ApiOptions options)
+        TypeView view,
+        MethodsView methodsView,
+        OperatorsView operatorsView,
+        ExplicitInterfaceImplementationsView explicitInterfaceImplementationsView,
+        ExtensionMethodsView extensionMethodsView,
+        EventsView eventsView,
+        ApiType type,
+        ApiOptions options,
+        IReadOnlySet<string>? onlyKinds = null)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        if (onlyKinds is { Count: > 0 })
+            grouped = grouped
+                .Where(kvp => onlyKinds.Contains(kvp.Key))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (0, "");
 
         // Flatten sorted for --limit application
@@ -597,7 +648,8 @@ public static class ApiOutputFormatter
                     idx++;
                     overloadIndices[m.Name] = idx;
                     bool hasOverloads = overloadCounts[m.Name] > 1;
-                    select = $"`{(hasOverloads ? $"{m.Name}:{idx}" : m.Name)}`";
+                    var selectorName = GetMemberSelectorName(m);
+                    select = $"`{(hasOverloads ? $"{selectorName}:{idx}" : selectorName)}`";
                 }
 
                 var sigDisplay = m.Accessibility != null ? $"{m.Accessibility} {sig}" : sig;
@@ -636,6 +688,24 @@ public static class ApiOutputFormatter
                     { if (hasDocs) methodsView.SelectRowsWithDocs = rows; else methodsView.SelectRows = rows; }
                     else
                     { if (hasDocs) methodsView.RowsWithDocs = rows; else methodsView.Rows = rows; }
+                    break;
+                case "operator":
+                    if (showSelect)
+                    { if (hasDocs) operatorsView.SelectRowsWithDocs = rows; else operatorsView.SelectRows = rows; }
+                    else
+                    { if (hasDocs) operatorsView.RowsWithDocs = rows; else operatorsView.Rows = rows; }
+                    break;
+                case "explicit-interface-implementation":
+                    if (showSelect)
+                    { if (hasDocs) explicitInterfaceImplementationsView.SelectRowsWithDocs = rows; else explicitInterfaceImplementationsView.SelectRows = rows; }
+                    else
+                    { if (hasDocs) explicitInterfaceImplementationsView.RowsWithDocs = rows; else explicitInterfaceImplementationsView.Rows = rows; }
+                    break;
+                case "extension-method":
+                    if (showSelect)
+                    { if (hasDocs) extensionMethodsView.SelectRowsWithDocs = rows; else extensionMethodsView.SelectRows = rows; }
+                    else
+                    { if (hasDocs) extensionMethodsView.RowsWithDocs = rows; else extensionMethodsView.Rows = rows; }
                     break;
                 case "event":
                     if (showSelect)
@@ -829,11 +899,17 @@ public static class ApiOutputFormatter
 
         foreach (var method in methods)
         {
+            var lookupType = method.DeclaringType ?? type.FullName;
+            var lookupOverloadIndex = method.DeclaringOverloadIndex is { } declaringIndex
+                ? declaringIndex - 1
+                : overloadIndex;
+            var publicOnly = method.Kind != "explicit-interface-implementation";
+
             // Custom attributes
             if (wantsAttributes)
             {
                 var attributes = AttributeReader.GetMethodAttributes(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                    peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly);
                 if (attributes.Count > 0)
                 {
                     view.MethodAttributeRows = attributes
@@ -848,7 +924,7 @@ public static class ApiOutputFormatter
                 try
                 {
                     var context = Decompiler.MethodBodyContext.Create(
-                        peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
+                        peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
                     if (context != null)
                     {
                         var lowered = Decompiler.CSharpEmitter.Emit(context);
@@ -867,7 +943,7 @@ public static class ApiOutputFormatter
             if (wantsIL)
             {
                 var instructions = ILDisassembler.DisassembleMethod(
-                    peReader, type.FullName, method.Name, overloadIndex, publicOnly: true);
+                    peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly);
                 if (instructions is { Count: > 0 })
                 {
                     var ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
@@ -882,7 +958,7 @@ public static class ApiOutputFormatter
                 try
                 {
                     var context = Decompiler.MethodBodyContext.Create(
-                        peReader, type.FullName, method.Name, overloadIndex, publicOnly: true, externalPdbPath: pdbPath);
+                        peReader, lookupType, method.Name, lookupOverloadIndex, publicOnly, externalPdbPath: pdbPath);
                     if (context != null)
                     {
                         var annotated = Decompiler.AnnotatedILEmitter.Emit(
@@ -931,7 +1007,7 @@ public static class ApiOutputFormatter
         {
             signature = FormatOperatorSignature(signature, member.Name);
         }
-        else if (member.Kind == "method")
+        else if (member.Kind is "method" or "extension-method")
         {
             if (context.GenericContext?.MethodParameters is { Count: > 0 } methodParameters)
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
@@ -939,11 +1015,15 @@ public static class ApiOutputFormatter
                 signature = AddExtensionThisModifier(signature);
         }
 
-        List<string> modifiers = [member.Accessibility ?? "public"];
+        List<string> modifiers = member.Kind == "explicit-interface-implementation"
+            ? []
+            : [member.Accessibility ?? "public"];
         if (member.IsStatic)
             modifiers.Add("static");
 
-        return $"{string.Join(" ", modifiers)} {signature}";
+        return modifiers.Count == 0
+            ? signature
+            : $"{string.Join(" ", modifiers)} {signature}";
     }
 
     private static string FormatOperatorSignature(string signature, string methodName)
@@ -1115,10 +1195,21 @@ public static class ApiOutputFormatter
         return signature;
     }
 
+    private static string GetMemberSelectorName(ApiMember member) => member.Kind switch
+    {
+        "operator" => $"operator:{member.Name}",
+        "explicit-interface-implementation" => $"explicit:{member.Name}",
+        "extension-method" => $"extension:{member.Name}",
+        _ => member.Name
+    };
+
     private static string PluralizeKind(string kind) => kind switch
     {
         "property" => "Properties",
         "method" => "Methods",
+        "operator" => "Operators",
+        "explicit-interface-implementation" => "Explicit Interface Implementations",
+        "extension-method" => "Extension Methods",
         "field" => "Fields",
         "event" => "Events",
         "constructor" => "Constructors",
@@ -1127,7 +1218,17 @@ public static class ApiOutputFormatter
 
     private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 
-    private static readonly string[] MemberKinds = ["constructor", "field", "property", "method", "event"];
+    private static readonly string[] MemberKinds =
+    [
+        "constructor",
+        "field",
+        "property",
+        "method",
+        "operator",
+        "explicit-interface-implementation",
+        "extension-method",
+        "event"
+    ];
 
     internal static int GetMemberSortOrder(string kind)
     {
@@ -1180,8 +1281,8 @@ public static class ApiOutputFormatter
             var detail = e.kind switch
             {
                 "property" => SignatureParser.ExtractAccessors(m.Signature),
-                "constructor" or "method" when e.members.Count > 1 => e.members.Count.ToString(),
-                "constructor" or "method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
+                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count > 1 => e.members.Count.ToString(),
+                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => SignatureParser.ExtractParamList(m.Signature),
                 _ => ""
             };
             var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
@@ -1256,11 +1357,14 @@ public static class ApiOutputFormatter
     private static int GetTreeKindOrder(string kind) => kind switch
     {
         "constructor" => 0,
-        "property" => 1,
-        "method" => 2,
-        "event" => 3,
-        "field" => 4,
-        _ => 5
+        "field" => 1,
+        "property" => 2,
+        "method" => 3,
+        "operator" => 4,
+        "explicit-interface-implementation" => 5,
+        "extension-method" => 6,
+        "event" => 7,
+        _ => 8
     };
 
     private static string GetTreeKindLabel(string kind, int count)
@@ -1269,6 +1373,9 @@ public static class ApiOutputFormatter
         {
             "property" => "Properties",
             "method" => "Methods",
+            "operator" => "Operators",
+            "explicit-interface-implementation" => "Explicit Interface Implementations",
+            "extension-method" => "Extension Methods",
             "constructor" => "Constructors",
             "event" => "Events",
             "field" => "Fields",
@@ -1299,6 +1406,15 @@ public static class ApiOutputFormatter
                 case "Method Groups":
                 case "Methods":
                     kinds.Add("method");
+                    break;
+                case "Operators":
+                    kinds.Add("operator");
+                    break;
+                case "Explicit Interface Implementations":
+                    kinds.Add("explicit-interface-implementation");
+                    break;
+                case "Extension Methods":
+                    kinds.Add("extension-method");
                     break;
                 case "Events":
                     kinds.Add("event");

@@ -31,6 +31,6 @@ Agents working in this repo should preserve these principles:
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S All`, and limiter behavior.
 - [Section model](design/section-model.md): section selection and query behavior.
-- [Member ordering](design/member-order.md): canonical type/member section order and known member-kind gaps.
+- [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

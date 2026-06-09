@@ -1057,6 +1057,156 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_StringBareSelect_RendersLearnMemberOrder()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib", "-S", "--tips", "q", "--rows", "-n", "3");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        string[] headings =
+        [
+            "## Constructors",
+            "## Fields",
+            "## Properties",
+            "## Method Groups",
+            "## Operators",
+            "## Explicit Interface Implementations",
+            "## Extension Methods"
+        ];
+
+        var previous = -1;
+        foreach (var heading in headings)
+        {
+            var current = output.IndexOf(heading, StringComparison.Ordinal);
+            Assert.True(current > previous, $"{heading} was not after the previous heading.");
+            previous = current;
+        }
+    }
+
+    [Fact]
+    public async Task Member_StringSelectSpecialMemberKinds_RendersRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "-S", "Operators,Explicit Interface Implementations,Extension Methods",
+            "--tips", "q", "--rows", "-n", "3");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Operators", output);
+        Assert.Contains("operator ==", output);
+        Assert.Contains("## Explicit Interface Implementations", output);
+        Assert.Contains("System.Collections.IEnumerable.GetEnumerator", output);
+        Assert.Contains("## Extension Methods", output);
+        Assert.Contains("AsMemory", output);
+    }
+
+    [Fact]
+    public async Task Member_StringSupplementalSelectors_RoundTrip()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "-S", "Explicit Interface Implementations", "--show-index", "--tips", "q", "--rows", "-n", "4");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("`explicit:System.IConvertible.ToBoolean`", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Signature", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("bool System.IConvertible.ToBoolean", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## IL", output);
+        Assert.Contains("System.Convert::ToBoolean", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("bool System.IConvertible.ToBoolean", output);
+        Assert.DoesNotContain("public bool System.IConvertible.ToBoolean", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "-S", "Extension Methods", "--show-index", "--tips", "q", "--rows", "-n", "4");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("`extension:AsMemory:1`", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## IL", output);
+        Assert.Contains("IL_0000:", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:Normalize:1", "-S", "Signature", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("string Normalize(string strInput)", output);
+        Assert.DoesNotContain("string Normalize()", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:Normalize", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var doc = JsonDocument.Parse(output);
+        foreach (var member in doc.RootElement.GetProperty("members").EnumerateArray())
+            Assert.Equal("extension-method", member.GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task Type_StringShape_RendersLearnMemberOrder()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "String", "--platform", "System.Private.CoreLib", "--shape");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        string[] headings =
+        [
+            "Constructors",
+            "Fields",
+            "Properties",
+            "Methods",
+            "Operators",
+            "Explicit Interface Implementations",
+            "Extension Methods"
+        ];
+
+        var previous = -1;
+        foreach (var heading in headings)
+        {
+            var current = output.IndexOf($"─ {heading}", StringComparison.Ordinal);
+            Assert.True(current > previous, $"{heading} was not after the previous heading.");
+            previous = current;
+        }
+    }
+
+    [Fact]
     public async Task Member_EnumValueFilter_TsvAppliesMemberFilter()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1856,6 +2006,19 @@ public class CommandExecutionTests
         Assert.DoesNotContain("Type 'System.Text.Json' not found", error);
         Assert.Contains("# System.Text.Json.JsonSerializer", output);
         Assert.Contains("## Method Groups", output);
+    }
+
+    [Fact]
+    public async Task MemberList_QualifiedPlatformTypeTypo_SuggestsType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializizer", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found.", error);
+        Assert.Contains("System.Text.Json.JsonSerializer", error);
+        Assert.DoesNotContain("member requires a type name", error);
     }
 
     [Fact]

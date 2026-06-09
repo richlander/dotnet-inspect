@@ -235,7 +235,7 @@ public class ApiType
 public class ApiMember
 {
     public string Name { get; set; } = "";
-    public string Kind { get; set; } = "";  // method, property, field, event, constructor
+    public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
 
     public string? ReturnType { get; set; }
     public string? Signature { get; set; }
@@ -272,6 +272,17 @@ public class ApiMember
     /// Only populated when IsExtension is true.
     /// </summary>
     public string? ExtendedType { get; set; }
+
+    /// <summary>
+    /// The type that declares this member when it is shown on another type, such as a local
+    /// extension method projected onto its extended type.
+    /// </summary>
+    public string? DeclaringType { get; set; }
+
+    /// <summary>
+    /// 1-based overload index in <see cref="DeclaringType"/> for projected members.
+    /// </summary>
+    public int? DeclaringOverloadIndex { get; set; }
 
     // Enum value (for enum fields only)
     public long? EnumValue { get; set; }
