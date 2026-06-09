@@ -67,7 +67,12 @@ public static class OperatorNames
         };
     }
 
-    private static string? MapBinaryOrUnary(string suffix) => suffix switch
+    /// <summary>
+    /// Maps a binary/unary operator suffix (without any "op_"/"Checked" prefix, e.g. "Addition")
+    /// to its C# symbol ("+"), or null if the suffix is not a binary/unary operator. Shared with the
+    /// signature renderer so checked-operator symbols are defined in exactly one place.
+    /// </summary>
+    public static string? MapBinaryOrUnary(string suffix) => suffix switch
     {
         "Addition" => "+",
         "Subtraction" => "-",
