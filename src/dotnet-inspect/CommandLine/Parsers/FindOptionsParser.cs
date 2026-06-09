@@ -95,6 +95,7 @@ public static class FindOptionsParser
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
             Columns = opts.ParseColumns(parseResult),
@@ -106,7 +107,7 @@ public static class FindOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

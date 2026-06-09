@@ -98,7 +98,7 @@ public static class SearchCommandDefinitions
                 case FindOptionsParser.Success success:
                     var exitCode = await FindCommand.ExecuteAsync(success.Options);
 
-                    if (exitCode == 0 && !success.Options.IsRawOutput)
+                    if (exitCode == 0 && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
                     {
                         var tips = FindOptionsParser.BuildTips(success.Options, success.Options.Pattern);
                         Hints.WriteTips(success.TipLevel, [.. tips]);

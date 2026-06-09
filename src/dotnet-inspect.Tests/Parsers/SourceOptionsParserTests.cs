@@ -139,4 +139,14 @@ public class SourceOptionsParserTests
         Assert.Null(options.PlatformAssembly);
         Assert.Null(options.MemberName);
     }
+
+    [Fact]
+    public async Task ExplicitMarkdown_SuppressesTips()
+    {
+        var options = await ParseSuccessAsync("source", "JsonSerializer", "--package", "System.Text.Json", "--markdown");
+
+        Assert.True(options.FormatExplicitlySet);
+        Assert.False(options.IsRawOutput);
+        Assert.Equal(TipLevel.Quiet, options.TipLevel);
+    }
 }

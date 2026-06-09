@@ -240,7 +240,7 @@ public static class SourceCommand
             WriteOutput(view, options);
         }
 
-        if (!options.IsRawOutput || options.IsDefaultInvocation)
+        if (!options.FormatExplicitlySet && (!options.IsRawOutput || options.IsDefaultInvocation))
         {
             var exampleType = typeList.FirstOrDefault(t => rows.Any(r => r.Type == t.FullName && r.Url != null));
             if (exampleType != null)
@@ -511,7 +511,7 @@ public static class SourceCommand
                 WriteMarkdown(view, options);
         }
 
-        if (!options.IsRawOutput)
+        if (!options.FormatExplicitlySet && !options.IsRawOutput)
         {
             var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                 : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"

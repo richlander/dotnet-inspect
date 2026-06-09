@@ -187,7 +187,7 @@ public record InspectionOptions
     public int? Rows { get; init; }
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;
 

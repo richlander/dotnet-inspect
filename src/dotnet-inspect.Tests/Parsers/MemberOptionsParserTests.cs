@@ -144,6 +144,25 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_WithImplicitOutput_KeepsTipsEnabled()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+
+        Assert.False(options.FormatExplicitlySet);
+        Assert.Equal(TipLevel.Minimal, options.TipLevel);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithMarkdown_SuppressesTips()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown");
+
+        Assert.True(options.FormatExplicitlySet);
+        Assert.False(options.IsRawOutput);
+        Assert.Equal(TipLevel.Quiet, options.TipLevel);
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithTsvAndNoHeaders_SetsTsvOutput()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers");

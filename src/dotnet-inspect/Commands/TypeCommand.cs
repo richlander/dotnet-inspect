@@ -99,7 +99,7 @@ public static class TypeCommand
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
 
-                if (!options.IsRawOutput)
+                if (!options.FormatExplicitlySet && !options.IsRawOutput)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                         : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -247,7 +247,7 @@ public static class TypeCommand
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
 
-                    if (!effectiveOptions.IsRawOutput)
+                    if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput)
                     {
                         var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                             : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"

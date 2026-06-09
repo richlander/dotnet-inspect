@@ -85,7 +85,7 @@ public static class PackageCommandDefinitions
                 {
                     var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
-                    if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && !success.Options.IsRawOutput)
+                    if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
                     {
                         var pkg = success.Options.PackageArgs[0];
                         if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];

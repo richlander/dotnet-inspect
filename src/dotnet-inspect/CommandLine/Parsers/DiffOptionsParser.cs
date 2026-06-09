@@ -105,6 +105,7 @@ public static class DiffOptionsParser
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
             Breaking = parseResult.GetValue(args.BreakingOption),
@@ -120,7 +121,7 @@ public static class DiffOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

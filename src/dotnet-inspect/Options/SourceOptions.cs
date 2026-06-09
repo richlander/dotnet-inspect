@@ -70,6 +70,7 @@ public record SourceOptions
     public bool Jsonl { get; init; }
     public bool OneLineExplicitlySet { get; init; }
     public bool PlainText { get; init; }
+    public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }
     public int? Rows { get; init; }
@@ -92,10 +93,10 @@ public record SourceOptions
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
     /// </summary>
-    public bool IsDefaultInvocation => OneLine && !JsonOutput && !OneLineExplicitlySet;
+    public bool IsDefaultInvocation => !FormatExplicitlySet && OneLine && !JsonOutput && !OneLineExplicitlySet;
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || Cat;
 }

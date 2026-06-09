@@ -296,6 +296,7 @@ public record DiffOptions
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
+    public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
     public bool Breaking { get; init; }
@@ -310,7 +311,7 @@ public record DiffOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput => OneLine || Jsonl || NoHeader || NameOnly;
 }

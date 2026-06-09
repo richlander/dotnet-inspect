@@ -248,7 +248,7 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || memberLimit != null
+            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || memberLimit != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 

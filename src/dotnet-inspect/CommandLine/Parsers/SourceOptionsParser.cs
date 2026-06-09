@@ -189,6 +189,7 @@ public static class SourceOptionsParser
             Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
@@ -203,7 +204,7 @@ public static class SourceOptionsParser
 
         options = options with
         {
-            TipLevel = options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || typeLimit != null
+            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || typeLimit != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 

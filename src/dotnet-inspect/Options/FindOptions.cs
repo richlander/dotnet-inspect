@@ -93,6 +93,11 @@ public record FindOptions : IAssemblySourceOptions
     public bool Jsonl { get; init; }
 
     /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// </summary>
+    public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
     /// Suppress column headers in tabular output.
     /// </summary>
     public bool NoHeader { get; init; }
@@ -140,7 +145,7 @@ public record FindOptions : IAssemblySourceOptions
         PackagePrefix != null;
 
     /// <summary>
-    /// True when output is raw text (not rendered markdown). Tips should be suppressed.
+    /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader;
 }
