@@ -1229,6 +1229,45 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_BareStringAlias_RendersCoreLibString()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "string", "--shape", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.String", output);
+        Assert.Contains("─ Methods", output);
+    }
+
+    [Theory]
+    [InlineData("Dictionary<TKey,TValue>")]
+    [InlineData("Dictionary`2")]
+    public async Task Type_BareDictionaryGeneric_RendersCoreLibDictionary(string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeName, "--shape", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.Collections.Generic.Dictionary<TKey, TValue>", output);
+        Assert.Contains("void Add(TKey key, TValue value)", output);
+    }
+
+    [Fact]
+    public async Task Member_BareStringAliasWithMemberFilter_RendersStringMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "string", "-m", "Normalize", "-S", "Methods", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.String", output);
+        Assert.Contains("## Methods", output);
+        Assert.Contains("Normalize(", output);
+    }
+
+    [Fact]
     public async Task Member_EnumValueFilter_TsvAppliesMemberFilter()
     {
         var (exit, output, error) = await RunAppAsync(

@@ -23,7 +23,7 @@ dnx dotnet-inspect -y -- <command>
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
-Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
+Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
 ## Capability inventory
 
@@ -91,6 +91,7 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,Sour
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
+dotnet-inspect type string --shape
 dotnet-inspect type --package System.Text.Json --table
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"

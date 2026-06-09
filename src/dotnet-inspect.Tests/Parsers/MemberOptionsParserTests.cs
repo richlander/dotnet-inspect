@@ -397,6 +397,39 @@ public class MemberOptionsParserTests
         Assert.Empty(options.MemberFilter);
     }
 
+    [Theory]
+    [InlineData("string", "System.String")]
+    [InlineData("int", "System.Int32")]
+    [InlineData("bool", "System.Boolean")]
+    [InlineData("object", "System.Object")]
+    [InlineData("String", "System.String")]
+    [InlineData("DateTime", "System.DateTime")]
+    [InlineData("Guid", "System.Guid")]
+    [InlineData("Math", "System.Math")]
+    [InlineData("System.String", "System.String")]
+    [InlineData("List<T>", "System.Collections.Generic.List`1")]
+    [InlineData("Dictionary<TKey,TValue>", "System.Collections.Generic.Dictionary`2")]
+    [InlineData("Dictionary`2", "System.Collections.Generic.Dictionary`2")]
+    [InlineData("Action", "System.Action")]
+    [InlineData("Action`1", "System.Action`1")]
+    [InlineData("Func`2", "System.Func`2")]
+    public async Task Positional_BareCoreLibType_ResolvesPlatformType(string input, string expectedTypeName)
+    {
+        var (coreLibPath, _, _, coreLibError) = PlatformResolver.ResolveAssembly("System.Private.CoreLib");
+        if (coreLibPath == null || coreLibError != null)
+        {
+            Assert.Skip($"System.Private.CoreLib not available: {coreLibError}");
+            return;
+        }
+
+        var options = await ParseSuccessAsync("member", input);
+
+        Assert.Equal("System.Private.CoreLib", options.PlatformAssembly);
+        Assert.Equal(expectedTypeName, options.TypeName);
+        Assert.Null(options.PackagePath);
+        Assert.Empty(options.MemberFilter);
+    }
+
     [Fact]
     public async Task Positional_QualifiedPlatformTypeTypoAndMember_PreservesTypeForSuggestions()
     {

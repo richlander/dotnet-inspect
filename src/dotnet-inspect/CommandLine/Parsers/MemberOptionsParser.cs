@@ -167,6 +167,7 @@ public static class MemberOptionsParser
         if (!sourceInputs.HasExplicitSource
             && typeName != null
             && typeName.Contains('.')
+            && sourceInputs.Args.Length > 1
             && positionalMembers.Count == 0
             && optionMembers.Length == 0)
         {

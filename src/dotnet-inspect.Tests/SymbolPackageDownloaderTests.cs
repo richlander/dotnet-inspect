@@ -3,6 +3,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class SymbolPackageDownloaderTests : IDisposable
 {
     private readonly string _cacheDir = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-symbol-tests-{Guid.NewGuid():N}");
