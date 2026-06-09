@@ -66,6 +66,8 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 
 Carry resolved context forward. Bare names use the router: platform-looking names are tried as installed platform libraries first, then fall back to NuGet packages if platform resolution fails. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
 
+For common CoreLib APIs, aliases and simple type names work without a source flag: use `type string --shape`, `member string`, or `member string -m Normalize`.
+
 Use `type Type --package Foo --shape` for a compact type overview and overload counts. For a specific overload inventory, use `member Type --package Foo -m Name --show-index`; this renders the `Methods` overload rows with full signatures and stable `Name:N` selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
 
 ## Upgrade and compatibility workflow

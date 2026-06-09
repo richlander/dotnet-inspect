@@ -1,5 +1,7 @@
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.CommandLine;
+using DotnetInspector.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -11,6 +13,8 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class SourceResolver
 {
+    private const string CoreLibAssemblyName = "System.Private.CoreLib";
+
     /// <summary>
     /// Result of source resolution containing resolved paths and any extracted type information.
     /// </summary>
@@ -145,6 +149,101 @@ public static class SourceResolver
         => PlatformResolver.HasType(assemblyPath, typeName);
 
     /// <summary>
+    /// Resolves a one-token alias or simple type name from System.Private.CoreLib.
+    /// This intentionally probes one local runtime assembly only; misses keep the
+    /// existing package/source fallback behavior.
+    /// </summary>
+    internal static LocalProbeResult? TryResolveBareCoreLibTypeName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        var typeName = NormalizeCoreLibTypeQuery(name);
+        var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly(CoreLibAssemblyName);
+        if (assemblyPath == null || error != null)
+            return null;
+
+        var match = FindUniquePublicType(assemblyPath, typeName);
+        return match != null
+            ? new LocalProbeResult(CoreLibAssemblyName, match, LocalSourceKind.Platform)
+            : null;
+    }
+
+    private static string NormalizeCoreLibTypeQuery(string name)
+    {
+        var trimmed = name.Trim();
+        return trimmed.ToLowerInvariant() switch
+        {
+            "bool" => "System.Boolean",
+            "byte" => "System.Byte",
+            "sbyte" => "System.SByte",
+            "char" => "System.Char",
+            "decimal" => "System.Decimal",
+            "double" => "System.Double",
+            "float" => "System.Single",
+            "int" => "System.Int32",
+            "uint" => "System.UInt32",
+            "nint" => "System.IntPtr",
+            "nuint" => "System.UIntPtr",
+            "long" => "System.Int64",
+            "ulong" => "System.UInt64",
+            "object" => "System.Object",
+            "short" => "System.Int16",
+            "ushort" => "System.UInt16",
+            "string" => "System.String",
+            "void" => "System.Void",
+            _ => trimmed
+        };
+    }
+
+    private static string? FindUniquePublicType(string assemblyPath, string typeName)
+    {
+        var normalized = DotnetInspector.Metadata.TypeMatcher.Normalize(typeName);
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        if (!peReader.HasMetadata)
+            return null;
+
+        var reader = peReader.GetMetadataReader();
+        List<string> publicTypes = [];
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (!typeDef.IsPublic)
+                continue;
+
+            var name = reader.GetString(typeDef.Name);
+            var ns = reader.GetString(typeDef.Namespace);
+            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+            publicTypes.Add(fullName);
+        }
+
+        var exactMatches = publicTypes.Where(fullName =>
+            fullName.Equals(normalized, StringComparison.OrdinalIgnoreCase)
+            || DotnetInspector.Metadata.TypeMatcher.GetSimpleName(fullName).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (exactMatches.Count == 1)
+            return exactMatches[0];
+        if (exactMatches.Count > 1)
+            return null;
+
+        string? match = null;
+        foreach (var fullName in publicTypes)
+        {
+            if (!DotnetInspector.Metadata.TypeMatcher.Matches(fullName, normalized))
+                continue;
+
+            if (match != null)
+                return null;
+
+            match = fullName;
+        }
+
+        return match;
+    }
+
+    /// <summary>
     /// Resolves source from positional arguments and explicit options.
     /// Handles file classification, platform resolution, and version detection.
     /// </summary>
@@ -195,6 +294,17 @@ public static class SourceResolver
                     packagePath, assemblyPath, platformAssembly, null, null,
                     VersionError: true,
                     VersionErrorMessage: $"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+            }
+
+            if (args.Length == 1 && packagePath != null && typeName == null)
+            {
+                var coreLibType = TryResolveBareCoreLibTypeName(packagePath);
+                if (coreLibType != null)
+                {
+                    typeName = coreLibType.Remainder;
+                    platformAssembly = coreLibType.SourceName;
+                    packagePath = null;
+                }
             }
 
             // Detect bare type names (e.g., "Dictionary`2", "List`1") passed without a source.
