@@ -42,7 +42,7 @@ public static class TypeMatcher
             return true;
 
         // Match without namespace (e.g., "HttpClient" matches "System.Net.Http.HttpClient")
-        if (normalizedCandidate.EndsWith("." + normalizedTarget, StringComparison.OrdinalIgnoreCase))
+        if (EndsWithDottedSuffix(normalizedCandidate, normalizedTarget))
             return true;
 
         // Extract base names (before generic arity suffix)
@@ -51,11 +51,22 @@ public static class TypeMatcher
 
         // Match base names
         if (candidateBase.Equals(targetBase, StringComparison.OrdinalIgnoreCase) ||
-            candidateBase.EndsWith("." + targetBase, StringComparison.OrdinalIgnoreCase))
+            EndsWithDottedSuffix(candidateBase, targetBase))
             return true;
 
         return false;
     }
+
+    /// <summary>
+    /// True when <paramref name="candidate"/> ends with ".<paramref name="suffix"/>" (case-insensitive)
+    /// — i.e. a namespace-qualified name ending in the simple name. Avoids allocating "." + suffix
+    /// on every call, since this runs in the inner loop of every type scanner.
+    /// </summary>
+    private static bool EndsWithDottedSuffix(string candidate, string suffix)
+        => candidate.Length > suffix.Length
+           && candidate[candidate.Length - suffix.Length - 1] == '.'
+           && candidate.AsSpan(candidate.Length - suffix.Length)
+               .Equals(suffix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Normalizes a type name by converting C#-style generic arguments to CLR backtick notation.
