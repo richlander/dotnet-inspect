@@ -27,7 +27,7 @@ dnx dotnet-inspect -y -- <command>
 | Locate source or implementation | `source Type --package Foo` | For a selected overload use `member Type Member:1 -S "Original Source"` or `-S IL`. |
 | Explore relationships | `depends Type`, `extensions Type`, `implements Interface` | Add package, platform, or project scope as needed. |
 
-## Output modes and limits
+## Output modes
 
 Default output is Markdown. Use Markdown for readable evidence and narrative with headings, section boundaries, table headers, and code fences that are easy to quote. Use `--table` for compact human scanning, `--tsv` for normalized tab-separated rows when agents or scripts need stable field splitting, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs.
 
@@ -39,6 +39,8 @@ Format promises:
 - `--tsv` table headers are stable snake_case keys, and cells never contain embedded tabs or newlines.
 - `--jsonl` emits one compact JSON object per table row with stable snake_case property names.
 - `--table` renders the same projection as `--tsv` and `--jsonl`, with each column starting at a uniform position across rows.
+
+## Limits
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
 
