@@ -649,7 +649,7 @@ public static class ApiOutputFormatter
                     overloadIndices[m.Name] = idx;
                     bool hasOverloads = overloadCounts[m.Name] > 1;
                     var selectorName = GetMemberSelectorName(m);
-                    select = $"`{(hasOverloads ? $"{selectorName}:{idx}" : selectorName)}`";
+                    select = MarkoutInline.Code(hasOverloads ? $"{selectorName}:{idx}" : selectorName);
                 }
 
                 var sigDisplay = m.Accessibility != null ? $"{m.Accessibility} {sig}" : sig;
@@ -660,7 +660,7 @@ public static class ApiOutputFormatter
                         ? "⚠ Obsolete"
                         : $"⚠ Obsolete — {m.ObsoleteMessage}";
                 }
-                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), $"`{sigDisplay}`", obsoleteCell, hasDocs ? (m.Documentation.Summary ?? "") : null);
+                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), MarkoutInline.Code(sigDisplay), obsoleteCell, hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)
@@ -741,7 +741,7 @@ public static class ApiOutputFormatter
 
         view.SignatureRows =
         [
-            new MemberSignatureRow($"`{sigDisplay}`", obsoleteCell, description)
+            new MemberSignatureRow(MarkoutInline.Code(sigDisplay), obsoleteCell, description)
         ];
     }
 
@@ -877,7 +877,7 @@ public static class ApiOutputFormatter
             if (paramInfo.Count > 0)
             {
                 overloadView.Parameters = paramInfo
-                    .Select(p => new ConstructorParameterRow(p.name, $"`{p.type}`", p.hasDefault ? "optional" : "required"))
+                    .Select(p => new ConstructorParameterRow(p.name, MarkoutInline.Code(p.type), p.hasDefault ? "optional" : "required"))
                     .ToList();
             }
 
