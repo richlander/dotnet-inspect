@@ -32,7 +32,7 @@ dnx dotnet-inspect -y -- <command>
 - Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string` or `type 'List<T>'`.
 - After `find`, reuse the package/library it reports in follow-up commands. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
 - Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`. Use `<T>` rather than `<>` for generic type queries.
-- Wildcards are supported for section and schema selection, such as `-S "Async*"` or `-D "SourceLink*"`.
+- Wildcards are supported for type names and section/schema selection; quote shell patterns, such as `type 'Json*' --package System.Text.Json`, `-S "Async*"`, or `-D "SourceLink*"`.
 - `type` uses `-t` for type filters; `member` uses `-m` for member filters. Dotted member syntax works: `-m JsonSerializer.Deserialize`.
 - Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`. Obsolete members are shown by default; use `--all` for non-public, hidden, and extra members.
 
