@@ -76,9 +76,27 @@ Use `find` when you do not know the package, library, or exact namespace.
 dnx dotnet-inspect -y -- find JsonSerializer --table
 dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize --show-index
+dnx dotnet-inspect -y -- depends Stream
+dnx dotnet-inspect -y -- extensions HttpClient --reachable
+dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
-Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. Narrow member-name views render overload rows with full signatures and stable `Name:N` selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
+Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. Narrow member-name views render overload rows with full signatures and stable `Name:N` selectors. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+
+## Source and implementation workflow
+
+Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, or `-S IL` / `-S "IL (Annotated)"` for IL.
+
+```bash
+dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --table
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
+```
+
+A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need specific implementation evidence.
+
+Fidelity expectations: `Original Source` is the SourceLink-backed original source when available. `Decompiled Source` is lowered C#, a best-effort readable reconstruction from IL that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
+
+For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
 
 ## Upgrade and compatibility workflow
 
@@ -96,19 +114,6 @@ Use `--breaking` for migration work, `--additive` for release-note work, and `-t
 dnx dotnet-inspect -y -- diff --platform System.Runtime@9.0.0..10.0.0 --additive
 ```
 
-## Source and implementation workflow
-
-Use `source` for SourceLink URLs, source text, or token/IL-offset mapping. Use `member Type Member:N -S "Decompiled Source"` when you need a selected member's lowered C# body, `-S "Original Source"` for SourceLink-backed source text, or `-S IL` / `-S "IL (Annotated)"` for IL.
-
-```bash
-dnx dotnet-inspect -y -- source JsonSerializer --package System.Text.Json --table
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serialize:1 -S "Decompiled Source"
-```
-
-Fidelity expectations: `Original Source` is the SourceLink-backed original source when available. `Decompiled Source` is lowered C#, a best-effort readable reconstruction from IL that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
-
-For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
-
 ## Package, library, and Signals workflow
 
 Use `package` for NuGet package structure and registry-backed signals. Use `library` for assembly metadata, APIs, PDB/SourceLink evidence, and direct references.
@@ -123,26 +128,22 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 
-## Modern .NET and preview workflow
+## .NET 10 workflows
 
-LLM training may miss .NET 10+ runtime/library features. Prefer metadata inspection over web search.
+LLM training may miss .NET 10 runtime/library features. Prefer metadata inspection over web search.
+
+| Feature | Description | Use | Watch for |
+| ------- | ----------- | --- | --------- |
+| Runtime-pack assemblies | Many BCL libraries ship only as installed platform/runtime-pack assemblies, not standalone packages. | `library --platform Lib --version <version>` or direct DLL path | Prefer platform/direct DLL inspection when package lookup is misleading. |
+| Memory-safety metadata | Newer compilers may stamp updated memory-safety rules and caller-unsafe members in metadata. | `library Lib --version <version> -S Signals` | Compare `MemorySafetyRules` v2+ with the `RequiresUnsafe` member count; unsafe signatures and P/Invoke remain separate signals. |
+| Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
+
+## .NET 11 Preview workflows
+
+Use preview metadata inspection when current APIs or implementation details may outpace model training. Unpinned packages use the latest stable by default; add `--preview` to include prerelease versions in latest resolution, including `package Foo --latest-version --preview` and `library <dll> --package Foo --preview`.
 
 | Feature | Description | Use | Watch for |
 | ------- | ----------- | --- | --------- |
 | Runtime async | .NET 11+ libraries may use runtime async instead of compiler-generated state machines. | `library --platform Lib --version <version> -S "Async*"` | `Kind` distinguishes runtime async from state-machine async; use `--count` only for totals. |
-| Runtime-pack assemblies | Many BCL libraries ship only as installed platform/runtime-pack assemblies, not standalone packages. | `library --platform Lib --version <version>` or direct DLL path | Prefer platform/direct DLL inspection when package lookup is misleading. |
-| Memory-safety metadata | Newer compilers may stamp updated memory-safety rules and caller-unsafe members in metadata. | `library Lib --version <version> -S Signals` | Compare `MemorySafetyRules` v2+ with the `RequiresUnsafe` member count; unsafe signatures and P/Invoke remain separate signals. |
-| Extension properties | C# extension blocks can expose properties in addition to extension methods. | `extensions Type --reachable` | Results include extension methods and C# extension properties. |
-| Implementation detail | Compiler/runtime implementation can differ from API signatures. | `member Type Member:1 -S "Decompiled Source"` | `Decompiled Source` is lowered C# and works broadly; `Original Source` is SourceLink-backed source when available; IL/annotated IL show exact instructions. |
 
-For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest. Unpinned packages use the latest stable by default; add `--preview` to include prerelease versions in latest resolution, including `package Foo --latest-version --preview` and `library <dll> --package Foo --preview`.
-
-## Relationship workflow
-
-```bash
-dnx dotnet-inspect -y -- depends Stream
-dnx dotnet-inspect -y -- extensions HttpClient --reachable
-dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.Json
-```
-
-Scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+For preview sweeps, resolve the version once, prove one library end-to-end, then fan out to the rest.
