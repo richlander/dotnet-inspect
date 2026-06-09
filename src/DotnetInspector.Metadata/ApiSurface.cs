@@ -243,6 +243,10 @@ public class ApiMember
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
     public bool IsAbstract { get; set; }
+    public bool IsOverride { get; set; }
+    public bool IsSealed { get; set; }
+    public bool IsReadOnly { get; set; }
+    public bool IsConst { get; set; }
     public bool IsUnsafe { get; set; }
 
     /// <summary>

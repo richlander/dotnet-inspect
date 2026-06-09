@@ -115,6 +115,329 @@ public partial class XmlDocFileParser
         return null;
     }
 
+    public DocCommentParser.DocComment? GetMemberDocumentation(ApiType apiType, ApiMember member)
+    {
+        if (!_loaded)
+            return null;
+
+        var typeXmlName = ConvertToXmlDocName(apiType.FullName);
+        var xmlMemberName = member.Name == ".ctor" ? "#ctor" : member.Name;
+        var prefix = member.Kind switch
+        {
+            "property" => "P",
+            "field" => "F",
+            "event" => "E",
+            _ => "M"
+        };
+        var xmlKey = $"{prefix}:{typeXmlName}.{xmlMemberName}";
+
+        if (prefix != "M")
+        {
+            var nonMethodSignatureParameters = GetNormalizedSignatureParameters(member.Signature, EmptyTypeParameterMap, EmptyTypeParameterMap);
+            if (nonMethodSignatureParameters.Count > 0)
+            {
+                var parameterizedCandidates = _members.Keys
+                    .Where(k => k.StartsWith($"{xmlKey}(", StringComparison.Ordinal))
+                    .ToList();
+                var matchingKey = parameterizedCandidates.FirstOrDefault(key =>
+                    TryGetXmlDocParameters(key, out var xmlParameters)
+                    && ParametersMatch(nonMethodSignatureParameters, xmlParameters));
+                return matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode)
+                    ? ParseMemberNode(matchingNode)
+                    : null;
+            }
+
+            return _members.TryGetValue(xmlKey, out var node)
+                ? ParseMemberNode(node)
+                : null;
+        }
+
+        var candidates = _members.Keys
+            .Where(k =>
+                k == xmlKey
+                || k.StartsWith($"{xmlKey}(", StringComparison.Ordinal)
+                || k.StartsWith($"{xmlKey}``", StringComparison.Ordinal))
+            .ToList();
+        if (candidates.Count == 0)
+            return null;
+
+        var typeParameterMap = apiType.TypeParameters
+            .Select((p, i) => (p.Name, Index: i))
+            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
+        var methodParameterMap = GetMethodGenericParameterMap(member.Signature, member.Name);
+        var signatureParameters = GetNormalizedSignatureParameters(member.Signature, typeParameterMap, methodParameterMap);
+        if (signatureParameters.Count > 0)
+        {
+            var matchingKey = candidates.FirstOrDefault(key =>
+                TryGetXmlDocParameters(key, out var xmlParameters)
+                && ParametersMatch(signatureParameters, xmlParameters));
+            if (matchingKey != null && _members.TryGetValue(matchingKey, out var matchingNode))
+                return ParseMemberNode(matchingNode);
+
+            return null;
+        }
+
+        var fallbackKey = candidates.FirstOrDefault(key => key == xmlKey)
+            ?? candidates.FirstOrDefault();
+        return fallbackKey != null && _members.TryGetValue(fallbackKey, out var fallbackNode)
+            ? ParseMemberNode(fallbackNode)
+            : null;
+    }
+
+    private static List<string> GetNormalizedSignatureParameters(
+        string? signature,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap)
+    {
+        var paramList = SignatureParser.ExtractParamList(signature);
+        if (string.IsNullOrEmpty(paramList) && !string.IsNullOrEmpty(signature))
+        {
+            var indexerStart = signature.IndexOf("this[", StringComparison.Ordinal);
+            if (indexerStart >= 0)
+            {
+                var bracketStart = indexerStart + "this".Length;
+                var bracketEnd = signature.IndexOf(']', bracketStart);
+                if (bracketEnd > bracketStart)
+                    paramList = $"({signature[(bracketStart + 1)..bracketEnd]})";
+            }
+        }
+        if (string.IsNullOrEmpty(paramList))
+            return [];
+
+        var inner = paramList.Trim();
+        if (inner.StartsWith('(') && inner.EndsWith(')'))
+            inner = inner[1..^1];
+        if (string.IsNullOrWhiteSpace(inner))
+            return [];
+
+        return SplitParameters(inner)
+            .Select(p => NormalizeParameterType(p, typeParameterMap, methodParameterMap))
+            .ToList();
+    }
+
+    private static bool TryGetXmlDocParameters(string key, out List<string> parameters)
+    {
+        parameters = [];
+        var parenStart = key.IndexOf('(');
+        var parenEnd = key.LastIndexOf(')');
+        if (parenStart < 0 || parenEnd <= parenStart)
+            return false;
+
+        var inner = key[(parenStart + 1)..parenEnd];
+        parameters = string.IsNullOrWhiteSpace(inner)
+            ? []
+            : SplitParameters(inner)
+                .Select(p => NormalizeParameterType(p, EmptyTypeParameterMap, EmptyTypeParameterMap))
+                .ToList();
+        return true;
+    }
+
+    private static bool ParametersMatch(IReadOnlyList<string> signatureParameters, IReadOnlyList<string> xmlParameters)
+    {
+        if (signatureParameters.Count != xmlParameters.Count)
+            return false;
+
+        for (var i = 0; i < signatureParameters.Count; i++)
+        {
+            var left = signatureParameters[i];
+            var right = xmlParameters[i];
+            if (left == "*" || right == "*")
+                continue;
+            if (!string.Equals(left, right, StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static List<string> SplitParameters(string parameters)
+    {
+        List<string> result = [];
+        var depth = 0;
+        var lastSplit = 0;
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var c = parameters[i];
+            if (c is '<' or '{' or '(')
+                depth++;
+            else if (c is '>' or '}' or ')')
+                depth--;
+            else if (c == ',' && depth == 0)
+            {
+                result.Add(parameters[lastSplit..i].Trim());
+                lastSplit = i + 1;
+            }
+        }
+
+        result.Add(parameters[lastSplit..].Trim());
+        return result;
+    }
+
+    private static readonly IReadOnlyDictionary<string, int> EmptyTypeParameterMap =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    private static Dictionary<string, int> GetMethodGenericParameterMap(string? signature, string memberName)
+    {
+        if (string.IsNullOrWhiteSpace(signature) || string.IsNullOrWhiteSpace(memberName))
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        var parenStart = signature.IndexOf('(');
+        if (parenStart <= 0)
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        var nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        var genericStart = nameIndex + memberName.Length;
+        if (genericStart >= parenStart || signature[genericStart] != '<')
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        if (!TryGetGenericParts(signature[genericStart..parenStart], 0, out _, out var parameters))
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        return SplitParameters(parameters)
+            .Select((name, index) => (Name: name.Trim(), Index: index))
+            .Where(p => p.Name.Length > 0)
+            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
+    }
+
+    private static string NormalizeParameterType(
+        string parameter,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap)
+    {
+        var type = SignatureParser.ExtractParamType(parameter.Trim());
+        foreach (var prefix in new[] { "ref ", "out ", "in ", "params ", "this " })
+        {
+            if (type.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                type = type[prefix.Length..].TrimStart();
+                break;
+            }
+        }
+
+        type = type.TrimEnd('@');
+        type = RemoveNullableAnnotations(type);
+
+        if (TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
+            return genericParameter;
+
+        if (type.EndsWith("[]", StringComparison.Ordinal))
+            return $"{NormalizeParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
+
+        var genericStart = IndexOfAny(type, '<', '{');
+        if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
+        {
+            var normalizedType = NormalizeSimpleTypeName(genericType);
+            var normalizedArgs = SplitParameters(genericArgs)
+                .Select(p => NormalizeParameterType(p, typeParameterMap, methodParameterMap));
+            return $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
+        }
+
+        return NormalizeSimpleTypeName(type);
+    }
+
+    private static string NormalizeSimpleTypeName(string type)
+        => type switch
+        {
+            "bool" => "System.Boolean",
+            "byte" => "System.Byte",
+            "char" => "System.Char",
+            "decimal" => "System.Decimal",
+            "double" => "System.Double",
+            "float" => "System.Single",
+            "int" => "System.Int32",
+            "long" => "System.Int64",
+            "nint" => "System.IntPtr",
+            "nuint" => "System.UIntPtr",
+            "object" => "System.Object",
+            "sbyte" => "System.SByte",
+            "short" => "System.Int16",
+            "string" => "System.String",
+            "uint" => "System.UInt32",
+            "ulong" => "System.UInt64",
+            "ushort" => "System.UInt16",
+            _ => type
+        };
+
+    private static string RemoveNullableAnnotations(string type)
+        => type.Replace("?", "", StringComparison.Ordinal);
+
+    private static bool TryGetGenericParts(string type, int genericStart, out string genericType, out string genericArgs)
+    {
+        genericType = type[..genericStart];
+        genericArgs = "";
+
+        var open = type[genericStart];
+        var close = open == '<' ? '>' : '}';
+        var depth = 0;
+        for (var i = genericStart; i < type.Length; i++)
+        {
+            var c = type[i];
+            if (c == open)
+                depth++;
+            else if (c == close)
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    genericArgs = type[(genericStart + 1)..i];
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryNormalizeGenericParameterReference(
+        string type,
+        IReadOnlyDictionary<string, int> typeParameterMap,
+        IReadOnlyDictionary<string, int> methodParameterMap,
+        out string normalized)
+    {
+        normalized = "";
+        if (type.StartsWith("``", StringComparison.Ordinal) && int.TryParse(type[2..], out var methodIndex))
+        {
+            normalized = $"M{methodIndex}";
+            return true;
+        }
+
+        if (type.StartsWith('`') && int.TryParse(type[1..], out var typeIndex))
+        {
+            normalized = $"T{typeIndex}";
+            return true;
+        }
+
+        if (methodParameterMap.TryGetValue(type, out methodIndex))
+        {
+            normalized = $"M{methodIndex}";
+            return true;
+        }
+
+        if (typeParameterMap.TryGetValue(type, out typeIndex))
+        {
+            normalized = $"T{typeIndex}";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int IndexOfAny(string value, char first, char second)
+    {
+        var firstIndex = value.IndexOf(first);
+        var secondIndex = value.IndexOf(second);
+        return (firstIndex, secondIndex) switch
+        {
+            (< 0, < 0) => -1,
+            (< 0, _) => secondIndex,
+            (_, < 0) => firstIndex,
+            _ => Math.Min(firstIndex, secondIndex)
+        };
+    }
+
     /// <summary>
     /// Converts a CLR type name to XML documentation format.
     /// </summary>

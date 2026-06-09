@@ -530,7 +530,7 @@ internal static class SourceEnricher
         {
             foreach (var member in apiType.Members)
             {
-                var memberDoc = xmlParser.GetMemberDocumentation(apiType.FullName, member.Name, member.Kind);
+                var memberDoc = xmlParser.GetMemberDocumentation(apiType, member);
                 if (memberDoc != null)
                 {
                     member.Documentation = new DocComment

@@ -258,6 +258,24 @@ public static class MemberCommand
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
             }
 
+            var projectionSections = effectiveOptions.IncludeSections;
+            if (projectionSections is null && ApiOutputFormatter.ShouldRenderSectionedTabularView(apiType, effectiveOptions))
+            {
+                var grouped = ApiOutputFormatter.GroupMembersByKind(
+                    apiType, effectiveOptions.MemberFilter, effectiveOptions.UnsafeOnly, effectiveOptions.KindFilter);
+                if (grouped.Count == 1)
+                    projectionSections = [GetMemberSectionName(grouped.Keys.Single())];
+            }
+
+            if ((effectiveOptions.Fields is { Length: > 0 } || effectiveOptions.Columns is { Length: > 0 })
+                && projectionSections is { Count: > 0 })
+            {
+                var schema = ApiCommand.ToQueryableSchema(
+                    ApiCommand.GetTypeDocumentSchema(effectiveOptions),
+                    effectiveOptions);
+                if (!ProjectionDiagnostics.ValidateProjection(schema, projectionSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                    return 1;
+            }
 
             ApiCommand.WriteTypeOutput(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
 
@@ -345,6 +363,19 @@ public static class MemberCommand
             members = members.Where(m => options.KindFilter.Contains(m.Kind));
         return members.ToList();
     }
+
+    private static string GetMemberSectionName(string kind) => kind switch
+    {
+        "constructor" => SectionNames.Constructors,
+        "field" => SectionNames.Fields,
+        "property" => SectionNames.Properties,
+        "method" => SectionNames.Methods,
+        "operator" => SectionNames.Operators,
+        "explicit-interface-implementation" => SectionNames.ExplicitInterfaceImplementations,
+        "extension-method" => SectionNames.ExtensionMethods,
+        "event" => SectionNames.Events,
+        _ => kind
+    };
 
     private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {

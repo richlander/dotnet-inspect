@@ -637,10 +637,6 @@ public static class ApiOutputFormatter
 
             var rows = members.Select(m =>
             {
-                var sig = abbreviate
-                    ? SignatureParser.AbbreviateSignature(m.Signature ?? m.ReturnType ?? "")
-                    : m.Signature ?? m.ReturnType ?? "";
-
                 string? select = null;
                 if (showSelect && overloadCounts != null && overloadIndices != null)
                 {
@@ -652,15 +648,8 @@ public static class ApiOutputFormatter
                     select = MarkoutInline.Code(hasOverloads ? $"{selectorName}:{idx}" : selectorName);
                 }
 
-                var sigDisplay = m.Accessibility != null ? $"{m.Accessibility} {sig}" : sig;
-                string? obsoleteCell = null;
-                if (m.IsObsolete)
-                {
-                    obsoleteCell = string.IsNullOrWhiteSpace(m.ObsoleteMessage)
-                        ? "⚠ Obsolete"
-                        : $"⚠ Obsolete — {m.ObsoleteMessage}";
-                }
-                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), MarkoutInline.Code(sigDisplay), obsoleteCell, hasDocs ? (m.Documentation.Summary ?? "") : null);
+                var sigDisplay = FormatMemberDeclaration(type, m, abbreviate: abbreviate);
+                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), MarkoutInline.Code(sigDisplay), hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)
@@ -725,15 +714,7 @@ public static class ApiOutputFormatter
             return;
 
         var member = type.Members[0];
-        var sig = member.Signature ?? member.ReturnType ?? "";
-        var sigDisplay = member.Accessibility != null ? $"{member.Accessibility} {sig}" : sig;
-        string? obsoleteCell = null;
-        if (member.IsObsolete)
-        {
-            obsoleteCell = string.IsNullOrWhiteSpace(member.ObsoleteMessage)
-                ? "⚠ Obsolete"
-                : $"⚠ Obsolete — {member.ObsoleteMessage}";
-        }
+        var sigDisplay = FormatMemberDeclaration(type, member, abbreviate: false);
 
         var docsRequested = options.ShowDocs
             || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
@@ -741,7 +722,7 @@ public static class ApiOutputFormatter
 
         view.SignatureRows =
         [
-            new MemberSignatureRow(MarkoutInline.Code(sigDisplay), obsoleteCell, description)
+            new MemberSignatureRow(MarkoutInline.Code(sigDisplay), description)
         ];
     }
 
@@ -993,10 +974,27 @@ public static class ApiOutputFormatter
     }
 
     private static string FormatMemberDeclaration(ApiType type, ApiMember member, Decompiler.MethodBodyContext context)
+        => FormatMemberDeclaration(type, member, abbreviate: false, context.GenericContext?.MethodParameters);
+
+    private static string FormatMemberDeclaration(
+        ApiType type,
+        ApiMember member,
+        bool abbreviate,
+        IReadOnlyList<string>? methodParameters = null)
     {
-        var signature = member.Signature ?? member.ReturnType ?? "";
+        var signature = member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType)
+            ? $"{member.ReturnType} {member.Name}"
+            : member.Signature ?? member.ReturnType ?? "";
         if (string.IsNullOrWhiteSpace(signature))
-            return "";
+        {
+            if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
+                signature = $"{member.ReturnType} {member.Name}";
+            else
+                return "";
+        }
+
+        if (abbreviate)
+            signature = SignatureParser.AbbreviateSignature(signature);
 
         if (member.Kind == "constructor")
         {
@@ -1009,22 +1007,61 @@ public static class ApiOutputFormatter
         }
         else if (member.Kind is "method" or "extension-method")
         {
-            if (context.GenericContext?.MethodParameters is { Count: > 0 } methodParameters)
+            if (methodParameters is { Count: > 0 })
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);
         }
+        else if (member.Kind == "event" && !signature.StartsWith("event ", StringComparison.Ordinal))
+        {
+            signature = $"event {signature}";
+        }
 
-        List<string> modifiers = member.Kind == "explicit-interface-implementation"
-            ? []
-            : [member.Accessibility ?? "public"];
-        if (member.IsStatic)
-            modifiers.Add("static");
+        List<string> parts = [];
+        if (member.IsObsolete)
+            parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
 
-        return modifiers.Count == 0
-            ? signature
-            : $"{string.Join(" ", modifiers)} {signature}";
+        List<string> modifiers = [];
+        if (member.Kind != "explicit-interface-implementation")
+        {
+            modifiers.Add(member.Accessibility ?? "public");
+            if (member.IsConst)
+                modifiers.Add("const");
+            else if (member.IsStatic)
+                modifiers.Add("static");
+            if (!member.IsConst && member.IsReadOnly)
+                modifiers.Add("readonly");
+            if (member.IsSealed)
+                modifiers.Add("sealed");
+            if (member.IsAbstract)
+                modifiers.Add("abstract");
+            if (member.IsOverride)
+                modifiers.Add("override");
+            else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
+                modifiers.Add("virtual");
+            if (member.IsUnsafe)
+                modifiers.Add("unsafe");
+        }
+
+        if (modifiers.Count > 0)
+            parts.Add(string.Join(" ", modifiers));
+        parts.Add(signature);
+
+        return string.Join(" ", parts);
     }
+
+    private static string FormatObsoleteAttribute(string? message)
+        => string.IsNullOrWhiteSpace(message)
+            ? "[Obsolete]"
+            : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
+
+    private static string EscapeCSharpString(string value)
+        => value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal)
+            .Replace("\t", "\\t", StringComparison.Ordinal);
 
     private static string FormatOperatorSignature(string signature, string methodName)
     {

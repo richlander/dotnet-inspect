@@ -77,6 +77,7 @@ public static class ProjectionDiagnostics
             var msg = $"warning: {kind} '{name}' not found in section '{sectionName}'";
             if (validation.Suggestions.TryGetValue(name, out var suggestions))
                 msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
+            msg += $" Run -D \"{sectionName}\" to list available {kind}s.";
             Console.Error.WriteLine(msg);
         }
 
