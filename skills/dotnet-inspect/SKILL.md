@@ -18,7 +18,7 @@ dnx dotnet-inspect -y -- <command>
 
 | Goal | Start with | Drill in |
 | ---- | ---------- | -------- |
-| Find the right API | `find Pattern --table` | `type Type --package Foo`, then `member Type --package Foo`. |
+| Find the right API | `find Pattern` | `type Type --package Foo`, then `member Type --package Foo`. |
 | Inspect a package | `package Foo` | Add `-S Signals`, `-S Manifest`, or `-S "Library Files"`. |
 | Inspect a library or assembly | `library Foo` or `library path/to.dll` | Add `--platform`, `--package`, or `-S Signals` when source matters. |
 | Inspect a type | `type Type --package Foo` | Add `--all` for non-public, hidden, and extra members. |
