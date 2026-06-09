@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.10.2
+
+### Full member signatures
+
+- Makes member `Signature` values full single-line C# declarations with accessibility, modifiers, and high-signal attributes such as `[Obsolete]`.
+- Improves overload documentation matching for XML docs.
+- Warns when requested projection columns are not available and points to `-D` discovery.
+
 ## v0.10.1
 
 ### Member output

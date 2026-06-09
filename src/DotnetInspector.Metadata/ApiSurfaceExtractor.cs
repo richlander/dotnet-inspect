@@ -175,6 +175,10 @@ public static class ApiSurfaceExtractor
 
                 var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
                 var isOperator = IsOperatorMethodName(methodName);
+                var methodAttributes = method.Attributes;
+                var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
+                var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
+                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -185,9 +189,11 @@ public static class ApiSurfaceExtractor
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
-                    IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
-                    IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0,
-                    IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
+                    IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
+                    IsVirtual = isVirtual,
+                    IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
+                    IsOverride = isOverride,
+                    IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     Signature = signature,
                     IsUnsafe = HasUnsafeSignature(signature),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
@@ -215,17 +221,36 @@ public static class ApiSurfaceExtractor
 
                 // Determine best accessor visibility
                 MethodAttributes bestAccess = 0;
+                bool isStaticProperty = false;
+                bool isVirtualProperty = false;
+                bool isAbstractProperty = false;
+                bool isOverrideProperty = false;
+                bool isSealedProperty = false;
                 if (!accessors.Getter.IsNil)
                 {
                     var getter = reader.GetMethodDefinition(accessors.Getter);
+                    var getterAttributes = getter.Attributes;
                     bestAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
+                    isStaticProperty = (getterAttributes & MethodAttributes.Static) != 0;
+                    isVirtualProperty = (getterAttributes & MethodAttributes.Virtual) != 0;
+                    isAbstractProperty = (getterAttributes & MethodAttributes.Abstract) != 0;
+                    isOverrideProperty = isVirtualProperty && (getterAttributes & MethodAttributes.NewSlot) == 0;
+                    isSealedProperty = isOverrideProperty && (getterAttributes & MethodAttributes.Final) != 0;
                 }
                 if (!accessors.Setter.IsNil)
                 {
                     var setter = reader.GetMethodDefinition(accessors.Setter);
-                    var setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
+                    var setterAttributes = setter.Attributes;
+                    var setterAccess = setterAttributes & MethodAttributes.MemberAccessMask;
                     if (setterAccess > bestAccess)
                         bestAccess = setterAccess;
+                    var setterVirtual = (setterAttributes & MethodAttributes.Virtual) != 0;
+                    var setterOverride = setterVirtual && (setterAttributes & MethodAttributes.NewSlot) == 0;
+                    isStaticProperty |= (setterAttributes & MethodAttributes.Static) != 0;
+                    isVirtualProperty |= setterVirtual;
+                    isAbstractProperty |= (setterAttributes & MethodAttributes.Abstract) != 0;
+                    isOverrideProperty |= setterOverride;
+                    isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
                 }
 
                 bool isPublicProp = bestAccess == MethodAttributes.Public;
@@ -243,6 +268,11 @@ public static class ApiSurfaceExtractor
                     Name = reader.GetString(prop.Name),
                     Kind = "property",
                     Signature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll),
+                    IsStatic = isStaticProperty,
+                    IsVirtual = isVirtualProperty,
+                    IsAbstract = isAbstractProperty,
+                    IsOverride = isOverrideProperty,
+                    IsSealed = isSealedProperty,
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage
@@ -289,6 +319,8 @@ public static class ApiSurfaceExtractor
                     Kind = "field",
                     ReturnType = fieldType,
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
+                    IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
+                    IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage
@@ -341,12 +373,26 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
+                var eventType = TypeResolver.GetTypeName(reader, evt.Type, GenericContext.ForType(reader, typeDef)) ?? "";
+                var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
+                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
+                if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
+                    eventType += "?";
+                var adderAttributes = adder.Attributes;
+                var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
+                var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
 
                 var member = new ApiMember
                 {
                     Name = reader.GetString(evt.Name),
                     Kind = "event",
-                    IsStatic = (adder.Attributes & MethodAttributes.Static) != 0,
+                    ReturnType = eventType,
+                    Signature = $"{eventType} {reader.GetString(evt.Name)}",
+                    IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
+                    IsVirtual = isVirtualEvent,
+                    IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
+                    IsOverride = isOverrideEvent,
+                    IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
                     Accessibility = GetAccessibility(adderAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage
@@ -446,6 +492,8 @@ public static class ApiSurfaceExtractor
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,
+                    IsOverride = extension.IsOverride,
+                    IsSealed = extension.IsSealed,
                     IsUnsafe = extension.IsUnsafe,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
@@ -591,10 +639,22 @@ public static class ApiSurfaceExtractor
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (paramName, isParams, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
 
-            var paramStr = isParams ? $"params {type} {paramName}" : $"{type} {paramName}";
+            var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
+            if (isByRef)
+            {
+                type = type["ref ".Length..];
+                refKind ??= "ref";
+            }
+            else
+            {
+                refKind = null;
+            }
+
+            var modifier = isParams ? "params" : refKind;
+            var paramStr = modifier is null ? $"{type} {paramName}" : $"{modifier} {type} {paramName}";
 
             if (hasDefault)
             {
@@ -611,7 +671,7 @@ public static class ApiSurfaceExtractor
         return $"{treeSignature.ReturnType.Render()} {methodName}({paramStr2})";
     }
 
-    private static (string? name, bool isParams, bool hasDefault, object? defaultValue) GetParameterInfo(
+    private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue) GetParameterInfo(
         MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
         foreach (var handle in handles)
@@ -622,6 +682,11 @@ public static class ApiSurfaceExtractor
                 string name = reader.GetString(param.Name);
                 bool isParams = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
                     "System.ParamArrayAttribute");
+                string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
+                    ? "out"
+                    : (param.Attributes & System.Reflection.ParameterAttributes.In) != 0
+                        ? "in"
+                        : null;
 
                 bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;
                 object? defaultValue = null;
@@ -636,10 +701,11 @@ public static class ApiSurfaceExtractor
                     }
                 }
 
-                return (name, isParams, hasDefault, defaultValue);
+                return (name, isParams, refKind, hasDefault, defaultValue);
             }
         }
-        return (null, false, false, null);
+
+        return (null, false, null, false, null);
     }
 
     private static object? ReadConstantValue(MetadataReader reader, Constant constant)
@@ -745,6 +811,43 @@ public static class ApiSurfaceExtractor
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(reader, prop.GetCustomAttributes())
             ? "required "
             : "";
+
+        var paramHandles = hasGetter
+            ? reader.GetMethodDefinition(accessors.Getter).GetParameters()
+            : hasSetter
+                ? reader.GetMethodDefinition(accessors.Setter).GetParameters()
+                : default;
+        var paramTypes = treeSignature.ParameterTypes;
+        List<string> indexerParameters = [];
+        for (var i = 0; i < paramTypes.Length; i++)
+        {
+            var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
+            pos = 0;
+            paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
+            var paramType = paramTypes[i].Render();
+            var (paramName, isParams, refKind, hasDefault, defaultValue) = GetParameterInfo(reader, paramHandles, i + 1);
+            paramName ??= $"arg{i}";
+
+            var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
+            if (isByRef)
+            {
+                paramType = paramType["ref ".Length..];
+                refKind ??= "ref";
+            }
+            else
+            {
+                refKind = null;
+            }
+
+            var modifier = isParams ? "params" : refKind;
+            var parameter = modifier is null ? $"{paramType} {paramName}" : $"{modifier} {paramType} {paramName}";
+            if (hasDefault)
+                parameter += $" = {FormatDefaultValue(defaultValue, paramType)}";
+            indexerParameters.Add(parameter);
+        }
+
+        if (indexerParameters.Count > 0)
+            return $"{requiredPrefix}{treeSignature.ReturnType.Render()} this[{string.Join(", ", indexerParameters)}] {accessorStr}";
 
         return $"{requiredPrefix}{treeSignature.ReturnType.Render()} {name} {accessorStr}";
     }

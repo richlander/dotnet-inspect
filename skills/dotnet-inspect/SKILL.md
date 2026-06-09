@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.10.1
+version: 0.10.2
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, and version-to-version API changes.
 ---
 
@@ -52,7 +52,7 @@ Use the query system when default views do not expose the detail you need. `-D` 
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -D "Method Groups" --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -D Methods --tsv
-dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature;Obsolete"
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature"
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
@@ -66,6 +66,7 @@ Bare `-S` renders a curated high-density view; `-S All` renders an exhaustive do
 - Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`. Use `<T>` rather than `<>` for generic type queries.
 - Wildcards are supported for type names and section/schema selection; quote shell patterns, such as `type 'Json*' --package System.Text.Json`, `-S "Async*"`, or `-D "SourceLink*"`.
 - `type` uses `-t` for type filters; `member` uses `-m` for member filters. Dotted member syntax works: `-m JsonSerializer.Deserialize`.
+- Member `Signature` values are single-line C# declarations and may include high-signal attributes such as `[Obsolete]`.
 - Diff ranges use `..`: `--package Foo@1.0.0..2.0.0`. Obsolete members are shown by default; use `--all` for non-public, hidden, and extra members.
 - Unpinned packages use the latest stable by default; add `--preview` when prerelease APIs matter.
 

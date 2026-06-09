@@ -623,6 +623,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
+        Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
         Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
@@ -668,7 +669,7 @@ public class CommandExecutionTests
         Assert.Contains("## Methods", output);
         Assert.Contains("| Select | Name | Signature |", output);
         Assert.Contains("`SerializeToNode:1`", output);
-        Assert.Contains("JsonNode? SerializeToNode(", output);
+        Assert.Contains("public static System.Text.Json.Nodes.JsonNode? SerializeToNode(", output);
         Assert.DoesNotContain("## Method Groups", output);
         Assert.DoesNotContain("| Name | Return Type | Overloads |", output);
     }
@@ -757,7 +758,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("GetConverter(System.Type typeToConvert)", output);
+        Assert.Contains("public System.Text.Json.Serialization.JsonConverter GetConverter(System.Type typeToConvert)", output);
     }
 
     [Fact]
@@ -1006,7 +1007,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.StartsWith("select\tsignature", output);
-        Assert.Contains("Serialize:1\tstring Serialize<TValue>", output);
+        Assert.Contains("Serialize:1\tpublic static string Serialize<TValue>", output);
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
@@ -1045,11 +1046,135 @@ public class CommandExecutionTests
         using var first = JsonDocument.Parse(lines[0]);
         Assert.True(first.RootElement.TryGetProperty("select", out var select));
         Assert.True(first.RootElement.TryGetProperty("signature", out var signature));
-        Assert.Contains("Serialize", signature.GetString());
+        Assert.Contains("public static string Serialize", signature.GetString());
         Assert.StartsWith("Serialize:", select.GetString());
         Assert.DoesNotContain('`', output);
         Assert.DoesNotContain("return_type", output);
         Assert.DoesNotContain("overloads", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_UnknownProjectedColumnWarnsWithDiscoveryHint()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "--show-index",
+            "--columns", "Name;Signature;Obsolete", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("name\tsignature", output);
+        Assert.Contains("warning: column 'Obsolete' not found in section 'Methods'", error);
+        Assert.Contains("Run -D \"Methods\" to list available columns.", error);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_OptionGatedProjectedColumnWarnsWithDiscoveryHint()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize",
+            "--columns", "Select;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("signature", output);
+        Assert.Contains("warning: column 'Select' not found in section 'Methods'", error);
+        Assert.Contains("Run -D \"Methods\" to list available columns.", error);
+    }
+
+    [Fact]
+    public async Task Member_NonMethodRows_RenderFullDeclarations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.IO.Stream", "--platform", "System.Runtime",
+            "-m", "CanRead", "-S", "Properties",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("CanRead\tpublic abstract bool CanRead { get; }", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-m", "Empty", "-S", "Fields",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Empty\tpublic static readonly string Empty", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "System.AppDomain", "--platform", "System.Runtime",
+            "-m", "AssemblyLoad", "-S", "Events",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("AssemblyLoad\tpublic event System.AssemblyLoadEventHandler? AssemblyLoad", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-m", "Chars", "-S", "Properties",
+            "--columns", "Name;Signature;Description", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Chars\tpublic char this[int index] { get; }", output);
+        Assert.Contains("Gets the Char object at a specified position in the current String object.", output);
+    }
+
+    [Fact]
+    public async Task Member_OutParameter_RendersOutModifier()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonElement", "--platform", "System.Text.Json",
+            "-m", "TryGetBytesFromBase64", "-S", "Methods",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("TryGetBytesFromBase64\tpublic bool TryGetBytesFromBase64(out byte[]? value)", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_DescriptionsMatchOverloads()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json@10.0.0",
+            "-m", "Serialize", "-S", "Methods",
+            "--columns", "Signature;Description", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static string Serialize<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)\tConverts the value of a type specified by a generic type parameter into a JSON string.", output);
+        Assert.Contains("public static void Serialize<TValue>(System.IO.Stream utf8Json, TValue value, System.Text.Json.JsonSerializerOptions? options = null)\tConverts the provided value to UTF-8 encoded JSON text and write it to the Stream.", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_DescriptionsPreserveGenericAndArrayOverloadShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-m", "Join", "-S", "Methods",
+            "--columns", "Signature;Description", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public static string Join(char separator, System.ReadOnlySpan<object?> values)\tConcatenates the string representations of a span of objects", output);
+        Assert.Contains("public static string Join(char separator, System.ReadOnlySpan<string?> value)\tConcatenates a span of strings", output);
+        Assert.Contains("public static string Join(char separator, string?[] value, int startIndex, int count)\tConcatenates an array of strings", output);
+    }
+
+    [Fact]
+    public async Task Member_ObsoleteMethod_RendersObsoleteAttributeInlineInSignature()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "SampleObsoleteHost", "--library", TestAssemblyPath,
+            "-m", "OldMethod", "-S", "Methods",
+            "--columns", "Name;Signature", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("OldMethod\t[Obsolete(\"Use NewMethod instead.\")] public void OldMethod()", output);
     }
 
     [Fact]
@@ -1188,7 +1313,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("string Normalize(string strInput)", output);
+        Assert.Contains("public static string Normalize(this string strInput)", output);
         Assert.DoesNotContain("string Normalize()", output);
 
         (exit, output, error) = await RunAppAsync(
