@@ -41,7 +41,7 @@ public class LibraryInspectionView
 
     [MarkoutPropertyName("Size")]
     [MarkoutSkipNull]
-    public string? FileSize => _topFieldsOnly ? (_data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null) : null;
+    public string? FileSize => _topFieldsOnly ? (_data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null) : null;
 
     [MarkoutSkipNull]
     public string? Source => _topFieldsOnly ? _data.Source : null;
@@ -136,7 +136,7 @@ public class LibraryInspectionView
         PublicKeyToken = info.PublicKeyToken,
         Deterministic = _data.IsDeterministic,
         Reproducible = _data.HasReproducibleFlag,
-        FileSize = _data.FileSize > 0 ? FormatFileSize(_data.FileSize) : null,
+        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
         AsyncMethods = CountOrZero(_data.AsyncMethods),
@@ -182,7 +182,7 @@ public class LibraryInspectionView
     public List<ResourceRow>? ResourcesSection =>
         _data.Resources?
             .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(r => new ResourceRow(r.Name, r.Visibility, FormatSize(r.Size)))
+            .Select(r => new ResourceRow(r.Name, r.Visibility, r.Size == 0 ? "" : ByteSizeFormatter.FormatBytes(r.Size)))
             .ToList();
 
     [MarkoutIgnore]
@@ -308,21 +308,6 @@ public class LibraryInspectionView
 
         return "";
     }
-
-    private static string FormatSize(int bytes) => bytes switch
-    {
-        0 => "",
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
-        _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
-    };
-
-    private static string FormatFileSize(long bytes) => bytes switch
-    {
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
-        _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
-    };
 
     private static int CountOrZero<T>(List<T>? values) => values?.Count ?? 0;
 
