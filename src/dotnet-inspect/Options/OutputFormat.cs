@@ -16,6 +16,11 @@ public enum OutputFormat
     Tsv,
 
     /// <summary>
+    /// JSON Lines: one JSON object per row, with stable property names.
+    /// </summary>
+    Jsonl,
+
+    /// <summary>
     /// Rich markdown with headings, tables, and field lists.
     /// Implied when any -v:* verbosity flag is specified.
     /// </summary>
@@ -59,6 +64,7 @@ public static class OutputFormatResolver
         bool mermaidFlag = false,
         bool tableFlag = false,
         bool tsvFlag = false,
+        bool jsonlFlag = false,
         OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         // Explicit CLI flags win
@@ -70,6 +76,8 @@ public static class OutputFormatResolver
             return OutputFormat.Markdown;
         if (plainTextFlag)
             return OutputFormat.PlainText;
+        if (jsonlFlag)
+            return OutputFormat.Jsonl;
         if (tsvFlag)
             return OutputFormat.Tsv;
         if (tableFlag)
@@ -100,15 +108,15 @@ public static class OutputFormatResolver
     {
         if (tabular && verbosity >= Verbosity.Normal && includeSections == null)
         {
-            Console.Error.WriteLine("--table and --tsv show one table at a time. Use -S <section> to select a section, or --markdown/--json for the full view.");
+            Console.Error.WriteLine("--table, --tsv, and --jsonl show one table at a time. Use -S <section> to select a section, or --markdown/--json for the full view.");
             return true;
         }
         return false;
     }
 
     /// <summary>
-    /// Validates that explicit table/TSV output targets at most one selected section.
-    /// Markdown and JSON can represent multi-section documents; table/TSV are one table at a time.
+    /// Validates that explicit table/TSV/JSONL output targets at most one selected section.
+    /// Markdown and JSON can represent multi-section documents; table/TSV/JSONL are one table at a time.
     /// </summary>
     public static bool ValidateSingleSectionForTabular(bool tabularExplicitlySet, IReadOnlyCollection<string>? includeSections)
     {
@@ -117,7 +125,7 @@ public static class OutputFormatResolver
 
         Console.Error.WriteLine($"Error: Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
         Console.Error.WriteLine();
-        Console.Error.WriteLine("--table and --tsv display one section at a time.");
+        Console.Error.WriteLine("--table, --tsv, and --jsonl display one section at a time.");
         Console.Error.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
         return false;
     }
@@ -131,6 +139,7 @@ public static class OutputFormatResolver
             {
                 "table" or "oneline" or "one-line" => OutputFormat.Table,
                 "tsv" => OutputFormat.Tsv,
+                "jsonl" or "json-lines" => OutputFormat.Jsonl,
                 "markdown" or "md" => OutputFormat.Markdown,
                 "plaintext" or "plain-text" or "plain" or "text" => OutputFormat.PlainText,
                 "json" => OutputFormat.Json,

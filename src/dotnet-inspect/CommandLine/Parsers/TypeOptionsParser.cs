@@ -128,6 +128,7 @@ public static class TypeOptionsParser
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),

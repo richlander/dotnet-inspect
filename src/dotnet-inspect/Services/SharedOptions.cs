@@ -19,6 +19,7 @@ public class SharedOptions
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
+    public Option<bool> Jsonl { get; } = new("--jsonl") { Description = "Output as JSON Lines (one object per row)" };
     public Option<bool> OneLine { get; } = new("--oneline") { Description = "Compatibility alias for --table", Hidden = true };
     public Option<bool> NoHeaders { get; } = new("--no-headers") { Description = "Suppress table/TSV column headers" };
 
@@ -132,6 +133,7 @@ public class SharedOptions
     {
         command.Options.Add(Table);
         command.Options.Add(Tsv);
+        command.Options.Add(Jsonl);
         command.Options.Add(OneLine);
         command.Options.Add(NoHeaders);
     }
@@ -231,10 +233,11 @@ public class SharedOptions
         bool mermaidFlag = parseResult.GetValue(Mermaid);
         bool tableFlag = IsExplicitTrue(parseResult, Table) || IsExplicitTrue(parseResult, OneLine);
         bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
+        bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag, hasVerbosity);
-        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, defaultFormat);
+        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
+        return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, jsonlFlag, defaultFormat);
     }
 
     /// <summary>
@@ -244,21 +247,24 @@ public class SharedOptions
         => OutputFormatResolver.IsEmbeddedMermaid(parseResult.GetValue(Markdown), parseResult.GetValue(Mermaid));
 
     /// <summary>
-    /// Resolves whether tabular output should be used, considering --table, --tsv, and the --oneline compatibility alias.
+    /// Resolves whether tabular output should be used, considering --table, --tsv, --jsonl, and the --oneline compatibility alias.
     /// Throws if a tabular flag is combined with -v (contradictory: -v implies markdown).
     /// </summary>
     public bool ResolveOneLine(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         var format = ResolveFormat(parseResult, defaultFormat);
-        return format is OutputFormat.Table or OutputFormat.Tsv;
+        return format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
     }
 
     public bool ResolveTsv(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown) =>
         ResolveFormat(parseResult, defaultFormat) == OutputFormat.Tsv;
 
+    public bool ResolveJsonl(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown) =>
+        ResolveFormat(parseResult, defaultFormat) == OutputFormat.Jsonl;
+
     /// <summary>
     /// Returns true when the user explicitly chose an output format via CLI flags
-    /// (--json, --markdown, --plain-text, --table, --tsv, --oneline, or -v).
+    /// (--json, --markdown, --plain-text, --table, --tsv, --jsonl, --oneline, or -v).
     /// When false, commands are free to apply their own default format.
     /// </summary>
     public bool IsFormatExplicitlySet(ParseResult parseResult)
@@ -273,7 +279,7 @@ public class SharedOptions
     }
 
     public bool IsTableExplicitlySet(ParseResult parseResult) =>
-        IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, OneLine);
+        IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, Jsonl) || IsExplicit(parseResult, OneLine);
 
     /// <summary>
     /// Parses select list from parse result.
@@ -347,13 +353,13 @@ public class SharedOptions
 
         if (jsonFlag)
         {
-            Console.Error.WriteLine("--json cannot be combined with --table or --tsv.");
+            Console.Error.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
             throw new OperationCanceledException();
         }
 
         if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
         {
-            Console.Error.WriteLine("--table/--tsv cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
+            Console.Error.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
             throw new OperationCanceledException();
         }
     }

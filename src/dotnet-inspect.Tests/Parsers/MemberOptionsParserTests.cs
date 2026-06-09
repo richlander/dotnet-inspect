@@ -138,6 +138,7 @@ public class MemberOptionsParserTests
 
         Assert.True(options.OneLine);
         Assert.False(options.Tsv);
+        Assert.False(options.Jsonl);
         Assert.True(options.OneLineExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
@@ -149,7 +150,20 @@ public class MemberOptionsParserTests
 
         Assert.True(options.OneLine);
         Assert.True(options.Tsv);
+        Assert.False(options.Jsonl);
         Assert.True(options.NoHeader);
+        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.FormatExplicitlySet);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithJsonl_SetsJsonlOutput()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--jsonl");
+
+        Assert.True(options.OneLine);
+        Assert.False(options.Tsv);
+        Assert.True(options.Jsonl);
         Assert.True(options.OneLineExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
@@ -161,6 +175,19 @@ public class MemberOptionsParserTests
 
         Assert.True(options.OneLine);
         Assert.True(options.Tsv);
+        Assert.False(options.Jsonl);
+        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.FormatExplicitlySet);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithTableAndJsonl_UsesJsonlOutput()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--jsonl");
+
+        Assert.True(options.OneLine);
+        Assert.False(options.Tsv);
+        Assert.True(options.Jsonl);
         Assert.True(options.OneLineExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
@@ -177,12 +204,24 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_WithJsonAndJsonl_IsRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--json", "--jsonl"]);
+        Assert.Empty(parseResult.Errors);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithOneline_SetsTableCompatOutput()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--oneline");
 
         Assert.True(options.OneLine);
         Assert.False(options.Tsv);
+        Assert.False(options.Jsonl);
         Assert.True(options.OneLineExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }

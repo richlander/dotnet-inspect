@@ -992,7 +992,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains("Selection matches 2 sections", error);
-        Assert.Contains("--table and --tsv display one section at a time", error);
+        Assert.Contains("--table, --tsv, and --jsonl display one section at a time", error);
     }
 
     [Fact]
@@ -1025,6 +1025,28 @@ public class CommandExecutionTests
         Assert.Contains("`Serialize:1`", output);
         Assert.DoesNotContain("Return Type", output);
         Assert.DoesNotContain("Overloads", output);
+    }
+
+    [Fact]
+    public async Task Member_NarrowedMethods_JsonlProjectsOverloadRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json",
+            "-m", "Serialize", "--show-index", "-S", "Methods",
+            "--columns", "Select;Signature", "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+
+        using var first = JsonDocument.Parse(lines[0]);
+        Assert.True(first.RootElement.TryGetProperty("select", out var select));
+        Assert.True(first.RootElement.TryGetProperty("signature", out var signature));
+        Assert.Contains("Serialize", signature.GetString());
+        Assert.StartsWith("`Serialize:", select.GetString());
+        Assert.DoesNotContain("return_type", output);
+        Assert.DoesNotContain("overloads", output);
     }
 
     [Fact]
@@ -1238,7 +1260,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains("Selection matches 2 sections", error);
-        Assert.Contains("--table and --tsv display one section at a time", error);
+        Assert.Contains("--table, --tsv, and --jsonl display one section at a time", error);
     }
 
     [Fact]

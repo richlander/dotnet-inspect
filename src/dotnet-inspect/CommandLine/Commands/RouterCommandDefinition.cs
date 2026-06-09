@@ -69,6 +69,7 @@ public static class RouterCommandDefinition
                     return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree,
                         json: routerFormat == OutputFormat.Json,
                         tsv: routerFormat == OutputFormat.Tsv,
+                        jsonl: routerFormat == OutputFormat.Jsonl,
                         markdown: routerFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult));
 
@@ -145,6 +146,7 @@ public static class RouterCommandDefinition
                 PlainText = route.Options.Format == OutputFormat.PlainText,
                 OneLine = route.OneLine,
                 Tsv = route.Options.Tsv,
+                Jsonl = route.Options.Jsonl,
                 OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
                 FormatExplicitlySet = route.Options.FormatExplicitlySet,
                 NoHeader = route.NoHeader,
@@ -176,6 +178,7 @@ public static class RouterCommandDefinition
             JsonOutput = route.Options.JsonOutput,
             OneLine = route.OneLine,
             Tsv = route.Options.Tsv,
+            Jsonl = route.Options.Jsonl,
             OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
             NoHeader = route.NoHeader,
             Verbose = route.Options.Verbose,
@@ -292,6 +295,7 @@ public static class RouterCommandDefinition
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),

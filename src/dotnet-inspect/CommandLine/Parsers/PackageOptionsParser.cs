@@ -93,6 +93,7 @@ public static class PackageOptionsParser
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),

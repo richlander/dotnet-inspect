@@ -113,6 +113,7 @@ public static class ApiCommandDefinitions
                     return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree,
                         json: typeFormat == OutputFormat.Json,
                         tsv: typeFormat == OutputFormat.Tsv,
+                        jsonl: typeFormat == OutputFormat.Jsonl,
                         markdown: typeFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult));
 
@@ -222,6 +223,7 @@ public static class ApiCommandDefinitions
                     return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree,
                         json: memberFormat == OutputFormat.Json,
                         tsv: memberFormat == OutputFormat.Tsv,
+                        jsonl: memberFormat == OutputFormat.Jsonl,
                         markdown: memberFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult));
 

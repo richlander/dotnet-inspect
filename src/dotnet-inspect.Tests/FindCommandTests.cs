@@ -166,7 +166,7 @@ public class FindCommandTests
     }
 
     private static string RenderFindTable(FindResultView view, bool tsv, bool showHeader, string[]? columns = null) =>
-        OutputFormatter.RenderTable(tsv, showHeader,
+        OutputFormatter.RenderTable(showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(
                 view,
                 writer,
@@ -177,7 +177,8 @@ public class FindCommandTests
                     {
                         Projection = OutputFormatter.BuildProjection(columns)
                     },
-                    tsv)));
+                    tsv,
+                    jsonl: false)));
 }
 
 /// <summary>

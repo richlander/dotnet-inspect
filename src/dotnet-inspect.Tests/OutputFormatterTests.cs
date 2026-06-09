@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Commands;
@@ -111,6 +112,24 @@ public class OutputFormatterTests
         Assert.Equal(
             "name\tkind\nPattern\tcolumn\nType\tcolumn\nSim\tcolumn\n",
             output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_Jsonl_RendersJsonLineRows()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type");
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, jsonl: true)));
+
+        Assert.Equal(0, exit);
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+
+        using var document = JsonDocument.Parse(lines[0]);
+        Assert.Equal("Pattern", document.RootElement.GetProperty("name").GetString());
+        Assert.Equal("column", document.RootElement.GetProperty("kind").GetString());
     }
 
     [Fact]
