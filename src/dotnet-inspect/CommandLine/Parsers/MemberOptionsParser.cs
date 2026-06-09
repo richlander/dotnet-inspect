@@ -119,7 +119,9 @@ public static class MemberOptionsParser
             && positionalMembers.Count == 0
             && optionMembers.Length == 0)
         {
-            var split = TrySplitQualifiedTypeMember(source.PackagePath);
+            var split = SharedParsers.TrySplitQualifiedTypeMember(
+                source.PackagePath,
+                allowPlatformPrefixFallback: true);
             if (split != null)
             {
                 positionalMembers.Add(split.Value.MemberName);
@@ -140,9 +142,9 @@ public static class MemberOptionsParser
             && source.PlatformAssembly == null
             && source.AssemblyPath == null)
         {
-            var probe = SourceResolver.TryProbeLocalQualifiedName(source.PackagePath);
-            if (source.TypeName == null)
-                probe ??= SourceResolver.TryProbePlatformQualifiedPrefix(source.PackagePath);
+            var probe = SourceResolver.TryResolveQualifiedTypeName(
+                source.PackagePath,
+                allowPlatformPrefixFallback: true);
             if (probe != null)
             {
                 if (source.TypeName != null)
@@ -220,6 +222,7 @@ public static class MemberOptionsParser
             CompactJson = parseResult.GetValue(args.CompactOption),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
@@ -250,26 +253,6 @@ public static class MemberOptionsParser
         };
 
         return new Success(options);
-    }
-
-    private static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(string value)
-    {
-        for (var i = value.Length - 1; i > 0; i--)
-        {
-            if (value[i] != '.')
-                continue;
-
-            var typeCandidate = value[..i];
-            var memberName = value[(i + 1)..];
-            if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
-                continue;
-
-            var probe = SourceResolver.TryProbeLocalQualifiedName(typeCandidate);
-            if (probe != null)
-                return (probe, memberName);
-        }
-
-        return null;
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)

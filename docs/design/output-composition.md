@@ -110,24 +110,24 @@ Each writer implements only the interfaces it supports:
 
 | Writer | IFieldWriter | ITableWriter | ITreeWriter | ICodeBlockWriter | IHeadingWriter |
 | --- | :---: | :---: | :---: | :---: | :---: |
-| Table/TSV | inline | yes | — | — | — |
+| Table/TSV/JSONL | inline | yes | — | — | — |
 | Markdown | block | yes | yes | yes | yes |
 
 This gives a capabilities model: the system can report that a writer
 doesn't support a particular shape. When a section needs code blocks and
-the writer is table/TSV, the section is skipped with a diagnostic rather
+the writer is table/TSV/JSONL, the section is skipped with a diagnostic rather
 than silently producing garbage.
 
-## 6. Cardinality and the Table/TSV Constraint
+## 6. Cardinality and the Row-Oriented Constraint
 
-Table and TSV output render one table at a time. Markdown and JSON can
+Table, TSV, and JSONL output render one table at a time. Markdown and JSON can
 represent multi-section documents. When section selection produces multiple
 sections:
 
 - If section filter (`-S`) selects one section → render that section
 - If no filter and only one section in scope (e.g., `-v:m`) → render it
 - If no filter and multiple sections are computed → auto-promote to Markdown
-- If the user explicitly requested `--table` or `--tsv` with multiple sections
+- If the user explicitly requested `--table`, `--tsv`, or `--jsonl` with multiple sections
   → return a diagnostic and suggest `-S`, `--markdown`, or `--json`
 
 This is grounded in the composition model: choose one section for row-oriented

@@ -37,7 +37,8 @@ public class ApiCommand
             UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
             BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
-            OneLine = options.OneLine, OneLineExplicitlySet = options.OneLineExplicitlySet,
+            OneLine = options.OneLine, Tsv = options.Tsv, Jsonl = options.Jsonl,
+            OneLineExplicitlySet = options.OneLineExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
@@ -80,7 +81,7 @@ public class ApiCommand
             }
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null));
         }
 
@@ -561,8 +562,8 @@ public class ApiCommand
             {
                 Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
             };
-            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
-            OutputFormatter.WriteTable(options.Tsv, Console.Out, !options.NoHeader,
+            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+            OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
         }
         else
@@ -803,8 +804,8 @@ public class ApiCommand
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
-                OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
+                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                OutputFormatter.WriteTable(sink, !options.NoHeader,
                     (writer, formatter) =>
                     {
                         var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
@@ -821,8 +822,8 @@ public class ApiCommand
                 {
                     Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
                 };
-                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
-                OutputFormatter.WriteTable(options.Tsv, sink, !options.NoHeader,
+                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                OutputFormatter.WriteTable(sink, !options.NoHeader,
                     (writer, formatter) => MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOpts));
             }
         }
@@ -906,7 +907,7 @@ public class ApiCommand
         effective = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
         var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(effective, fullSchema, rendered);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: memberPipeline.GetCostAnnotations());
     }

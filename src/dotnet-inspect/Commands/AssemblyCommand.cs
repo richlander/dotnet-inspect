@@ -41,7 +41,7 @@ public class AssemblyCommand
             else
             {
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
@@ -299,7 +299,7 @@ public class AssemblyCommand
 
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations());
     }
@@ -367,7 +367,7 @@ public class AssemblyCommand
         Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations());
     }

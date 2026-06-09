@@ -69,6 +69,7 @@ public static class RouterCommandDefinition
                     return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree,
                         json: routerFormat == OutputFormat.Json,
                         tsv: routerFormat == OutputFormat.Tsv,
+                        jsonl: routerFormat == OutputFormat.Jsonl,
                         markdown: routerFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult));
 
@@ -91,6 +92,9 @@ public static class RouterCommandDefinition
 
                 case RouterOptionsParser.RouteToType route:
                     return await ExecuteTypeCommandAsync(route, opts, parseResult, commandArgs);
+
+                case RouterOptionsParser.RouteToMember route:
+                    return await ExecuteMemberCommandAsync(route, opts, parseResult, commandArgs);
 
                 case RouterOptionsParser.RouteToPackage route:
                     return await ExecutePackageCommandAsync(route);
@@ -130,10 +134,22 @@ public static class RouterCommandDefinition
             return assemblyExitCode;
         }
 
+        var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(route.BareName, allowPlatformPrefixFallback: true);
+        if (memberSplit != null)
+        {
+            var memberOptions = BuildMemberOptions(
+                memberSplit.Value.Probe,
+                memberSplit.Value.MemberName,
+                opts,
+                parseResult,
+                commandArgs);
+            return await MemberCommand.ExecuteAsync(memberOptions);
+        }
+
         // Platform resolution failed - check if this is a qualified type name
         // e.g., System.Text.Json.JsonSerializer -> type JsonSerializer --platform System.Text.Json
-        // Probes dotnet hive, dotnet-inspect cache, and NuGet global cache (local only).
-        var probe = SourceResolver.TryProbeLocalQualifiedName(route.BareName);
+        // Probes exact local types first, then keeps a platform prefix for typo-friendly type suggestions.
+        var probe = SourceResolver.TryResolveQualifiedTypeName(route.BareName, allowPlatformPrefixFallback: true);
         if (probe != null)
         {
             var typeOptions = new TypeOptions
@@ -145,6 +161,7 @@ public static class RouterCommandDefinition
                 PlainText = route.Options.Format == OutputFormat.PlainText,
                 OneLine = route.OneLine,
                 Tsv = route.Options.Tsv,
+                Jsonl = route.Options.Jsonl,
                 OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
                 FormatExplicitlySet = route.Options.FormatExplicitlySet,
                 NoHeader = route.NoHeader,
@@ -176,6 +193,7 @@ public static class RouterCommandDefinition
             JsonOutput = route.Options.JsonOutput,
             OneLine = route.OneLine,
             Tsv = route.Options.Tsv,
+            Jsonl = route.Options.Jsonl,
             OneLineExplicitlySet = route.Options.OneLineExplicitlySet,
             NoHeader = route.NoHeader,
             Verbose = route.Options.Verbose,
@@ -292,6 +310,7 @@ public static class RouterCommandDefinition
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -310,6 +329,69 @@ public static class RouterCommandDefinition
         };
 
         return await ApiCommand.ExecuteAsync(typeOptions);
+    }
+
+    private static Task<int> ExecuteMemberCommandAsync(
+        RouterOptionsParser.RouteToMember route,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
+    {
+        var split = SharedParsers.TrySplitQualifiedTypeMember(route.Args[0], allowPlatformPrefixFallback: false);
+        if (split == null)
+            return Task.FromResult(1);
+
+        var memberOptions = BuildMemberOptions(
+            split.Value.Probe,
+            split.Value.MemberName,
+            opts,
+            parseResult,
+            commandArgs);
+        return MemberCommand.ExecuteAsync(memberOptions);
+    }
+
+    private static MemberOptions BuildMemberOptions(
+        SourceResolver.LocalProbeResult probe,
+        string memberSelector,
+        SharedOptions opts,
+        ParseResult parseResult,
+        RouterOptionsParser.RouterCommandArgs commandArgs)
+    {
+        var (memberName, overloadIndex) = SharedParsers.ParseOverloadShorthand(memberSelector);
+        var verbosity = opts.ParseVerbosity(parseResult);
+
+        return new MemberOptions
+        {
+            TypeName = probe.Remainder,
+            PlatformAssembly = probe.Kind == SourceResolver.LocalSourceKind.Platform ? probe.SourceName : null,
+            PackagePath = probe.Kind == SourceResolver.LocalSourceKind.CachedPackage ? probe.SourceName : null,
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { memberName },
+            OverloadIndex = overloadIndex,
+            ShowDocs = true,
+            DocsExplicitlySet = false,
+            JsonOutput = parseResult.GetValue(opts.Json),
+            PlainText = opts.ResolveFormat(parseResult) == OutputFormat.PlainText,
+            OneLine = opts.ResolveOneLine(parseResult),
+            Tsv = opts.ResolveTsv(parseResult),
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
+            CompactJson = parseResult.GetValue(commandArgs.CompactOption),
+            Verbose = parseResult.GetValue(opts.Verbose),
+            Verbosity = verbosity,
+            Discover = opts.ParseDiscover(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            Select = opts.ParseSelect(parseResult),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Count = parseResult.GetValue(opts.Count),
+            Schema = opts.ParseSchema(parseResult),
+            Rows = opts.ParseRows(parseResult),
+            SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            TipLevel = ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+                ? TipLevel.Quiet
+                : opts.ParseTipLevel(parseResult)
+        };
     }
 
     private static async Task<int> ExecutePackageCommandAsync(RouterOptionsParser.RouteToPackage route)

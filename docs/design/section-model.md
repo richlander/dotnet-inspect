@@ -75,7 +75,7 @@ You can ask for multiple and they can use globs, invariant case, have a leading 
 
 A wrong section like "Foo" won't block the overall query. An error will be written for just that one request.
 
-Table and TSV output don't support multiple sections, so a default compact-table flow flips over to Markdown when multiple sections are selected. The user can also request JSON. An explicit `--table` or `--tsv` request with multiple sections returns a diagnostic and asks the user to select a single section or use Markdown/JSON.
+Table, TSV, and JSONL output don't support multiple sections, so a default compact-table flow flips over to Markdown when multiple sections are selected. The user can also request JSON. An explicit `--table`, `--tsv`, or `--jsonl` request with multiple sections returns a diagnostic and asks the user to select a single section or use Markdown/JSON.
 
 We can also ask for the list of fields if we want to know what to query for.
 
@@ -167,7 +167,7 @@ All explicit verbosity queries default to Markdown. We previously explored makin
 
 Each of these views have a certain shape. Some of the shapes are the same even if the rendering is different. Getting the shapes right is as important as the section backpressure, for example. The users sees the effect of a correctly carved shape but may not feel the benefit of the backpressure scheme.
 
-Table and TSV output are almost always the same row/column shape; they differ only by renderer and header style. Markdown is the most dynamic. JSON should match the general shape of Markdown, but with structured syntax.
+Table, TSV, and JSONL output are almost always the same row/column shape; they differ only by renderer and header style. Markdown is the most dynamic. JSON should match the general shape of Markdown, but with structured syntax.
 
 There are some commands that should produce JSONL. They are really no different. It's just a prefernce for rows being presented as complete JSON documents and for the higher level structure to be represented by the presence of multiple lines.
 

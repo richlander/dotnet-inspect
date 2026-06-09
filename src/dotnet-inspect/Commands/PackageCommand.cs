@@ -1,5 +1,4 @@
 using DotnetInspector.Models;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
@@ -34,7 +33,7 @@ public class PackageCommand
         {
             var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations());
         }
@@ -127,12 +126,7 @@ public class PackageCommand
                 return 1;
             }
 
-            OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
-            {
-                var versionWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
-                versionWriter.WriteList(CollectionsMarshal.AsSpan(versions));
-                versionWriter.Flush();
-            });
+            OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
 
             return 0;
         }
@@ -247,7 +241,7 @@ public class PackageCommand
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
             {
-                ListPackageTfms(extractPath, options.Tsv);
+                ListPackageTfms(extractPath, options.Tsv, options.Jsonl);
                 return 0;
             }
 
@@ -340,7 +334,7 @@ public class PackageCommand
                 }
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, markdown: !options.OneLine && !options.JsonOutput,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
                     sectionCostAnnotations: pipeline.GetCostAnnotations());
             }
@@ -366,10 +360,10 @@ public class PackageCommand
                     var sw = new StringWriter();
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
-                    var rendered = OutputFormatter.RenderTable(options.Tsv, !options.NoHeader,
+                    var rendered = OutputFormatter.RenderTable(!options.NoHeader,
                         (writer, formatter) =>
                         {
-                            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv);
+                            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                             MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
                         });
                     ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
@@ -597,12 +591,7 @@ public class PackageCommand
             ? fileNames.Take(options.Limit.Value)
             : fileNames;
 
-        OutputFormatter.WriteTable(options.Tsv, Console.Out, showHeader: false, (writer, formatter) =>
-        {
-            var fileWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv));
-            fileWriter.WriteList(results.ToArray());
-            fileWriter.Flush();
-        });
+        OutputFormatter.WriteStringList(results, "Path", "Path", options.Tsv, options.Jsonl, Console.Out);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: false);
     }
 
@@ -626,7 +615,7 @@ public class PackageCommand
         return (extractPath, null);
     }
 
-    private static void ListPackageTfms(string extractPath, bool tsv)
+    private static void ListPackageTfms(string extractPath, bool tsv, bool jsonl)
     {
         var dlls = TfmSelector.GetPackageDlls(extractPath);
         var tfms = dlls
@@ -638,12 +627,7 @@ public class PackageCommand
             .OrderByDescending(t => TfmResolver.GetTfmPriority(t))
             .ToList();
 
-        OutputFormatter.WriteTable(tsv, Console.Out, showHeader: false, (writer, formatter) =>
-        {
-            var tfmWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(tsv));
-            tfmWriter.WriteList(CollectionsMarshal.AsSpan(tfms));
-            tfmWriter.Flush();
-        });
+        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", tsv, jsonl, Console.Out);
     }
 
     private static async Task<int> ShowDependencyTreeAsync(

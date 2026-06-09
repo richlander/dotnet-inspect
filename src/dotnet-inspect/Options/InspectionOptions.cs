@@ -129,6 +129,11 @@ public record InspectionOptions
     public bool Tsv { get; init; }
 
     /// <summary>
+    /// Emit tabular output as JSON Lines, one object per row.
+    /// </summary>
+    public bool Jsonl { get; init; }
+
+    /// <summary>
     /// True when a tabular output flag was explicitly passed (not just the default format).
     /// Used to distinguish explicit tabular output from a tabular default.
     /// </summary>
@@ -184,7 +189,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;
 
     /// <summary>
     /// All inspection features enabled.

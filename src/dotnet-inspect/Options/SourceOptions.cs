@@ -67,6 +67,7 @@ public record SourceOptions
     public bool CompactJson { get; init; }
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
+    public bool Jsonl { get; init; }
     public bool OneLineExplicitlySet { get; init; }
     public bool PlainText { get; init; }
     public bool NoHeader { get; init; }
@@ -96,5 +97,5 @@ public record SourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown). Tips should be suppressed.
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || NoHeader || Cat;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || Cat;
 }

@@ -10,6 +10,10 @@
 - Aligns `--table` and `--tsv` selected-section output with Markdown so narrowed `-S Methods` renders overload rows.
 - Adds first-class `Operators`, `Explicit Interface Implementations`, and local `Extension Methods` sections to type/member views.
 
+### JSONL output
+
+- Adds `--jsonl` for one JSON object per table row using the same stable projection as `--tsv`.
+
 ## v0.10.0
 
 ### Table and TSV output

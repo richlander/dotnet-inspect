@@ -79,6 +79,11 @@ public static class RouterOptionsParser
     public record RouteToType(string[] Args) : RouterParseResult;
 
     /// <summary>
+    /// Route to member command for a source-qualified Type.Member shortcut.
+    /// </summary>
+    public record RouteToMember(string[] Args) : RouterParseResult;
+
+    /// <summary>
     /// Route to package command.
     /// </summary>
     public record RouteToPackage(InspectionOptions Options, string BareName, Verbosity Verbosity) : RouterParseResult;
@@ -129,6 +134,7 @@ public static class RouterOptionsParser
                     Markdown = parseResult.GetValue(opts.Markdown),
                     OneLine = opts.ResolveOneLine(parseResult),
                     Tsv = opts.ResolveTsv(parseResult),
+                    Jsonl = opts.ResolveJsonl(parseResult),
                     OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
                     FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                     Format = opts.ResolveFormat(parseResult),
@@ -179,7 +185,11 @@ public static class RouterOptionsParser
         // route as a qualified type name (e.g., "Humanizer.Core.DateHumanize").
         if (!isVersionQuery && packageArgs.Length == 1)
         {
-            var probe = SourceResolver.TryProbeLocalQualifiedName(bareName);
+            var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(bareName, allowPlatformPrefixFallback: false);
+            if (memberSplit != null)
+                return new RouteToMember(packageArgs);
+
+            var probe = SourceResolver.TryResolveQualifiedTypeName(bareName, allowPlatformPrefixFallback: false);
             if (probe != null)
                 return new RouteToType(packageArgs);
         }
@@ -204,6 +214,7 @@ public static class RouterOptionsParser
             JsonOutput = parseResult.GetValue(opts.Json),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -253,6 +264,7 @@ public static class RouterOptionsParser
             Markdown = parseResult.GetValue(opts.Markdown),
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
+            Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             Format = opts.ResolveFormat(parseResult),
