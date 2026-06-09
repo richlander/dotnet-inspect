@@ -251,6 +251,81 @@ public static class PackageExtractor
     }
 
     /// <summary>
+    /// Builds the flat-container URL for a package's .nuspec ({base}/{id}/{version}/{id}.nuspec),
+    /// or null if the source exposes no flat-container endpoint.
+    /// </summary>
+    private static async Task<string?> GetNuspecUrlAsync(
+        HttpClient client,
+        NuGetSource source,
+        string packageName,
+        string version,
+        Action<string>? log)
+    {
+        var flatContainerUrl = source.GetFlatContainerUrl();
+        if (flatContainerUrl != null)
+            return $"{flatContainerUrl}/{packageName}/{version}/{packageName}.nuspec";
+
+        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
+        if (baseAddress != null)
+        {
+            if (!baseAddress.EndsWith('/'))
+                baseAddress += "/";
+            return $"{baseAddress}{packageName}/{version}/{packageName}.nuspec";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Fetches just a package's .nuspec XML — from the extracted NuGet cache if present, otherwise
+    /// downloading only the nuspec (not the whole .nupkg) from the flat-container endpoint. Used by
+    /// transitive dependency resolution, which needs nothing but the dependency groups. Returns null
+    /// if the nuspec could not be obtained from any source.
+    /// </summary>
+    public static async Task<string?> TryGetNuspecXmlAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageId.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+
+        // Cache hit: read the nuspec straight from the already-extracted package.
+        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+        {
+            var cachedNuspec = Directory
+                .GetFiles(cachedPath, "*.nuspec", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+            if (cachedNuspec != null)
+                return await File.ReadAllTextAsync(cachedNuspec).ConfigureAwait(false);
+        }
+
+        foreach (var source in NuGetSourceResolver.ResolveSources(sourceOptions))
+        {
+            var url = await GetNuspecUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
+            if (url == null)
+                continue;
+
+            try
+            {
+                var xml = await HttpRetryHelper.GetStringWithRetryAsync(
+                    client, url, log: log, auth: source.GetAuthHeader()).ConfigureAwait(false);
+                if (xml != null)
+                    return xml;
+            }
+            catch (HttpRequestException ex)
+            {
+                log?.Invoke($"Nuspec fetch from {source.Name} failed: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Returns true when <paramref name="source"/>'s URL is an absolute http/https URL.
     /// Local folder sources (e.g. `D:\packages`, `/var/packages`, `file://...`) and
     /// otherwise unparseable URLs return false — they cannot be queried by the

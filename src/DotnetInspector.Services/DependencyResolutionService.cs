@@ -61,37 +61,22 @@ public static class DependencyResolutionService
             string? version = ResolveVersionFromRange(versionRange);
             if (version == null) return ([], null);
 
-            string packageRef = $"{packageId.ToLowerInvariant()}@{version}";
-            var outcome = await DotnetInspector.Packages.PackageExtractor.ExtractPackageAsync(client, packageRef, log: log).ConfigureAwait(false);
-            if (!outcome.IsSuccess)
-            {
-                log?.Invoke(outcome.ErrorMessage!);
-                return ([], null);
-            }
-            var extractResult = outcome.Result!;
+            // Resolving the tree only needs each package's dependency groups, so fetch just the
+            // nuspec (from cache or the flat-container endpoint) instead of downloading and
+            // extracting the whole .nupkg.
+            string? nuspecXml = await DotnetInspector.Packages.PackageExtractor.TryGetNuspecXmlAsync(
+                client, packageId, version, log).ConfigureAwait(false);
+            if (nuspecXml == null) return ([], null);
 
-            try
-            {
-                string[] nuspecFiles = Directory.GetFiles(extractResult.ExtractPath, "*.nuspec", SearchOption.TopDirectoryOnly);
-                if (nuspecFiles.Length == 0) return ([], null);
+            var nuspec = NuspecParser.ParseContent(nuspecXml);
 
-                var nuspec = NuspecParser.Parse(nuspecFiles[0]);
+            if (nuspec.DependencyGroups is not { Count: > 0 }) return ([], nuspec.Authors);
 
-                if (nuspec.DependencyGroups is not { Count: > 0 }) return ([], nuspec.Authors);
+            var group = FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
+            if (group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
 
-                var group = FindBestMatchingTfmGroup(nuspec.DependencyGroups, tfm);
-                if (group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
-
-                var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log).ConfigureAwait(false);
-                return (children, nuspec.Authors);
-            }
-            finally
-            {
-                if (extractResult.TempDir != null)
-                {
-                    try { Directory.Delete(extractResult.TempDir, recursive: true); } catch { }
-                }
-            }
+            var children = await ResolveDependencyTreeAsync(client, group.Dependencies, tfm, globalSeen, log).ConfigureAwait(false);
+            return (children, nuspec.Authors);
         }
         catch (Exception ex)
         {

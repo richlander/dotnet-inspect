@@ -1,3 +1,4 @@
+using System.IO;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -20,6 +21,13 @@ public static class HardenedXml
     public static XDocument LoadXDocument(string path)
     {
         using var reader = XmlReader.Create(path, Settings);
+        return XDocument.Load(reader);
+    }
+
+    /// <summary>Parses an <see cref="XDocument"/> from a string with DTD processing prohibited.</summary>
+    public static XDocument ParseXDocument(string xml)
+    {
+        using var reader = XmlReader.Create(new StringReader(xml), Settings);
         return XDocument.Load(reader);
     }
 

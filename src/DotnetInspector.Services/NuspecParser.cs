@@ -12,11 +12,18 @@ public static class NuspecParser
     /// <summary>
     /// Parses all metadata from a nuspec file.
     /// </summary>
-    public static NuspecData Parse(string nuspecPath)
+    public static NuspecData Parse(string nuspecPath) => ParseDocument(HardenedXml.LoadXDocument(nuspecPath));
+
+    /// <summary>
+    /// Parses nuspec metadata from raw XML content (e.g. a nuspec fetched directly from a feed
+    /// without downloading the full package).
+    /// </summary>
+    public static NuspecData ParseContent(string nuspecXml) => ParseDocument(HardenedXml.ParseXDocument(nuspecXml));
+
+    private static NuspecData ParseDocument(XDocument doc)
     {
         var result = new NuspecData();
 
-        XDocument doc = HardenedXml.LoadXDocument(nuspecPath);
         XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
         result.ManifestVersion = GetManifestVersion(ns);
 
