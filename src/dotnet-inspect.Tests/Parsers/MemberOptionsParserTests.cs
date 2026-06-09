@@ -304,11 +304,33 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task Positional_PackageLikeSingleArg_DoesNotUseRootPlatformFallback()
+    {
+        var options = await ParseSuccessAsync("member", "System.CommandLine");
+
+        Assert.Null(options.TypeName);
+        Assert.Equal("System.CommandLine", options.PackagePath);
+        Assert.Null(options.PlatformAssembly);
+        Assert.Empty(options.MemberFilter);
+    }
+
+    [Fact]
     public async Task Positional_QualifiedTypeMember_ResolvesPlatformTypeAndMember()
     {
         var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializer.SerializeToNode");
 
         Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Equal("System.Text.Json", options.PlatformAssembly);
+        Assert.Null(options.PackagePath);
+        Assert.Contains("SerializeToNode", options.MemberFilter);
+    }
+
+    [Fact]
+    public async Task Positional_QualifiedTypeMemberWithTypo_PreservesTypeForSuggestions()
+    {
+        var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializizer.SerializeToNode");
+
+        Assert.Equal("JsonSerializizer", options.TypeName);
         Assert.Equal("System.Text.Json", options.PlatformAssembly);
         Assert.Null(options.PackagePath);
         Assert.Contains("SerializeToNode", options.MemberFilter);
@@ -334,6 +356,17 @@ public class MemberOptionsParserTests
         Assert.Equal("JsonSerializizer", options.TypeName);
         Assert.Null(options.PackagePath);
         Assert.Empty(options.MemberFilter);
+    }
+
+    [Fact]
+    public async Task Positional_QualifiedPlatformTypeTypoAndMember_PreservesTypeForSuggestions()
+    {
+        var options = await ParseSuccessAsync("member", "System.Text.Json.JsonSerializizer", "SerializeToNode");
+
+        Assert.Equal("System.Text.Json", options.PlatformAssembly);
+        Assert.Equal("JsonSerializizer", options.TypeName);
+        Assert.Null(options.PackagePath);
+        Assert.Contains("SerializeToNode", options.MemberFilter);
     }
 
     // ── Dotted member syntax (-m Type.Member) ────────────────────────────

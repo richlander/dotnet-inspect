@@ -103,20 +103,46 @@ public static class SourceOptionsParser
             if (memberName == null)
             {
                 var positionalMembers = new List<string>();
+                if (!sourceSelection.HasExplicitSource && sourceSelection.Args.Length == 1)
+                {
+                    var split = SharedParsers.TrySplitQualifiedTypeMember(
+                        sourceSelection.Args[0],
+                        allowPlatformPrefixFallback: true);
+                    if (split != null)
+                    {
+                        positionalMembers.Add(split.Value.MemberName);
+                        var probe = split.Value.Probe;
+                        source = probe.Kind == SourceResolver.LocalSourceKind.Platform
+                            ? source with { PackagePath = null, PlatformAssembly = probe.SourceName, TypeName = probe.Remainder }
+                            : source with { PackagePath = probe.SourceName, TypeName = probe.Remainder };
+                    }
+                }
+
                 if (sourceSelection.HasExplicitSource && sourceSelection.Args.Length >= 2)
                     positionalMembers.AddRange(sourceSelection.Args[1..]);
                 else if (!sourceSelection.HasExplicitSource && sourceSelection.Args.Length >= 3)
                     positionalMembers.AddRange(sourceSelection.Args[2..]);
 
-                // Handle Type.Member dotted syntax
+                // Handle source-explicit Type.Member shorthand.
                 var typeName = source.TypeName;
                 if (typeName != null && typeName.Contains('.') && positionalMembers.Count == 0)
                 {
-                    var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
-                    if (splitMemberName != null)
+                    var qualifiedSplit = sourceSelection.HasExplicitSource
+                        ? SharedParsers.TrySplitQualifiedTypeMember(typeName, allowPlatformPrefixFallback: true)
+                        : null;
+                    if (qualifiedSplit != null && ProbeMatchesExplicitSource(sourceSelection, qualifiedSplit.Value.Probe))
                     {
-                        positionalMembers.Add(splitMemberName);
-                        source = source with { TypeName = splitTypeName };
+                        positionalMembers.Add(qualifiedSplit.Value.MemberName);
+                        source = source with { TypeName = qualifiedSplit.Value.Probe.Remainder };
+                    }
+                    else if (!IsExplicitSourceQualifiedTypeName(sourceSelection, typeName))
+                    {
+                        var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
+                        if (splitMemberName != null)
+                        {
+                            positionalMembers.Add(splitMemberName);
+                            source = source with { TypeName = splitTypeName };
+                        }
                     }
                 }
 
@@ -127,11 +153,11 @@ public static class SourceOptionsParser
             // Parse overload index shorthand: GetValue:2
             if (memberName != null && memberName.Contains(':'))
             {
-                var colonIdx = memberName.LastIndexOf(':');
-                if (int.TryParse(memberName[(colonIdx + 1)..], out var idx))
+                var (name, idx) = SharedParsers.ParseOverloadShorthand(memberName);
+                if (idx != null)
                 {
                     overloadIndex = idx;
-                    memberName = memberName[..colonIdx];
+                    memberName = name;
                 }
             }
         }
@@ -181,5 +207,44 @@ public static class SourceOptionsParser
         };
 
         return new Success(options);
+    }
+
+    private static bool ProbeMatchesExplicitSource(
+        SharedParsers.SourceSelection sourceSelection,
+        SourceResolver.LocalProbeResult probe)
+    {
+        var explicitName = GetExplicitSourceName(sourceSelection);
+        return explicitName != null
+            && string.Equals(explicitName, NormalizeSourceName(probe.SourceName), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsExplicitSourceQualifiedTypeName(
+        SharedParsers.SourceSelection sourceSelection,
+        string typeName)
+    {
+        var explicitName = GetExplicitSourceName(sourceSelection);
+        return explicitName != null
+            && typeName.StartsWith($"{explicitName}.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? GetExplicitSourceName(SharedParsers.SourceSelection sourceSelection) =>
+        NormalizeSourceName(sourceSelection.ExplicitPlatform)
+        ?? NormalizeSourceName(sourceSelection.ExplicitPackage)
+        ?? NormalizeSourceName(sourceSelection.ExplicitAssembly);
+
+    private static string? NormalizeSourceName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var name = value;
+        var versionIndex = name.IndexOf('@');
+        if (versionIndex >= 0)
+            name = name[..versionIndex];
+
+        name = Path.GetFileName(name);
+        return name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? name[..^4]
+            : name;
     }
 }

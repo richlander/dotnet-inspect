@@ -105,6 +105,19 @@ public static class SourceResolver
     }
 
     /// <summary>
+    /// Resolves a dotted source-qualified type name using the shared precedence:
+    /// exact local type match first, then a typo-friendly platform prefix match.
+    /// </summary>
+    internal static LocalProbeResult? TryResolveQualifiedTypeName(string name, bool allowPlatformPrefixFallback)
+    {
+        var probe = TryProbeLocalQualifiedName(name);
+        if (probe != null || !allowPlatformPrefixFallback)
+            return probe;
+
+        return TryProbePlatformQualifiedPrefix(name);
+    }
+
+    /// <summary>
     /// Peels a dotted name and returns the longest platform assembly prefix even when the
     /// remaining type name is misspelled. This is intentionally platform-only to avoid
     /// misclassifying one-argument package names as package/type pairs.
@@ -120,6 +133,8 @@ public static class SourceResolver
             var candidate = name[..i];
             var remainder = name[(i + 1)..];
             if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(remainder))
+                continue;
+            if (!candidate.Contains('.'))
                 continue;
 
             if (!PlatformResolver.IsPlatformCandidate(candidate))
@@ -269,7 +284,7 @@ public static class SourceResolver
                 if (tryQualifiedTypeName && typeName == null
                     && packagePath != null && platformAssembly == null && assemblyPath == null)
                 {
-                    var probe = TryProbeLocalQualifiedName(bareName);
+                    var probe = TryResolveQualifiedTypeName(bareName, allowPlatformPrefixFallback: true);
                     if (probe != null)
                     {
                         typeName = probe.Remainder;

@@ -83,6 +83,28 @@ public static class SharedParsers
             : (typeName[..lastDot], rightPart);
     }
 
+    internal static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(
+        string value,
+        bool allowPlatformPrefixFallback)
+    {
+        for (var i = value.Length - 1; i > 0; i--)
+        {
+            if (value[i] != '.')
+                continue;
+
+            var typeCandidate = value[..i];
+            var memberName = value[(i + 1)..];
+            if (string.IsNullOrWhiteSpace(memberName) || memberName.Contains('<'))
+                continue;
+
+            var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
+            if (probe != null)
+                return (probe, memberName);
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Parses member filter values where a single numeric value means limit,
     /// otherwise values are treated as filter names.

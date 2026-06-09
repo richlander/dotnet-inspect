@@ -91,6 +91,19 @@ public class OfflineVerbosityTests : IDisposable
         Assert.Contains("Method Groups", output);
     }
 
+    [Fact]
+    public async Task SingleType_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found", error);
+        Assert.Contains("JsonSerializer", error);
+        Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
+    }
+
     // ── member command ───────────────────────────────────────────────
 
     [Fact]
@@ -116,6 +129,19 @@ public class OfflineVerbosityTests : IDisposable
         Assert.Contains("Serialize", output);
     }
 
+    [Fact]
+    public async Task Member_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found", error);
+        Assert.Contains("JsonSerializer", error);
+        Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
+    }
+
     // ── router -> qualified type name ─────────────────────────────────
 
     [Fact]
@@ -137,6 +163,30 @@ public class OfflineVerbosityTests : IDisposable
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
         Assert.Contains("Overloads", output);
+    }
+
+    [Fact]
+    public async Task Router_QualifiedMember_Minimal_Offline_Succeeds()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.SerializeToNode", "-v:m", "--offline", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("SerializeToNode", output);
+        Assert.DoesNotContain("Type 'JsonSerializer.SerializeToNode' not found", error);
+    }
+
+    [Fact]
+    public async Task Router_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'JsonSerializizer' not found", error);
+        Assert.Contains("JsonSerializer", error);
+        Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
     }
 
     // ── type forwarder following ─────────────────────────────────────
