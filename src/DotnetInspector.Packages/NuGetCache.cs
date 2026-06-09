@@ -205,48 +205,29 @@ public static class NuGetCache
     {
         var normalizedName = packageName.ToLowerInvariant();
 
-        NuGetVersion? best = null;
-        string? bestOriginal = null;
+        // Newest non-prerelease, structurally-valid version across both caches.
+        bool IsValid(string dir) => IsCachedPackageValid(dir, normalizedName);
+        VersionDir? best = null;
 
         // Check NuGet global cache — skip in isolated mode
         if (!_skipNuGetCache)
         {
-            ScanCacheDir(Path.Combine(GetNuGetCachePath(), normalizedName), normalizedName, ref best, ref bestOriginal);
+            best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
+                Path.Combine(GetNuGetCachePath(), normalizedName), includePrerelease: false, IsValid));
         }
 
         // Check app cache
         try
         {
-            ScanCacheDir(Path.Combine(GetAppCachePath(), normalizedName), normalizedName, ref best, ref bestOriginal);
+            best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
+                Path.Combine(GetAppCachePath(), normalizedName), includePrerelease: false, IsValid));
         }
         catch (InvalidOperationException)
         {
             // App cache not initialized
         }
 
-        return bestOriginal;
-    }
-
-    private static void ScanCacheDir(
-        string packageDir,
-        string normalizedName,
-        ref NuGetVersion? best,
-        ref string? bestOriginal)
-    {
-        if (!Directory.Exists(packageDir)) return;
-
-        foreach (var dir in Directory.GetDirectories(packageDir))
-        {
-            var dirName = Path.GetFileName(dir);
-            if (NuGetVersion.TryParse(dirName, out var parsed)
-                && !parsed.IsPrerelease
-                && (best == null || parsed > best)
-                && IsCachedPackageValid(dir, normalizedName))
-            {
-                best = parsed;
-                bestOriginal = dirName;
-            }
-        }
+        return best?.DirName;
     }
 
     /// <summary>

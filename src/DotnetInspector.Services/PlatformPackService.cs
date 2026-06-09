@@ -207,25 +207,10 @@ public static class PlatformPackService
         if (cachePath == null) return null;
 
         var packRoot = Path.Combine(cachePath, packName);
-        if (!Directory.Exists(packRoot)) return null;
 
-        // Find the newest valid cached version by semver
-        NuGet.Versioning.NuGetVersion? best = null;
-        string? bestDir = null;
-
-        foreach (var dir in Directory.GetDirectories(packRoot))
-        {
-            var dirName = Path.GetFileName(dir);
-            if (NuGet.Versioning.NuGetVersion.TryParse(dirName, out var parsed)
-                && IsPackValid(dir)
-                && (best == null || parsed > best))
-            {
-                best = parsed;
-                bestDir = dir;
-            }
-        }
-
-        return best != null ? (best.ToNormalizedString(), bestDir!) : null;
+        // Newest valid cached version by semver (prerelease packs are allowed).
+        var best = Packages.VersionDirectory.SelectBest(packRoot, includePrerelease: true, IsPackValid);
+        return best is { } b ? (b.Version.ToNormalizedString(), b.DirPath) : null;
     }
 
     /// <summary>

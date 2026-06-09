@@ -116,7 +116,7 @@ public static class MethodClassificationScanner
                     var sig = method.DecodeSignature(SignatureDecoder.Instance, context);
                     if (HasPointerType(sig))
                     {
-                        var signature = FormatDecodedSignature(reader, method, methodName, sig);
+                        var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
                         results.Add(new ClassifiedMethodInfo(
                             methodName, fullTypeName, ns, signature,
                             MethodClassification.Unsafe));
@@ -183,37 +183,11 @@ public static class MethodClassificationScanner
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = method.DecodeSignature(SignatureDecoder.Instance, context);
             string methodName = reader.GetString(method.Name);
-            return FormatDecodedSignature(reader, method, methodName, sig);
+            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
         }
         catch
         {
             return reader.GetString(method.Name) + "(...)";
         }
-    }
-
-    private static string FormatDecodedSignature(
-        MetadataReader reader, MethodDefinition method, string name, MethodSignature<string> signature)
-    {
-        var paramHandles = method.GetParameters();
-        var paramTypes = signature.ParameterTypes;
-
-        List<string> parameters = [];
-        for (int i = 0; i < paramTypes.Length; i++)
-        {
-            string type = paramTypes[i];
-            string? paramName = null;
-            foreach (var handle in paramHandles)
-            {
-                var param = reader.GetParameter(handle);
-                if (param.SequenceNumber == i + 1)
-                {
-                    paramName = reader.GetString(param.Name);
-                    break;
-                }
-            }
-            parameters.Add($"{type} {paramName ?? $"arg{i}"}");
-        }
-
-        return $"{signature.ReturnType} {name}({string.Join(", ", parameters)})";
     }
 }

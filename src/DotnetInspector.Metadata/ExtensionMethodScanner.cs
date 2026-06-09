@@ -416,29 +416,7 @@ public static class ExtensionMethodScanner
         string name = reader.GetString(method.Name);
         var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
 
-        var paramHandles = method.GetParameters();
-        var paramTypes = signature.ParameterTypes;
-
-        List<string> parameters = [];
-        for (int i = 0; i < paramTypes.Length; i++)
-        {
-            string type = paramTypes[i];
-            string? paramName = null;
-            foreach (var handle in paramHandles)
-            {
-                var param = reader.GetParameter(handle);
-                if (param.SequenceNumber == i + 1)
-                {
-                    paramName = reader.GetString(param.Name);
-                    break;
-                }
-            }
-
-            // Mark first parameter as 'this' for extension methods
-            var prefix = i == 0 ? "this " : "";
-            parameters.Add($"{prefix}{type} {paramName ?? $"arg{i}"}");
-        }
-
-        return $"{signature.ReturnType} {name}({string.Join(", ", parameters)})";
+        // First parameter is the extension receiver, rendered with a 'this ' prefix.
+        return SignatureRenderer.RenderDecodedSignature(reader, method, name, signature, extensionThis: true);
     }
 }
