@@ -23,6 +23,12 @@ Format promises:
 - `--jsonl` emits one compact JSON object per table row with stable snake_case property names.
 - `--table` renders the same projection as `--tsv` and `--jsonl`, with each column starting at a uniform position across rows.
 
+Query tips:
+
+- Built-in aliases and common BCL types such as `string`, `int`, and `List<T>` resolve without `--package`, `--platform`, or `--library`; start with `type string --shape` or `type 'List<T>' --shape`.
+- Always quote generic type names in shell commands: `type 'List<T>'`, `member 'Dictionary<TKey,TValue>'`, or `type 'INumber<TSelf>'`.
+- Wildcards are supported for section and schema selection, such as `-S "Async*"` or `-D "SourceLink*"`.
+
 Start with the default Markdown view for readable evidence, or bare `-S` for the curated high-density view. Use the query system when you need to drill into specific detail that those views do not expose: `-D` discovers sections/columns; `-S Section` selects sections by name or wildcard, such as `-S "Async*"`; `--columns` and `--fields` project values. This query system serves a similar role to Go templates, but you discover the available shape first instead of guessing field names.
 
 Use built-in limiters before shell pipes. `-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines, for example `--rows -n 10` or `--rows -10`. Use `--count` to count rows in one selected table section. Command-specific limiters also matter: `-t N` limits type/find results, `-m N` limits member results, and `--versions N` limits package version lists.
@@ -66,8 +72,6 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json
 ```
 
 Carry resolved context forward. Bare names use the router: platform-looking names are tried as installed platform libraries first, then fall back to NuGet packages if platform resolution fails. Use explicit `--platform`, `--package`, or `--library` when the source matters; for multi-library packages, include the `--library` value shown by `find`.
-
-For common CoreLib APIs, aliases and simple type names work without a source flag: use `type string --shape`, `member string`, or `member string -m Normalize`.
 
 Use `type Type --package Foo --shape` for a compact type overview and overload counts. For a specific overload inventory, use `member Type --package Foo -m Name --show-index`; this renders the `Methods` overload rows with full signatures and stable `Name:N` selectors. A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need that specific implementation evidence.
 
@@ -149,7 +153,6 @@ Scopes include installed platform libraries by default, `--package Foo`, curated
 
 ## Syntax guardrails
 
-- Quote generic type names: `'Option<T>'`, `'INumber<TSelf>'`.
 - Use `<T>` rather than `<>` for generic type queries.
 - `type` uses `-t` for type filters; `member` uses `-m` for member filters.
 - Dotted member syntax works: `-m JsonSerializer.Deserialize`.
