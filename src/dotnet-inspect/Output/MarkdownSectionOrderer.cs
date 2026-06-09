@@ -15,8 +15,7 @@ internal static class MarkdownSectionOrderer
         var inFence = false;
         for (var i = 0; i < lines.Length; i++)
         {
-            var trimmed = lines[i].TrimStart();
-            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            if (MarkdownScan.IsCodeFence(lines[i]))
                 inFence = !inFence;
 
             if (!inFence && lines[i].StartsWith("## ", StringComparison.Ordinal))
