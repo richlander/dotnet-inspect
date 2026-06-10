@@ -293,13 +293,19 @@ public static class IlasmScaffold
         return declaring.IsNil ? name : $"{TypePath(reader, declaring)}/{name}";
     }
 
-    /// <summary>Rendered parameter-type list, for overload disambiguation.</summary>
+    /// <summary>
+    /// Rendered signature (return + parameter types) for overload disambiguation.
+    /// Conversion operators (op_Explicit/op_Implicit) overload by return type alone.
+    /// </summary>
     public static string ParamTypes(MethodDefinition method)
-        => string.Join(",", method.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null).ParameterTypes);
+    {
+        var sig = method.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+        return $"{sig.ReturnType}({string.Join(",", sig.ParameterTypes)})";
+    }
 
     /// <summary>
     /// Finds a method by name in an image and disassembles it. Optional
-    /// declaring-type path (see <see cref="TypePath"/>) and parameter-type list
+    /// declaring-type path (see <see cref="TypePath"/>) and signature string
     /// (see <see cref="ParamTypes"/>) disambiguate within the full module
     /// skeleton (stubs share names with their originals elsewhere).
     /// </summary>
