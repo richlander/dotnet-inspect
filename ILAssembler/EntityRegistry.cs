@@ -254,8 +254,17 @@ namespace ILAssembler
                 int rva = 0;
                 if (methodDef.MethodBody.CodeBuilder.Count != 0)
                 {
-                    rva = ilStream.Count;
-                    methodDef.MethodBody.CodeBuilder.WriteContentTo(ilStream);
+                    // Write a complete method body — tiny/fat header, locals signature,
+                    // branch fixups, and exception-region clauses — rather than raw code
+                    // bytes, which produce an image PEReader.GetMethodBody cannot parse.
+                    var bodyStream = new MethodBodyStreamEncoder(ilStream);
+                    rva = bodyStream.AddMethodBody(
+                        methodDef.MethodBody,
+                        methodDef.MaxStack,
+                        methodDef.LocalsSignature is { } localsSig
+                            ? (StandaloneSignatureHandle)localsSig.Handle
+                            : default,
+                        methodDef.BodyAttributes);
                 }
 
                 builder.AddMethodDefinition(
