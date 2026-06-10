@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 *.speedscope.json
 docs/field-parser.md
 .claude/worktrees/
+
+# Vendored ILAssembler worktree (restore with eng/restore-ilassembler.sh)
+external/
