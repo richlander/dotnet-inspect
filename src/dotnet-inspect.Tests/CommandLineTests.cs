@@ -1139,4 +1139,13 @@ public class CommandLineTests
 
         Assert.Empty(result.Errors);
     }
+
+    [Fact]
+    public void BuildCommand_WithEventStreamPath_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["build", "msbuild.events.jsonl", "-S", "Graph", "--mermaid"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("build", result.CommandResult.Command.Name);
+    }
 }

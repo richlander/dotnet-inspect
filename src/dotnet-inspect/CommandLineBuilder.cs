@@ -81,6 +81,9 @@ public static class CommandLineBuilder
         // Cache command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCacheCommand(opts));
 
+        // Build event stream command
+        rootCommand.Subcommands.Add(BuildCommandDefinitions.CreateBuildCommand(opts));
+
         // Diff command
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
 

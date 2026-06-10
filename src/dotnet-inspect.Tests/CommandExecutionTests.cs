@@ -246,6 +246,95 @@ public class CommandExecutionTests
         });
     }
 
+    private static string CreateBuildEventStream()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"build-events-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(tempFile, """
+            {"schemaVersion":0,"kind":"build.started","sequenceNumber":1,"timestamp":"2026-06-10T04:00:00Z","threadId":1,"context":{"submissionId":-1,"nodeId":-2,"evaluationId":-1,"projectInstanceId":-1,"projectContextId":-2,"targetId":-1,"taskId":-1},"payload":{"message":"Build started"}}
+            {"schemaVersion":0,"kind":"project.started","sequenceNumber":2,"timestamp":"2026-06-10T04:00:01Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":1,"projectInstanceId":10,"projectContextId":100,"targetId":-1,"taskId":-1},"payload":{"projectId":1,"projectFile":"/repo/App.csproj","targetNames":"Build","toolsVersion":null,"dimensions":{"targetFramework":"net10.0","targetFrameworks":null,"runtimeIdentifier":"linux-x64","runtimeIdentifiers":null,"configuration":"Debug","platform":null,"selfContained":null,"hasAnyDimension":true},"hasParentContext":false,"parentContext":{"submissionId":-1,"nodeId":-2,"evaluationId":-1,"projectInstanceId":-1,"projectContextId":-2,"targetId":-1,"taskId":-1}}}
+            {"schemaVersion":0,"kind":"target.started","sequenceNumber":3,"timestamp":"2026-06-10T04:00:02Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":-1},"payload":{"projectFile":"/repo/App.csproj","targetFile":"/repo/App.csproj","targetName":"Build","parentTarget":null,"buildReason":0}}
+            {"schemaVersion":0,"kind":"task.started","sequenceNumber":4,"timestamp":"2026-06-10T04:00:03Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":8},"payload":{"projectFile":"/repo/App.csproj","taskFile":"/repo/App.csproj","taskName":"Csc","taskAssemblyLocation":null,"lineNumber":0,"columnNumber":0}}
+            {"schemaVersion":0,"kind":"future.event","sequenceNumber":5,"timestamp":"2026-06-10T04:00:04Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":8},"payload":{"note":"ignored"}}
+            {"schemaVersion":0,"kind":"diagnostic","sequenceNumber":6,"timestamp":"2026-06-10T04:00:05Z","threadId":1,"context":{"submissionId":0,"nodeId":1,"evaluationId":-1,"projectInstanceId":10,"projectContextId":100,"targetId":7,"taskId":8},"payload":{"severity":"warning","subcategory":null,"code":"CS0168","file":"Program.cs","projectFile":"/repo/App.csproj","lineNumber":3,"columnNumber":9,"endLineNumber":3,"endColumnNumber":10,"message":"Unused variable","helpKeyword":"CS0168"}}
+            {"schemaVersion":0,"kind":"build.finished","sequenceNumber":7,"timestamp":"2026-06-10T04:00:06Z","threadId":1,"context":{"submissionId":-1,"nodeId":-2,"evaluationId":-1,"projectInstanceId":-1,"projectContextId":-2,"targetId":-1,"taskId":-1},"payload":{"succeeded":true,"message":"Build succeeded"}}
+            """);
+        return tempFile;
+    }
+
+    [Fact]
+    public async Task BuildCommand_Discover_ListsSections()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-D");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Projects", output);
+            Assert.Contains("Diagnostics", output);
+            Assert.Contains("Graph", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Projects_DefaultTable()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("App.csproj", output);
+            Assert.Contains("net10.0", output);
+            Assert.Contains("linux-x64", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Diagnostics_Tsv()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-S", "Diagnostics", "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Severity\tCode\tProject", output);
+            Assert.Contains("warning\tCS0168\tApp.csproj", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Graph_Mermaid()
+    {
+        var path = CreateBuildEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", path, "-S", "Graph", "--mermaid");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("flowchart TD", output);
+            Assert.Contains("App.csproj<br/>TFM: net10.0<br/>RID: linux-x64<br/>Config: Debug", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ── bare router ───────────────────────────────────────────────────
 
     [Fact]
