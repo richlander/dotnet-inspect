@@ -20,6 +20,10 @@ public class ILAssemblerRoundtripTests
     [InlineData("SumLoop")]
     [InlineData("IsGreater")]
     [InlineData("Identity")]
+    [InlineData("Greet")]
+    [InlineData("StringLength")]
+    [InlineData("MakeList")]
+    [InlineData("ParseOrNegativeOne")]
     public void FixtureMethod_RoundtripsWithOpcodeEquality(string methodName)
     {
         using var stream = File.OpenRead(FixtureAssembly);

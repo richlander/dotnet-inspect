@@ -50,10 +50,10 @@ public static class IlasmScaffold
     public static string BuildCompilationUnit(PEReader peReader, MetadataReader reader, MethodDefinition method)
     {
         string name = reader.GetString(method.Name);
-        var instructions = ILDisassembler.Disassemble(peReader, reader, method)
+        var instructions = ILDisassembler.Disassemble(peReader, reader, method, ILSyntax.Canonical)
             ?? throw new InvalidOperationException($"No IL body for {name}");
         var body = peReader.GetMethodBody(method.RelativeVirtualAddress);
-        var sigProvider = new ILSyntaxProvider(reader);
+        var sigProvider = ILSignatureTypeProvider.Instance;
 
         var sig = method.DecodeSignature(sigProvider, genericContext: null);
         var paramNames = method.GetParameters()
@@ -83,7 +83,7 @@ public static class IlasmScaffold
             string handlerRange = $"handler IL_{region.HandlerOffset:X4} to IL_{region.HandlerOffset + region.HandlerLength:X4}";
             string clause = region.Kind switch
             {
-                ExceptionRegionKind.Catch => $"catch {sigProvider.RenderTypeHandle(region.CatchType)}",
+                ExceptionRegionKind.Catch => $"catch {CanonicalIL.ResolveTypeHandle(reader, region.CatchType)}",
                 ExceptionRegionKind.Finally => "finally",
                 ExceptionRegionKind.Filter => $"filter IL_{region.FilterOffset:X4}",
                 ExceptionRegionKind.Fault => "fault",
@@ -96,11 +96,25 @@ public static class IlasmScaffold
         foreach (var instr in instructions)
             bodyText.AppendLine($"    {instr}");
 
+        // One extern per assembly ref in the source module so canonical
+        // [asm]-qualified operands resolve regardless of which facade the
+        // compiler bound against.
+        // ILAssembler's dottedName grammar rule lacks the ECMA-335 SQSTRING
+        // alternative, so names needing quoting (e.g. xunit.v3.mtp-v1) cannot be
+        // declared as externs at all (upstream gap). Skip them — fixture methods
+        // must not reference members from such assemblies.
+        var externs = new StringBuilder();
+        foreach (var arh in reader.AssemblyReferences)
+        {
+            string asmName = reader.GetString(reader.GetAssemblyReference(arh).Name);
+            if (CanonicalIL.QuoteDottedName(asmName) == asmName)
+                externs.AppendLine($".assembly extern {asmName} {{ }}");
+        }
+
         // Wrapper class name is intentionally un-namespaced: ILAssembler does not
         // yet resolve member refs to dotted typedef names (upstream gap).
         return $$"""
-.assembly extern System.Runtime { }
-.assembly roundtrip { }
+{{externs}}.assembly roundtrip { }
 .module roundtrip.dll
 
 .class public auto ansi beforefieldinit RoundtripProbe extends [System.Runtime]System.Object
@@ -124,6 +138,7 @@ public static class IlasmScaffold
 
             ImmutableArray<Diagnostic> diagnostics = [];
             PEBuilder? result = null;
+            string? crash = null;
             try
             {
                 (diagnostics, result) = new DocumentCompiler().Compile(
@@ -132,12 +147,21 @@ public static class IlasmScaffold
                     _ => throw new InvalidOperationException("no resources expected"),
                     new Options());
             }
+            catch (Exception ex)
+            {
+                // ILAssembler can throw (rather than diagnose) on inputs its error
+                // recovery doesn't handle; surface as a failure, not a test crash.
+                crash = $"ILAssembler threw {ex.GetType().Name}: {ex.Message}";
+                result = null;
+            }
             finally
             {
                 Console.SetError(realErr);
             }
 
             string parserErrors = stderr.ToString().ReplaceLineEndings(" / ").Trim();
+            if (crash is not null)
+                parserErrors = parserErrors.Length > 0 ? $"{crash} / {parserErrors}" : crash;
             PEReader? image = null;
             if (result is not null)
             {
