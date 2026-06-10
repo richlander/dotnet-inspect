@@ -243,6 +243,83 @@ public class CfgSampleClass
 
     public static bool IsPositive(int x) => x > 0;
 
+    // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
+
+    public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
+
+    public static string UnsignedBoundsBranch(int index, int[] array)
+    {
+        if ((uint)index >= (uint)array.Length)
+            return "out";
+        return "in";
+    }
+
+    public static bool FloatUnordered(double a, double b) => !(a <= b);
+
+    public static bool NotNullIdiom(object o) => o != null;
+
+    public static int UnsignedShift(int x, int n) => x >>> n;
+
+    public static uint UnsignedDivide(uint a, uint b) => a / b;
+
+    public static int FilterCatch(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (FormatException e) when (s.Length > 3)
+        {
+            return e.Message.Length;
+        }
+    }
+
+    public static int NormalUsing(string s)
+    {
+        using var reader = new System.IO.StringReader(s);
+        return reader.Read();
+    }
+
+    public static int FinallyWithExtraWork(string s)
+    {
+        var reader = new System.IO.StringReader(s);
+        int count = 0;
+        try
+        {
+            count = reader.Read();
+        }
+        finally
+        {
+            reader.Dispose();
+            count = -1;
+        }
+        return count;
+    }
+
+    public class MutableHolder
+    {
+        public int Value;
+    }
+
+    public static int StaleFieldRead(MutableHolder h)
+    {
+        int v = h.Value;
+        h.Value = 99;
+        return v + h.Value;
+    }
+
+    public static long ManualDisposeAsyncInFinally(System.IO.MemoryStream stream)
+    {
+        try
+        {
+            return stream.Length;
+        }
+        finally
+        {
+            _ = stream.DisposeAsync();
+        }
+    }
+
     public static string Classify(int x)
     {
         if (x > 0) return "positive";

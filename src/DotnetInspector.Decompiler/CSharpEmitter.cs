@@ -212,6 +212,10 @@ public static class CSharpEmitter
 
             // Pre-detect using patterns to suppress local declarations
             ScanForUsingPatterns(structure.Root);
+
+            // Pre-detect exception-filter bool temps (declarations print before
+            // the filter is rendered as a when clause).
+            ScanForFilterLocals(structure.Root);
         }
 
         sealed class LockPattern
@@ -928,9 +932,7 @@ public static class CSharpEmitter
                     continue;
 
                 if (!sawDispose
-                    && expr.Operand is string operand
-                    && operand.Contains("Dispose", StringComparison.Ordinal)
-                    && !expr.IsStaticCall
+                    && IsDisposeCall(expr)
                     && expr.Arguments.Count > 0)
                 {
                     disposeVar = RenderReceiverName(expr.Arguments[0]);
@@ -1464,6 +1466,18 @@ public static class CSharpEmitter
 
         void EmitIfThenElse(StructuredBlock block, int indent)
         {
+            // A consumed condition block means the construct was already rendered
+            // by a recognized pattern (e.g. an exception filter's blocks become a
+            // when clause) — emitting it again would leak the lowered form.
+            if (block.ConditionBlockIndex >= 0 && _consumedBlocks.Contains(block.ConditionBlockIndex))
+            {
+                if (block.ThenBlock is not null)
+                    ConsumeStructuredBlock(block.ThenBlock);
+                if (block.ElseBlock is not null)
+                    ConsumeStructuredBlock(block.ElseBlock);
+                return;
+            }
+
             // Skip constant-condition branches (Debug stepping markers like brtrue [ldc.i4.1])
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var earlyCondBlock))
             {
@@ -2263,13 +2277,14 @@ public static class CSharpEmitter
             ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
             ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
             ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
-            ILOpCode.Div or ILOpCode.Div_un => "/",
-            ILOpCode.Rem or ILOpCode.Rem_un => "%",
+            ILOpCode.Div => "/",
+            ILOpCode.Rem => "%",
             ILOpCode.And => "&",
             ILOpCode.Or => "|",
             ILOpCode.Xor => "^",
             ILOpCode.Shl => "<<",
-            ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+            ILOpCode.Shr => ">>",
+            ILOpCode.Shr_un => ">>>",
             _ => null
         };
 
@@ -4028,12 +4043,181 @@ public static class CSharpEmitter
                 WriteIndent(indent);
                 _sb.AppendLine("}");
             }
+            else if (region.Kind == ExceptionRegionKind.Filter)
+            {
+                WriteIndent(indent);
+                _sb.AppendLine(BuildFilterCatchHeader(region));
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+                foreach (var child in handlerChildren)
+                    EmitStructuredBlock(child, indent + 1);
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+            else if (region.Kind == ExceptionRegionKind.Fault)
+            {
+                WriteIndent(indent);
+                _sb.AppendLine("finally /* fault: runs only when an exception escapes the try */");
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+                foreach (var child in handlerChildren)
+                    EmitStructuredBlock(child, indent + 1);
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+        }
+
+        /// <summary>
+        /// Builds a <c>catch (T name) when (cond)</c> header from a filter region
+        /// and consumes the filter code blocks so they don't leak into the output.
+        /// The C# compiler's filter shape is stable: <c>isinst T</c> on the
+        /// exception, a store to the catch local, the user condition normalized
+        /// with <c>ldc.i4.0 cgt.un</c>, then <c>endfilter</c>. Anything that
+        /// doesn't match falls back to a placeholder condition comment.
+        /// </summary>
+        string BuildFilterCatchHeader(ExceptionRegion region)
+        {
+            // Collect (and consume) the filter blocks: [FilterOffset, HandlerOffset).
+            var filterNodes = new List<ILAstNode>();
+            foreach (var (blockIdx, offset) in _blockStartOffset.OrderBy(kv => kv.Value))
+            {
+                if (offset < region.FilterOffset || offset >= region.HandlerOffset)
+                    continue;
+                _consumedBlocks.Add(blockIdx);
+                RemoveGotoTargetsForConsumedBlock(blockIdx);
+                if (_blockMap.TryGetValue(blockIdx, out var astBlock))
+                    filterNodes.AddRange(astBlock.Nodes);
+            }
+
+            string? exType = null;
+            string? catchVar = null;
+            ILAstExpression? conditionExpr = null;
+
+            foreach (var node in filterNodes)
+            {
+                if (NodeExpression(node) is not { } expr)
+                    continue;
+
+                // Exception type test: first isinst in the filter.
+                if (exType is null && FindOpcodeInTree(expr, ILOpCode.Isinst) is { Operand: string typeOp })
+                    exType = SimplifyTypeName(typeOp);
+
+                // Catch local: a store whose value involves the type-tested exception.
+                if (catchVar is null
+                    && node is ILAstStatement { Expression: var stExpr }
+                    && stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                        or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                    && stExpr.Arguments.Count == 1
+                    && (FindOpcodeInTree(stExpr.Arguments[0], ILOpCode.Isinst) is not null
+                        || stExpr.Arguments[0].Operand is string ld && ld.StartsWith("S_in_", StringComparison.Ordinal)))
+                {
+                    catchVar = stExpr.Operand ?? GetLocalName(stExpr.OpCode);
+                }
+
+                // User condition: bool-normalized as cgt.un(cond, 0) before endfilter.
+                if (expr.OpCode is ILOpCode.Cgt_un
+                    && expr.Arguments.Count == 2
+                    && IsZeroLiteral(expr.Arguments[1]))
+                {
+                    conditionExpr = expr.Arguments[0];
+                }
+            }
+
+            // The normalized condition is often just a load of a bool temp the
+            // filter assigned earlier — substitute the temp's defining expression.
+            if (conditionExpr is not null && GetLocalReferenceName(conditionExpr) is { } condLocal)
+            {
+                foreach (var node in filterNodes)
+                {
+                    if (node is ILAstStatement { Expression: var stExpr }
+                        && IsStoreToLocal(stExpr, condLocal)
+                        && stExpr.Arguments.Count == 1)
+                    {
+                        conditionExpr = stExpr.Arguments[0];
+                    }
+                }
+                _suppressedLocals.Add(condLocal);
+            }
+
+            // The handler refers to the exception as the synthetic incoming stack
+            // value; give it the catch variable's name (or one we invent).
+            string varName = catchVar ?? "ex";
+            _syntheticSubstitutions["S_in_0"] = varName;
+
+            string condition = conditionExpr is not null
+                ? ExpressionToString(conditionExpr)
+                : $"/* filter at IL_{region.FilterOffset:X4} */";
+            string header = exType is null ? $"catch ({varName})" : $"catch ({exType} {varName})";
+            return $"{header} when ({condition})";
+        }
+
+        /// <summary>
+        /// Suppresses declarations of bool temps that exception filters normalize
+        /// through (cgt.un(temp, 0) before endfilter) — the when-clause rendering
+        /// inlines their defining expression.
+        /// </summary>
+        void ScanForFilterLocals(StructuredBlock block)
+        {
+            var regions = new List<ExceptionRegion>();
+            if (block.ExceptionRegion is { Kind: ExceptionRegionKind.Filter } filterRegion)
+                regions.Add(filterRegion);
+            foreach (var addl in block.AdditionalHandlers)
+                if (addl.Region.Kind == ExceptionRegionKind.Filter)
+                    regions.Add(addl.Region);
+
+            foreach (var region in regions)
+            {
+                foreach (var (blockIdx, offset) in _blockStartOffset)
+                {
+                    if (offset < region.FilterOffset || offset >= region.HandlerOffset)
+                        continue;
+                    if (!_blockMap.TryGetValue(blockIdx, out var astBlock))
+                        continue;
+                    foreach (var node in astBlock.Nodes)
+                    {
+                        if (NodeExpression(node) is { OpCode: ILOpCode.Cgt_un, Arguments.Count: 2 } expr
+                            && IsZeroLiteral(expr.Arguments[1])
+                            && GetLocalReferenceName(expr.Arguments[0]) is { } condLocal)
+                        {
+                            _suppressedLocals.Add(condLocal);
+                        }
+                    }
+                }
+            }
+
+            foreach (var c in block.Children)
+                ScanForFilterLocals(c);
+            foreach (var c in block.TryChildren)
+                ScanForFilterLocals(c);
+            foreach (var c in block.HandlerChildren)
+                ScanForFilterLocals(c);
+            if (block.ThenBlock is not null)
+                ScanForFilterLocals(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ScanForFilterLocals(block.ElseBlock);
+        }
+
+        /// <summary>Depth-first search for an opcode in an expression tree.</summary>
+        static ILAstExpression? FindOpcodeInTree(ILAstExpression expr, ILOpCode opCode)
+        {
+            if (expr.OpCode == opCode)
+                return expr;
+            foreach (var arg in expr.Arguments)
+            {
+                if (FindOpcodeInTree(arg, opCode) is { } found)
+                    return found;
+            }
+            return null;
         }
 
         /// <summary>
         /// Detect the dispose pattern in a finally handler:
         /// IfThenElse { if (var != null) { var.Dispose(); } } + endfinally
         /// Returns the variable name being disposed, or null.
+        /// The member must be exactly Dispose (DisposeAsync is an await using —
+        /// not representable as a plain using statement), and the finally must
+        /// contain NOTHING ELSE: rendering as using discards the handler, so any
+        /// extra statement would be silently deleted from the output.
         /// </summary>
         string? TryDetectDisposeVariable(StructuredBlock block)
         {
@@ -4047,18 +4231,80 @@ public static class CSharpEmitter
                         foreach (var node in thenAst.Nodes)
                         {
                             if (node is ILAstStatement { Expression: var expr }
-                                && expr.Operand is string operand
-                                && operand.Contains("Dispose", StringComparison.Ordinal)
-                                && !expr.IsStaticCall
+                                && IsDisposeCall(expr)
                                 && expr.Arguments.Count > 0)
                             {
-                                return RenderReceiverName(expr.Arguments[0]);
+                                string disposeVar = RenderReceiverName(expr.Arguments[0]);
+                                return FinallyContainsOnlyDisposeOf(block, disposeVar) ? disposeVar : null;
                             }
                         }
                     }
                 }
             }
             return null;
+        }
+
+        static bool IsDisposeCall(ILAstExpression expr)
+            => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && !expr.IsStaticCall
+                && expr.Operand is string operand
+                && ExtractMemberName(operand) == "Dispose";
+
+        /// <summary>
+        /// Verifies a finally handler consists solely of the dispose-of-variable
+        /// pattern: nops, endfinally, null-check guards on the variable, and the
+        /// Dispose call itself.
+        /// </summary>
+        bool FinallyContainsOnlyDisposeOf(StructuredBlock block, string disposeVar)
+        {
+            bool sawDispose = false;
+            foreach (var (_, node) in EnumerateStructuredNodes(block.HandlerChildren))
+            {
+                if (node is ILAstAssignment)
+                    return false;
+                if (NodeExpression(node) is not { } expr)
+                    continue;
+                if (expr.OpCode is ILOpCode.Nop or ILOpCode.Endfinally
+                    or ILOpCode.Br or ILOpCode.Br_s)
+                {
+                    continue;
+                }
+
+                // Null-check guard on the disposed variable.
+                if (expr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                        or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    && expr.Arguments.Count == 1
+                    && TreeReferencesLocal(expr.Arguments[0], disposeVar))
+                {
+                    continue;
+                }
+
+                if (IsDisposeCall(expr)
+                    && expr.Arguments.Count > 0
+                    && TreeReferencesLocal(expr.Arguments[0], disposeVar))
+                {
+                    if (sawDispose)
+                        return false;
+                    sawDispose = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawDispose;
+        }
+
+        static bool TreeReferencesLocal(ILAstExpression expr, string localName)
+        {
+            if (GetLocalReferenceName(expr) is { } name && name == localName)
+                return true;
+            foreach (var arg in expr.Arguments)
+            {
+                if (TreeReferencesLocal(arg, localName))
+                    return true;
+            }
+            return false;
         }
 
         void EmitUsingBlock(StructuredBlock block, string disposeVar, int indent)
@@ -4815,24 +5061,31 @@ public static class CSharpEmitter
                 case ILOpCode.Mul: EmitBinary(expr, "*"); break;
                 case ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un:
                     EmitCheckedBinary(expr, "*"); break;
-                case ILOpCode.Div or ILOpCode.Div_un:
-                    EmitBinary(expr, "/"); break;
-                case ILOpCode.Rem or ILOpCode.Rem_un:
-                    EmitBinary(expr, "%"); break;
+                case ILOpCode.Div: EmitBinary(expr, "/"); break;
+                case ILOpCode.Div_un: EmitUnsignedArithmetic(expr, "/"); break;
+                case ILOpCode.Rem: EmitBinary(expr, "%"); break;
+                case ILOpCode.Rem_un: EmitUnsignedArithmetic(expr, "%"); break;
                 case ILOpCode.And: EmitBinary(expr, "&"); break;
                 case ILOpCode.Or: EmitBinary(expr, "|"); break;
                 case ILOpCode.Xor: EmitBinary(expr, "^"); break;
                 case ILOpCode.Shl: EmitBinary(expr, "<<"); break;
-                case ILOpCode.Shr or ILOpCode.Shr_un:
-                    EmitBinary(expr, ">>"); break;
+                case ILOpCode.Shr: EmitBinary(expr, ">>"); break;
+                // shr.un on any operand is C#'s unsigned right shift.
+                case ILOpCode.Shr_un: EmitBinary(expr, ">>>"); break;
 
                 // Comparison operators
                 case ILOpCode.Ceq:
+                    // ">=u"/"<=u" markers carry bge.un/ble.un semantics from
+                    // ExtractCondition (there are no cge/cle opcodes to map to).
+                    if (expr.Operand == ">=u") { EmitUnsignedComparison(expr, ">=", "<"); break; }
+                    if (expr.Operand == "<=u") { EmitUnsignedComparison(expr, "<=", ">"); break; }
                     if (!TryEmitNegatedComparisonZero(expr))
                         EmitBinary(expr, expr.Operand ?? "==");
                     break;
-                case ILOpCode.Cgt or ILOpCode.Cgt_un: EmitBinary(expr, ">"); break;
-                case ILOpCode.Clt or ILOpCode.Clt_un: EmitBinary(expr, "<"); break;
+                case ILOpCode.Cgt: EmitBinary(expr, ">"); break;
+                case ILOpCode.Cgt_un: EmitUnsignedComparison(expr, ">", "<="); break;
+                case ILOpCode.Clt: EmitBinary(expr, "<"); break;
+                case ILOpCode.Clt_un: EmitUnsignedComparison(expr, "<", ">="); break;
 
                 // Unary operators
                 case ILOpCode.Neg:
@@ -5686,16 +5939,27 @@ public static class CSharpEmitter
                     break;
                 case ILOpCode.Beq or ILOpCode.Beq_s:
                     EmitBinaryCondition(expr, "=="); break;
+                // bne.un is the standard inequality branch: plain != for
+                // integers/references, and C#'s != already has unordered
+                // semantics for floats.
                 case ILOpCode.Bne_un or ILOpCode.Bne_un_s:
                     EmitBinaryCondition(expr, "!="); break;
-                case ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s:
+                case ILOpCode.Bge or ILOpCode.Bge_s:
                     EmitBinaryCondition(expr, ">="); break;
-                case ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
+                case ILOpCode.Bge_un or ILOpCode.Bge_un_s:
+                    EmitUnsignedComparison(expr, ">=", "<"); break;
+                case ILOpCode.Bgt or ILOpCode.Bgt_s:
                     EmitBinaryCondition(expr, ">"); break;
-                case ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s:
+                case ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
+                    EmitUnsignedComparison(expr, ">", "<="); break;
+                case ILOpCode.Ble or ILOpCode.Ble_s:
                     EmitBinaryCondition(expr, "<="); break;
-                case ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                case ILOpCode.Ble_un or ILOpCode.Ble_un_s:
+                    EmitUnsignedComparison(expr, "<=", ">"); break;
+                case ILOpCode.Blt or ILOpCode.Blt_s:
                     EmitBinaryCondition(expr, "<"); break;
+                case ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                    EmitUnsignedComparison(expr, "<", ">="); break;
                 default:
                     EmitExpression(expr);
                     break;
@@ -5756,10 +6020,23 @@ public static class CSharpEmitter
 
             if (comparison is null || comparison.Arguments.Count < 2) return false;
 
+            // Negating an unordered compare yields the ordered complement
+            // (with NaN semantics and unsigned casts handled there).
+            if (comparison.OpCode == ILOpCode.Clt_un)
+            {
+                EmitNegatedUnsignedComparison(comparison, ">=");
+                return true;
+            }
+            if (comparison.OpCode == ILOpCode.Cgt_un)
+            {
+                EmitNegatedUnsignedComparison(comparison, "<=");
+                return true;
+            }
+
             string negatedOp = comparison.OpCode switch
             {
-                ILOpCode.Clt or ILOpCode.Clt_un => ">=",
-                ILOpCode.Cgt or ILOpCode.Cgt_un => "<=",
+                ILOpCode.Clt => ">=",
+                ILOpCode.Cgt => "<=",
                 ILOpCode.Ceq => "!=",
                 _ => ""
             };
@@ -5843,6 +6120,163 @@ public static class CSharpEmitter
                 _sb.Append($" {op} ");
                 EmitExpression(expr.Arguments[1]);
             }
+        }
+
+        /// <summary>
+        /// Renders the unsigned/unordered comparison opcodes (cgt.un, clt.un, and
+        /// the b*.un branches). Their semantics differ from the signed forms:
+        /// for floats they mean "compare or unordered" — the negation of the
+        /// complementary ordered compare (cgt.un(a,b) == !(a &lt;= b), which differs
+        /// from a &gt; b when either operand is NaN); for integers they compare the
+        /// bits as unsigned, which C# expresses by casting both operands (the
+        /// classic bounds-check (uint)i &lt; (uint)length). cgt.un against null is
+        /// the compiler's reference-inequality idiom.
+        /// </summary>
+        void EmitUnsignedComparison(ILAstExpression expr, string op, string orderedComplement)
+        {
+            if (expr.Arguments.Count < 2)
+            {
+                EmitBinary(expr, op);
+                return;
+            }
+
+            var left = expr.Arguments[0];
+            var right = expr.Arguments[1];
+
+            if (op == ">" && right.OpCode == ILOpCode.Ldnull)
+            {
+                EmitExpression(left);
+                _sb.Append(" != null");
+                return;
+            }
+
+            switch (ComparisonKind(left, right))
+            {
+                case StackValueKind.Float:
+                    _sb.Append("!(");
+                    EmitExpression(left);
+                    _sb.Append($" {orderedComplement} ");
+                    EmitExpression(right);
+                    _sb.Append(')');
+                    break;
+                case StackValueKind.Int64:
+                    EmitUnsignedBinary(expr, op, "(ulong)", ILOpCode.Conv_u8);
+                    break;
+                case StackValueKind.NativeInt:
+                    EmitUnsignedBinary(expr, op, "(nuint)", ILOpCode.Conv_u);
+                    break;
+                case StackValueKind.Int32:
+                    EmitUnsignedBinary(expr, op, "(uint)", ILOpCode.Conv_u4);
+                    break;
+                default:
+                    // ObjRef/ByRef/unknown — pointer-style comparison; the raw
+                    // operator is the closest C# rendering.
+                    EmitBinary(expr, op);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Negated form (via ceq(cmp, 0)) of an unsigned/unordered comparison.
+        /// Note the asymmetry with <see cref="EmitUnsignedComparison"/>: negating
+        /// an unordered compare yields the ORDERED complement — !cgt.un(a,b) is
+        /// exactly a &lt;= b, including NaN behavior.
+        /// </summary>
+        void EmitNegatedUnsignedComparison(ILAstExpression comparison, string orderedOp)
+        {
+            var left = comparison.Arguments[0];
+            var right = comparison.Arguments[1];
+
+            // !(x != null) → x == null
+            if (orderedOp == "<=" && right.OpCode == ILOpCode.Ldnull)
+            {
+                EmitExpression(left);
+                _sb.Append(" == null");
+                return;
+            }
+
+            switch (ComparisonKind(left, right))
+            {
+                case StackValueKind.Float:
+                    EmitExpression(left);
+                    _sb.Append($" {orderedOp} ");
+                    EmitExpression(right);
+                    break;
+                case StackValueKind.Int64:
+                    EmitUnsignedBinary(comparison, orderedOp, "(ulong)", ILOpCode.Conv_u8);
+                    break;
+                case StackValueKind.NativeInt:
+                    EmitUnsignedBinary(comparison, orderedOp, "(nuint)", ILOpCode.Conv_u);
+                    break;
+                case StackValueKind.Int32:
+                    EmitUnsignedBinary(comparison, orderedOp, "(uint)", ILOpCode.Conv_u4);
+                    break;
+                default:
+                    EmitBinary(comparison, orderedOp);
+                    break;
+            }
+        }
+
+        /// <summary>div.un/rem.un: unsigned arithmetic, rendered with operand casts.</summary>
+        void EmitUnsignedArithmetic(ILAstExpression expr, string op)
+        {
+            if (expr.Arguments.Count < 2)
+            {
+                EmitBinary(expr, op);
+                return;
+            }
+
+            switch (ComparisonKind(expr.Arguments[0], expr.Arguments[1]))
+            {
+                case StackValueKind.Int64:
+                    EmitUnsignedBinary(expr, op, "(ulong)", ILOpCode.Conv_u8);
+                    break;
+                case StackValueKind.NativeInt:
+                    EmitUnsignedBinary(expr, op, "(nuint)", ILOpCode.Conv_u);
+                    break;
+                default:
+                    EmitUnsignedBinary(expr, op, "(uint)", ILOpCode.Conv_u4);
+                    break;
+            }
+        }
+
+        void EmitUnsignedBinary(ILAstExpression expr, string op, string cast, ILOpCode redundantConv)
+        {
+            EmitUnsignedOperand(expr.Arguments[0], cast, redundantConv);
+            _sb.Append($" {op} ");
+            EmitUnsignedOperand(expr.Arguments[1], cast, redundantConv);
+        }
+
+        void EmitUnsignedOperand(ILAstExpression arg, string cast, ILOpCode redundantConv)
+        {
+            // Non-negative constants are unchanged by unsigned reinterpretation,
+            // and an operand that is itself the matching conversion already
+            // renders the cast.
+            if ((IsLdcI4(arg.OpCode) && GetI4Value(arg) >= 0) || arg.OpCode == redundantConv)
+            {
+                EmitExpression(arg);
+                return;
+            }
+
+            _sb.Append(cast);
+            bool wrap = IsBinaryOp(arg.OpCode);
+            if (wrap) _sb.Append('(');
+            EmitExpression(arg);
+            if (wrap) _sb.Append(')');
+        }
+
+        /// <summary>Joint stack-value kind of a comparison's operands.</summary>
+        static StackValueKind ComparisonKind(ILAstExpression left, ILAstExpression right)
+        {
+            var a = left.ResultType.Kind;
+            var b = right.ResultType.Kind;
+            if (a == StackValueKind.Float || b == StackValueKind.Float) return StackValueKind.Float;
+            if (a == StackValueKind.ObjRef || b == StackValueKind.ObjRef) return StackValueKind.ObjRef;
+            if (a == StackValueKind.ByRef || b == StackValueKind.ByRef) return StackValueKind.ByRef;
+            if (a == StackValueKind.Int64 || b == StackValueKind.Int64) return StackValueKind.Int64;
+            if (a == StackValueKind.NativeInt || b == StackValueKind.NativeInt) return StackValueKind.NativeInt;
+            if (a == StackValueKind.Int32 || b == StackValueKind.Int32) return StackValueKind.Int32;
+            return StackValueKind.Unknown;
         }
 
         // --- Helpers ---
@@ -6283,6 +6717,16 @@ public static class CSharpEmitter
 
         static string NegateConditionString(string condition)
         {
+            // A fully-wrapped negation strips exactly. This must run before the
+            // operator flips: float unordered forms like !(a <= b) negate to the
+            // ordered a <= b, not to !(a > b) (which differs under NaN).
+            if (condition.StartsWith("!(", StringComparison.Ordinal)
+                && condition.EndsWith(')')
+                && ParenWrapsWholeString(condition))
+            {
+                return condition[2..^1];
+            }
+
             // Flip comparison operators if present
             if (condition.Contains(" != "))
                 return condition.Replace(" != ", " == ");
@@ -6298,11 +6742,33 @@ public static class CSharpEmitter
                 return condition.Replace(" <= ", " > ");
 
             // Simple negation
-            if (condition.StartsWith("!(") && condition.EndsWith(')'))
-                return condition[2..^1];
             if (condition.StartsWith('!'))
                 return condition[1..];
             return $"!{condition}";
+        }
+
+        /// <summary>
+        /// True when the parenthesis opened at index 1 closes at the final
+        /// character — i.e. <c>!(...)</c> wraps the whole condition rather than
+        /// just its first term (<c>!(a) &amp;&amp; b</c>).
+        /// </summary>
+        static bool ParenWrapsWholeString(string condition)
+        {
+            int depth = 0;
+            for (int i = 1; i < condition.Length; i++)
+            {
+                if (condition[i] == '(')
+                {
+                    depth++;
+                }
+                else if (condition[i] == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i == condition.Length - 1;
+                }
+            }
+            return false;
         }
 
         static ILAstExpression ExtractCondition(ILAstExpression branchExpr)
@@ -6367,15 +6833,28 @@ public static class CSharpEmitter
             }
             if (branchExpr.Arguments.Count == 2)
             {
-                // Binary comparison branch — reconstruct as comparison expression
+                // Binary comparison branch — reconstruct as comparison expression.
+                // bge/ble/bne have no c* counterpart, so they ride on Ceq with the
+                // operator (or ">=u"/"<=u" unsigned marker) in Operand, which the
+                // Ceq emit case honors.
                 return new ILAstExpression
                 {
                     OpCode = branchExpr.OpCode switch
                     {
-                        ILOpCode.Beq or ILOpCode.Beq_s => ILOpCode.Ceq,
-                        ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => ILOpCode.Cgt,
-                        ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s => ILOpCode.Clt,
+                        ILOpCode.Bgt or ILOpCode.Bgt_s => ILOpCode.Cgt,
+                        ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => ILOpCode.Cgt_un,
+                        ILOpCode.Blt or ILOpCode.Blt_s => ILOpCode.Clt,
+                        ILOpCode.Blt_un or ILOpCode.Blt_un_s => ILOpCode.Clt_un,
                         _ => ILOpCode.Ceq
+                    },
+                    Operand = branchExpr.OpCode switch
+                    {
+                        ILOpCode.Bne_un or ILOpCode.Bne_un_s => "!=",
+                        ILOpCode.Bge or ILOpCode.Bge_s => ">=",
+                        ILOpCode.Bge_un or ILOpCode.Bge_un_s => ">=u",
+                        ILOpCode.Ble or ILOpCode.Ble_s => "<=",
+                        ILOpCode.Ble_un or ILOpCode.Ble_un_s => "<=u",
+                        _ => null
                     },
                     ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
                     Arguments = { branchExpr.Arguments[0], branchExpr.Arguments[1] }
@@ -6457,13 +6936,14 @@ public static class CSharpEmitter
                 ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
                 ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
                 ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
-                ILOpCode.Div or ILOpCode.Div_un => "/",
-                ILOpCode.Rem or ILOpCode.Rem_un => "%",
+                ILOpCode.Div => "/",
+                ILOpCode.Rem => "%",
                 ILOpCode.And => "&",
                 ILOpCode.Or => "|",
                 ILOpCode.Xor => "^",
                 ILOpCode.Shl => "<<",
-                ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+                ILOpCode.Shr => ">>",
+                ILOpCode.Shr_un => ">>>",
                 _ => null
             };
             if (opSymbol is null) return false;
@@ -6504,13 +6984,14 @@ public static class CSharpEmitter
                 ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
                 ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
                 ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
-                ILOpCode.Div or ILOpCode.Div_un => "/",
-                ILOpCode.Rem or ILOpCode.Rem_un => "%",
+                ILOpCode.Div => "/",
+                ILOpCode.Rem => "%",
                 ILOpCode.And => "&",
                 ILOpCode.Or => "|",
                 ILOpCode.Xor => "^",
                 ILOpCode.Shl => "<<",
-                ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+                ILOpCode.Shr => ">>",
+                ILOpCode.Shr_un => ">>>",
                 _ => null
             };
             if (opSymbol is null) return null;

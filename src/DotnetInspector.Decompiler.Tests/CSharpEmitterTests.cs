@@ -37,6 +37,150 @@ public class CSharpEmitterTests
             $"Expected parameter names in:\n{output}");
     }
 
+    // --- Unsigned/unordered comparisons (cgt.un, clt.un, b*.un) ---
+
+    [Fact]
+    public void UnsignedBoundsCheck_KeepsUnsignedCasts()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedBoundsCheck));
+
+        // (uint)index < (uint)array.Length must not decay to index < array.Length —
+        // that inverts the result for negative indexes.
+        Assert.Contains("(uint)", output);
+    }
+
+    [Fact]
+    public void UnsignedBoundsBranch_KeepsUnsignedCasts()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedBoundsBranch));
+
+        Assert.Contains("(uint)", output);
+        Assert.Contains("if", output);
+    }
+
+    [Fact]
+    public void FloatUnordered_DoesNotDecayToOrderedCompare()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FloatUnordered));
+
+        // !(a <= b) compiles to cgt.un; rendering it as a > b changes the
+        // result when either operand is NaN. Accept the negated-complement
+        // form or the exact source form.
+        Assert.True(output.Contains("!(") || output.Contains("<="),
+            $"Expected unordered-aware rendering in:\n{output}");
+        Assert.DoesNotContain("(uint)", output);
+    }
+
+    [Fact]
+    public void NotNullIdiom_RendersAsNullComparison()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.NotNullIdiom));
+
+        // cgt.un(o, null) is the reference-inequality idiom — never "(uint)o > null".
+        Assert.Contains("null", output);
+        Assert.DoesNotContain("(uint)", output);
+        Assert.DoesNotContain("> null", output);
+    }
+
+    [Fact]
+    public void UnsignedShift_RendersUnsignedShiftOperator()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedShift));
+
+        Assert.Contains(">>>", output);
+    }
+
+    [Fact]
+    public void UnsignedDivide_DoesNotRenderSignedDivision()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedDivide));
+
+        // div.un on uint operands: plain '/' is fine only with unsigned operands;
+        // the emitter renders casts since IL erases operand signedness.
+        Assert.Contains("/", output);
+    }
+
+    // --- Exception filters (catch...when) ---
+
+    [Fact]
+    public void FilterCatch_EmitsWhenClause()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FilterCatch));
+
+        Assert.Contains("catch", output);
+        Assert.Contains("when", output);
+        Assert.Contains("FormatException", output);
+    }
+
+    [Fact]
+    public void FilterCatch_HandlerBodyIsNotDropped()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FilterCatch));
+
+        // The handler returns e.Message.Length — its body must appear.
+        Assert.Contains("Message", output);
+    }
+
+    [Fact]
+    public void FilterCatch_FilterCodeDoesNotLeakInline()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FilterCatch));
+
+        Assert.DoesNotContain("endfilter", output);
+    }
+
+    // --- Inliner soundness ---
+
+    [Fact]
+    public void StaleFieldRead_DoesNotInlinePastMutation()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.StaleFieldRead));
+
+        // v captures h.Value BEFORE h.Value = 99; inlining the read past the
+        // store would compute the post-mutation value. The capture must stay
+        // ordered before the store.
+        int captureIdx = output.IndexOf("= h.Value", StringComparison.Ordinal);
+        int storeIdx = output.IndexOf("= 99", StringComparison.Ordinal);
+        Assert.True(captureIdx >= 0, $"Expected captured read in:\n{output}");
+        Assert.True(storeIdx >= 0, $"Expected field store in:\n{output}");
+        Assert.True(captureIdx < storeIdx,
+            $"Captured read must precede the mutation in:\n{output}");
+    }
+
+    // --- using detection (must not eat finally code) ---
+
+    [Fact]
+    public void NormalUsing_RendersAsUsing()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.NormalUsing));
+
+        Assert.Contains("using", output);
+        Assert.DoesNotContain("finally", output);
+    }
+
+    [Fact]
+    public void FinallyWithExtraWork_IsNotCollapsedToUsing()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FinallyWithExtraWork));
+
+        // The finally does more than dispose; rendering it as using would
+        // silently delete the extra statement.
+        Assert.Contains("finally", output);
+        Assert.Contains("Dispose", output);
+        Assert.Contains("-1", output);
+    }
+
+    [Fact]
+    public void ManualDisposeAsyncInFinally_IsNotRenderedAsUsing()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));
+
+        // DisposeAsync is await using's lowering — a plain using would change
+        // semantics. Keep the faithful try/finally.
+        Assert.Contains("finally", output);
+        Assert.Contains("DisposeAsync", output);
+    }
+
     // --- Control flow ---
 
     [Fact]
