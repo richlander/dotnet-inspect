@@ -94,8 +94,11 @@ FASTCALL: 'fastcall';
 TYPE_PARAMETER: '!';
 METHOD_TYPE_PARAMETER: '!' '!';
 TYPEDREF: 'typedref';
-NATIVE_INT: 'native' 'int';
-NATIVE_UINT: ('native' 'unsigned' 'int') | ('native' 'uint');
+// Adjacent string literals in a lexer rule match with NO separating
+// whitespace ('nativeint'), so the canonical ECMA spelling 'native int'
+// must spell out the whitespace.
+NATIVE_INT: 'native' [ \t\r\n]+ 'int';
+NATIVE_UINT: ('native' [ \t\r\n]+ 'unsigned' [ \t\r\n]+ 'int') | ('native' [ \t\r\n]+ 'uint');
 PARAM: '.param';
 CONSTRAINT: 'constraint';
 
@@ -106,8 +109,10 @@ REF: '&';
 ARRAY_TYPE_NO_BOUNDS: '[' ']';
 PTR: '*';
 
-QSTRING: '"' (~('"' | '\\') | '\\' ('"' | '\\'))* '"';
-SQSTRING: '\'' (~('\'' | '\\') | '\\' ('\'' | '\\'))* '\'';
+// Backslash admits any escape; validation/decoding happens in
+// StringHelpers.ParseQuotedString (\t \n \r \b \f \v \a \? octal).
+QSTRING: '"' (~('"' | '\\') | '\\' .)* '"';
+SQSTRING: '\'' (~('\'' | '\\') | '\\' .)* '\'';
 DOT: '.';
 PLUS: '+';
 
@@ -835,7 +840,9 @@ variantTypeElement:
 type: elementType typeModifiers*;
 
 typeModifiers:
-	'[' ']'						# SZArrayModifier
+	// The lexer folds adjacent brackets into ARRAY_TYPE_NO_BOUNDS, so '[]'
+	// arrives as one token; '[' ']' only matches the spaced form '[ ]'.
+	('[' ']' | ARRAY_TYPE_NO_BOUNDS)	# SZArrayModifier
 	| bounds					# ArrayModifier
 	| REF						# ByRefModifier
 	| PTR  				# PtrModifier
