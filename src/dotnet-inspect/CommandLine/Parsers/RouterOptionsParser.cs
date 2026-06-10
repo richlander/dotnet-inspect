@@ -51,17 +51,17 @@ public static class RouterOptionsParser
     public record UnrecognizedOption(string Option) : RouterParseResult;
 
     /// <summary>
-    /// Route to assembly command for a .dll file.
+    /// Route to the library command for a .dll file.
     /// </summary>
-    public record RouteToAssemblyFile(AssemblyOptions Options) : RouterParseResult;
+    public record RouteToLibraryFile(LibraryOptions Options) : RouterParseResult;
 
     /// <summary>
-    /// Route to assembly command for a platform library.
+    /// Route to the library command for a platform library.
     /// </summary>
     /// <param name="OriginalArg">Original package argument (e.g., "System.CommandLine@2.0.2") preserved for fallback
     /// to package command. Platform candidates like "System.CommandLine" are tried as platform libraries first,
     /// but if resolution fails they fall through to NuGet package inspection and need the version preserved.</param>
-    public record RouteToPlatformAssembly(AssemblyOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, bool OneLine, bool NoHeader) : RouterParseResult;
+    public record RouteToPlatformLibrary(LibraryOptions Options, string BareName, string OriginalArg, Verbosity Verbosity, bool OneLine, bool NoHeader) : RouterParseResult;
 
     /// <summary>
     /// Handle --version query with cache check first.
@@ -126,7 +126,7 @@ public static class RouterOptionsParser
         {
             if (dllPath != null)
             {
-                var assemblyOptions = new AssemblyOptions
+                var assemblyOptions = new LibraryOptions
                 {
                     AssemblyName = dllPath,
                     IncludeMetadata = true,
@@ -149,7 +149,7 @@ public static class RouterOptionsParser
                     Count = parseResult.GetValue(opts.Count),
                     Rows = opts.ParseRows(parseResult),
                 };
-                return new RouteToAssemblyFile(assemblyOptions);
+                return new RouteToLibraryFile(assemblyOptions);
             }
             // .nupkg falls through to package command below
         }
@@ -171,13 +171,13 @@ public static class RouterOptionsParser
 
         // Platform candidate check (skip for version queries)
         // Note: Qualified type names (e.g., System.Text.Json.JsonSerializer) are also platform candidates
-        // and will be routed here. The ExecutePlatformAssemblyAsync handler will check for qualified
+        // and will be routed here. The ExecutePlatformLibraryAsync handler will check for qualified
         // type names if platform resolution fails.
         if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
         {
-            var assemblyOptions = BuildPlatformAssemblyOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
+            var assemblyOptions = BuildPlatformLibraryOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
-            return new RouteToPlatformAssembly(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
+            return new RouteToPlatformLibrary(assemblyOptions, bareName, name, verbosity, assemblyOptions.OneLine, noHeader);
         }
 
         // For single-arg names that aren't platform candidates, try local peel-and-probe.
@@ -239,7 +239,7 @@ public static class RouterOptionsParser
         return new RouteToPackage(options, bareName, verbosity);
     }
 
-    private static AssemblyOptions BuildPlatformAssemblyOptions(
+    private static LibraryOptions BuildPlatformLibraryOptions(
         ParseResult parseResult,
         SharedOptions opts,
         RouterCommandArgs args,
@@ -256,7 +256,7 @@ public static class RouterOptionsParser
                 platformFrameworkSpec = $"{discoveredFramework}@{explicitVersion}";
         }
 
-        return new AssemblyOptions
+        return new LibraryOptions
         {
             PlatformAssembly = bareName,
             PlatformFramework = platformFrameworkSpec,

@@ -120,7 +120,7 @@ public static class OutputFormatter
         };
     }
 
-    public static void WriteLibraryResult(LibraryInspection inspection, AssemblyOptions options,
+    public static void WriteLibraryResult(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
@@ -192,7 +192,7 @@ public static class OutputFormatter
         }
     }
 
-    public static void WriteLibraryResults(List<LibraryInspection> inspections, AssemblyOptions options,
+    public static void WriteLibraryResults(List<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
@@ -275,7 +275,7 @@ public static class OutputFormatter
         };
     }
 
-    internal static bool ShouldRenderLibraryContext(AssemblyOptions options) =>
+    internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>
         options.Verbosity == Verbosity.Quiet
         || (options.IncludeSections is { Count: > 0 }
             && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)

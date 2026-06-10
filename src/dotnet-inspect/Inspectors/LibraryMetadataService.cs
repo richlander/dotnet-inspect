@@ -23,7 +23,7 @@ internal static class LibraryMetadataService
     /// </summary>
     public static async Task<LibraryInspection?> InspectAsync(
         string path,
-        AssemblyOptions options,
+        LibraryOptions options,
         VerboseLogger logger,
         string? packageName,
         string? packageVersion,

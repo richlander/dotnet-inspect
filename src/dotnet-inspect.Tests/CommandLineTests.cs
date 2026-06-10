@@ -326,7 +326,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void AssemblyCommand_WithPackage_ParsesCorrectly()
+    public void LibraryCommand_WithPackage_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "System.Text.Json"]);
 
@@ -335,7 +335,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void AssemblyCommand_WithTfm_ParsesCorrectly()
+    public void LibraryCommand_WithTfm_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "System.Text.Json", "--tfm", "net8.0"]);
 
@@ -343,7 +343,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void AssemblyCommand_WithLocalPath_ParsesCorrectly()
+    public void LibraryCommand_WithLocalPath_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "MyLib.dll"]);
 
@@ -351,7 +351,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void AssemblyCommand_WithDependencies_ParsesCorrectly()
+    public void LibraryCommand_WithDependencies_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "MyLib.dll", "--dependencies"]);
 

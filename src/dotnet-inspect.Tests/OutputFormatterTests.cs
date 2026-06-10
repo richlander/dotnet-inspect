@@ -765,7 +765,7 @@ public class OutputFormatterTests
     [Fact]
     public void LibrarySelectedSection_FormatterUsesCompactContext()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             Verbosity = Verbosity.Minimal,
             IncludeSections = ["Signals"],

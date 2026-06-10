@@ -73,8 +73,8 @@ public static class CommandLineBuilder
         // Member command (member inspection, docs by default)
         rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateMemberCommand(opts));
 
-        // Assembly command
-        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateAssemblyCommand(opts));
+        // Library command
+        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateLibraryCommand(opts));
 
         // Cache command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCacheCommand(opts));
