@@ -111,13 +111,19 @@ public static class IlasmScaffold
                 externs.AppendLine($".assembly extern {asmName} {{ }}");
         }
 
-        // Wrapper class name is intentionally un-namespaced: ILAssembler does not
-        // yet resolve member refs to dotted typedef names (upstream gap).
+        // The wrapper class must carry the method's real declaring-type name so
+        // self-referential operands (recursion, own fields) resolve in the
+        // synthetic compilation unit.
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        string declaringNs = reader.GetString(declaringType.Namespace);
+        string declaringName = reader.GetString(declaringType.Name);
+        string className = declaringNs.Length > 0 ? $"{declaringNs}.{declaringName}" : declaringName;
+
         return $$"""
 {{externs}}.assembly roundtrip { }
 .module roundtrip.dll
 
-.class public auto ansi beforefieldinit RoundtripProbe extends [System.Runtime]System.Object
+.class public auto ansi beforefieldinit {{className}} extends [System.Runtime]System.Object
 {
   .method public hidebysig static {{sig.ReturnType}} {{name}}{{genDecl}}({{paramList}}) cil managed
   {

@@ -42,6 +42,10 @@ public static class RoundtripFixtures
         return list;
     }
 
+    // Self-referential method-def operand (recursion) — exercises the vendor
+    // branch's dotted-typedef registration fix.
+    public static int Fib(int n) => n <= 1 ? n : Fib(n - 1) + Fib(n - 2);
+
     public static int ParseOrNegativeOne(string s)
     {
         try

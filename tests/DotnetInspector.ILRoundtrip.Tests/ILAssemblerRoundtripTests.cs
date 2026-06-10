@@ -23,6 +23,7 @@ public class ILAssemblerRoundtripTests
     [InlineData("Greet")]
     [InlineData("StringLength")]
     [InlineData("MakeList")]
+    [InlineData("Fib")]
     [InlineData("ParseOrNegativeOne")]
     public void FixtureMethod_RoundtripsWithOpcodeEquality(string methodName)
     {
@@ -183,6 +184,40 @@ public class ILAssemblerRoundtripTests
         var ops = IlasmScaffold.DisassembleByName(result.Image!, "M")!
             .Select(i => i.OpCodeName).ToList();
         Assert.Contains("switch", ops);
+    }
+
+    [Fact]
+    public void DottedTypeName_SelfReferentialFieldRef_Assembles()
+    {
+        // Pins the vendor-branch fix for dotted typedef registration: the class
+        // head used to register `Some.Dotted.MiniB` with name ".MiniB", so member
+        // refs back to it failed with ILA0008.
+        string il = """
+            .assembly roundtrip { }
+            .class public auto ansi Some.Dotted.MiniB
+            {
+              .field private static int32 f
+              .method public hidebysig static int32 M() cil managed
+              {
+                .maxstack 1
+                ldsfld int32 Some.Dotted.MiniB::f
+                ret
+              }
+            }
+            """;
+
+        var result = IlasmScaffold.Assemble(il);
+        Assert.True(result.Succeeded, result.Describe());
+
+        var reader = result.Image!.GetMetadataReader();
+        var typeDef = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(t => reader.GetString(t.Name) == "MiniB");
+        Assert.Equal("Some.Dotted", reader.GetString(typeDef.Namespace));
+
+        var ops = IlasmScaffold.DisassembleByName(result.Image!, "M")!
+            .Select(i => i.OpCodeName).ToList();
+        Assert.Equal(["ldsfld", "ret"], ops);
     }
 
     [Fact]
