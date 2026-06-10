@@ -1,0 +1,4 @@
+<!-- Firewall: stop MSBuild upward traversal from picking up dotnet-inspect repo
+     config when this branch is materialized at external/ILAssembler. -->
+<Project>
+</Project>
