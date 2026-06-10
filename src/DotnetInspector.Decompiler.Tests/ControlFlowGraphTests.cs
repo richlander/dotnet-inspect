@@ -243,6 +243,25 @@ public class CfgSampleClass
 
     public static bool IsPositive(int x) => x > 0;
 
+    // --- Unsigned/unordered comparison fixtures (cgt.un/clt.un/b*.un) ---
+
+    public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
+
+    public static string UnsignedBoundsBranch(int index, int[] array)
+    {
+        if ((uint)index >= (uint)array.Length)
+            return "out";
+        return "in";
+    }
+
+    public static bool FloatUnordered(double a, double b) => !(a <= b);
+
+    public static bool NotNullIdiom(object o) => o != null;
+
+    public static int UnsignedShift(int x, int n) => x >>> n;
+
+    public static uint UnsignedDivide(uint a, uint b) => a / b;
+
     public static string Classify(int x)
     {
         if (x > 0) return "positive";

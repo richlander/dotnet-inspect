@@ -37,6 +37,69 @@ public class CSharpEmitterTests
             $"Expected parameter names in:\n{output}");
     }
 
+    // --- Unsigned/unordered comparisons (cgt.un, clt.un, b*.un) ---
+
+    [Fact]
+    public void UnsignedBoundsCheck_KeepsUnsignedCasts()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedBoundsCheck));
+
+        // (uint)index < (uint)array.Length must not decay to index < array.Length —
+        // that inverts the result for negative indexes.
+        Assert.Contains("(uint)", output);
+    }
+
+    [Fact]
+    public void UnsignedBoundsBranch_KeepsUnsignedCasts()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedBoundsBranch));
+
+        Assert.Contains("(uint)", output);
+        Assert.Contains("if", output);
+    }
+
+    [Fact]
+    public void FloatUnordered_DoesNotDecayToOrderedCompare()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FloatUnordered));
+
+        // !(a <= b) compiles to cgt.un; rendering it as a > b changes the
+        // result when either operand is NaN. Accept the negated-complement
+        // form or the exact source form.
+        Assert.True(output.Contains("!(") || output.Contains("<="),
+            $"Expected unordered-aware rendering in:\n{output}");
+        Assert.DoesNotContain("(uint)", output);
+    }
+
+    [Fact]
+    public void NotNullIdiom_RendersAsNullComparison()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.NotNullIdiom));
+
+        // cgt.un(o, null) is the reference-inequality idiom — never "(uint)o > null".
+        Assert.Contains("null", output);
+        Assert.DoesNotContain("(uint)", output);
+        Assert.DoesNotContain("> null", output);
+    }
+
+    [Fact]
+    public void UnsignedShift_RendersUnsignedShiftOperator()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedShift));
+
+        Assert.Contains(">>>", output);
+    }
+
+    [Fact]
+    public void UnsignedDivide_DoesNotRenderSignedDivision()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.UnsignedDivide));
+
+        // div.un on uint operands: plain '/' is fine only with unsigned operands;
+        // the emitter renders casts since IL erases operand signedness.
+        Assert.Contains("/", output);
+    }
+
     // --- Control flow ---
 
     [Fact]

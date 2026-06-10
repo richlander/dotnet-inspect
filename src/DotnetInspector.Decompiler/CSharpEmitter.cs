@@ -2263,13 +2263,14 @@ public static class CSharpEmitter
             ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
             ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
             ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
-            ILOpCode.Div or ILOpCode.Div_un => "/",
-            ILOpCode.Rem or ILOpCode.Rem_un => "%",
+            ILOpCode.Div => "/",
+            ILOpCode.Rem => "%",
             ILOpCode.And => "&",
             ILOpCode.Or => "|",
             ILOpCode.Xor => "^",
             ILOpCode.Shl => "<<",
-            ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+            ILOpCode.Shr => ">>",
+            ILOpCode.Shr_un => ">>>",
             _ => null
         };
 
@@ -4815,24 +4816,31 @@ public static class CSharpEmitter
                 case ILOpCode.Mul: EmitBinary(expr, "*"); break;
                 case ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un:
                     EmitCheckedBinary(expr, "*"); break;
-                case ILOpCode.Div or ILOpCode.Div_un:
-                    EmitBinary(expr, "/"); break;
-                case ILOpCode.Rem or ILOpCode.Rem_un:
-                    EmitBinary(expr, "%"); break;
+                case ILOpCode.Div: EmitBinary(expr, "/"); break;
+                case ILOpCode.Div_un: EmitUnsignedArithmetic(expr, "/"); break;
+                case ILOpCode.Rem: EmitBinary(expr, "%"); break;
+                case ILOpCode.Rem_un: EmitUnsignedArithmetic(expr, "%"); break;
                 case ILOpCode.And: EmitBinary(expr, "&"); break;
                 case ILOpCode.Or: EmitBinary(expr, "|"); break;
                 case ILOpCode.Xor: EmitBinary(expr, "^"); break;
                 case ILOpCode.Shl: EmitBinary(expr, "<<"); break;
-                case ILOpCode.Shr or ILOpCode.Shr_un:
-                    EmitBinary(expr, ">>"); break;
+                case ILOpCode.Shr: EmitBinary(expr, ">>"); break;
+                // shr.un on any operand is C#'s unsigned right shift.
+                case ILOpCode.Shr_un: EmitBinary(expr, ">>>"); break;
 
                 // Comparison operators
                 case ILOpCode.Ceq:
+                    // ">=u"/"<=u" markers carry bge.un/ble.un semantics from
+                    // ExtractCondition (there are no cge/cle opcodes to map to).
+                    if (expr.Operand == ">=u") { EmitUnsignedComparison(expr, ">=", "<"); break; }
+                    if (expr.Operand == "<=u") { EmitUnsignedComparison(expr, "<=", ">"); break; }
                     if (!TryEmitNegatedComparisonZero(expr))
                         EmitBinary(expr, expr.Operand ?? "==");
                     break;
-                case ILOpCode.Cgt or ILOpCode.Cgt_un: EmitBinary(expr, ">"); break;
-                case ILOpCode.Clt or ILOpCode.Clt_un: EmitBinary(expr, "<"); break;
+                case ILOpCode.Cgt: EmitBinary(expr, ">"); break;
+                case ILOpCode.Cgt_un: EmitUnsignedComparison(expr, ">", "<="); break;
+                case ILOpCode.Clt: EmitBinary(expr, "<"); break;
+                case ILOpCode.Clt_un: EmitUnsignedComparison(expr, "<", ">="); break;
 
                 // Unary operators
                 case ILOpCode.Neg:
@@ -5686,16 +5694,27 @@ public static class CSharpEmitter
                     break;
                 case ILOpCode.Beq or ILOpCode.Beq_s:
                     EmitBinaryCondition(expr, "=="); break;
+                // bne.un is the standard inequality branch: plain != for
+                // integers/references, and C#'s != already has unordered
+                // semantics for floats.
                 case ILOpCode.Bne_un or ILOpCode.Bne_un_s:
                     EmitBinaryCondition(expr, "!="); break;
-                case ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s:
+                case ILOpCode.Bge or ILOpCode.Bge_s:
                     EmitBinaryCondition(expr, ">="); break;
-                case ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
+                case ILOpCode.Bge_un or ILOpCode.Bge_un_s:
+                    EmitUnsignedComparison(expr, ">=", "<"); break;
+                case ILOpCode.Bgt or ILOpCode.Bgt_s:
                     EmitBinaryCondition(expr, ">"); break;
-                case ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s:
+                case ILOpCode.Bgt_un or ILOpCode.Bgt_un_s:
+                    EmitUnsignedComparison(expr, ">", "<="); break;
+                case ILOpCode.Ble or ILOpCode.Ble_s:
                     EmitBinaryCondition(expr, "<="); break;
-                case ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                case ILOpCode.Ble_un or ILOpCode.Ble_un_s:
+                    EmitUnsignedComparison(expr, "<=", ">"); break;
+                case ILOpCode.Blt or ILOpCode.Blt_s:
                     EmitBinaryCondition(expr, "<"); break;
+                case ILOpCode.Blt_un or ILOpCode.Blt_un_s:
+                    EmitUnsignedComparison(expr, "<", ">="); break;
                 default:
                     EmitExpression(expr);
                     break;
@@ -5756,10 +5775,23 @@ public static class CSharpEmitter
 
             if (comparison is null || comparison.Arguments.Count < 2) return false;
 
+            // Negating an unordered compare yields the ordered complement
+            // (with NaN semantics and unsigned casts handled there).
+            if (comparison.OpCode == ILOpCode.Clt_un)
+            {
+                EmitNegatedUnsignedComparison(comparison, ">=");
+                return true;
+            }
+            if (comparison.OpCode == ILOpCode.Cgt_un)
+            {
+                EmitNegatedUnsignedComparison(comparison, "<=");
+                return true;
+            }
+
             string negatedOp = comparison.OpCode switch
             {
-                ILOpCode.Clt or ILOpCode.Clt_un => ">=",
-                ILOpCode.Cgt or ILOpCode.Cgt_un => "<=",
+                ILOpCode.Clt => ">=",
+                ILOpCode.Cgt => "<=",
                 ILOpCode.Ceq => "!=",
                 _ => ""
             };
@@ -5843,6 +5875,163 @@ public static class CSharpEmitter
                 _sb.Append($" {op} ");
                 EmitExpression(expr.Arguments[1]);
             }
+        }
+
+        /// <summary>
+        /// Renders the unsigned/unordered comparison opcodes (cgt.un, clt.un, and
+        /// the b*.un branches). Their semantics differ from the signed forms:
+        /// for floats they mean "compare or unordered" — the negation of the
+        /// complementary ordered compare (cgt.un(a,b) == !(a &lt;= b), which differs
+        /// from a &gt; b when either operand is NaN); for integers they compare the
+        /// bits as unsigned, which C# expresses by casting both operands (the
+        /// classic bounds-check (uint)i &lt; (uint)length). cgt.un against null is
+        /// the compiler's reference-inequality idiom.
+        /// </summary>
+        void EmitUnsignedComparison(ILAstExpression expr, string op, string orderedComplement)
+        {
+            if (expr.Arguments.Count < 2)
+            {
+                EmitBinary(expr, op);
+                return;
+            }
+
+            var left = expr.Arguments[0];
+            var right = expr.Arguments[1];
+
+            if (op == ">" && right.OpCode == ILOpCode.Ldnull)
+            {
+                EmitExpression(left);
+                _sb.Append(" != null");
+                return;
+            }
+
+            switch (ComparisonKind(left, right))
+            {
+                case StackValueKind.Float:
+                    _sb.Append("!(");
+                    EmitExpression(left);
+                    _sb.Append($" {orderedComplement} ");
+                    EmitExpression(right);
+                    _sb.Append(')');
+                    break;
+                case StackValueKind.Int64:
+                    EmitUnsignedBinary(expr, op, "(ulong)", ILOpCode.Conv_u8);
+                    break;
+                case StackValueKind.NativeInt:
+                    EmitUnsignedBinary(expr, op, "(nuint)", ILOpCode.Conv_u);
+                    break;
+                case StackValueKind.Int32:
+                    EmitUnsignedBinary(expr, op, "(uint)", ILOpCode.Conv_u4);
+                    break;
+                default:
+                    // ObjRef/ByRef/unknown — pointer-style comparison; the raw
+                    // operator is the closest C# rendering.
+                    EmitBinary(expr, op);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Negated form (via ceq(cmp, 0)) of an unsigned/unordered comparison.
+        /// Note the asymmetry with <see cref="EmitUnsignedComparison"/>: negating
+        /// an unordered compare yields the ORDERED complement — !cgt.un(a,b) is
+        /// exactly a &lt;= b, including NaN behavior.
+        /// </summary>
+        void EmitNegatedUnsignedComparison(ILAstExpression comparison, string orderedOp)
+        {
+            var left = comparison.Arguments[0];
+            var right = comparison.Arguments[1];
+
+            // !(x != null) → x == null
+            if (orderedOp == "<=" && right.OpCode == ILOpCode.Ldnull)
+            {
+                EmitExpression(left);
+                _sb.Append(" == null");
+                return;
+            }
+
+            switch (ComparisonKind(left, right))
+            {
+                case StackValueKind.Float:
+                    EmitExpression(left);
+                    _sb.Append($" {orderedOp} ");
+                    EmitExpression(right);
+                    break;
+                case StackValueKind.Int64:
+                    EmitUnsignedBinary(comparison, orderedOp, "(ulong)", ILOpCode.Conv_u8);
+                    break;
+                case StackValueKind.NativeInt:
+                    EmitUnsignedBinary(comparison, orderedOp, "(nuint)", ILOpCode.Conv_u);
+                    break;
+                case StackValueKind.Int32:
+                    EmitUnsignedBinary(comparison, orderedOp, "(uint)", ILOpCode.Conv_u4);
+                    break;
+                default:
+                    EmitBinary(comparison, orderedOp);
+                    break;
+            }
+        }
+
+        /// <summary>div.un/rem.un: unsigned arithmetic, rendered with operand casts.</summary>
+        void EmitUnsignedArithmetic(ILAstExpression expr, string op)
+        {
+            if (expr.Arguments.Count < 2)
+            {
+                EmitBinary(expr, op);
+                return;
+            }
+
+            switch (ComparisonKind(expr.Arguments[0], expr.Arguments[1]))
+            {
+                case StackValueKind.Int64:
+                    EmitUnsignedBinary(expr, op, "(ulong)", ILOpCode.Conv_u8);
+                    break;
+                case StackValueKind.NativeInt:
+                    EmitUnsignedBinary(expr, op, "(nuint)", ILOpCode.Conv_u);
+                    break;
+                default:
+                    EmitUnsignedBinary(expr, op, "(uint)", ILOpCode.Conv_u4);
+                    break;
+            }
+        }
+
+        void EmitUnsignedBinary(ILAstExpression expr, string op, string cast, ILOpCode redundantConv)
+        {
+            EmitUnsignedOperand(expr.Arguments[0], cast, redundantConv);
+            _sb.Append($" {op} ");
+            EmitUnsignedOperand(expr.Arguments[1], cast, redundantConv);
+        }
+
+        void EmitUnsignedOperand(ILAstExpression arg, string cast, ILOpCode redundantConv)
+        {
+            // Non-negative constants are unchanged by unsigned reinterpretation,
+            // and an operand that is itself the matching conversion already
+            // renders the cast.
+            if ((IsLdcI4(arg.OpCode) && GetI4Value(arg) >= 0) || arg.OpCode == redundantConv)
+            {
+                EmitExpression(arg);
+                return;
+            }
+
+            _sb.Append(cast);
+            bool wrap = IsBinaryOp(arg.OpCode);
+            if (wrap) _sb.Append('(');
+            EmitExpression(arg);
+            if (wrap) _sb.Append(')');
+        }
+
+        /// <summary>Joint stack-value kind of a comparison's operands.</summary>
+        static StackValueKind ComparisonKind(ILAstExpression left, ILAstExpression right)
+        {
+            var a = left.ResultType.Kind;
+            var b = right.ResultType.Kind;
+            if (a == StackValueKind.Float || b == StackValueKind.Float) return StackValueKind.Float;
+            if (a == StackValueKind.ObjRef || b == StackValueKind.ObjRef) return StackValueKind.ObjRef;
+            if (a == StackValueKind.ByRef || b == StackValueKind.ByRef) return StackValueKind.ByRef;
+            if (a == StackValueKind.Int64 || b == StackValueKind.Int64) return StackValueKind.Int64;
+            if (a == StackValueKind.NativeInt || b == StackValueKind.NativeInt) return StackValueKind.NativeInt;
+            if (a == StackValueKind.Int32 || b == StackValueKind.Int32) return StackValueKind.Int32;
+            return StackValueKind.Unknown;
         }
 
         // --- Helpers ---
@@ -6283,6 +6472,16 @@ public static class CSharpEmitter
 
         static string NegateConditionString(string condition)
         {
+            // A fully-wrapped negation strips exactly. This must run before the
+            // operator flips: float unordered forms like !(a <= b) negate to the
+            // ordered a <= b, not to !(a > b) (which differs under NaN).
+            if (condition.StartsWith("!(", StringComparison.Ordinal)
+                && condition.EndsWith(')')
+                && ParenWrapsWholeString(condition))
+            {
+                return condition[2..^1];
+            }
+
             // Flip comparison operators if present
             if (condition.Contains(" != "))
                 return condition.Replace(" != ", " == ");
@@ -6298,11 +6497,33 @@ public static class CSharpEmitter
                 return condition.Replace(" <= ", " > ");
 
             // Simple negation
-            if (condition.StartsWith("!(") && condition.EndsWith(')'))
-                return condition[2..^1];
             if (condition.StartsWith('!'))
                 return condition[1..];
             return $"!{condition}";
+        }
+
+        /// <summary>
+        /// True when the parenthesis opened at index 1 closes at the final
+        /// character — i.e. <c>!(...)</c> wraps the whole condition rather than
+        /// just its first term (<c>!(a) &amp;&amp; b</c>).
+        /// </summary>
+        static bool ParenWrapsWholeString(string condition)
+        {
+            int depth = 0;
+            for (int i = 1; i < condition.Length; i++)
+            {
+                if (condition[i] == '(')
+                {
+                    depth++;
+                }
+                else if (condition[i] == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i == condition.Length - 1;
+                }
+            }
+            return false;
         }
 
         static ILAstExpression ExtractCondition(ILAstExpression branchExpr)
@@ -6367,15 +6588,28 @@ public static class CSharpEmitter
             }
             if (branchExpr.Arguments.Count == 2)
             {
-                // Binary comparison branch — reconstruct as comparison expression
+                // Binary comparison branch — reconstruct as comparison expression.
+                // bge/ble/bne have no c* counterpart, so they ride on Ceq with the
+                // operator (or ">=u"/"<=u" unsigned marker) in Operand, which the
+                // Ceq emit case honors.
                 return new ILAstExpression
                 {
                     OpCode = branchExpr.OpCode switch
                     {
-                        ILOpCode.Beq or ILOpCode.Beq_s => ILOpCode.Ceq,
-                        ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => ILOpCode.Cgt,
-                        ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s => ILOpCode.Clt,
+                        ILOpCode.Bgt or ILOpCode.Bgt_s => ILOpCode.Cgt,
+                        ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => ILOpCode.Cgt_un,
+                        ILOpCode.Blt or ILOpCode.Blt_s => ILOpCode.Clt,
+                        ILOpCode.Blt_un or ILOpCode.Blt_un_s => ILOpCode.Clt_un,
                         _ => ILOpCode.Ceq
+                    },
+                    Operand = branchExpr.OpCode switch
+                    {
+                        ILOpCode.Bne_un or ILOpCode.Bne_un_s => "!=",
+                        ILOpCode.Bge or ILOpCode.Bge_s => ">=",
+                        ILOpCode.Bge_un or ILOpCode.Bge_un_s => ">=u",
+                        ILOpCode.Ble or ILOpCode.Ble_s => "<=",
+                        ILOpCode.Ble_un or ILOpCode.Ble_un_s => "<=u",
+                        _ => null
                     },
                     ResultType = StackValue.CreatePrimitive(StackValueKind.Int32),
                     Arguments = { branchExpr.Arguments[0], branchExpr.Arguments[1] }
@@ -6457,13 +6691,14 @@ public static class CSharpEmitter
                 ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
                 ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
                 ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
-                ILOpCode.Div or ILOpCode.Div_un => "/",
-                ILOpCode.Rem or ILOpCode.Rem_un => "%",
+                ILOpCode.Div => "/",
+                ILOpCode.Rem => "%",
                 ILOpCode.And => "&",
                 ILOpCode.Or => "|",
                 ILOpCode.Xor => "^",
                 ILOpCode.Shl => "<<",
-                ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+                ILOpCode.Shr => ">>",
+                ILOpCode.Shr_un => ">>>",
                 _ => null
             };
             if (opSymbol is null) return false;
@@ -6504,13 +6739,14 @@ public static class CSharpEmitter
                 ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
                 ILOpCode.Sub or ILOpCode.Sub_ovf or ILOpCode.Sub_ovf_un => "-",
                 ILOpCode.Mul or ILOpCode.Mul_ovf or ILOpCode.Mul_ovf_un => "*",
-                ILOpCode.Div or ILOpCode.Div_un => "/",
-                ILOpCode.Rem or ILOpCode.Rem_un => "%",
+                ILOpCode.Div => "/",
+                ILOpCode.Rem => "%",
                 ILOpCode.And => "&",
                 ILOpCode.Or => "|",
                 ILOpCode.Xor => "^",
                 ILOpCode.Shl => "<<",
-                ILOpCode.Shr or ILOpCode.Shr_un => ">>",
+                ILOpCode.Shr => ">>",
+                ILOpCode.Shr_un => ">>>",
                 _ => null
             };
             if (opSymbol is null) return null;
