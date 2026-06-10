@@ -1110,7 +1110,11 @@ namespace ILAssembler
                 }
                 else
                 {
-                    typeNS = $"{_currentNamespace.PeekOrDefault()}{typeFullName.Substring(0, typeFullNameLastDot)}";
+                    string enclosingNamespace = _currentNamespace.PeekOrDefault() ?? string.Empty;
+                    string relativeNamespace = typeFullName.Substring(0, typeFullNameLastDot);
+                    typeNS = enclosingNamespace.Length > 0
+                        ? $"{enclosingNamespace}.{relativeNamespace}"
+                        : relativeNamespace;
                 }
             }
 
@@ -1120,7 +1124,7 @@ namespace ILAssembler
                 _currentTypeDefinition.PeekOrDefault(),
                 typeNS,
                 typeFullNameLastDot != -1
-                    ? typeFullName.Substring(typeFullNameLastDot)
+                    ? typeFullName.Substring(typeFullNameLastDot + 1)
                     : typeFullName,
                 (newTypeDef) =>
                 {
@@ -1711,7 +1715,8 @@ namespace ILAssembler
             if (context.nameSpaceHead() is CILParser.NameSpaceHeadContext ns)
             {
                 string namespaceName = VisitNameSpaceHead(ns).Value;
-                _currentNamespace.Push($"{_currentNamespace.PeekOrDefault()}.{namespaceName}");
+                string? enclosing = _currentNamespace.PeekOrDefault();
+                _currentNamespace.Push(string.IsNullOrEmpty(enclosing) ? namespaceName : $"{enclosing}.{namespaceName}");
                 VisitDecls(context.decls());
                 _currentNamespace.Pop();
                 return GrammarResult.SentinelValue.Result;
