@@ -294,13 +294,15 @@ public static class IlasmScaffold
     }
 
     /// <summary>
-    /// Rendered signature (return + parameter types) for overload disambiguation.
-    /// Conversion operators (op_Explicit/op_Implicit) overload by return type alone.
+    /// Rendered signature (generic arity + return + parameter types) for overload
+    /// disambiguation. Conversion operators overload by return type alone, and
+    /// generic overloads can render identical !!N parameter lists at different
+    /// arities (JsonMetadataServices.CreateIListInfo&lt;T&gt; vs &lt;TC, TE&gt;).
     /// </summary>
     public static string ParamTypes(MethodDefinition method)
     {
         var sig = method.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
-        return $"{sig.ReturnType}({string.Join(",", sig.ParameterTypes)})";
+        return $"`{sig.GenericParameterCount} {sig.ReturnType}({string.Join(",", sig.ParameterTypes)})";
     }
 
     /// <summary>
