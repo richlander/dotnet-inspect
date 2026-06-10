@@ -233,7 +233,7 @@ internal static class TypeSearchService
         {
             if (ReachedLimit()) break;
 
-            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find");
+            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find", options.SourceOptions);
             if (!outcome.IsSuccess)
             {
                 Console.Error.WriteLine($"Warning: {outcome.ErrorMessage}");
