@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -123,15 +124,6 @@ namespace ILAssembler
                             RecordEntityInTable(TableIndex.Param, param);
                         }
                     }
-                    // Record generic parameters for methods
-                    foreach (var genericParam in method.GenericParameters)
-                    {
-                        RecordEntityInTable(TableIndex.GenericParam, genericParam);
-                    }
-                    foreach (var constraint in method.GenericParameterConstraints)
-                    {
-                        RecordEntityInTable(TableIndex.GenericParamConstraint, constraint);
-                    }
                 }
                 foreach (var field in type.Fields)
                 {
@@ -157,16 +149,40 @@ namespace ILAssembler
                     RecordEntityInTable(TableIndex.MethodImpl, impl);
                 }
 
-                foreach (var genericParam in type.GenericParameters)
-                {
-                    RecordEntityInTable(TableIndex.GenericParam, genericParam);
-                }
+            }
 
-                // COMPAT: Record the generic parameter constraints based on the order saved in the TypeDef
-                foreach (var constraint in type.GenericParameterConstraints)
+            // GenericParam is a sorted table keyed by the owner's TypeOrMethodDef
+            // coded index, which interleaves type owners (tag 0) and method owners
+            // (tag 1) — e.g. TypeDef row 2 sorts between MethodDef rows 1 and 2.
+            // Per-type recording can't produce that order, so record globally
+            // sorted now that every type and method has its handle. Constraints
+            // are sorted by their GenericParam row, which the parameter recording
+            // order determines. OrderBy is stable, preserving declaration order
+            // for same-owner parameters and same-parameter constraints (COMPAT).
+            List<GenericParameterEntity> allGenericParams = new();
+            List<GenericParameterConstraintEntity> allGenericConstraints = new();
+            foreach (TypeDefinitionEntity type in GetSeenEntities(TableIndex.TypeDef))
+            {
+                allGenericParams.AddRange(type.GenericParameters);
+                allGenericConstraints.AddRange(type.GenericParameterConstraints);
+                foreach (var method in type.Methods)
                 {
-                    RecordEntityInTable(TableIndex.GenericParamConstraint, constraint);
+                    allGenericParams.AddRange(method.GenericParameters);
+                    allGenericConstraints.AddRange(method.GenericParameterConstraints);
                 }
+            }
+
+            foreach (var genericParam in allGenericParams
+                .OrderBy(p => CodedIndex.TypeOrMethodDef(p.Owner!.Handle))
+                .ThenBy(p => p.Index))
+            {
+                RecordEntityInTable(TableIndex.GenericParam, genericParam);
+            }
+
+            foreach (var constraint in allGenericConstraints
+                .OrderBy(c => MetadataTokens.GetRowNumber(c.Owner!.Handle)))
+            {
+                RecordEntityInTable(TableIndex.GenericParamConstraint, constraint);
             }
 
             foreach (MemberReferenceEntity memberReferenceEntity in _memberReferences)
