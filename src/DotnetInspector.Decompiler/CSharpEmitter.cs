@@ -932,9 +932,7 @@ public static class CSharpEmitter
                     continue;
 
                 if (!sawDispose
-                    && expr.Operand is string operand
-                    && operand.Contains("Dispose", StringComparison.Ordinal)
-                    && !expr.IsStaticCall
+                    && IsDisposeCall(expr)
                     && expr.Arguments.Count > 0)
                 {
                     disposeVar = RenderReceiverName(expr.Arguments[0]);
@@ -4216,6 +4214,10 @@ public static class CSharpEmitter
         /// Detect the dispose pattern in a finally handler:
         /// IfThenElse { if (var != null) { var.Dispose(); } } + endfinally
         /// Returns the variable name being disposed, or null.
+        /// The member must be exactly Dispose (DisposeAsync is an await using —
+        /// not representable as a plain using statement), and the finally must
+        /// contain NOTHING ELSE: rendering as using discards the handler, so any
+        /// extra statement would be silently deleted from the output.
         /// </summary>
         string? TryDetectDisposeVariable(StructuredBlock block)
         {
@@ -4229,18 +4231,80 @@ public static class CSharpEmitter
                         foreach (var node in thenAst.Nodes)
                         {
                             if (node is ILAstStatement { Expression: var expr }
-                                && expr.Operand is string operand
-                                && operand.Contains("Dispose", StringComparison.Ordinal)
-                                && !expr.IsStaticCall
+                                && IsDisposeCall(expr)
                                 && expr.Arguments.Count > 0)
                             {
-                                return RenderReceiverName(expr.Arguments[0]);
+                                string disposeVar = RenderReceiverName(expr.Arguments[0]);
+                                return FinallyContainsOnlyDisposeOf(block, disposeVar) ? disposeVar : null;
                             }
                         }
                     }
                 }
             }
             return null;
+        }
+
+        static bool IsDisposeCall(ILAstExpression expr)
+            => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
+                && !expr.IsStaticCall
+                && expr.Operand is string operand
+                && ExtractMemberName(operand) == "Dispose";
+
+        /// <summary>
+        /// Verifies a finally handler consists solely of the dispose-of-variable
+        /// pattern: nops, endfinally, null-check guards on the variable, and the
+        /// Dispose call itself.
+        /// </summary>
+        bool FinallyContainsOnlyDisposeOf(StructuredBlock block, string disposeVar)
+        {
+            bool sawDispose = false;
+            foreach (var (_, node) in EnumerateStructuredNodes(block.HandlerChildren))
+            {
+                if (node is ILAstAssignment)
+                    return false;
+                if (NodeExpression(node) is not { } expr)
+                    continue;
+                if (expr.OpCode is ILOpCode.Nop or ILOpCode.Endfinally
+                    or ILOpCode.Br or ILOpCode.Br_s)
+                {
+                    continue;
+                }
+
+                // Null-check guard on the disposed variable.
+                if (expr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                        or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    && expr.Arguments.Count == 1
+                    && TreeReferencesLocal(expr.Arguments[0], disposeVar))
+                {
+                    continue;
+                }
+
+                if (IsDisposeCall(expr)
+                    && expr.Arguments.Count > 0
+                    && TreeReferencesLocal(expr.Arguments[0], disposeVar))
+                {
+                    if (sawDispose)
+                        return false;
+                    sawDispose = true;
+                    continue;
+                }
+
+                return false;
+            }
+
+            return sawDispose;
+        }
+
+        static bool TreeReferencesLocal(ILAstExpression expr, string localName)
+        {
+            if (GetLocalReferenceName(expr) is { } name && name == localName)
+                return true;
+            foreach (var arg in expr.Arguments)
+            {
+                if (TreeReferencesLocal(arg, localName))
+                    return true;
+            }
+            return false;
         }
 
         void EmitUsingBlock(StructuredBlock block, string disposeVar, int indent)

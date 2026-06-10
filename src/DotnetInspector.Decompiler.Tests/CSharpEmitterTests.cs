@@ -129,6 +129,40 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("endfilter", output);
     }
 
+    // --- using detection (must not eat finally code) ---
+
+    [Fact]
+    public void NormalUsing_RendersAsUsing()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.NormalUsing));
+
+        Assert.Contains("using", output);
+        Assert.DoesNotContain("finally", output);
+    }
+
+    [Fact]
+    public void FinallyWithExtraWork_IsNotCollapsedToUsing()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FinallyWithExtraWork));
+
+        // The finally does more than dispose; rendering it as using would
+        // silently delete the extra statement.
+        Assert.Contains("finally", output);
+        Assert.Contains("Dispose", output);
+        Assert.Contains("-1", output);
+    }
+
+    [Fact]
+    public void ManualDisposeAsyncInFinally_IsNotRenderedAsUsing()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ManualDisposeAsyncInFinally));
+
+        // DisposeAsync is await using's lowering — a plain using would change
+        // semantics. Keep the faithful try/finally.
+        Assert.Contains("finally", output);
+        Assert.Contains("DisposeAsync", output);
+    }
+
     // --- Control flow ---
 
     [Fact]

@@ -274,6 +274,40 @@ public class CfgSampleClass
         }
     }
 
+    public static int NormalUsing(string s)
+    {
+        using var reader = new System.IO.StringReader(s);
+        return reader.Read();
+    }
+
+    public static int FinallyWithExtraWork(string s)
+    {
+        var reader = new System.IO.StringReader(s);
+        int count = 0;
+        try
+        {
+            count = reader.Read();
+        }
+        finally
+        {
+            reader.Dispose();
+            count = -1;
+        }
+        return count;
+    }
+
+    public static long ManualDisposeAsyncInFinally(System.IO.MemoryStream stream)
+    {
+        try
+        {
+            return stream.Length;
+        }
+        finally
+        {
+            _ = stream.DisposeAsync();
+        }
+    }
+
     public static string Classify(int x)
     {
         if (x > 0) return "positive";
