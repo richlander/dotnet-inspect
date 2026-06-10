@@ -129,6 +129,24 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("endfilter", output);
     }
 
+    // --- Inliner soundness ---
+
+    [Fact]
+    public void StaleFieldRead_DoesNotInlinePastMutation()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.StaleFieldRead));
+
+        // v captures h.Value BEFORE h.Value = 99; inlining the read past the
+        // store would compute the post-mutation value. The capture must stay
+        // ordered before the store.
+        int captureIdx = output.IndexOf("= h.Value", StringComparison.Ordinal);
+        int storeIdx = output.IndexOf("= 99", StringComparison.Ordinal);
+        Assert.True(captureIdx >= 0, $"Expected captured read in:\n{output}");
+        Assert.True(storeIdx >= 0, $"Expected field store in:\n{output}");
+        Assert.True(captureIdx < storeIdx,
+            $"Captured read must precede the mutation in:\n{output}");
+    }
+
     // --- using detection (must not eat finally code) ---
 
     [Fact]

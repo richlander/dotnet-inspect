@@ -296,6 +296,18 @@ public class CfgSampleClass
         return count;
     }
 
+    public class MutableHolder
+    {
+        public int Value;
+    }
+
+    public static int StaleFieldRead(MutableHolder h)
+    {
+        int v = h.Value;
+        h.Value = 99;
+        return v + h.Value;
+    }
+
     public static long ManualDisposeAsyncInFinally(System.IO.MemoryStream stream)
     {
         try

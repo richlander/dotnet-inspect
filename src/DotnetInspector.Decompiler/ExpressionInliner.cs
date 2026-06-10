@@ -59,6 +59,14 @@ sealed class ExpressionInliner
             if (ExprReferencesVar(valueExpr, varName))
                 continue;
 
+            // Moving the evaluation to the use site is only sound if nothing the
+            // value reads can change in between: track the locals it loads, and
+            // whether it reads mutable state (fields, array elements, indirection)
+            // that any call or store could invalidate.
+            var localsRead = new HashSet<string>();
+            CollectLocalReads(valueExpr, localsRead);
+            bool readsMutableState = ReadsMutableState(valueExpr);
+
             // Scan forward for a single use of this variable before any redefinition
             for (int j = i + 1; j < block.Nodes.Count; j++)
             {
@@ -71,9 +79,22 @@ sealed class ExpressionInliner
                 // Count references to this variable in the candidate node
                 int refCount = CountReferences(candidate, varName);
                 if (refCount == 0)
+                {
+                    // No use here — but does this node invalidate the captured value?
+                    if (StoresToAny(candidate, localsRead))
+                        break;
+                    if (readsMutableState && NodeMutatesOrCalls(candidate))
+                        break;
                     continue;
+                }
                 if (refCount > 1)
                     break; // multiple uses — can't inline
+
+                // The use site itself: anything evaluated BEFORE the reference
+                // within this node (earlier call arguments, receivers) must not
+                // mutate state the value reads.
+                if (readsMutableState && MutatesBeforeFirstRef(candidate, varName))
+                    break;
 
                 // Exactly one reference — inline it
                 if (ReplaceReference(candidate, varName, valueExpr))
@@ -140,8 +161,10 @@ sealed class ExpressionInliner
 
             var valueExpr = storeExpr.Arguments[0];
 
-            // Don't inline side-effecting expressions across blocks
-            if (IsSideEffecting(valueExpr))
+            // Across blocks there is no ordering guarantee between definition and
+            // use (the def may sit in a loop, the use after it; nothing here checks
+            // dominance), so only position-independent constants are sound to move.
+            if (!IsPositionIndependent(valueExpr))
                 continue;
 
             // Don't inline self-referential stores
@@ -304,6 +327,133 @@ sealed class ExpressionInliner
                 return true;
         return false;
     }
+
+    /// <summary>Locals loaded anywhere in the expression tree.</summary>
+    static void CollectLocalReads(ILAstExpression expr, HashSet<string> locals)
+    {
+        if (expr.OpCode is ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2
+            or ILOpCode.Ldloc_3 or ILOpCode.Ldloc_s or ILOpCode.Ldloc
+            or ILOpCode.Ldloca or ILOpCode.Ldloca_s)
+        {
+            string? name = expr.Operand ?? GetLocalNameFromOp(expr.OpCode);
+            if (name is not null)
+                locals.Add(name);
+        }
+        foreach (var arg in expr.Arguments)
+            CollectLocalReads(arg, locals);
+    }
+
+    /// <summary>
+    /// True when the expression reads state a call or store could change:
+    /// fields, array elements, or indirection. (Array length is immutable
+    /// per instance, and local reads are tracked separately.)
+    /// </summary>
+    static bool ReadsMutableState(ILAstExpression expr)
+    {
+        if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld or ILOpCode.Ldflda or ILOpCode.Ldsflda
+            or ILOpCode.Ldelem or ILOpCode.Ldelema
+            or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_i4
+            or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref
+            or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4
+            or ILOpCode.Ldind_i or ILOpCode.Ldind_i1 or ILOpCode.Ldind_i2 or ILOpCode.Ldind_i4
+            or ILOpCode.Ldind_i8 or ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref
+            or ILOpCode.Ldind_u1 or ILOpCode.Ldind_u2 or ILOpCode.Ldind_u4 or ILOpCode.Ldobj)
+        {
+            return true;
+        }
+        foreach (var arg in expr.Arguments)
+            if (ReadsMutableState(arg))
+                return true;
+        return false;
+    }
+
+    static bool IsMutationOrCall(ILOpCode op) => op is
+        ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Calli or ILOpCode.Newobj
+        or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Stobj or ILOpCode.Initobj
+        or ILOpCode.Cpobj or ILOpCode.Cpblk or ILOpCode.Initblk
+        or ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2 or ILOpCode.Stind_i4
+        or ILOpCode.Stind_i8 or ILOpCode.Stind_r4 or ILOpCode.Stind_r8 or ILOpCode.Stind_ref
+        or ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
+        or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
+        or ILOpCode.Stelem_ref;
+
+    static bool NodeMutatesOrCalls(ILAstNode node) => node switch
+    {
+        ILAstStatement { Expression: var expr } => TreeMutatesOrCalls(expr),
+        ILAstAssignment { Value: var value } => TreeMutatesOrCalls(value),
+        _ => false
+    };
+
+    static bool TreeMutatesOrCalls(ILAstExpression expr)
+    {
+        if (IsMutationOrCall(expr.OpCode))
+            return true;
+        foreach (var arg in expr.Arguments)
+            if (TreeMutatesOrCalls(arg))
+                return true;
+        return false;
+    }
+
+    /// <summary>Does the node store to any local in <paramref name="locals"/>?</summary>
+    static bool StoresToAny(ILAstNode node, HashSet<string> locals)
+    {
+        foreach (string local in locals)
+            if (IsStoreToVar(node, local))
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Walks the node's evaluation order (depth-first, argument order) and
+    /// reports whether any mutation/call executes before the first load of
+    /// <paramref name="varName"/> — the position the inlined expression
+    /// would evaluate at.
+    /// </summary>
+    static bool MutatesBeforeFirstRef(ILAstNode node, string varName)
+    {
+        var expr = node switch
+        {
+            ILAstStatement s => s.Expression,
+            ILAstAssignment a => a.Value,
+            _ => null
+        };
+        if (expr is null)
+            return true; // unknown shape — don't inline
+
+        bool foundRef = false;
+        return Walk(expr, varName, ref foundRef);
+
+        static bool Walk(ILAstExpression expr, string varName, ref bool foundRef)
+        {
+            // Arguments evaluate before the operation itself.
+            foreach (var arg in expr.Arguments)
+            {
+                if (Walk(arg, varName, ref foundRef))
+                    return true;
+                if (foundRef)
+                    return false;
+            }
+
+            if (IsLoadOf(expr, varName))
+            {
+                foundRef = true;
+                return false;
+            }
+
+            return IsMutationOrCall(expr.OpCode);
+        }
+    }
+
+    /// <summary>
+    /// True for expressions whose value cannot depend on where they are
+    /// evaluated: constants and string/null/token loads.
+    /// </summary>
+    static bool IsPositionIndependent(ILAstExpression expr) => expr.OpCode is
+        ILOpCode.Ldc_i4 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4_m1
+        or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3
+        or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7
+        or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r4 or ILOpCode.Ldc_r8
+        or ILOpCode.Ldstr or ILOpCode.Ldnull;
 
     static string? GetLocalNameFromOp(ILOpCode op) => op switch
     {
