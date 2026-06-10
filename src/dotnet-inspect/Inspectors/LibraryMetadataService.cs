@@ -577,7 +577,7 @@ internal static class LibraryMetadataService
         try
         {
             var signals = OpenTelemetryScanner.Scan(peReader)
-                .Select(s => new IntegrationSignal(s.Area, s.Signal, s.Value, s.Evidence))
+                .Select(s => new IntegrationSignal(s.Kind, s.Name))
                 .ToList();
 
             return signals.Count > 0 ? signals : null;
@@ -595,7 +595,7 @@ internal static class LibraryMetadataService
     {
         var selected = signals
             .Where(s => s.Integration.Equals(integration, StringComparison.Ordinal))
-            .Select(s => new IntegrationSignal(s.Area, s.Signal, s.Value, s.Evidence))
+            .Select(s => new IntegrationSignal(s.Kind, s.Name))
             .ToList();
 
         return selected.Count > 0 ? selected : null;

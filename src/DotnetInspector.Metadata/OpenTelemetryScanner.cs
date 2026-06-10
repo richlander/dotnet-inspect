@@ -7,10 +7,8 @@ namespace DotnetInspector.Metadata;
 /// Metadata evidence that an assembly participates in OpenTelemetry-style observability.
 /// </summary>
 public record OpenTelemetrySignalInfo(
-    string Area,
-    string Signal,
-    string Value,
-    string Evidence);
+    string Kind,
+    string Name);
 
 /// <summary>
 /// Scans assembly metadata for OpenTelemetry packages and .NET diagnostics primitives.
@@ -39,12 +37,12 @@ public static class OpenTelemetryScanner
             AddTypeMatches(reader.GetFullTypeName(reader.GetTypeDefinition(handle)), "TypeDef");
 
         List<OpenTelemetrySignalInfo> results = [];
-        AddAssemblyReferenceRow(results, assemblyReferences);
-        AddTypeRow(results, "OpenTelemetry", "OpenTelemetry API types", openTelemetryTypes);
-        AddTypeRow(results, "Tracing", "Activity APIs", tracingTypes);
-        AddTypeRow(results, "Metrics", "Metrics APIs", metricsTypes);
-        AddTypeRow(results, "Diagnostics", "DiagnosticSource APIs", diagnosticSourceTypes);
-        AddTypeRow(results, "Telemetry", "Microsoft.Extensions.Telemetry APIs", microsoftTelemetryTypes);
+        AddAssemblyReferenceRows(results, assemblyReferences);
+        AddTypeRows(results, "OpenTelemetry API", openTelemetryTypes);
+        AddTypeRows(results, "Tracing API", tracingTypes);
+        AddTypeRows(results, "Metrics API", metricsTypes);
+        AddTypeRows(results, "DiagnosticSource API", diagnosticSourceTypes);
+        AddTypeRows(results, "Microsoft.Extensions.Telemetry API", microsoftTelemetryTypes);
         return results;
 
         void AddTypeMatches(string typeName, string source)
@@ -151,39 +149,26 @@ public static class OpenTelemetryScanner
         matches.Add(typeName, source);
     }
 
-    private static void AddAssemblyReferenceRow(List<OpenTelemetrySignalInfo> results, SortedSet<string> references)
+    private static void AddAssemblyReferenceRows(List<OpenTelemetrySignalInfo> results, SortedSet<string> references)
     {
-        if (references.Count == 0)
-            return;
-
-        results.Add(new OpenTelemetrySignalInfo(
-            "Dependencies",
-            "Telemetry assembly references",
-            references.Count.ToString(),
-            $"AssemblyRef: {FormatEvidence(references)}"));
+        foreach (var reference in references)
+            results.Add(new OpenTelemetrySignalInfo("Assembly Reference", reference));
     }
 
-    private static void AddTypeRow(
+    private static void AddTypeRows(
         List<OpenTelemetrySignalInfo> results,
-        string area,
-        string signal,
+        string kind,
         Dictionary<string, string> types)
     {
-        if (types.Count == 0)
-            return;
-
-        results.Add(new OpenTelemetrySignalInfo(
-            area,
-            signal,
-            types.Count.ToString(),
-            FormatTypeEvidence(types)));
+        foreach (var type in OrderTypes(types))
+            results.Add(new OpenTelemetrySignalInfo(kind, type));
     }
 
-    private static string FormatTypeEvidence(Dictionary<string, string> types)
-        => FormatEvidence(types
+    private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)
+        => types
             .OrderBy(kv => GetEvidenceRank(kv.Key))
             .ThenBy(kv => kv.Key, StringComparer.Ordinal)
-            .Select(kv => $"{kv.Value}: {kv.Key}"));
+            .Select(kv => kv.Key);
 
     private static int GetEvidenceRank(string typeName)
         => typeName switch
@@ -200,11 +185,4 @@ public static class OpenTelemetryScanner
             _ => 10,
         };
 
-    private static string FormatEvidence(IEnumerable<string> values)
-    {
-        var ordered = values.ToArray();
-        var visible = ordered.Take(EvidenceLimit).ToArray();
-        var suffix = ordered.Length > EvidenceLimit ? $" (+{ordered.Length - EvidenceLimit} more)" : "";
-        return string.Join(", ", visible) + suffix;
-    }
 }

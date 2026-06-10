@@ -1921,7 +1921,8 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
-        Assert.Contains("| 1 | OpenTelemetry | 3 |", output);
+        Assert.Contains("| Integrations | Integration | Examples | Next |", output);
+        Assert.Contains("| 1 | OpenTelemetry |", output);
         Assert.Contains("-S OpenTelemetry", output);
         Assert.DoesNotContain("## OpenTelemetry", output);
         Assert.DoesNotContain("Tip:", error);
@@ -1949,7 +1950,8 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Logging", output);
-        Assert.Contains("| Logging | Logging APIs |", output);
+        Assert.Contains("| Kind | Name |", output);
+        Assert.Contains("| Logging API | Microsoft.Extensions.Logging.ILogger |", output);
         Assert.Contains("Microsoft.Extensions.Logging.ILogger", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -1962,8 +1964,9 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## OpenTelemetry", output);
-        Assert.Contains("| Tracing | Activity APIs |", output);
-        Assert.Contains("| Metrics | Metrics APIs |", output);
+        Assert.Contains("| Kind | Name |", output);
+        Assert.Contains("| Tracing API | System.Diagnostics.ActivitySource |", output);
+        Assert.Contains("| Metrics API | System.Diagnostics.Metrics.Meter |", output);
         Assert.Contains("System.Diagnostics.ActivitySource", output);
         Assert.Contains("System.Diagnostics.Metrics.Meter", output);
         Assert.DoesNotContain("Tip:", error);

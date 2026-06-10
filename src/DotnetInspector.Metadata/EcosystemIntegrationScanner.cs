@@ -5,10 +5,8 @@ namespace DotnetInspector.Metadata;
 
 public record EcosystemIntegrationSignalInfo(
     string Integration,
-    string Area,
-    string Signal,
-    string Value,
-    string Evidence);
+    string Kind,
+    string Name);
 
 public record EcosystemIntegrationPresence
 {
@@ -23,8 +21,6 @@ public record EcosystemIntegrationPresence
 
 public static class EcosystemIntegrationScanner
 {
-    private const int EvidenceLimit = 6;
-
     public static List<EcosystemIntegrationSignalInfo> Scan(PEReader peReader)
     {
         if (!peReader.HasMetadata)
@@ -194,32 +190,24 @@ public static class EcosystemIntegrationScanner
 
     private static void AddRows(List<EcosystemIntegrationSignalInfo> results, IntegrationBucket bucket)
     {
-        if (bucket.AssemblyReferences.Count > 0)
-        {
+        foreach (var reference in bucket.AssemblyReferences)
             results.Add(new EcosystemIntegrationSignalInfo(
                 bucket.Integration,
-                "Dependencies",
-                "Assembly references",
-                bucket.AssemblyReferences.Count.ToString(),
-                $"AssemblyRef: {FormatEvidence(bucket.AssemblyReferences)}"));
-        }
+                "Assembly Reference",
+                reference));
 
-        if (bucket.Types.Count > 0)
-        {
+        foreach (var type in OrderTypes(bucket.Types))
             results.Add(new EcosystemIntegrationSignalInfo(
                 bucket.Integration,
-                bucket.Integration,
-                bucket.ApiSignal,
-                bucket.Types.Count.ToString(),
-                FormatTypeEvidence(bucket.Types)));
-        }
+                bucket.ApiKind,
+                type));
     }
 
-    private static string FormatTypeEvidence(Dictionary<string, string> types)
-        => FormatEvidence(types
+    private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)
+        => types
             .OrderBy(kv => GetEvidenceRank(kv.Key))
             .ThenBy(kv => kv.Key, StringComparer.Ordinal)
-            .Select(kv => $"{kv.Value}: {kv.Key}"));
+            .Select(kv => kv.Key);
 
     private static int GetEvidenceRank(string typeName)
         => typeName switch
@@ -239,18 +227,10 @@ public static class EcosystemIntegrationScanner
             _ => 10,
         };
 
-    private static string FormatEvidence(IEnumerable<string> values)
-    {
-        var ordered = values.ToArray();
-        var visible = ordered.Take(EvidenceLimit).ToArray();
-        var suffix = ordered.Length > EvidenceLimit ? $" (+{ordered.Length - EvidenceLimit} more)" : "";
-        return string.Join(", ", visible) + suffix;
-    }
-
-    private sealed class IntegrationBucket(string integration, string apiSignal)
+    private sealed class IntegrationBucket(string integration, string apiKind)
     {
         public string Integration { get; } = integration;
-        public string ApiSignal { get; } = apiSignal;
+        public string ApiKind { get; } = apiKind;
         public SortedSet<string> AssemblyReferences { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, string> Types { get; } = new(StringComparer.Ordinal);
     }
@@ -276,12 +256,12 @@ public static class EcosystemIntegrationScanner
 
         public static IntegrationBuckets Create() => new()
         {
-            DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection APIs"),
-            Logging = new IntegrationBucket("Logging", "Logging APIs"),
-            Options = new IntegrationBucket("Options", "Options APIs"),
-            Hosting = new IntegrationBucket("Hosting", "Hosting APIs"),
-            HealthChecks = new IntegrationBucket("Health Checks", "Health Check APIs"),
-            HttpClient = new IntegrationBucket("HTTP Client", "HTTP Client APIs")
+            DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection API"),
+            Logging = new IntegrationBucket("Logging", "Logging API"),
+            Options = new IntegrationBucket("Options", "Options API"),
+            Hosting = new IntegrationBucket("Hosting", "Hosting API"),
+            HealthChecks = new IntegrationBucket("Health Checks", "Health Check API"),
+            HttpClient = new IntegrationBucket("HTTP Client", "HTTP Client API")
         };
     }
 

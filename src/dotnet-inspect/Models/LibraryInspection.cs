@@ -381,7 +381,7 @@ public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays,
 
 public record IntegrationSummary(string Integration, int Count, string NextSection);
 
-public record IntegrationSignal(string Area, string Signal, string Value, string Evidence);
+public record IntegrationSignal(string Kind, string Name);
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic

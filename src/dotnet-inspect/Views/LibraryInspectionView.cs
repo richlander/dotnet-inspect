@@ -370,7 +370,7 @@ public class LibraryInspectionView
         => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
-        => signals?.Select(s => new IntegrationSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
+        => signals?.Select(s => new IntegrationSignalRow(s.Kind, s.Name)).ToList();
 
     private static string FormatSectionSelect(string section)
         => section.Contains(' ', StringComparison.Ordinal) ? $"-S \"{section}\"" : $"-S {section}";
@@ -465,15 +465,13 @@ public record AuditSignalRow(
 public record IntegrationRow(
     string Integrations,
     string Integration,
-    [property: MarkoutPropertyName("Evidence Count")] int EvidenceCount,
+    int Examples,
     string Next);
 
 [MarkoutSerializable]
 public record IntegrationSignalRow(
-    string Area,
-    string Signal,
-    string Value,
-    string Evidence);
+    string Kind,
+    string Name);
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
