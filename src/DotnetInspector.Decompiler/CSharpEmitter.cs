@@ -19,10 +19,9 @@ public static class CSharpEmitter
         var cfg = ControlFlowGraph.Create(context);
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
-        var inliner = new ExpressionInliner();
-        var inlinedLocals = inliner.Inline(ast);
+        var transforms = Transforms.TransformPipeline.Run(ast);
         var structure = StructuredControlFlow.Analyze(context, cfg);
-        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, inlinedLocals);
+        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals);
     }
 
     /// <summary>
@@ -1424,13 +1423,6 @@ public static class CSharpEmitter
                     continue;
 
                 var node = astBlock.Nodes[nodeIdx];
-
-                // Peephole: stloc V_x = expr; ret(ldloc V_x) → return expr;
-                if (TryEmitStoreReturn(astBlock, nodeIdx, indent))
-                {
-                    nodeIdx++; // skip the ret node
-                    continue;
-                }
 
                 switch (node)
                 {
@@ -3862,48 +3854,6 @@ public static class CSharpEmitter
         /// <summary>
         /// Peephole: stloc V_x = expr; ret(ldloc V_x) → return expr;
         /// </summary>
-        bool TryEmitStoreReturn(ILAstBlock block, int nodeIdx, int indent)
-        {
-            if (nodeIdx + 1 >= block.Nodes.Count) return false;
-
-            var nextNode = block.Nodes[nodeIdx + 1];
-            if (nextNode is not ILAstStatement { Expression: var retExpr }) return false;
-            if (retExpr.OpCode != ILOpCode.Ret || retExpr.Arguments.Count == 0) return false;
-
-            var retArg = retExpr.Arguments[0];
-            string? retVarName = retArg.OpCode switch
-            {
-                ILOpCode.Ldloc_0 => "V_0", ILOpCode.Ldloc_1 => "V_1",
-                ILOpCode.Ldloc_2 => "V_2", ILOpCode.Ldloc_3 => "V_3",
-                ILOpCode.Ldloc_s or ILOpCode.Ldloc => retArg.Operand,
-                _ => null
-            };
-            if (retVarName is null) return false;
-
-            ILAstExpression? valueExpr = null;
-            var curNode = block.Nodes[nodeIdx];
-            if (curNode is ILAstStatement { Expression: var stExpr }
-                && stExpr.OpCode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2
-                    or ILOpCode.Stloc_3 or ILOpCode.Stloc_s or ILOpCode.Stloc
-                && stExpr.Arguments.Count > 0)
-            {
-                string? storeVar = stExpr.Operand ?? GetLocalName(stExpr.OpCode);
-                if (storeVar == retVarName)
-                    valueExpr = stExpr.Arguments[0];
-            }
-
-            if (valueExpr is null) return false;
-
-            WriteIndent(indent);
-            _sb.Append("return ");
-            bool wasBool = _emitBoolContext;
-            if (_returnsBool) _emitBoolContext = true;
-            EmitExpression(valueExpr, _returnTypeName);
-            _emitBoolContext = wasBool;
-            _sb.AppendLine(";");
-            return true;
-        }
-
         void EmitTryCatchFinally(StructuredBlock block, int indent)
         {
             if (block.ExceptionRegion is not { } region) return;
