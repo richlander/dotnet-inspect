@@ -396,7 +396,8 @@ public static class ILAstBuilder
                 {
                     OpCode = opcode, Operand = fieldName,
                     Arguments = { obj }, ResultType = resultType,
-                    Offset = offset
+                    Offset = offset,
+                    Member = MemberRefInfo.FromQualifiedName(fieldName, fieldType.TypeName)
                 };
             }
 
@@ -411,7 +412,8 @@ public static class ILAstBuilder
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = fieldName,
-                    ResultType = resultType, Offset = offset
+                    ResultType = resultType, Offset = offset,
+                    Member = MemberRefInfo.FromQualifiedName(fieldName, fieldType.TypeName, isStatic: true)
                 };
             }
 
@@ -420,12 +422,13 @@ public static class ILAstBuilder
                 int token = reader.ReadILToken();
                 var val = TryPop(stack);
                 var obj = TryPop(stack);
-                var (fieldName, _) = ResolveField(context.Reader, token);
+                var (fieldName, fieldType) = ResolveField(context.Reader, token);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = fieldName,
                     Arguments = { obj, val }, ResultType = StackValue.CreateUnknown(),
-                    Offset = offset
+                    Offset = offset,
+                    Member = MemberRefInfo.FromQualifiedName(fieldName, fieldType.TypeName)
                 };
             }
 
@@ -433,12 +436,13 @@ public static class ILAstBuilder
             {
                 int token = reader.ReadILToken();
                 var val = TryPop(stack);
-                var (fieldName, _) = ResolveField(context.Reader, token);
+                var (fieldName, fieldType) = ResolveField(context.Reader, token);
                 return new ILAstExpression
                 {
                     OpCode = opcode, Operand = fieldName,
                     Arguments = { val }, ResultType = StackValue.CreateUnknown(),
-                    Offset = offset
+                    Offset = offset,
+                    Member = MemberRefInfo.FromQualifiedName(fieldName, fieldType.TypeName, isStatic: true)
                 };
             }
 
@@ -872,7 +876,10 @@ public static class ILAstBuilder
             {
                 OpCode = opcode, Operand = methodName,
                 ResultType = resultType, Offset = offset,
-                IsStaticCall = isStatic
+                IsStaticCall = isStatic,
+                Member = methodName is null
+                    ? null
+                    : MemberRefInfo.FromQualifiedName(methodName, returnType, parameterTypes, isStatic)
             };
             expr.Arguments.AddRange(args);
 

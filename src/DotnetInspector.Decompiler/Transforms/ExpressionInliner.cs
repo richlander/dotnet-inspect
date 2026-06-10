@@ -1,13 +1,16 @@
 using System.Reflection.Metadata;
 
-namespace DotnetInspector.Decompiler;
+namespace DotnetInspector.Decompiler.Transforms;
 
 /// <summary>
 /// Eliminates single-use temporary variables by inlining their assigned
 /// expression directly at the use site. Operates on the ILAst before emission.
 /// </summary>
-sealed class ExpressionInliner
+sealed class ExpressionInliner : IILAstTransform
 {
+    public void Run(ILAstMethod method, TransformContext context)
+        => context.InlinedLocals.UnionWith(Inline(method));
+
     /// <summary>
     /// Run inlining passes on <paramref name="method"/>. Returns the set of
     /// local variable names that were successfully inlined (and whose declarations
