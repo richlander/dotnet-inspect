@@ -243,6 +243,14 @@ public static class CanonicalIL
         if (!needsQuote && !anyUpper)
             needsQuote = true;
 
+        // Exactly-two-hex-character names (enum members D0, F1, ...) lex as the
+        // assembler's HEXBYTE token rather than as identifiers.
+        if (!needsQuote && name.Length == 2
+            && char.IsAsciiHexDigit(name[0]) && char.IsAsciiHexDigit(name[1]))
+        {
+            needsQuote = true;
+        }
+
         return needsQuote
             ? $"'{name.Replace("\\", "\\\\").Replace("'", "\\'")}'"
             : name;

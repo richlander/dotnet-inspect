@@ -90,14 +90,14 @@ public static class IlasmScaffold
     static void EmitTypeShell(MetadataReader reader, TypeDefinitionHandle tdh, StringBuilder sb, int indent)
     {
         string pad = new(' ', indent);
-        sb.AppendLine($"{pad}{TypeHeader(reader, tdh, indent, includeGenericParams: true)}");
+        sb.AppendLine($"{pad}{TypeHeader(reader, tdh, indent, includeGenericParams: true, includeBase: false)}");
         sb.AppendLine($"{pad}{{");
         foreach (var nested in reader.GetTypeDefinition(tdh).GetNestedTypes())
             EmitTypeShell(reader, nested, sb, indent + 2);
         sb.AppendLine($"{pad}}}");
     }
 
-    static string TypeHeader(MetadataReader reader, TypeDefinitionHandle tdh, int indent, bool includeGenericParams)
+    static string TypeHeader(MetadataReader reader, TypeDefinitionHandle tdh, int indent, bool includeGenericParams, bool includeBase = true)
     {
         var td = reader.GetTypeDefinition(tdh);
         var attrs = td.Attributes;
@@ -116,8 +116,11 @@ public static class IlasmScaffold
             : "";
 
         // Base types resolve whether cross-assembly (TypeReference) or
-        // same-assembly (TypeDefinition — declared by this skeleton).
-        string extends = td.BaseType.IsNil ? "" : $" extends {CanonicalIL.ResolveTypeHandle(reader, td.BaseType)}";
+        // same-assembly (TypeDefinition) — but only once every shell exists, so
+        // the shell pass omits extends (a same-module base may be declared later).
+        string extends = !includeBase || td.BaseType.IsNil
+            ? ""
+            : $" extends {CanonicalIL.ResolveTypeHandle(reader, td.BaseType)}";
 
         return ".class "
             + (isInterface ? "interface " : "")
