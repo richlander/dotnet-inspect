@@ -7,7 +7,7 @@ This document defines the output format conventions for `dotnet-inspect`. The pr
 All markdown output follows a consistent four-part structure:
 
 ```markdown
-# Title (Package Version)
+# Title
 
 Optional description paragraph.
 
@@ -23,20 +23,29 @@ Optional description paragraph.
 
 ### 1. H1 Title
 
-Every output starts with a single H1 heading that clearly describes the content:
+Every output starts with a single H1 heading that names the **subject — and only the subject**:
 
-- **Type view:** `# Namespace.TypeName (Package Version)`
-- **Package view:** `# Package Version`
+- **Type view:** `# Namespace.TypeName`
+- **Package view:** `# PackageName`
 - **Library view:** `# AssemblyName.dll`
 
-The title should provide enough context to understand what you're looking at.
+The title says *what* you are looking at. Everything you'd want to know *about* it —
+package, version, target framework, the exact assembly asset, kind, modifiers — belongs in
+the compact field list directly below the title (see [Key-Value Fields](#3-key-value-fields)),
+**not** in a title parenthetical.
+
+Do not append a `(Package Version)` parenthetical. There is always more than one fact worth
+knowing about provenance (you want the package *and* its version *and* the TFM *and* the asset
+that produced the metadata), and a field list scales to that and stays machine-extractable,
+where a parenthetical can legibly hold only one item and is awkward to parse. The package view
+already follows this: `# System.Text.Json` with the rest in fields.
 
 ### 2. Description Paragraph
 
 An optional plain-text paragraph immediately after the H1. This is where documentation summaries appear. No special formatting (not a blockquote, not italicized).
 
 ```markdown
-# System.Text.Json.JsonSerializer (System.Text.Json 8.0.0)
+# System.Text.Json.JsonSerializer
 
 Provides functionality to serialize objects or value types to JSON and deserialize JSON into objects or value types.
 ```
@@ -56,16 +65,26 @@ Fields describe "what this thing is"; tables list "what this thing contains".
 
 **Standard fields for type output:**
 
+Provenance first — these answer "where did this metadata come from?" and carry what the title
+parenthetical used to (plus the version, TFM, and asset that a single parenthetical could not):
+
+- `**Package:** System.Text.Json 10.0.0` (package name and resolved version; omitted for local-file sources)
+- `**TFM:** net10.0` (the target framework the asset was selected for)
+- `**Library:** lib/net10.0/System.Text.Json.dll` (the exact assembly asset the metadata came from — the in-package path for package sources, or the file path for a local library)
+
+Then the subject's own facts:
+
 - `**Kind:** class` / `interface` / `struct` / `enum`
 - `**Modifiers:** static, sealed` (only if modifiers exist)
-- `**Library:** Markout.dll`
 - `**Source:** https://...`
 - `**Samples:** N available` (only with `--docs`, indicates samples exist)
 
 ```markdown
+**Package:** System.Text.Json 10.0.0
+**TFM:** net10.0
+**Library:** lib/net10.0/System.Text.Json.dll
 **Kind:** class
 **Modifiers:** sealed
-**Library:** System.Text.Json.dll
 **Source:** https://github.com/.../JsonSerializer.cs
 **Samples:** 2 available
 ```
