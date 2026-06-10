@@ -4,7 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="MarkdownTable.Formatting" Version="0.3.3" />
-    <PackageVersion Include="Markout" Version="0.13.4" />
+    <PackageVersion Include="Markout" Version="0.13.5" />
     <PackageVersion Include="NuGet.Versioning" Version="7.3.0" />
     <PackageVersion Include="NuGetFetch" Version="0.6.1" />
     <PackageVersion Include="ShellComplete" Version="0.1.0" />
