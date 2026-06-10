@@ -382,6 +382,26 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SingleAudit_LibraryInfo_FieldsAreAlphabetical()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.AssemblyInfo!.InformationalVersion = "1.0.0+abc";
+        inspection.AssemblyInfo.MethodDefinitionCount = 42;
+        inspection.HasOpenTelemetrySupport = true;
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("| Architecture |", StringComparison.Ordinal)
+            < output.IndexOf("| Assembly Version |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Informational Version |", StringComparison.Ordinal)
+            < output.IndexOf("| Integrations |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Integrations |", StringComparison.Ordinal)
+            < output.IndexOf("| Methods |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Target Framework |", StringComparison.Ordinal)
+            < output.IndexOf("| Type Forwarders |", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SingleAudit_IncludesSymbols_AtDetailedVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");

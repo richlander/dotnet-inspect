@@ -122,31 +122,31 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "Library Info")]
     public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info ? null : new LibraryInfoSection
     {
-        Name = info.AssemblyName,
-        Version = ResolveVersion(),
-        InformationalVersion = info.InformationalVersion,
-        AssemblyVersion = info.AssemblyVersion,
-        TargetFramework = info.TargetFramework,
         Architecture = info.Architecture,
-        Compilation = info.CompilationType,
-        Product = info.Product,
-        Company = info.Company,
-        Copyright = info.Copyright,
-        Signed = info.IsSigned ? "Yes" : null,
-        PublicKeyToken = info.PublicKeyToken,
-        Deterministic = _data.IsDeterministic,
-        Reproducible = _data.HasReproducibleFlag,
-        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
-        Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
-        Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
+        AssemblyVersion = info.AssemblyVersion,
         AsyncMethods = CountOrZero(_data.AsyncMethods),
+        Company = info.Company,
+        Compilation = info.CompilationType,
+        Copyright = info.Copyright,
         CustomAttributes = CountOrZero(_data.CustomAttributes),
+        Deterministic = _data.IsDeterministic,
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
+        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
+        InformationalVersion = info.InformationalVersion,
         Integrations = CountIntegrations(_data),
-        Resources = CountOrZero(_data.Resources),
-        TypeForwarders = CountOrZero(_data.TypeForwarders),
-        Source = _data.Source,
+        Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
+        Name = info.AssemblyName,
+        Product = info.Product,
+        PublicKeyToken = info.PublicKeyToken,
+        Reproducible = _data.HasReproducibleFlag,
+        Resources = CountOrZero(_data.Resources),
+        Signed = info.IsSigned ? "Yes" : null,
+        Source = _data.Source,
+        TargetFramework = info.TargetFramework,
+        TypeForwarders = CountOrZero(_data.TypeForwarders),
+        Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
+        Version = ResolveVersion(),
     };
 
     [MarkoutSection(Name = "References")]
@@ -494,31 +494,31 @@ public record IntegrationSignalRow(
 [MarkoutSkipNull]
 public class LibraryInfoSection
 {
-    public string? AssemblyVersion { get; init; }
     public string? Architecture { get; init; }
+    public string? AssemblyVersion { get; init; }
+    public int AsyncMethods { get; init; }
     public string? Company { get; init; }
     public string? Compilation { get; init; }
     public string? Copyright { get; init; }
+    public int CustomAttributes { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Deterministic { get; init; }
+    public int ExtensionMethods { get; init; }
     public string? FileSize { get; init; }
     public string? InformationalVersion { get; init; }
-    public string? Methods { get; init; }
-    public int AsyncMethods { get; init; }
-    public int CustomAttributes { get; init; }
-    public int ExtensionMethods { get; init; }
     public int Integrations { get; init; }
-    public int Resources { get; init; }
-    public int TypeForwarders { get; init; }
+    public string? Methods { get; init; }
     public string? Modified { get; init; }
     public string? Name { get; init; }
     public string? Product { get; init; }
     public string? PublicKeyToken { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Reproducible { get; init; }
+    public int Resources { get; init; }
     public string? Signed { get; init; }
     public string? Source { get; init; }
     public string? TargetFramework { get; init; }
+    public int TypeForwarders { get; init; }
     public string? Types { get; init; }
     public string? Version { get; init; }
 }
