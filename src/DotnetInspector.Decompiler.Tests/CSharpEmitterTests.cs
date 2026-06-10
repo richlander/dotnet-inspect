@@ -100,6 +100,35 @@ public class CSharpEmitterTests
         Assert.Contains("/", output);
     }
 
+    // --- Exception filters (catch...when) ---
+
+    [Fact]
+    public void FilterCatch_EmitsWhenClause()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FilterCatch));
+
+        Assert.Contains("catch", output);
+        Assert.Contains("when", output);
+        Assert.Contains("FormatException", output);
+    }
+
+    [Fact]
+    public void FilterCatch_HandlerBodyIsNotDropped()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FilterCatch));
+
+        // The handler returns e.Message.Length — its body must appear.
+        Assert.Contains("Message", output);
+    }
+
+    [Fact]
+    public void FilterCatch_FilterCodeDoesNotLeakInline()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.FilterCatch));
+
+        Assert.DoesNotContain("endfilter", output);
+    }
+
     // --- Control flow ---
 
     [Fact]

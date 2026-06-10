@@ -212,6 +212,10 @@ public static class CSharpEmitter
 
             // Pre-detect using patterns to suppress local declarations
             ScanForUsingPatterns(structure.Root);
+
+            // Pre-detect exception-filter bool temps (declarations print before
+            // the filter is rendered as a when clause).
+            ScanForFilterLocals(structure.Root);
         }
 
         sealed class LockPattern
@@ -1464,6 +1468,18 @@ public static class CSharpEmitter
 
         void EmitIfThenElse(StructuredBlock block, int indent)
         {
+            // A consumed condition block means the construct was already rendered
+            // by a recognized pattern (e.g. an exception filter's blocks become a
+            // when clause) — emitting it again would leak the lowered form.
+            if (block.ConditionBlockIndex >= 0 && _consumedBlocks.Contains(block.ConditionBlockIndex))
+            {
+                if (block.ThenBlock is not null)
+                    ConsumeStructuredBlock(block.ThenBlock);
+                if (block.ElseBlock is not null)
+                    ConsumeStructuredBlock(block.ElseBlock);
+                return;
+            }
+
             // Skip constant-condition branches (Debug stepping markers like brtrue [ldc.i4.1])
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var earlyCondBlock))
             {
@@ -4029,6 +4045,171 @@ public static class CSharpEmitter
                 WriteIndent(indent);
                 _sb.AppendLine("}");
             }
+            else if (region.Kind == ExceptionRegionKind.Filter)
+            {
+                WriteIndent(indent);
+                _sb.AppendLine(BuildFilterCatchHeader(region));
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+                foreach (var child in handlerChildren)
+                    EmitStructuredBlock(child, indent + 1);
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+            else if (region.Kind == ExceptionRegionKind.Fault)
+            {
+                WriteIndent(indent);
+                _sb.AppendLine("finally /* fault: runs only when an exception escapes the try */");
+                WriteIndent(indent);
+                _sb.AppendLine("{");
+                foreach (var child in handlerChildren)
+                    EmitStructuredBlock(child, indent + 1);
+                WriteIndent(indent);
+                _sb.AppendLine("}");
+            }
+        }
+
+        /// <summary>
+        /// Builds a <c>catch (T name) when (cond)</c> header from a filter region
+        /// and consumes the filter code blocks so they don't leak into the output.
+        /// The C# compiler's filter shape is stable: <c>isinst T</c> on the
+        /// exception, a store to the catch local, the user condition normalized
+        /// with <c>ldc.i4.0 cgt.un</c>, then <c>endfilter</c>. Anything that
+        /// doesn't match falls back to a placeholder condition comment.
+        /// </summary>
+        string BuildFilterCatchHeader(ExceptionRegion region)
+        {
+            // Collect (and consume) the filter blocks: [FilterOffset, HandlerOffset).
+            var filterNodes = new List<ILAstNode>();
+            foreach (var (blockIdx, offset) in _blockStartOffset.OrderBy(kv => kv.Value))
+            {
+                if (offset < region.FilterOffset || offset >= region.HandlerOffset)
+                    continue;
+                _consumedBlocks.Add(blockIdx);
+                RemoveGotoTargetsForConsumedBlock(blockIdx);
+                if (_blockMap.TryGetValue(blockIdx, out var astBlock))
+                    filterNodes.AddRange(astBlock.Nodes);
+            }
+
+            string? exType = null;
+            string? catchVar = null;
+            ILAstExpression? conditionExpr = null;
+
+            foreach (var node in filterNodes)
+            {
+                if (NodeExpression(node) is not { } expr)
+                    continue;
+
+                // Exception type test: first isinst in the filter.
+                if (exType is null && FindOpcodeInTree(expr, ILOpCode.Isinst) is { Operand: string typeOp })
+                    exType = SimplifyTypeName(typeOp);
+
+                // Catch local: a store whose value involves the type-tested exception.
+                if (catchVar is null
+                    && node is ILAstStatement { Expression: var stExpr }
+                    && stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                        or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                    && stExpr.Arguments.Count == 1
+                    && (FindOpcodeInTree(stExpr.Arguments[0], ILOpCode.Isinst) is not null
+                        || stExpr.Arguments[0].Operand is string ld && ld.StartsWith("S_in_", StringComparison.Ordinal)))
+                {
+                    catchVar = stExpr.Operand ?? GetLocalName(stExpr.OpCode);
+                }
+
+                // User condition: bool-normalized as cgt.un(cond, 0) before endfilter.
+                if (expr.OpCode is ILOpCode.Cgt_un
+                    && expr.Arguments.Count == 2
+                    && IsZeroLiteral(expr.Arguments[1]))
+                {
+                    conditionExpr = expr.Arguments[0];
+                }
+            }
+
+            // The normalized condition is often just a load of a bool temp the
+            // filter assigned earlier — substitute the temp's defining expression.
+            if (conditionExpr is not null && GetLocalReferenceName(conditionExpr) is { } condLocal)
+            {
+                foreach (var node in filterNodes)
+                {
+                    if (node is ILAstStatement { Expression: var stExpr }
+                        && IsStoreToLocal(stExpr, condLocal)
+                        && stExpr.Arguments.Count == 1)
+                    {
+                        conditionExpr = stExpr.Arguments[0];
+                    }
+                }
+                _suppressedLocals.Add(condLocal);
+            }
+
+            // The handler refers to the exception as the synthetic incoming stack
+            // value; give it the catch variable's name (or one we invent).
+            string varName = catchVar ?? "ex";
+            _syntheticSubstitutions["S_in_0"] = varName;
+
+            string condition = conditionExpr is not null
+                ? ExpressionToString(conditionExpr)
+                : $"/* filter at IL_{region.FilterOffset:X4} */";
+            string header = exType is null ? $"catch ({varName})" : $"catch ({exType} {varName})";
+            return $"{header} when ({condition})";
+        }
+
+        /// <summary>
+        /// Suppresses declarations of bool temps that exception filters normalize
+        /// through (cgt.un(temp, 0) before endfilter) — the when-clause rendering
+        /// inlines their defining expression.
+        /// </summary>
+        void ScanForFilterLocals(StructuredBlock block)
+        {
+            var regions = new List<ExceptionRegion>();
+            if (block.ExceptionRegion is { Kind: ExceptionRegionKind.Filter } filterRegion)
+                regions.Add(filterRegion);
+            foreach (var addl in block.AdditionalHandlers)
+                if (addl.Region.Kind == ExceptionRegionKind.Filter)
+                    regions.Add(addl.Region);
+
+            foreach (var region in regions)
+            {
+                foreach (var (blockIdx, offset) in _blockStartOffset)
+                {
+                    if (offset < region.FilterOffset || offset >= region.HandlerOffset)
+                        continue;
+                    if (!_blockMap.TryGetValue(blockIdx, out var astBlock))
+                        continue;
+                    foreach (var node in astBlock.Nodes)
+                    {
+                        if (NodeExpression(node) is { OpCode: ILOpCode.Cgt_un, Arguments.Count: 2 } expr
+                            && IsZeroLiteral(expr.Arguments[1])
+                            && GetLocalReferenceName(expr.Arguments[0]) is { } condLocal)
+                        {
+                            _suppressedLocals.Add(condLocal);
+                        }
+                    }
+                }
+            }
+
+            foreach (var c in block.Children)
+                ScanForFilterLocals(c);
+            foreach (var c in block.TryChildren)
+                ScanForFilterLocals(c);
+            foreach (var c in block.HandlerChildren)
+                ScanForFilterLocals(c);
+            if (block.ThenBlock is not null)
+                ScanForFilterLocals(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ScanForFilterLocals(block.ElseBlock);
+        }
+
+        /// <summary>Depth-first search for an opcode in an expression tree.</summary>
+        static ILAstExpression? FindOpcodeInTree(ILAstExpression expr, ILOpCode opCode)
+        {
+            if (expr.OpCode == opCode)
+                return expr;
+            foreach (var arg in expr.Arguments)
+            {
+                if (FindOpcodeInTree(arg, opCode) is { } found)
+                    return found;
+            }
+            return null;
         }
 
         /// <summary>

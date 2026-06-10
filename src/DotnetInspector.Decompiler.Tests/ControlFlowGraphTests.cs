@@ -262,6 +262,18 @@ public class CfgSampleClass
 
     public static uint UnsignedDivide(uint a, uint b) => a / b;
 
+    public static int FilterCatch(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (FormatException e) when (s.Length > 3)
+        {
+            return e.Message.Length;
+        }
+    }
+
     public static string Classify(int x)
     {
         if (x > 0) return "positive";
