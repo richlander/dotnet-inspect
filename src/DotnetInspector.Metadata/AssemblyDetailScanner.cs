@@ -364,7 +364,14 @@ public static class AssemblyDetailScanner
 
         // Resources: cheapest check — just a count
         flags.HasManifestResources = reader.GetTableRowCount(TableIndex.ManifestResource) > 0;
-        flags.HasOpenTelemetrySupport = OpenTelemetryScanner.HasSupport(reader);
+        var integrationPresence = EcosystemIntegrationScanner.ScanPresence(reader);
+        flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
+        flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
+        flags.HasLoggingSupport = integrationPresence.HasLoggingSupport;
+        flags.HasOptionsSupport = integrationPresence.HasOptionsSupport;
+        flags.HasHostingSupport = integrationPresence.HasHostingSupport;
+        flags.HasHealthChecksSupport = integrationPresence.HasHealthChecksSupport;
+        flags.HasHttpClientSupport = integrationPresence.HasHttpClientSupport;
 
         // Type forwarders: iterate ExportedTypes, stop at first forwarder
         foreach (var handle in reader.ExportedTypes)
@@ -497,6 +504,12 @@ public class PresenceFlags
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
     public bool HasOpenTelemetrySupport { get; set; }
+    public bool HasDependencyInjectionSupport { get; set; }
+    public bool HasLoggingSupport { get; set; }
+    public bool HasOptionsSupport { get; set; }
+    public bool HasHostingSupport { get; set; }
+    public bool HasHealthChecksSupport { get; set; }
+    public bool HasHttpClientSupport { get; set; }
 
     /// <summary>Whether the assembly has any public runtime-async methods (impl flag 0x2000).</summary>
     public bool HasRuntimeAsync { get; set; }

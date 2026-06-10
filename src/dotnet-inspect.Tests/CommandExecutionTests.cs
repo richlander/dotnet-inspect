@@ -1893,9 +1893,15 @@ public class CommandExecutionTests
             [
                 "Async Methods",
                 "Custom Attributes",
+                "Dependency Injection",
                 "Extension Methods",
+                "Health Checks",
+                "Hosting",
+                "HTTP Client",
                 "Integrations",
+                "Logging",
                 "OpenTelemetry",
+                "Options",
                 "Resources",
                 "SourceLink Availability",
                 "SourceLink Integrity",
@@ -1918,6 +1924,33 @@ public class CommandExecutionTests
         Assert.Contains("| 1 | OpenTelemetry | 3 |", output);
         Assert.Contains("-S OpenTelemetry", output);
         Assert.DoesNotContain("## OpenTelemetry", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationsSection_RollsUpLogging()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Logging", output);
+        Assert.Contains("-S Logging", output);
+        Assert.DoesNotContain("## Logging", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LoggingSection_DetectsLoggingPrimitives()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Logging");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Logging", output);
+        Assert.Contains("| Logging | Logging APIs |", output);
+        Assert.Contains("Microsoft.Extensions.Logging.ILogger", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

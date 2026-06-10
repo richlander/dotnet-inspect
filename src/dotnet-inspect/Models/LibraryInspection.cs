@@ -209,10 +209,46 @@ public class LibraryInspection
     public List<IntegrationSummary>? Integrations { get; set; }
 
     /// <summary>
+    /// Metadata evidence of dependency injection integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? DependencyInjection { get; set; }
+
+    /// <summary>
+    /// Metadata evidence of logging integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? Logging { get; set; }
+
+    /// <summary>
     /// Metadata evidence of OpenTelemetry packages or .NET diagnostics primitives.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<OpenTelemetrySignal>? OpenTelemetry { get; set; }
+    public List<IntegrationSignal>? OpenTelemetry { get; set; }
+
+    /// <summary>
+    /// Metadata evidence of options-pattern integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? Options { get; set; }
+
+    /// <summary>
+    /// Metadata evidence of hosting integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? Hosting { get; set; }
+
+    /// <summary>
+    /// Metadata evidence of health-check integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? HealthChecks { get; set; }
+
+    /// <summary>
+    /// Metadata evidence of HttpClientFactory integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? HttpClient { get; set; }
 
     /// <summary>
     /// Manifest resources embedded in this assembly.
@@ -275,6 +311,30 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasOpenTelemetrySupport { get; set; }
 
+    /// <summary>Whether the assembly references dependency injection primitives.</summary>
+    [JsonIgnore]
+    public bool HasDependencyInjectionSupport { get; set; }
+
+    /// <summary>Whether the assembly references logging primitives.</summary>
+    [JsonIgnore]
+    public bool HasLoggingSupport { get; set; }
+
+    /// <summary>Whether the assembly references options-pattern primitives.</summary>
+    [JsonIgnore]
+    public bool HasOptionsSupport { get; set; }
+
+    /// <summary>Whether the assembly references hosting primitives.</summary>
+    [JsonIgnore]
+    public bool HasHostingSupport { get; set; }
+
+    /// <summary>Whether the assembly references health-check primitives.</summary>
+    [JsonIgnore]
+    public bool HasHealthChecksSupport { get; set; }
+
+    /// <summary>Whether the assembly references HttpClientFactory primitives.</summary>
+    [JsonIgnore]
+    public bool HasHttpClientSupport { get; set; }
+
     /// <summary>Whether the assembly has non-well-known custom attributes.</summary>
     [JsonIgnore]
     public bool HasAssemblyAttributes { get; set; }
@@ -321,7 +381,7 @@ public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays,
 
 public record IntegrationSummary(string Integration, int Count, string NextSection);
 
-public record OpenTelemetrySignal(string Area, string Signal, string Value, string Evidence);
+public record IntegrationSignal(string Area, string Signal, string Value, string Evidence);
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic

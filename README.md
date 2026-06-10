@@ -78,7 +78,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S "Async*" --count
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Logging
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 ```
@@ -89,7 +90,7 @@ For target-based queries, `-D` reports the effective schema by default: only sec
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"

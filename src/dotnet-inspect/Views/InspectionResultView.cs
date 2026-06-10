@@ -405,7 +405,7 @@ public record LibraryFileRow(
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]
 [MarkoutContext(typeof(IntegrationRow))]
-[MarkoutContext(typeof(OpenTelemetrySignalRow))]
+[MarkoutContext(typeof(IntegrationSignalRow))]
 [MarkoutContext(typeof(DependencyGroup))]
 [MarkoutContext(typeof(PackageDependency))]
 [MarkoutContext(typeof(FlatDependency))]

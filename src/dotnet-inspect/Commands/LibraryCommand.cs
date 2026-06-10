@@ -306,7 +306,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v5";
+    private const string EffectiveCategory = "effective-v6";
 
     static LibraryCommand()
     {

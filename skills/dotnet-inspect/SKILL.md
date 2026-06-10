@@ -124,13 +124,13 @@ Use `package` for NuGet package structure and registry-backed signals. Use `libr
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
 dnx dotnet-inspect -y -- package System.Text.Json -S "Library Files"
 dnx dotnet-inspect -y -- library System.Text.Json -S Signals
-dnx dotnet-inspect -y -- library System.Diagnostics.DiagnosticSource -S Integrations
+dnx dotnet-inspect -y -- library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dnx dotnet-inspect -y -- library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 ```
 
 `Signals` reports observations, not a safety or trust verdict. Library Signals include SourceLink presence, SourceLink availability, determinism, trim/AOT markers, async kind (`Runtime`, `State machine`, `Mixed`, or `None`), memory-safety metadata, unsafe/PInvoke observations, and direct references. Package Signals include TFMs, manifest, readme/license, dependencies, package signature, local provenance, vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age.
 
-Use the `Integrations` library section as a roll-up of detected ecosystem support and the next section to select. Use the `OpenTelemetry` library section for detailed OpenTelemetry package references and .NET diagnostics primitives such as `ActivitySource`, `DiagnosticSource`, and `System.Diagnostics.Metrics` types.
+Use the `Integrations` library section as a roll-up of detected ecosystem support and the next section to select. Integration sections currently include Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and OpenTelemetry. Use the `OpenTelemetry` library section for detailed OpenTelemetry package references and .NET diagnostics primitives such as `ActivitySource`, `DiagnosticSource`, and `System.Diagnostics.Metrics` types.
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 

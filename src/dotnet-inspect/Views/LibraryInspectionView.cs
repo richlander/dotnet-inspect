@@ -202,15 +202,50 @@ public class LibraryInspectionView
                 index == 0 ? _data.Integrations.Count.ToString() : "",
                 i.Integration,
                 i.Count,
-                $"-S {i.NextSection}"))
+                FormatSectionSelect(i.NextSection)))
             .ToList();
+
+    [MarkoutIgnore]
+    public bool HasDependencyInjection => _data.DependencyInjection is { Count: > 0 };
+
+    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjection))]
+    public List<IntegrationSignalRow>? DependencyInjectionSection => ToIntegrationSignalRows(_data.DependencyInjection);
+
+    [MarkoutIgnore]
+    public bool HasLogging => _data.Logging is { Count: > 0 };
+
+    [MarkoutSection(Name = "Logging", ShowWhenProperty = nameof(HasLogging))]
+    public List<IntegrationSignalRow>? LoggingSection => ToIntegrationSignalRows(_data.Logging);
 
     [MarkoutIgnore]
     public bool HasOpenTelemetry => _data.OpenTelemetry is { Count: > 0 };
 
     [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetry))]
-    public List<OpenTelemetrySignalRow>? OpenTelemetrySection =>
-        _data.OpenTelemetry?.Select(s => new OpenTelemetrySignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
+    public List<IntegrationSignalRow>? OpenTelemetrySection => ToIntegrationSignalRows(_data.OpenTelemetry);
+
+    [MarkoutIgnore]
+    public bool HasOptions => _data.Options is { Count: > 0 };
+
+    [MarkoutSection(Name = "Options", ShowWhenProperty = nameof(HasOptions))]
+    public List<IntegrationSignalRow>? OptionsSection => ToIntegrationSignalRows(_data.Options);
+
+    [MarkoutIgnore]
+    public bool HasHosting => _data.Hosting is { Count: > 0 };
+
+    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHosting))]
+    public List<IntegrationSignalRow>? HostingSection => ToIntegrationSignalRows(_data.Hosting);
+
+    [MarkoutIgnore]
+    public bool HasHealthChecks => _data.HealthChecks is { Count: > 0 };
+
+    [MarkoutSection(Name = "Health Checks", ShowWhenProperty = nameof(HasHealthChecks))]
+    public List<IntegrationSignalRow>? HealthChecksSection => ToIntegrationSignalRows(_data.HealthChecks);
+
+    [MarkoutIgnore]
+    public bool HasHttpClient => _data.HttpClient is { Count: > 0 };
+
+    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClient))]
+    public List<IntegrationSignalRow>? HttpClientSection => ToIntegrationSignalRows(_data.HttpClient);
 
     [MarkoutIgnore]
     public bool HasSourceLinkAudit => _data.AllSourcesAccessible.HasValue || _data.TotalSourceFiles > 0;
@@ -334,6 +369,12 @@ public class LibraryInspectionView
     private static int CountExtensionMethods(List<ExtensionMethodSummary>? methods)
         => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
+    private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
+        => signals?.Select(s => new IntegrationSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
+
+    private static string FormatSectionSelect(string section)
+        => section.Contains(' ', StringComparison.Ordinal) ? $"-S \"{section}\"" : $"-S {section}";
+
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -428,7 +469,7 @@ public record IntegrationRow(
     string Next);
 
 [MarkoutSerializable]
-public record OpenTelemetrySignalRow(
+public record IntegrationSignalRow(
     string Area,
     string Signal,
     string Value,
