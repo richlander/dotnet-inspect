@@ -364,6 +364,24 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SingleAudit_LibraryInfo_CountsIntegrationCategories()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasDependencyInjectionSupport = true;
+        inspection.HasLoggingSupport = true;
+        inspection.HasOpenTelemetrySupport = true;
+        inspection.OpenTelemetry =
+        [
+            new IntegrationSignal("Tracing API", "System.Diagnostics.ActivitySource"),
+            new IntegrationSignal("Metrics API", "System.Diagnostics.Metrics.Meter")
+        ];
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("| Integrations | 3 |", output);
+    }
+
+    [Fact]
     public void SingleAudit_IncludesSymbols_AtDetailedVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");

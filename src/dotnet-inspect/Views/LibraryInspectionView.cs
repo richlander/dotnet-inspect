@@ -142,6 +142,7 @@ public class LibraryInspectionView
         AsyncMethods = CountOrZero(_data.AsyncMethods),
         CustomAttributes = CountOrZero(_data.CustomAttributes),
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
+        Integrations = CountIntegrations(_data),
         Resources = CountOrZero(_data.Resources),
         TypeForwarders = CountOrZero(_data.TypeForwarders),
         Source = _data.Source,
@@ -369,6 +370,22 @@ public class LibraryInspectionView
     private static int CountExtensionMethods(List<ExtensionMethodSummary>? methods)
         => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
+    private static int CountIntegrations(LibraryInspection inspection)
+    {
+        if (inspection.Integrations is { Count: > 0 } integrations)
+            return integrations.Count;
+
+        var count = 0;
+        if (inspection.HasDependencyInjectionSupport) count++;
+        if (inspection.HasLoggingSupport) count++;
+        if (inspection.HasOpenTelemetrySupport) count++;
+        if (inspection.HasOptionsSupport) count++;
+        if (inspection.HasHostingSupport) count++;
+        if (inspection.HasHealthChecksSupport) count++;
+        if (inspection.HasHttpClientSupport) count++;
+        return count;
+    }
+
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
         => signals?.Select(s => new IntegrationSignalRow(s.Kind, MarkoutInline.Code(s.Name))).ToList();
 
@@ -490,6 +507,7 @@ public class LibraryInfoSection
     public int AsyncMethods { get; init; }
     public int CustomAttributes { get; init; }
     public int ExtensionMethods { get; init; }
+    public int Integrations { get; init; }
     public int Resources { get; init; }
     public int TypeForwarders { get; init; }
     public string? Modified { get; init; }
