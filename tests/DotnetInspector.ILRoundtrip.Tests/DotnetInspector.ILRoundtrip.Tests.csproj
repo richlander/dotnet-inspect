@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <OutputType>Exe</OutputType>
+    <ILAssemblerProject>$(MSBuildThisFileDirectory)../../external/ILAssembler/ILAssembler/ILAssembler.csproj</ILAssemblerProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.Metadata/DotnetInspector.Metadata.csproj" />
+    <!-- Vendored managed ILAssembler (orphan branch vendor/ilassembler), materialized
+         by eng/restore-ilassembler.sh. The Exists condition keeps evaluation from
+         failing outright; the target below gives the actionable error. -->
+    <ProjectReference Include="$(ILAssemblerProject)" Condition="Exists('$(ILAssemblerProject)')" />
+  </ItemGroup>
+
+  <Target Name="EnsureILAssemblerRestored"
+          BeforeTargets="CollectPackageReferences;BeforeBuild"
+          Condition="!Exists('$(ILAssemblerProject)')">
+    <Error Text="external/ILAssembler is missing. Run eng/restore-ilassembler.sh to materialize the vendor/ilassembler branch, then rebuild." />
+  </Target>
+
+</Project>

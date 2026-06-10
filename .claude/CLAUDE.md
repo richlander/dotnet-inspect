@@ -9,11 +9,17 @@ dotnet run --project src/dotnet-inspect.Tests
 dotnet run --project src/DotnetInspector.Decompiler.Tests
 dotnet run --project src/DotnetInspector.Services.Tests
 dotnet run --project tests/DotnetInspector.Metadata.Tests
+dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests
 ```
 
 `dotnet test` will silently produce no output and appear to hang.
 
 Some tests require `ilasm`/`ildasm` and will skip if not installed.
+
+`DotnetInspector.ILRoundtrip.Tests` requires the vendored managed ILAssembler
+(orphan branch `vendor/ilassembler`); run `eng/restore-ilassembler.sh` once to
+materialize it at `external/ILAssembler`. Edits under `external/ILAssembler`
+commit directly to the vendor branch — see its README for the fork policy.
 
 ## Building
 

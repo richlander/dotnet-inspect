@@ -31,8 +31,10 @@ public static class ILDisassembler
     /// <summary>
     /// Disassembles a method body into a list of IL instructions.
     /// Returns null if the method has no IL body (abstract, extern, etc.).
+    /// <paramref name="syntax"/> selects display rendering (default) or canonical
+    /// ilasm operand syntax (see <see cref="ILSyntax"/>).
     /// </summary>
-    public static List<ILInstruction>? Disassemble(PEReader peReader, MetadataReader reader, MethodDefinition method)
+    public static List<ILInstruction>? Disassemble(PEReader peReader, MetadataReader reader, MethodDefinition method, ILSyntax syntax = ILSyntax.Display)
     {
         if (method.RelativeVirtualAddress == 0)
             return null;
@@ -55,7 +57,7 @@ public static class ILDisassembler
         {
             int offset = position;
             var opCode = DecodeOpCode(ilBytes, ref position);
-            string? operand = DecodeOperand(opCode, ilBytes, ref position, reader);
+            string? operand = DecodeOperand(opCode, ilBytes, ref position, reader, syntax);
 
             instructions.Add(new ILInstruction(offset, GetDisplayName(opCode), operand));
         }
@@ -125,8 +127,9 @@ public static class ILDisassembler
         return (ILOpCode)first;
     }
 
-    static string? DecodeOperand(ILOpCode opCode, byte[] ilBytes, ref int position, MetadataReader reader)
+    static string? DecodeOperand(ILOpCode opCode, byte[] ilBytes, ref int position, MetadataReader reader, ILSyntax syntax = ILSyntax.Display)
     {
+        bool canonical = syntax == ILSyntax.Canonical;
         return GetOperandType(opCode) switch
         {
             OperandKind.None => null,
@@ -135,15 +138,31 @@ public static class ILDisassembler
             OperandKind.ShortI => ReadSByte(ilBytes, ref position).ToString(),
             OperandKind.I => ReadInt32(ilBytes, ref position).ToString(),
             OperandKind.I8 => ReadInt64(ilBytes, ref position).ToString(),
-            OperandKind.ShortR => ReadSingle(ilBytes, ref position).ToString(),
-            OperandKind.R => ReadDouble(ilBytes, ref position).ToString(),
+            // Canonical: bit-exact, culture-free ilasm forms (float32/float64 take
+            // the raw bits); display keeps the human-readable decimal rendering.
+            OperandKind.ShortR => canonical
+                ? $"float32(0x{BitConverter.SingleToInt32Bits(ReadSingle(ilBytes, ref position)):X8})"
+                : ReadSingle(ilBytes, ref position).ToString(),
+            OperandKind.R => canonical
+                ? $"float64(0x{BitConverter.DoubleToInt64Bits(ReadDouble(ilBytes, ref position)):X16})"
+                : ReadDouble(ilBytes, ref position).ToString(),
             OperandKind.ShortVariable => ReadByte(ilBytes, ref position).ToString(),
             OperandKind.Variable => ReadUInt16(ilBytes, ref position).ToString(),
-            OperandKind.String => ILTokenResolver.ResolveString(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Type => ILTokenResolver.ResolveType(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Method => ILTokenResolver.ResolveMethod(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Field => ILTokenResolver.ResolveField(reader, ReadInt32(ilBytes, ref position)),
-            OperandKind.Tok => ILTokenResolver.ResolveToken(reader, ReadInt32(ilBytes, ref position)),
+            OperandKind.String => canonical
+                ? CanonicalIL.ResolveString(reader, ReadInt32(ilBytes, ref position))
+                : ILTokenResolver.ResolveString(reader, ReadInt32(ilBytes, ref position)),
+            OperandKind.Type => canonical
+                ? CanonicalIL.ResolveType(reader, ReadInt32(ilBytes, ref position))
+                : ILTokenResolver.ResolveType(reader, ReadInt32(ilBytes, ref position)),
+            OperandKind.Method => canonical
+                ? CanonicalIL.ResolveMethod(reader, ReadInt32(ilBytes, ref position))
+                : ILTokenResolver.ResolveMethod(reader, ReadInt32(ilBytes, ref position)),
+            OperandKind.Field => canonical
+                ? CanonicalIL.ResolveField(reader, ReadInt32(ilBytes, ref position))
+                : ILTokenResolver.ResolveField(reader, ReadInt32(ilBytes, ref position)),
+            OperandKind.Tok => canonical
+                ? CanonicalIL.ResolveToken(reader, ReadInt32(ilBytes, ref position))
+                : ILTokenResolver.ResolveToken(reader, ReadInt32(ilBytes, ref position)),
             OperandKind.Sig => $"0x{ReadInt32(ilBytes, ref position):X8}",
             OperandKind.Switch => DecodeSwitch(ilBytes, ref position),
             _ => null
