@@ -207,7 +207,9 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(16, pipeline.AllSectionNames.Length);
+        Assert.Equal(18, pipeline.AllSectionNames.Length);
+        Assert.Contains("Integrations", pipeline.AllSectionNames);
+        Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
@@ -580,6 +582,42 @@ public class SectionPipelineTests
 
         Assert.DoesNotContain("Resources", effective);
         Assert.Contains("Resources", selected);
+    }
+
+    [Fact]
+    public void CanRender_OpenTelemetry_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasOpenTelemetrySupport = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OpenTelemetry" });
+
+        Assert.DoesNotContain("OpenTelemetry", effective);
+        Assert.Contains("OpenTelemetry", selected);
+    }
+
+    [Fact]
+    public void CanRender_Integrations_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasOpenTelemetrySupport = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integrations" });
+
+        Assert.DoesNotContain("Integrations", effective);
+        Assert.Contains("Integrations", selected);
     }
 
     [Fact]

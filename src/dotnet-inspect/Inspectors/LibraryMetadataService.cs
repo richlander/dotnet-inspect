@@ -76,6 +76,7 @@ internal static class LibraryMetadataService
             inspection.HasRuntimeAsync = presenceFlags.HasRuntimeAsync;
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
+            inspection.HasOpenTelemetrySupport = presenceFlags.HasOpenTelemetrySupport;
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
 
@@ -520,6 +521,73 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+        }
+    }
+
+    internal static List<OpenTelemetrySignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            return ScanOpenTelemetry(peReader, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    internal static void ScanIntegrations(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            ScanIntegrations(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning ecosystem integrations in {path}: {ex.Message}");
+        }
+    }
+
+    internal static void ScanIntegrations(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        inspection.OpenTelemetry = ScanOpenTelemetry(peReader, path, logger);
+        inspection.Integrations = BuildIntegrations(inspection.OpenTelemetry);
+    }
+
+    private static List<IntegrationSummary>? BuildIntegrations(List<OpenTelemetrySignal>? openTelemetry)
+    {
+        List<IntegrationSummary> integrations = [];
+
+        if (openTelemetry is { Count: > 0 })
+        {
+            integrations.Add(new IntegrationSummary(
+                "OpenTelemetry",
+                openTelemetry.Count,
+                "OpenTelemetry"));
+        }
+
+        return integrations.Count > 0 ? integrations : null;
+    }
+
+    internal static List<OpenTelemetrySignal>? ScanOpenTelemetry(PEReader peReader, string path, VerboseLogger logger)
+    {
+        try
+        {
+            var signals = OpenTelemetryScanner.Scan(peReader)
+                .Select(s => new OpenTelemetrySignal(s.Area, s.Signal, s.Value, s.Evidence))
+                .ToList();
+
+            return signals.Count > 0 ? signals : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
+            return null;
         }
     }
 

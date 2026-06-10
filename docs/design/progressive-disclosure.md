@@ -92,6 +92,8 @@ Some sections are explicit-only because they require stronger user intent than d
 Examples:
 
 ```bash
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "SourceLink Availability"
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 ```

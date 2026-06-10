@@ -203,6 +203,18 @@ public class LibraryInspection
     public List<AsyncMethodSummary>? AsyncMethods { get; set; }
 
     /// <summary>
+    /// Ecosystem integrations detected from package references and metadata usage.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSummary>? Integrations { get; set; }
+
+    /// <summary>
+    /// Metadata evidence of OpenTelemetry packages or .NET diagnostics primitives.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OpenTelemetrySignal>? OpenTelemetry { get; set; }
+
+    /// <summary>
     /// Manifest resources embedded in this assembly.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -259,6 +271,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasManifestResources { get; set; }
 
+    /// <summary>Whether the assembly references OpenTelemetry or .NET diagnostics telemetry primitives.</summary>
+    [JsonIgnore]
+    public bool HasOpenTelemetrySupport { get; set; }
+
     /// <summary>Whether the assembly has non-well-known custom attributes.</summary>
     [JsonIgnore]
     public bool HasAssemblyAttributes { get; set; }
@@ -302,6 +318,10 @@ public record class ClassifiedMethodSummary
 /// Summary of a dependency age window.
 /// </summary>
 public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
+
+public record IntegrationSummary(string Integration, int Count, string NextSection);
+
+public record OpenTelemetrySignal(string Area, string Signal, string Value, string Evidence);
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic

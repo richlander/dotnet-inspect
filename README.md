@@ -30,7 +30,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
+| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
@@ -78,6 +78,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S "Async*" --count
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 ```
 
@@ -87,6 +89,8 @@ For target-based queries, `-D` reports the effective schema by default: only sec
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals

@@ -193,6 +193,26 @@ public class LibraryInspectionView
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
     [MarkoutIgnore]
+    public bool HasIntegrations => _data.Integrations is { Count: > 0 };
+
+    [MarkoutSection(Name = "Integrations", ShowWhenProperty = nameof(HasIntegrations))]
+    public List<IntegrationRow>? IntegrationsSection =>
+        _data.Integrations?
+            .Select((i, index) => new IntegrationRow(
+                index == 0 ? _data.Integrations.Count.ToString() : "",
+                i.Integration,
+                i.Count,
+                $"-S {i.NextSection}"))
+            .ToList();
+
+    [MarkoutIgnore]
+    public bool HasOpenTelemetry => _data.OpenTelemetry is { Count: > 0 };
+
+    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetry))]
+    public List<OpenTelemetrySignalRow>? OpenTelemetrySection =>
+        _data.OpenTelemetry?.Select(s => new OpenTelemetrySignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
+
+    [MarkoutIgnore]
     public bool HasSourceLinkAudit => _data.AllSourcesAccessible.HasValue || _data.TotalSourceFiles > 0;
 
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
@@ -395,6 +415,20 @@ public record TypeForwarderRow(
 
 [MarkoutSerializable]
 public record AuditSignalRow(
+    string Area,
+    string Signal,
+    string Value,
+    string Evidence);
+
+[MarkoutSerializable]
+public record IntegrationRow(
+    string Integrations,
+    string Integration,
+    [property: MarkoutPropertyName("Evidence Count")] int EvidenceCount,
+    string Next);
+
+[MarkoutSerializable]
+public record OpenTelemetrySignalRow(
     string Area,
     string Signal,
     string Value,

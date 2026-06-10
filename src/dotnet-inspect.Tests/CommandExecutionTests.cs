@@ -1894,6 +1894,8 @@ public class CommandExecutionTests
                 "Async Methods",
                 "Custom Attributes",
                 "Extension Methods",
+                "Integrations",
+                "OpenTelemetry",
                 "Resources",
                 "SourceLink Availability",
                 "SourceLink Integrity",
@@ -1903,18 +1905,47 @@ public class CommandExecutionTests
             optInNames);
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
+    }
 
-        static string ExtractSectionName(string line)
+    [Fact]
+    public async Task LibraryCommand_IntegrationsSection_RollsUpOpenTelemetry()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| 1 | OpenTelemetry | 3 |", output);
+        Assert.Contains("-S OpenTelemetry", output);
+        Assert.DoesNotContain("## OpenTelemetry", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_OpenTelemetrySection_DetectsDiagnosticSourcePrimitives()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "OpenTelemetry");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## OpenTelemetry", output);
+        Assert.Contains("| Tracing | Activity APIs |", output);
+        Assert.Contains("| Metrics | Metrics APIs |", output);
+        Assert.Contains("System.Diagnostics.ActivitySource", output);
+        Assert.Contains("System.Diagnostics.Metrics.Meter", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    private static string ExtractSectionName(string line)
+    {
+        if (line.StartsWith('|'))
         {
-            if (line.StartsWith('|'))
-            {
-                var cells = line.Split('|', StringSplitOptions.TrimEntries);
-                return cells.Length > 1 ? cells[1] : line.Trim();
-            }
-
-            var marker = line.IndexOf("  section", StringComparison.Ordinal);
-            return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
+            var cells = line.Split('|', StringSplitOptions.TrimEntries);
+            return cells.Length > 1 ? cells[1] : line.Trim();
         }
+
+        var marker = line.IndexOf("  section", StringComparison.Ordinal);
+        return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
     }
 
     [Fact]

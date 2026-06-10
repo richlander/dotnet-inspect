@@ -20,6 +20,7 @@ public static class LibrarySections
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
+    public const string ScannerIntegrations = "Integrations";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -31,6 +32,8 @@ public static class LibrarySections
             .Add<SourceIntegrity>()
             .Add<Symbols>()
             .Add<Signals>()
+            .Add<Integrations>()
+            .Add<OpenTelemetry>()
             .Add<References>()
             .Add<Dependencies>()
             .Add<ExtensionMethods>()
@@ -60,7 +63,9 @@ public static class LibrarySections
             .Add(ScannerInfoCounts, ctx =>
                 LibraryMetadataService.ScanInfoCounts(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerAuditSignals, ctx =>
-                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerIntegrations, ctx =>
+                LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Primary section =====
@@ -94,6 +99,26 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
+    }
+
+    public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "OpenTelemetry";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.OpenTelemetry is { Count: > 0 } || model.HasOpenTelemetrySupport;
+    }
+
+    public sealed class Integrations : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Integrations";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.Integrations is { Count: > 0 } || model.HasOpenTelemetrySupport;
     }
 
     // ===== Opt-in SourceLink sections =====

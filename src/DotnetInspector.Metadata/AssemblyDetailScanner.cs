@@ -354,8 +354,8 @@ public static class AssemblyDetailScanner
     }
 
     /// <summary>
-    /// Cheap presence flags for section discovery. Single MetadataReader pass,
-    /// short-circuits at first match for each flag.
+    /// Cheap presence flags for section discovery. Uses metadata table scans
+    /// and short-circuits at first match for each flag where practical.
     /// </summary>
     public static PresenceFlags ScanPresenceFlags(PEReader peReader)
     {
@@ -364,6 +364,7 @@ public static class AssemblyDetailScanner
 
         // Resources: cheapest check — just a count
         flags.HasManifestResources = reader.GetTableRowCount(TableIndex.ManifestResource) > 0;
+        flags.HasOpenTelemetrySupport = OpenTelemetryScanner.HasSupport(reader);
 
         // Type forwarders: iterate ExportedTypes, stop at first forwarder
         foreach (var handle in reader.ExportedTypes)
@@ -495,6 +496,7 @@ public class PresenceFlags
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
+    public bool HasOpenTelemetrySupport { get; set; }
 
     /// <summary>Whether the assembly has any public runtime-async methods (impl flag 0x2000).</summary>
     public bool HasRuntimeAsync { get; set; }
