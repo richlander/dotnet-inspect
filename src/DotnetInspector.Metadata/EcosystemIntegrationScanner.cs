@@ -200,7 +200,7 @@ public static class EcosystemIntegrationScanner
             results.Add(new EcosystemIntegrationSignalInfo(
                 bucket.Integration,
                 bucket.ApiKind,
-                type));
+                TypeResolver.FormatDisplayName(type)));
     }
 
     private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)

@@ -89,7 +89,7 @@ public static class TypeDependencyScanner
             var match = typeIndex[matchKey];
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tree = BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
-            return new TypeDependencyResult(matchKey, tree);
+            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree);
         }
         finally
         {

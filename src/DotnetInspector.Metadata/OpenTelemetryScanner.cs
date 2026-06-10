@@ -161,7 +161,7 @@ public static class OpenTelemetryScanner
         Dictionary<string, string> types)
     {
         foreach (var type in OrderTypes(types))
-            results.Add(new OpenTelemetrySignalInfo(kind, type));
+            results.Add(new OpenTelemetrySignalInfo(kind, TypeResolver.FormatDisplayName(type)));
     }
 
     private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)

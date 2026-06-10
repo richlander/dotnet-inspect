@@ -370,7 +370,7 @@ public class LibraryInspectionView
         => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
-        => signals?.Select(s => new IntegrationSignalRow(s.Kind, s.Name)).ToList();
+        => signals?.Select(s => new IntegrationSignalRow(s.Kind, MarkoutInline.Code(s.Name))).ToList();
 
     private static string FormatSectionSelect(string section)
         => section.Contains(' ', StringComparison.Ordinal) ? $"-S \"{section}\"" : $"-S {section}";

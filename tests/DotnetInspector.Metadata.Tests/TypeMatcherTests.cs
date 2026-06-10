@@ -5,6 +5,14 @@ namespace DotnetInspector.Metadata.Tests;
 public class TypeMatcherTests
 {
     [Theory]
+    [InlineData("System.Diagnostics.Metrics.UpDownCounter`1", "System.Diagnostics.Metrics.UpDownCounter<T>")]
+    [InlineData("System.Collections.Generic.Dictionary`2", "System.Collections.Generic.Dictionary<T1, T2>")]
+    [InlineData("Outer`1+Inner`2", "Outer<T>+Inner<T1, T2>")]
+    [InlineData("System.String", "System.String")]
+    public void FormatDisplayName_rewrites_clr_generic_arity(string input, string expected)
+        => Assert.Equal(expected, TypeResolver.FormatDisplayName(input));
+
+    [Theory]
     [InlineData("Option<T>", 1)]
     [InlineData("Dictionary<K,V>", 2)]
     [InlineData("Action<T1,T2,T3>", 3)]

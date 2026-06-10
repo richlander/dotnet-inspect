@@ -67,4 +67,47 @@ public static class TypeResolver
     {
         return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
     }
+
+    /// <summary>
+    /// Formats raw metadata type names for display by replacing CLR generic arity suffixes
+    /// with readable type parameter placeholders.
+    /// </summary>
+    public static string FormatDisplayName(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName) || !typeName.Contains('`'))
+            return typeName;
+
+        var result = new System.Text.StringBuilder(typeName.Length + 8);
+        for (var i = 0; i < typeName.Length; i++)
+        {
+            if (typeName[i] != '`')
+            {
+                result.Append(typeName[i]);
+                continue;
+            }
+
+            var digitStart = i + 1;
+            var digitEnd = digitStart;
+            while (digitEnd < typeName.Length && char.IsDigit(typeName[digitEnd]))
+                digitEnd++;
+
+            if (digitEnd == digitStart || !int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity) || arity <= 0)
+            {
+                result.Append(typeName[i]);
+                continue;
+            }
+
+            result.Append('<');
+            for (var parameterIndex = 1; parameterIndex <= arity; parameterIndex++)
+            {
+                if (parameterIndex > 1)
+                    result.Append(", ");
+                result.Append(arity == 1 ? "T" : $"T{parameterIndex}");
+            }
+            result.Append('>');
+            i = digitEnd - 1;
+        }
+
+        return result.ToString();
+    }
 }

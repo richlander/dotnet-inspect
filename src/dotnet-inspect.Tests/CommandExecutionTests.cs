@@ -1951,7 +1951,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Logging", output);
         Assert.Contains("| Kind | Name |", output);
-        Assert.Contains("| Logging API | Microsoft.Extensions.Logging.ILogger |", output);
+        Assert.Contains("| Logging API | `Microsoft.Extensions.Logging.ILogger` |", output);
         Assert.Contains("Microsoft.Extensions.Logging.ILogger", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -1965,10 +1965,12 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## OpenTelemetry", output);
         Assert.Contains("| Kind | Name |", output);
-        Assert.Contains("| Tracing API | System.Diagnostics.ActivitySource |", output);
-        Assert.Contains("| Metrics API | System.Diagnostics.Metrics.Meter |", output);
+        Assert.Contains("| Tracing API | `System.Diagnostics.ActivitySource` |", output);
+        Assert.Contains("| Metrics API | `System.Diagnostics.Metrics.Meter` |", output);
+        Assert.Contains("| Metrics API | `System.Diagnostics.Metrics.UpDownCounter<T>` |", output);
         Assert.Contains("System.Diagnostics.ActivitySource", output);
         Assert.Contains("System.Diagnostics.Metrics.Meter", output);
+        Assert.DoesNotContain("UpDownCounter&#96;1", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

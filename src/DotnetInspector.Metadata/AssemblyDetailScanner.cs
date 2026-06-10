@@ -224,7 +224,7 @@ public static class AssemblyDetailScanner
 
             var ns = reader.GetString(exportedType.Namespace);
             var name = reader.GetString(exportedType.Name);
-            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+            var fullName = TypeResolver.FormatDisplayName(string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}");
 
             string targetAssembly = "";
             if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)

@@ -72,7 +72,7 @@ public static class TypeHierarchyScanner
                 continue;
 
             string? ns = reader.GetString(typeDef.Namespace);
-            string fullName = TypeResolver.GetFullName(ns, typeName);
+            string fullName = TypeResolver.FormatDisplayName(TypeResolver.GetFullName(ns, typeName));
             string kind = GetTypeKind(reader, typeDef);
 
             // Check base type
