@@ -41,14 +41,15 @@ internal static class AuditSignalBuilder
             using var peReader = new PEReader(stream);
             metadata = AssemblyDetailScanner.ScanAuditMetadata(peReader);
             pInvokeMethodCount = metadata.PInvokeMethodCount;
+
+            // Reuse the same reader for the classified-methods scan rather than re-opening the file.
+            if (inspection.UnsafeMethods == null || inspection.PInvokeMethods == null || inspection.AsyncMethods == null)
+                LibraryMetadataService.ScanClassifiedMethods(peReader, assemblyPath, inspection, logger);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning audit metadata in {assemblyPath}: {ex.Message}");
         }
-
-        if (inspection.UnsafeMethods == null || inspection.PInvokeMethods == null || inspection.AsyncMethods == null)
-            LibraryMetadataService.ScanClassifiedMethods(assemblyPath, inspection, logger);
 
         var context = new LibrarySignalContext(inspection, metadata, pInvokeMethodCount);
         AddLibrarySignals(signals, in context);

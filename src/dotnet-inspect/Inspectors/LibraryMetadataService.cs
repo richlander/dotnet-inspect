@@ -114,12 +114,21 @@ internal static class LibraryMetadataService
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {
-                // Fallback for non-pipeline callers
-                inspection.ExtensionMethods = ScanExtensionMethods(path, logger);
-                ScanClassifiedMethods(path, inspection, logger);
-                inspection.Resources = ScanResources(path, logger);
-                ScanCustomAttributes(path, inspection, logger);
-                ScanTypeForwarders(path, inspection, logger);
+                // Fallback for non-pipeline callers — open the assembly once for all five scans.
+                try
+                {
+                    using var stream = File.OpenRead(path);
+                    using var peReader = new PEReader(stream);
+                    inspection.ExtensionMethods = ScanExtensionMethods(peReader, path, logger);
+                    ScanClassifiedMethods(peReader, path, inspection, logger);
+                    inspection.Resources = ScanResources(peReader, path, logger);
+                    ScanCustomAttributes(peReader, path, inspection, logger);
+                    ScanTypeForwarders(peReader, path, inspection, logger);
+                }
+                catch (Exception ex)
+                {
+                    logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+                }
             }
 
             inspection.FileSize = pdbContext.FileSize;
@@ -393,7 +402,21 @@ internal static class LibraryMetadataService
         try
         {
             using var stream = File.OpenRead(path);
-            var extensions = ExtensionMethodScanner.FindAllExtensions(stream);
+            using var peReader = new PEReader(stream);
+            return ScanExtensionMethods(peReader, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    internal static List<ExtensionMethodSummary>? ScanExtensionMethods(PEReader peReader, string path, VerboseLogger logger)
+    {
+        try
+        {
+            var extensions = ExtensionMethodScanner.FindAllExtensions(peReader);
 
             var collapsed = extensions
                 .GroupBy(e => (e.MethodName, e.Kind, e.ExtensionClass, e.ExtendedType))
@@ -430,7 +453,20 @@ internal static class LibraryMetadataService
         try
         {
             using var stream = File.OpenRead(path);
-            var classified = MethodClassificationScanner.Scan(stream);
+            using var peReader = new PEReader(stream);
+            ScanClassifiedMethods(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+        }
+    }
+
+    internal static void ScanClassifiedMethods(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
+            var classified = MethodClassificationScanner.Scan(peReader);
             if (classified.Count == 0) return;
 
             var unsafe_ = classified
@@ -489,11 +525,22 @@ internal static class LibraryMetadataService
 
     internal static void ScanInfoCounts(string path, LibraryInspection inspection, VerboseLogger logger)
     {
-        inspection.ExtensionMethods ??= ScanExtensionMethods(path, logger);
-        ScanClassifiedMethods(path, inspection, logger);
-        inspection.Resources ??= ScanResources(path, logger);
-        ScanCustomAttributes(path, inspection, logger);
-        ScanTypeForwarders(path, inspection, logger);
+        // Open the assembly once and share the reader across all five scans instead of re-opening
+        // the same file per scan.
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            inspection.ExtensionMethods ??= ScanExtensionMethods(peReader, path, logger);
+            ScanClassifiedMethods(peReader, path, inspection, logger);
+            inspection.Resources ??= ScanResources(peReader, path, logger);
+            ScanCustomAttributes(peReader, path, inspection, logger);
+            ScanTypeForwarders(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -504,7 +551,21 @@ internal static class LibraryMetadataService
         try
         {
             using var stream = File.OpenRead(path);
-            var resources = ResourceScanner.Scan(stream);
+            using var peReader = new PEReader(stream);
+            return ScanResources(peReader, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    internal static List<ResourceSummary>? ScanResources(PEReader peReader, string path, VerboseLogger logger)
+    {
+        try
+        {
+            var resources = ResourceScanner.Scan(peReader);
             if (resources.Count == 0) return null;
 
             return resources
@@ -533,6 +594,18 @@ internal static class LibraryMetadataService
         {
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
+            ScanCustomAttributes(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
+        }
+    }
+
+    internal static void ScanCustomAttributes(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
             var attrs = AssemblyDetailScanner.ScanCustomAttributes(peReader);
             if (attrs.Count > 0)
             {
@@ -561,6 +634,18 @@ internal static class LibraryMetadataService
         {
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
+            ScanTypeForwarders(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
+        }
+    }
+
+    internal static void ScanTypeForwarders(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
             var forwarders = AssemblyDetailScanner.ScanTypeForwarders(peReader);
             if (forwarders.Count > 0)
             {
