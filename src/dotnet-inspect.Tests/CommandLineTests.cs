@@ -402,6 +402,39 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_MergesRepeatedSelectIntoOneSemicolonValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "-S", "Signals", "-S", "Library Files"]);
+
+        Assert.Equal(["package", "Foo", "-S", "Signals;Library Files"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndEqualsForm()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--select", "A", "--section=B", "-s", "C"]);
+
+        Assert.Equal(["package", "Foo", "-S", "A;B;C"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_MergesRepeatedColumns()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["member", "Foo", "--columns", "Select", "--columns", "Signature"]);
+
+        Assert.Equal(["member", "Foo", "--columns", "Select;Signature"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_SingleSelect_Unchanged()
+    {
+        var args = new[] { "package", "Foo", "-S", "Library Files" };
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(args, result);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithDllFile_PrependsLibrary()
     {
         var args = new[] { "artifacts/bin/Foo/debug/Foo.dll", "--json" };
