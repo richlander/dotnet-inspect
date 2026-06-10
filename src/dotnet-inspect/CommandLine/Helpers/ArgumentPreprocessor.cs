@@ -44,6 +44,13 @@ public static class ArgumentPreprocessor
         HeadLines = null;
         TailLines = null;
 
+        // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
+        // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
+        // ';'-joined token so repeated and separated forms behave the same.
+        args = MergeRepeatedListOption(args, SelectAliases, "-S");
+        args = MergeRepeatedListOption(args, ["--columns"], "--columns");
+        args = MergeRepeatedListOption(args, ["--fields"], "--fields");
+
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
         {
@@ -109,5 +116,61 @@ public static class ArgumentPreprocessor
             return ["router", .. args];
 
         return args;
+    }
+
+    private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
+
+    /// <summary>
+    /// Collapses repeated occurrences of a single-valued list option into one ';'-joined token at the
+    /// position of the first occurrence. Handles both `alias value` and `alias=value` forms.
+    /// </summary>
+    private static string[] MergeRepeatedListOption(string[] args, string[] aliases, string canonical)
+    {
+        int occurrences = 0;
+        foreach (var arg in args)
+            if (IsListOptionAlias(arg, aliases, out _)) occurrences++;
+        if (occurrences < 2)
+            return args;
+
+        var result = new List<string>(args.Length);
+        var values = new List<string>();
+        int valueSlot = -1;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (IsListOptionAlias(args[i], aliases, out var inlineValue))
+            {
+                var value = inlineValue ?? (i + 1 < args.Length ? args[++i] : null);
+                if (!string.IsNullOrEmpty(value))
+                    values.Add(value);
+
+                if (valueSlot < 0)
+                {
+                    result.Add(canonical);
+                    valueSlot = result.Count;
+                    result.Add("");
+                }
+                continue;
+            }
+            result.Add(args[i]);
+        }
+
+        result[valueSlot] = string.Join(';', values);
+        return [.. result];
+    }
+
+    private static bool IsListOptionAlias(string arg, string[] aliases, out string? inlineValue)
+    {
+        inlineValue = null;
+        foreach (var alias in aliases)
+        {
+            if (arg == alias)
+                return true;
+            if (arg.StartsWith(alias + "=", StringComparison.Ordinal))
+            {
+                inlineValue = arg[(alias.Length + 1)..];
+                return true;
+            }
+        }
+        return false;
     }
 }
