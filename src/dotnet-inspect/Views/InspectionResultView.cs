@@ -104,13 +104,13 @@ public class InspectionResultView
     public SigningSection? SigningSectionData => _data.SignatureResult is { } sig
         ? new SigningSection
         {
-            Signed = _data.Signed == true ? "Yes" : sig.IsUnsigned ? "No" : "Unknown",
+            AuthorVerified = sig.AuthorVerified ? "Yes" : sig.IsUnsigned ? "No" : null,
             Publisher = !string.IsNullOrEmpty(sig.Publisher)
                 ? $"{sig.Publisher}{(sig.AuthorVerified ? " (Verified)" : "")}"
                 : null,
-            AuthorVerified = sig.AuthorVerified ? "Yes" : sig.IsUnsigned ? "No" : null,
-            RepositoryVerified = sig.RepositoryVerified ? "Yes" : null,
             Repository = sig.Repository,
+            RepositoryVerified = sig.RepositoryVerified ? "Yes" : null,
+            Signed = _data.Signed == true ? "Yes" : sig.IsUnsigned ? "No" : "Unknown",
             Status = sig.StatusMessage,
         }
         : null;
@@ -366,13 +366,13 @@ public class InspectionResultView
 
 public class SigningSection
 {
-    public string Signed { get; init; } = "Unknown";
-    public string? Publisher { get; init; }
     [MarkoutPropertyName("Author Verified")]
     public string? AuthorVerified { get; init; }
+    public string? Publisher { get; init; }
+    public string? Repository { get; init; }
     [MarkoutPropertyName("Repository Verified")]
     public string? RepositoryVerified { get; init; }
-    public string? Repository { get; init; }
+    public string Signed { get; init; } = "Unknown";
     public string? Status { get; init; }
 }
 

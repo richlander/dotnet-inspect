@@ -266,17 +266,17 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "SourceLink Integrity", ShowWhenProperty = nameof(HasSourceIntegrity))]
     public SourceIntegritySection? SourceIntegritySection => !HasSourceIntegrity ? null : new SourceIntegritySection
     {
-        Status = _data.SourceIntegrityMismatched > 0 ? "Mismatch"
-            : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified",
-        Verified = _data.SourceIntegrityVerified,
+        CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
+            ? $"{_data.SourceIntegrityLineEndingNormalized} normalized"
+            : null,
         Mismatched = _data.SourceIntegrityMismatched,
         MismatchedFiles = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
             ? string.Join(", ", mismatches.Select(MarkoutInline.Code))
             : null,
-        CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
-            ? $"{_data.SourceIntegrityLineEndingNormalized} normalized"
-            : null,
-        Unverifiable = _data.SourceIntegrityUnverifiable
+        Status = _data.SourceIntegrityMismatched > 0 ? "Mismatch"
+            : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified",
+        Unverifiable = _data.SourceIntegrityUnverifiable,
+        Verified = _data.SourceIntegrityVerified,
     };
 
     [MarkoutIgnore]
@@ -559,11 +559,11 @@ public class SourceLinkAuditSection
 [MarkoutSkipNull]
 public class SourceIntegritySection
 {
+    [MarkoutPropertyName("CR/LF Mismatch")]
+    public string? CrlfMismatch { get; init; }
     public int Mismatched { get; init; }
     [MarkoutPropertyName("Mismatched Files")]
     public string? MismatchedFiles { get; init; }
-    [MarkoutPropertyName("CR/LF Mismatch")]
-    public string? CrlfMismatch { get; init; }
     public string Status { get; init; } = "";
     public int Unverifiable { get; init; }
     public int Verified { get; init; }

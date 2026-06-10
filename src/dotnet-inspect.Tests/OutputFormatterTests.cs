@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -539,6 +540,27 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SingleAudit_SourceIntegrity_FieldsAreAlphabetical()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.SourceIntegrityChecked = true;
+        inspection.SourceIntegrityVerified = 2;
+        inspection.SourceIntegrityMismatched = 1;
+        inspection.SourceIntegrityLineEndingNormalized = 1;
+        inspection.SourceIntegrityUnverifiable = 1;
+        inspection.SourceIntegrityMismatches = ["/_/src/A.cs"];
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("| CR/LF Mismatch |", StringComparison.Ordinal)
+            < output.IndexOf("| Mismatched |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Mismatched Files |", StringComparison.Ordinal)
+            < output.IndexOf("| Status |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Unverifiable |", StringComparison.Ordinal)
+            < output.IndexOf("| Verified |", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SingleAudit_Signals_DoNotRenderSourceLinkCrlfMismatch()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
@@ -755,6 +777,36 @@ public class OutputFormatterTests
         Assert.NotNull(writerOptions.Projection);
         Assert.Equal(["Name"], writerOptions.Projection!.IncludeColumns);
         Assert.Equal(["Title"], writerOptions.Projection!.IncludeFields);
+    }
+
+    [Fact]
+    public void PackageSignature_FieldsAreAlphabetical()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test.Package",
+            Version = "1.0.0",
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = true,
+                Publisher = "Example Publisher",
+                Repository = "nuget.org",
+                RepositoryVerified = true,
+                StatusMessage = "Valid"
+            }
+        };
+
+        var output = OutputFormatter.FormatResult(result, new InspectionOptions
+        {
+            IncludeSections = [PackageSections.Signature]
+        }, PackageSectionDescriptors.CreatePipeline());
+
+        Assert.True(output.IndexOf("| Author Verified |", StringComparison.Ordinal)
+            < output.IndexOf("| Publisher |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Repository |", StringComparison.Ordinal)
+            < output.IndexOf("| Repository Verified |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Signed |", StringComparison.Ordinal)
+            < output.IndexOf("| Status |", StringComparison.Ordinal));
     }
 
     // ===== Quiet Output Tests =====
