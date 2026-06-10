@@ -67,6 +67,12 @@ public sealed class ILAstExpression : ILAstNode
     /// </summary>
     public CallArgumentModifier ExpectedArgumentModifier { get; set; }
 
+    /// <summary>
+    /// Typed identity of a member operand (call target, field access), when the
+    /// builder resolved one. Null for non-member operands and synthetic nodes.
+    /// </summary>
+    public MemberRefInfo? Member { get; init; }
+
     public override void WriteTo(StringBuilder sb, int indent)
     {
         sb.Append(FormatOpCode(OpCode));

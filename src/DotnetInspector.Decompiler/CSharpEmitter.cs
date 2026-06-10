@@ -246,11 +246,8 @@ public static class CSharpEmitter
                 {
                     if (block.Nodes[i] is not ILAstStatement { Expression: var expr })
                         continue;
-                    if (expr.Operand is not string operand)
-                        continue;
-                    if (!operand.Contains(handlerType, StringComparison.Ordinal))
-                        continue;
-                    if (!operand.Contains("::.ctor", StringComparison.Ordinal))
+                    if (expr.Member is not { Name: ".ctor" } ctorMember
+                        || !ctorMember.DeclaringType.Contains(handlerType, StringComparison.Ordinal))
                         continue;
 
                     // Extract receiver variable name from first argument (ldloca V_x)
@@ -284,8 +281,8 @@ public static class CSharpEmitter
                         skipNodes.Add(block.Nodes[i]);
                         continue;
                     }
-                    if (callExpr.Operand is not string callOp
-                        || !callOp.Contains(handlerType, StringComparison.Ordinal))
+                    if (callExpr.Member is not { } callMember
+                        || !callMember.DeclaringType.Contains(handlerType, StringComparison.Ordinal))
                         break;
 
                     // Verify same receiver
@@ -293,7 +290,7 @@ public static class CSharpEmitter
                     string receiverName = RenderReceiverName(callExpr.Arguments[0]);
                     if (receiverName != handlerVar) break;
 
-                    if (callOp.Contains("::AppendLiteral", StringComparison.Ordinal))
+                    if (callMember.Name == "AppendLiteral")
                     {
                         // Literal text is the second argument (first is receiver)
                         string? literal = callExpr.Arguments.Count > 1
@@ -302,7 +299,7 @@ public static class CSharpEmitter
                         parts.Add(new InterpolationPart(true, literal ?? "", null));
                         skipNodes.Add(block.Nodes[i]);
                     }
-                    else if (callOp.Contains("::AppendFormatted", StringComparison.Ordinal))
+                    else if (callMember.Name == "AppendFormatted")
                     {
                         // Formatted expression is the second argument
                         var formatExpr = callExpr.Arguments.Count > 1 ? callExpr.Arguments[1] : null;
@@ -422,8 +419,7 @@ public static class CSharpEmitter
             awaiterVar = "";
 
             if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
-                && expr.Operand is string operand
-                && ExtractMemberName(operand) == "get_IsCompleted"
+                && expr.Member is { Name: "get_IsCompleted" }
                 && expr.Arguments.Count > 0
                 && GetLocalReferenceName(expr.Arguments[0]) is { } local)
             {
@@ -465,16 +461,17 @@ public static class CSharpEmitter
 
         static bool IsRuntimeAwaiterHelperCall(ILAstExpression expr, string awaiterVar)
         {
-            if (expr.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt)
-                || expr.Operand is not string operand)
+            if (expr.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt))
                 return false;
 
-            if (!operand.StartsWith("System.Runtime.CompilerServices.AsyncHelpers::", StringComparison.Ordinal))
+            if (expr.Member is not
+                {
+                    DeclaringType: "System.Runtime.CompilerServices.AsyncHelpers",
+                    Name: "AwaitAwaiter" or "UnsafeAwaitAwaiter"
+                })
+            {
                 return false;
-
-            string memberName = ExtractMemberName(operand);
-            if (memberName is not ("AwaitAwaiter" or "UnsafeAwaitAwaiter"))
-                return false;
+            }
 
             return expr.Arguments.Count == 1 && IsLoadOf(expr.Arguments[0], awaiterVar);
         }
@@ -513,8 +510,7 @@ public static class CSharpEmitter
         {
             awaitedExpression = null!;
             if (getAwaiterExpr.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt)
-                || getAwaiterExpr.Operand is not string operand
-                || ExtractMemberName(operand) != "GetAwaiter"
+                || getAwaiterExpr.Member is not { Name: "GetAwaiter" }
                 || getAwaiterExpr.Arguments.Count == 0)
             {
                 return false;
@@ -584,8 +580,7 @@ public static class CSharpEmitter
         static bool IsGetResultCallOnAwaiter(ILAstExpression expr, string awaiterVar)
             => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
                 && !expr.IsStaticCall
-                && expr.Operand is string operand
-                && ExtractMemberName(operand) == "GetResult"
+                && expr.Member is { Name: "GetResult" }
                 && expr.Arguments.Count > 0
                 && IsLoadOf(expr.Arguments[0], awaiterVar);
 
@@ -636,8 +631,7 @@ public static class CSharpEmitter
                 return false;
             }
 
-            if (initExpression.Operand is not string initOperand
-                || !initOperand.Contains("System.Threading.Lock::EnterScope", StringComparison.Ordinal)
+            if (initExpression.Member is not { DeclaringType: "System.Threading.Lock", Name: "EnterScope" }
                 || initExpression.IsStaticCall
                 || initExpression.Arguments.Count == 0)
             {
@@ -663,8 +657,7 @@ public static class CSharpEmitter
                     continue;
                 if (IsIgnorableLockTryNode(expr))
                     continue;
-                if (expr.Operand is string operand
-                    && operand.Contains("System.Threading.Monitor::Enter", StringComparison.Ordinal)
+                if (expr.Member is { DeclaringType: "System.Threading.Monitor", Name: "Enter" }
                     && expr.IsStaticCall
                     && expr.Arguments.Count > 0)
                 {
@@ -783,8 +776,7 @@ public static class CSharpEmitter
                     continue;
                 if (expr.OpCode is ILOpCode.Nop or ILOpCode.Endfinally)
                     continue;
-                if (expr.Operand is string operand
-                    && operand.Contains("System.Threading.Monitor::Exit", StringComparison.Ordinal)
+                if (expr.Member is { DeclaringType: "System.Threading.Monitor", Name: "Exit" }
                     && expr.IsStaticCall
                     && expr.Arguments.Count > 0
                     && IsLoadOf(expr.Arguments[0], lockVar))
@@ -831,8 +823,7 @@ public static class CSharpEmitter
 
                 if (sawGuard
                     && !sawExit
-                    && expr.Operand is string operand
-                    && operand.Contains("System.Threading.Monitor::Exit", StringComparison.Ordinal)
+                    && expr.Member is { DeclaringType: "System.Threading.Monitor", Name: "Exit" }
                     && expr.IsStaticCall
                     && expr.Arguments.Count > 0
                     && IsLoadOf(expr.Arguments[0], lockVar))
@@ -885,8 +876,7 @@ public static class CSharpEmitter
                     continue;
                 if (expr.OpCode == ILOpCode.Nop)
                     continue;
-                if (expr.Operand is string operand
-                    && operand.Contains("System.Threading.Monitor::Exit", StringComparison.Ordinal)
+                if (expr.Member is { DeclaringType: "System.Threading.Monitor", Name: "Exit" }
                     && expr.IsStaticCall
                     && expr.Arguments.Count > 0
                     && IsLoadOf(expr.Arguments[0], lockVar))
@@ -1110,8 +1100,7 @@ public static class CSharpEmitter
                             }
 
                             // If init is GetEnumerator, find and suppress the Current element variable
-                            if (initExpr?.Operand is string initOp
-                                && initOp.Contains("GetEnumerator", StringComparison.Ordinal))
+                            if (initExpr?.Member is { Name: "GetEnumerator" })
                             {
                                 ScanForCurrentVariable(child, disposeVar);
                             }
@@ -4247,8 +4236,7 @@ public static class CSharpEmitter
         static bool IsDisposeCall(ILAstExpression expr)
             => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
                 && !expr.IsStaticCall
-                && expr.Operand is string operand
-                && ExtractMemberName(operand) == "Dispose";
+                && expr.Member is { Name: "Dispose" };
 
         /// <summary>
         /// Verifies a finally handler consists solely of the dispose-of-variable
@@ -4366,8 +4354,7 @@ public static class CSharpEmitter
 
             // Check for foreach pattern: GetEnumerator + MoveNext loop + Current
             if (initExpression is not null
-                && initExpression.Operand is string initOp
-                && initOp.Contains("GetEnumerator", StringComparison.Ordinal)
+                && initExpression.Member is { Name: "GetEnumerator" }
                 && TryEmitForeach(block, disposeVar, initExpression, indent))
             {
                 // Handler blocks consumed
@@ -4548,7 +4535,7 @@ public static class CSharpEmitter
 
         static bool HasCallInTree(ILAstExpression expr, string methodName)
         {
-            if (expr.Operand is string op && op.Contains(methodName, StringComparison.Ordinal))
+            if (expr.Member is { } member && member.Name == methodName)
                 return true;
             foreach (var arg in expr.Arguments)
                 if (HasCallInTree(arg, methodName))
@@ -5614,13 +5601,12 @@ public static class CSharpEmitter
         static bool IsRuntimeAwaitCall(ILAstExpression expr) =>
             expr.IsStaticCall
             && expr.Arguments.Count == 1
-            && expr.Operand is "System.Runtime.CompilerServices.AsyncHelpers::Await";
+            && expr.Member is { DeclaringType: "System.Runtime.CompilerServices.AsyncHelpers", Name: "Await" };
 
         bool IsRuntimeCustomAwaitGetResultCall(ILAstExpression expr)
             => expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt
                 && !expr.IsStaticCall
-                && expr.Operand is string operand
-                && ExtractMemberName(operand) == "GetResult"
+                && expr.Member is { Name: "GetResult" }
                 && expr.Arguments.Count > 0
                 && GetLocalReferenceName(expr.Arguments[0]) is { } awaiterVar
                 && _runtimeCustomAwaitSources.ContainsKey(awaiterVar);
