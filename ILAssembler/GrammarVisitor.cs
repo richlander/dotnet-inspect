@@ -3307,7 +3307,10 @@ namespace ILAssembler
         public GrammarResult.Literal<ILOpCode> VisitInstr_var(CILParser.Instr_varContext context) => new(ParseOpCodeFromToken(((ITerminalNode)context.children[0]).Symbol));
         private static ILOpCode ParseOpCodeFromToken(IToken token)
         {
-            return (ILOpCode)Enum.Parse(typeof(ILOpCode), token.Text.Replace('.', '_'), ignoreCase: true);
+            // Prefix instructions carry a trailing dot (constrained., tail.,
+            // unaligned., volatile., readonly.) which must not become a trailing
+            // underscore — ILOpCode member names have none.
+            return (ILOpCode)Enum.Parse(typeof(ILOpCode), token.Text.Replace('.', '_').TrimEnd('_'), ignoreCase: true);
         }
 
         GrammarResult ICILVisitor<GrammarResult>.VisitInstr(CILParser.InstrContext context) => VisitInstr(context);
@@ -3331,7 +3334,10 @@ namespace ILAssembler
             bool negate = false;
             if (value.StartsWith("-".AsSpan()))
             {
+                // Strip the sign: the prefix checks below and NumberStyles.None
+                // (which rejects signs) must see the bare magnitude.
                 negate = true;
+                value = value.Slice(1);
             }
 
             if (value.StartsWith("0x".AsSpan()))
@@ -3343,7 +3349,7 @@ namespace ILAssembler
             {
                 // Octal support isn't built-in, so we'll do it manually.
                 result = 0;
-                for (int i = 0; i < value.Length; i++, result *= 8)
+                for (int i = 0; i < value.Length; i++)
                 {
                     int digitValue = value[i] - '0';
                     if (digitValue < 0 || digitValue > 7)
@@ -3351,8 +3357,9 @@ namespace ILAssembler
                         // COMPAT: native ilasm skips invalid digits silently
                         continue;
                     }
-                    result += digitValue;
+                    result = result * 8 + digitValue;
                 }
+                result *= negate ? -1 : 1;
                 return true;
             }
 
