@@ -28,6 +28,12 @@ public record InspectionOptions
     public string? Tfm { get; init; }
 
     /// <summary>
+    /// Library inside the package to inspect. Null means package inspection; empty string means select
+    /// the primary library when unambiguous; a non-empty value selects a specific DLL.
+    /// </summary>
+    public string? PackageLibrary { get; init; }
+
+    /// <summary>
     /// Show the package file tree (lib/tools structure).
     /// </summary>
     public bool ListLayout { get; init; }
@@ -189,7 +195,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count || PackageLibrary != null;
 
     /// <summary>
     /// All inspection features enabled.

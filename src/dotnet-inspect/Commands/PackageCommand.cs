@@ -26,10 +26,11 @@ public class PackageCommand
         var explicitVersion = options.ExplicitVersion;
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var sectionNames = pipeline.AllSectionNames;
+        bool packageLibraryMode = options.PackageLibrary != null;
 
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
-        if (options.Discover != null && (options.Schema || packageArgs.Length < 1))
+        if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
             var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
@@ -39,37 +40,40 @@ public class PackageCommand
         }
 
         // -D defaults to effective discovery for target-based commands.
-        bool effectiveDiscovery = options.Discover != null && !options.Schema;
+        bool effectiveDiscovery = !packageLibraryMode && options.Discover != null && !options.Schema;
         var userVerbosity = options.Verbosity; // preserve for display formatting
         if (effectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
-        // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames, pipeline.InfoSectionNames);
-        if (SelectOutput.WriteUnresolved(selectResult)) return 1;
-        if (selectResult.Sections != null)
-            options = options with { IncludeSections = selectResult.Sections };
-
-        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
-            return 1;
-
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
-            return 1;
-
-        // Auto-promote verbosity when -S targets specific sections
-        if (options.IncludeSections is { Count: > 0 })
+        if (!packageLibraryMode)
         {
-            var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
-            if (requiredVerbosity > options.Verbosity)
-                options = options with { Verbosity = requiredVerbosity };
-        }
+            // -S/--select with values: resolve as section filter for backpressure
+            var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames, pipeline.InfoSectionNames);
+            if (SelectOutput.WriteUnresolved(selectResult)) return 1;
+            if (selectResult.Sections != null)
+                options = options with { IncludeSections = selectResult.Sections };
 
-        // Pre-render validation: check --fields/--columns names against the section schema
-        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
-        {
-            var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
-            if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
+            if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
                 return 1;
+
+            if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
+                return 1;
+
+            // Auto-promote verbosity when -S targets specific sections
+            if (options.IncludeSections is { Count: > 0 })
+            {
+                var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
+                if (requiredVerbosity > options.Verbosity)
+                    options = options with { Verbosity = requiredVerbosity };
+            }
+
+            // Pre-render validation: check --fields/--columns names against the section schema
+            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+            {
+                var schemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
+                if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
+                    return 1;
+            }
         }
 
         if (packageArgs.Length < 1)
@@ -78,6 +82,9 @@ public class PackageCommand
             Console.Error.WriteLine("Run 'dotnet-inspect package --help' for usage.");
             return 1;
         }
+
+        if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
+            return 1;
 
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -266,6 +273,17 @@ public class PackageCommand
                 return await ShowDependencyTreeAsync(client, depResult, options, logger);
             }
 
+            if (options.PackageLibrary != null)
+            {
+                return await ExecutePackageLibraryAsync(
+                    extractPath,
+                    isLocalFile,
+                    packageArgs[0],
+                    packageName,
+                    version,
+                    options);
+            }
+
             long? packageSize = null;
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
             {
@@ -435,6 +453,184 @@ public class PackageCommand
         result.IsToolPackage = nuspec.IsToolPackage;
         result.ReadmeFile = nuspec.ReadmeFile;
         result.DependencyGroups = nuspec.DependencyGroups;
+    }
+
+    private static bool ValidatePackageLibraryMode(InspectionOptions options)
+    {
+        List<string> conflicts = [];
+        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListFiles) conflicts.Add("--files");
+        if (options.ListTfms) conflicts.Add("--tfms");
+        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ShowReadme) conflicts.Add("--readme");
+        if (options.ShowDependencies) conflicts.Add("--dependencies");
+        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
+
+        if (conflicts.Count == 0)
+            return true;
+
+        Console.Error.WriteLine($"Error: --library cannot be combined with {string.Join(", ", conflicts)}.");
+        return false;
+    }
+
+    private static async Task<int> ExecutePackageLibraryAsync(
+        string extractPath,
+        bool isLocalFile,
+        string packageArg,
+        string packageName,
+        string version,
+        InspectionOptions options)
+    {
+        var selected = ResolvePackageLibrary(extractPath, packageName, version, options);
+        if (selected == null)
+            return 1;
+
+        var packageReference = isLocalFile
+            ? packageArg
+            : !string.IsNullOrWhiteSpace(version)
+                ? $"{packageName}@{version}"
+                : packageName;
+
+        return await LibraryCommand.ExecuteAsync(new LibraryOptions
+        {
+            AssemblyName = Path.GetRelativePath(extractPath, selected.Path).Replace('\\', '/'),
+            IncludeMetadata = true,
+            PackagePath = packageReference,
+            IncludePrerelease = options.IncludePrerelease,
+            Tfm = options.Tfm,
+            JsonOutput = options.JsonOutput,
+            OneLine = options.OneLine,
+            Tsv = options.Tsv,
+            Jsonl = options.Jsonl,
+            OneLineExplicitlySet = options.OneLineExplicitlySet,
+            FormatExplicitlySet = options.FormatExplicitlySet,
+            Format = options.JsonOutput ? OutputFormat.Json
+                : options.Jsonl ? OutputFormat.Jsonl
+                : options.Tsv ? OutputFormat.Tsv
+                : options.OneLine ? OutputFormat.Table
+                : OutputFormat.Markdown,
+            Verbose = options.Verbose,
+            Verbosity = options.Verbosity,
+            IncludeSections = options.IncludeSections,
+            Discover = options.Discover,
+            Tree = options.Tree,
+            Select = options.Select,
+            Columns = options.Columns,
+            Fields = options.Fields,
+            Schema = options.Schema,
+            Count = options.Count,
+            Rows = options.Rows,
+            SourceOptions = options.SourceOptions,
+            NoHeader = options.NoHeader
+        });
+    }
+
+    private sealed record PackageLibrarySelection(string Path);
+
+    private static PackageLibrarySelection? ResolvePackageLibrary(
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options)
+    {
+        var requestedLibrary = options.PackageLibrary;
+        if (requestedLibrary == null)
+            return null;
+        var packageId = PackageExtractor.ParsePackageReference(packageName).name;
+
+        if (!string.IsNullOrWhiteSpace(requestedLibrary))
+        {
+            var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, requestedLibrary, options.Tfm);
+            if (matchedAssembly != null)
+                return new PackageLibrarySelection(matchedAssembly);
+
+            Console.Error.WriteLine($"Error: Library '{requestedLibrary}' not found in package '{packageName}'.");
+            WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+            return null;
+        }
+
+        var candidates = TfmSelector.GetPackageDlls(extractPath)
+            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+            return null;
+        }
+
+        string? selectedTfm = options.Tfm;
+        List<string> pool;
+        if (!string.IsNullOrWhiteSpace(options.Tfm))
+        {
+            pool = candidates
+                .Where(path => string.Equals(
+                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
+                    options.Tfm,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (pool.Count == 0)
+            {
+                Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
+                WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm);
+                return null;
+            }
+        }
+        else
+        {
+            var (highestTfmDlls, highestTfm) = TfmSelector.SelectHighestTfmAssemblies(candidates, extractPath);
+            pool = highestTfmDlls.Count > 0 ? highestTfmDlls : candidates;
+            selectedTfm = highestTfm;
+        }
+
+        if (pool.Count == 1)
+            return new PackageLibrarySelection(pool[0]);
+
+        var packageNameMatch = pool
+            .Where(path => Path.GetFileNameWithoutExtension(path).Equals(packageId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (packageNameMatch.Count == 1)
+            return new PackageLibrarySelection(packageNameMatch[0]);
+
+        Console.Error.WriteLine(selectedTfm == null
+            ? $"Error: Package '{packageName}' contains multiple libraries."
+            : $"Error: Package '{packageName}' contains multiple libraries for {selectedTfm}.");
+        WritePackageLibraryCandidates(extractPath, packageName, version, selectedTfm, pool);
+        return null;
+    }
+
+    private static void WritePackageLibraryCandidates(
+        string extractPath,
+        string packageName,
+        string version,
+        string? tfm,
+        List<string>? candidates = null)
+    {
+        candidates ??= TfmSelector.GetPackageDlls(extractPath)
+            .Where(path => !path.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .Where(path => string.IsNullOrWhiteSpace(tfm)
+                || string.Equals(
+                    TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/')),
+                    tfm,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (candidates.Count > 0)
+        {
+            Console.Error.WriteLine("Available libraries:");
+            foreach (var candidate in candidates
+                         .Select(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'))
+                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"  {candidate}");
+            }
+        }
+
+        var packageReference = !string.IsNullOrWhiteSpace(version)
+            ? $"{packageName}@{version}"
+            : packageName;
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Use:");
+        Console.Error.WriteLine($"  dotnet-inspect package {packageReference} --library <dll>");
     }
 
     private static void WarnEmptySections(InspectionResult result, InspectionOptions options,

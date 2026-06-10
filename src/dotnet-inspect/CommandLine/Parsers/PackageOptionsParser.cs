@@ -22,6 +22,7 @@ public static class PackageOptionsParser
         Option<bool> TfmsOption,
         Option<bool> LibOption,
         Option<bool> ToolsOption,
+        Option<string?> LibraryOption,
         Option<int?> VersionsOption,
         Option<bool> PrereleaseOption,
         Option<bool> ReadmeOption,
@@ -64,6 +65,10 @@ public static class PackageOptionsParser
 
         var explicitVersion = parseResult.GetValue(args.VersionOption);
         bool showLatestVersion = parseResult.GetValue(args.LatestVersionOption);
+        var libraryValue = parseResult.GetValue(args.LibraryOption);
+        var packageLibrary = parseResult.GetResult(args.LibraryOption) is { Implicit: false }
+            ? libraryValue ?? ""
+            : null;
 
         // Bare --version (no value): treat as version query (cache-first)
         bool bareVersion = explicitVersion == null && parseResult.GetResult(args.VersionOption) is { Implicit: false };
@@ -79,6 +84,7 @@ public static class PackageOptionsParser
             ExplicitVersion = explicitVersion,
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
+            PackageLibrary = packageLibrary,
             ListLayout = parseResult.GetValue(args.LayoutOption),
             ListFiles = parseResult.GetValue(args.FilesOption),
             ListTfms = parseResult.GetValue(args.TfmsOption),

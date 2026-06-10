@@ -58,6 +58,19 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalPrimaryLibPackage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(TestAssemblyPath, Path.Combine(libDir, "Test.Primary.dll"));
+
+        var packagePath = Path.Combine(tempDir, "Test.Primary.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
@@ -2082,6 +2095,89 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_BareSelectsUnambiguousLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## Library Info", output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_ExplicitSelectsLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "Latest.Two.dll", "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Latest.Two.dll", output);
+            Assert.Contains("## Library Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_BareReportsAmbiguousLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--library");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("contains multiple libraries", error);
+            Assert.Contains("lib/net10.0/Latest.One.dll", error);
+            Assert.Contains("lib/net10.0/Latest.Two.dll", error);
+            Assert.Contains("dotnet-inspect package", error);
+            Assert.Contains("--library <dll>", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Router_LibraryFlag_RoutesPackageToLibraryInspection()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(packagePath, "--library", "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## Library Info", output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

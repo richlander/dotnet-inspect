@@ -30,6 +30,11 @@ public static class PackageCommandDefinitions
         var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
         var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --files or --layout)" };
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --files or --layout)" };
+        var libraryOption = new Option<string?>("--library")
+        {
+            Description = "Inspect a library from this package; omit value to select the primary library when unambiguous",
+            Arity = ArgumentArity.ZeroOrOne
+        };
         var versionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
         versionsOption.DefaultValueFactory = _ => null;
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
@@ -46,6 +51,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
+        packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(readmeOption);
@@ -68,7 +74,7 @@ public static class PackageCommandDefinitions
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, filesOption, tfmsOption,
-            libOption, toolsOption, versionsOption, prereleaseOption, readmeOption,
+            libOption, toolsOption, libraryOption, versionsOption, prereleaseOption, readmeOption,
             tfmOption, versionOption, latestVersionOption, outOption, opts.OneLine, opts.NoHeaders);
 
         packageCommand.SetAction(async (parseResult, ct) =>
@@ -85,7 +91,7 @@ public static class PackageCommandDefinitions
                 {
                     var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
-                    if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
+                    if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
                     {
                         var pkg = success.Options.PackageArgs[0];
                         if (pkg.Contains('@')) pkg = pkg[..pkg.IndexOf('@')];
