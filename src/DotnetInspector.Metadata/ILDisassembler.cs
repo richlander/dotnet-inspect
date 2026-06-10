@@ -138,8 +138,14 @@ public static class ILDisassembler
             OperandKind.ShortI => ReadSByte(ilBytes, ref position).ToString(),
             OperandKind.I => ReadInt32(ilBytes, ref position).ToString(),
             OperandKind.I8 => ReadInt64(ilBytes, ref position).ToString(),
-            OperandKind.ShortR => ReadSingle(ilBytes, ref position).ToString(),
-            OperandKind.R => ReadDouble(ilBytes, ref position).ToString(),
+            // Canonical: bit-exact, culture-free ilasm forms (float32/float64 take
+            // the raw bits); display keeps the human-readable decimal rendering.
+            OperandKind.ShortR => canonical
+                ? $"float32(0x{BitConverter.SingleToInt32Bits(ReadSingle(ilBytes, ref position)):X8})"
+                : ReadSingle(ilBytes, ref position).ToString(),
+            OperandKind.R => canonical
+                ? $"float64(0x{BitConverter.DoubleToInt64Bits(ReadDouble(ilBytes, ref position)):X16})"
+                : ReadDouble(ilBytes, ref position).ToString(),
             OperandKind.ShortVariable => ReadByte(ilBytes, ref position).ToString(),
             OperandKind.Variable => ReadUInt16(ilBytes, ref position).ToString(),
             OperandKind.String => canonical

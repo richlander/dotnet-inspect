@@ -39,7 +39,7 @@ public class ILAssemblerRoundtripTests
         var result = IlasmScaffold.Assemble(il);
         Assert.True(result.Succeeded, $"Assembly failed:\n{result.Describe()}\n--- input ---\n{il}");
 
-        var roundtripped = IlasmScaffold.DisassembleByName(result.Image!, methodName);
+        var roundtripped = IlasmScaffold.DisassembleByName(result.Image!, methodName, nameof(RoundtripFixtures));
         Assert.NotNull(roundtripped);
 
         var originalOps = original.Select(i => IlasmScaffold.CanonicalOpcode(i.OpCodeName)).ToList();

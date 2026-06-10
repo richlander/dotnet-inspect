@@ -223,6 +223,7 @@ public static class CanonicalIL
     public static string QuoteName(string name)
     {
         bool needsQuote = name.Length == 0 || char.IsAsciiDigit(name[0]);
+        bool anyUpper = false;
         if (!needsQuote)
         {
             foreach (char c in name)
@@ -232,8 +233,15 @@ public static class CanonicalIL
                     needsQuote = true;
                     break;
                 }
+                anyUpper |= char.IsAsciiLetterUpper(c);
             }
         }
+
+        // ilasm keywords (type, value, method, handler, ...) are all lowercase;
+        // quoting every all-lowercase name sidesteps the entire collision class
+        // (over-quoting is always legal).
+        if (!needsQuote && !anyUpper)
+            needsQuote = true;
 
         return needsQuote
             ? $"'{name.Replace("\\", "\\\\").Replace("'", "\\'")}'"
@@ -319,21 +327,24 @@ public static class CanonicalIL
     static string FormatCall(MethodSignature<string> sig, string parent, string name, string? genericArgs)
     {
         string instance = sig.Header.IsInstance ? "instance " : "";
-        return $"{instance}{sig.ReturnType} {parent}::{name}{genericArgs}({string.Join(", ", sig.ParameterTypes)})";
+        // .ctor/.cctor are grammar keywords; every other member name may need
+        // quoting (compiler-generated names like <get_X>b__16_0).
+        string methodName = name is ".ctor" or ".cctor" ? name : QuoteName(name);
+        return $"{instance}{sig.ReturnType} {parent}::{methodName}{genericArgs}({string.Join(", ", sig.ParameterTypes)})";
     }
 
     static string FormatFieldDef(MetadataReader reader, FieldDefinitionHandle handle)
     {
         var field = reader.GetFieldDefinition(handle);
         string fieldType = field.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
-        return $"{fieldType} {QualifiedName(reader, field.GetDeclaringType())}::{reader.GetString(field.Name)}";
+        return $"{fieldType} {QualifiedName(reader, field.GetDeclaringType())}::{QuoteName(reader.GetString(field.Name))}";
     }
 
     static string FormatFieldMemberRef(MetadataReader reader, MemberReferenceHandle handle)
     {
         var memberRef = reader.GetMemberReference(handle);
         string fieldType = memberRef.DecodeFieldSignature(ILSignatureTypeProvider.Instance, genericContext: null);
-        return $"{fieldType} {FormatMemberRefParent(reader, memberRef.Parent)}::{reader.GetString(memberRef.Name)}";
+        return $"{fieldType} {FormatMemberRefParent(reader, memberRef.Parent)}::{QuoteName(reader.GetString(memberRef.Name))}";
     }
 
     /// <summary>
