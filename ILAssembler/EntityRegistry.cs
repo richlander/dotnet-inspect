@@ -247,6 +247,9 @@ namespace ILAssembler
                 }
             }
 
+            // One encoder for the whole stream: it maintains the 4-byte alignment
+            // required between fat method bodies.
+            var bodyStream = new MethodBodyStreamEncoder(ilStream);
             for (int i = 0; i < GetSeenEntities(TableIndex.MethodDef).Count; i++)
             {
                 MethodDefinitionEntity methodDef = (MethodDefinitionEntity)GetSeenEntities(TableIndex.MethodDef)[i];
@@ -257,7 +260,6 @@ namespace ILAssembler
                     // Write a complete method body — tiny/fat header, locals signature,
                     // branch fixups, and exception-region clauses — rather than raw code
                     // bytes, which produce an image PEReader.GetMethodBody cannot parse.
-                    var bodyStream = new MethodBodyStreamEncoder(ilStream);
                     rva = bodyStream.AddMethodBody(
                         methodDef.MethodBody,
                         methodDef.MaxStack,
