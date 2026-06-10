@@ -99,17 +99,9 @@ public static class IlasmScaffold
         // One extern per assembly ref in the source module so canonical
         // [asm]-qualified operands resolve regardless of which facade the
         // compiler bound against.
-        // ILAssembler's dottedName grammar rule lacks the ECMA-335 SQSTRING
-        // alternative, so names needing quoting (e.g. xunit.v3.mtp-v1) cannot be
-        // declared as externs at all (upstream gap). Skip them — fixture methods
-        // must not reference members from such assemblies.
         var externs = new StringBuilder();
         foreach (var arh in reader.AssemblyReferences)
-        {
-            string asmName = reader.GetString(reader.GetAssemblyReference(arh).Name);
-            if (CanonicalIL.QuoteDottedName(asmName) == asmName)
-                externs.AppendLine($".assembly extern {asmName} {{ }}");
-        }
+            externs.AppendLine($".assembly extern {CanonicalIL.QuoteDottedName(reader.GetString(reader.GetAssemblyReference(arh).Name))} {{ }}");
 
         // The wrapper class must carry the method's real declaring-type name so
         // self-referential operands (recursion, own fields) resolve in the

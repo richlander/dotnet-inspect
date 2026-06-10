@@ -153,27 +153,26 @@ public class ILAssemblerRoundtripTests
         Assert.Equal(["newobj", "stloc.0", "ldloc.0", "ldarg.0", "callvirt", "ldloc.0", "ret"], ops);
     }
 
-    [Fact]
-    public void SwitchWithIntegerOffsets_Assembles()
+    [Theory]
+    [InlineData("switch (12, 14)")]                 // integer offsets
+    [InlineData("switch (IL_000C, IL_000E)")]       // label list (vendor grammar fix)
+    public void Switch_Assembles(string switchLine)
     {
-        // Comma-separated IL_xxxx label lists hit an upstream grammar gap; integer
-        // offsets are the working form. If this starts failing after a vendor sync,
-        // re-check the upstream `labels` grammar rule.
-        string il = """
+        string il = $$"""
             .assembly roundtrip { }
             .class public auto ansi MiniSwitch
             {
               .method public hidebysig static int32 M(int32 'x') cil managed
               {
                 .maxstack 1
-                ldarg.0
-                switch (12, 14)
-                ldc.i4.0
-                ret
-                ldc.i4.1
-                ret
-                ldc.i4.2
-                ret
+                IL_0000: ldarg.0
+                IL_0001: {{switchLine}}
+                IL_000A: ldc.i4.0
+                IL_000B: ret
+                IL_000C: ldc.i4.1
+                IL_000D: ret
+                IL_000E: ldc.i4.2
+                IL_000F: ret
               }
             }
             """;
@@ -184,6 +183,34 @@ public class ILAssemblerRoundtripTests
         var ops = IlasmScaffold.DisassembleByName(result.Image!, "M")!
             .Select(i => i.OpCodeName).ToList();
         Assert.Contains("switch", ops);
+    }
+
+    [Fact]
+    public void QuotedDottedNameSegment_AssemblyExtern_Assembles()
+    {
+        // Names outside the identifier charset use ECMA-335 quoted segments
+        // (vendor grammar fix: dottedName gained the SQSTRING alternative).
+        string il = """
+            .assembly extern xunit.v3.'mtp-v1' { }
+            .assembly roundtrip { }
+            .class public auto ansi MiniQuoted
+            {
+              .method public hidebysig static void M() cil managed
+              {
+                .maxstack 8
+                ret
+              }
+            }
+            """;
+
+        var result = IlasmScaffold.Assemble(il);
+        Assert.True(result.Succeeded, result.Describe());
+
+        var reader = result.Image!.GetMetadataReader();
+        var names = reader.AssemblyReferences
+            .Select(h => reader.GetString(reader.GetAssemblyReference(h).Name))
+            .ToList();
+        Assert.Contains("xunit.v3.mtp-v1", names);
     }
 
     [Fact]
