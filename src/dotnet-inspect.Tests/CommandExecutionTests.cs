@@ -1413,7 +1413,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Library_TsvWithMultipleSelectedSections_ReturnsError()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             PlatformAssembly = "System.Text.Json",
             Select = ["Library Info", "Signals"],
@@ -1423,7 +1423,7 @@ public class CommandExecutionTests
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(1, exit);
         Assert.Contains("Selection matches 2 sections", error);
@@ -1707,15 +1707,15 @@ public class CommandExecutionTests
         Assert.Contains("No pattern", error);
     }
 
-    // ── assembly command ─────────────────────────────────────────────
+    // ── library command ─────────────────────────────────────────────
 
     [Fact]
     public async Task Assembly_PlatformLibrary_ShowsInfo()
     {
-        var options = new AssemblyOptions { PlatformAssembly = "System.Text.Json" };
+        var options = new LibraryOptions { PlatformAssembly = "System.Text.Json" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.Json", output);
@@ -1724,7 +1724,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Assembly_SingleSectionCount_WritesInteger()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             PlatformAssembly = "System.Text.Json",
             Select = ["Async*"],
@@ -1732,7 +1732,7 @@ public class CommandExecutionTests
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out var count), output);
@@ -1744,14 +1744,14 @@ public class CommandExecutionTests
     [Fact]
     public async Task Assembly_CountWithoutSingleSection_Errors()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             PlatformAssembly = "System.Text.Json",
             Count = true
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1782,10 +1782,10 @@ public class CommandExecutionTests
     [Fact]
     public async Task Assembly_LocalAssembly_ShowsInfo()
     {
-        var options = new AssemblyOptions { AssemblyName = TestAssemblyPath };
+        var options = new LibraryOptions { AssemblyName = TestAssemblyPath };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("dotnet-inspect.Tests", output);
@@ -1794,14 +1794,14 @@ public class CommandExecutionTests
     [Fact]
     public async Task Assembly_Signals_ShowsMetadataSignalsOnly()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             PlatformAssembly = "System.Text.Json",
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -1818,14 +1818,14 @@ public class CommandExecutionTests
     [Fact]
     public async Task Assembly_SignalsSectionSelection_PopulatesReferenceSignals()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             PlatformAssembly = "System.Text.Json",
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("Direct assembly references", output);
@@ -1937,14 +1937,14 @@ public class CommandExecutionTests
     [Fact]
     public async Task Assembly_Signals_LocalUnsafeAssembly_FocusesOnNewMemorySafetyModel()
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => AssemblyCommand.ExecuteAsync(options));
+            () => LibraryCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("| Memory safety | Memory safety model | Not marked |", output);

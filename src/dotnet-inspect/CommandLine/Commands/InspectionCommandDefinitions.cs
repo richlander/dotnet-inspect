@@ -7,7 +7,7 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the diff and library (assembly) commands.
+/// Defines the diff and library commands.
 /// </summary>
 public static class InspectionCommandDefinitions
 {
@@ -101,7 +101,7 @@ public static class InspectionCommandDefinitions
         return diffCommand;
     }
 
-    public static Command CreateAssemblyCommand(SharedOptions opts)
+    public static Command CreateLibraryCommand(SharedOptions opts)
     {
         var assemblyCommand = new Command("library", "Inspect a .NET library file");
 
@@ -180,7 +180,7 @@ public static class InspectionCommandDefinitions
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
 
-            var options = new AssemblyOptions
+            var options = new LibraryOptions
             {
                 AssemblyName = assemblyPath,
                 IncludeMetadata = true,
@@ -215,7 +215,7 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            return await AssemblyCommand.ExecuteAsync(options);
+            return await LibraryCommand.ExecuteAsync(options);
         });
 
         return assemblyCommand;

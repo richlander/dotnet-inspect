@@ -18,9 +18,9 @@ namespace DotnetInspector.Commands;
 /// <summary>
 /// Inspects a single .NET assembly.
 /// </summary>
-public class AssemblyCommand
+public class LibraryCommand
 {
-    public static async Task<int> ExecuteAsync(AssemblyOptions options)
+    public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
         var assemblyPath = options.AssemblyName;
         var pipeline = LibrarySections.CreatePipeline();
@@ -284,7 +284,7 @@ public class AssemblyCommand
     }
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
-        AssemblyOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
+        LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal)
     {
         // Compute all target-available sections for caching, including opt-in sections.
         var allEffective = pipeline.GetAvailableSections(inspection);
@@ -308,7 +308,7 @@ public class AssemblyCommand
 
     private const string EffectiveCategory = "effective-v3";
 
-    static AssemblyCommand()
+    static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
     }
@@ -356,14 +356,14 @@ public class AssemblyCommand
         return $"{assemblyPath}#{size}";
     }
 
-    private static List<string> FilterEffective(List<string> sections, AssemblyOptions options)
+    private static List<string> FilterEffective(List<string> sections, LibraryOptions options)
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
         return sections;
     }
 
-    private static int RenderEffective(List<string> effective, DocumentSchema schema, AssemblyOptions options,
+    private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
         Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
@@ -421,7 +421,7 @@ public class AssemblyCommand
         return filtered;
     }
 
-    private static void WarnEmptySections(LibraryInspection inspection, AssemblyOptions options,
+    private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
@@ -432,7 +432,7 @@ public class AssemblyCommand
         }
     }
 
-    private static void ExtractResourcesIfRequested(string assemblyPath, AssemblyOptions options, VerboseLogger logger)
+    private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options, VerboseLogger logger)
     {
         if (string.IsNullOrEmpty(options.ExtractResources))
             return;
@@ -461,7 +461,7 @@ public class AssemblyCommand
     }
 
     private static async Task<List<LibraryInspection>> CollectPackageInspectionsAsync(
-        List<string> assemblyPaths, AssemblyOptions options, VerboseLogger logger,
+        List<string> assemblyPaths, LibraryOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null)

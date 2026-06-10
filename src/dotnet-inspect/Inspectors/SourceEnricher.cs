@@ -17,7 +17,7 @@ internal static class SourceEnricher
     // ===== PDB Acquisition =====
 
     /// <summary>
-    /// Orchestrates PDB download for a PdbContext. Shared by AssemblyCommand and API enrichment.
+    /// Orchestrates PDB download for a PdbContext. Shared by LibraryCommand and API enrichment.
     /// </summary>
     internal static async Task AcquirePdbAsync(
         PdbContext context, HttpClient httpClient,

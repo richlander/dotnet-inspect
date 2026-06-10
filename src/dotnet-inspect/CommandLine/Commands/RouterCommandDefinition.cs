@@ -81,11 +81,11 @@ public static class RouterCommandDefinition
                     Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
                     return 1;
 
-                case RouterOptionsParser.RouteToAssemblyFile route:
-                    return await AssemblyCommand.ExecuteAsync(route.Options);
+                case RouterOptionsParser.RouteToLibraryFile route:
+                    return await LibraryCommand.ExecuteAsync(route.Options);
 
-                case RouterOptionsParser.RouteToPlatformAssembly route:
-                    return await ExecutePlatformAssemblyAsync(route, opts, parseResult, commandArgs);
+                case RouterOptionsParser.RouteToPlatformLibrary route:
+                    return await ExecutePlatformLibraryAsync(route, opts, parseResult, commandArgs);
 
                 case RouterOptionsParser.HandleVersionQuery query:
                     return await ExecuteVersionQueryAsync(query, opts, parseResult, routerVersionsOption);
@@ -107,8 +107,8 @@ public static class RouterCommandDefinition
         return routerCommand;
     }
 
-    private static async Task<int> ExecutePlatformAssemblyAsync(
-        RouterOptionsParser.RouteToPlatformAssembly route,
+    private static async Task<int> ExecutePlatformLibraryAsync(
+        RouterOptionsParser.RouteToPlatformLibrary route,
         SharedOptions opts,
         ParseResult parseResult,
         RouterOptionsParser.RouterCommandArgs commandArgs)
@@ -122,7 +122,7 @@ public static class RouterCommandDefinition
 
         if (resolvedPath != null && resolvedError == null)
         {
-            var assemblyExitCode = await AssemblyCommand.ExecuteAsync(route.Options);
+            var assemblyExitCode = await LibraryCommand.ExecuteAsync(route.Options);
 
             if (assemblyExitCode == 0 && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
             {

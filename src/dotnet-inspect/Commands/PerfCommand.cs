@@ -111,13 +111,13 @@ public static class PerfCommand
 
     private static async Task RunLibraryAsync(string platformLibrary)
     {
-        var options = new AssemblyOptions
+        var options = new LibraryOptions
         {
             PlatformAssembly = platformLibrary,
             IncludeMetadata = true,
             Verbosity = Verbosity.Quiet
         };
-        await AssemblyCommand.ExecuteAsync(options);
+        await LibraryCommand.ExecuteAsync(options);
     }
 
     private static async Task RunTypeAsync(string target)

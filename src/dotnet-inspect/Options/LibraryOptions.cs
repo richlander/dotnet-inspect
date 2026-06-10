@@ -5,7 +5,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for assembly inspection.
 /// </summary>
-public record AssemblyOptions
+public record LibraryOptions
 {
     /// <summary>
     /// Assembly name within a package (positional argument).
@@ -181,12 +181,12 @@ public record AssemblyOptions
     /// <summary>
     /// Default options: basic assembly info only.
     /// </summary>
-    public static AssemblyOptions Default => new();
+    public static LibraryOptions Default => new();
 
     /// <summary>
     /// All inspection features enabled.
     /// </summary>
-    public static AssemblyOptions All => new()
+    public static LibraryOptions All => new()
     {
     };
 
