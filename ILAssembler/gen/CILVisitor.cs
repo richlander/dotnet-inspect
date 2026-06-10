@@ -45,6 +45,12 @@ public interface ICILVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitDottedName([NotNull] CILParser.DottedNameContext context);
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="CILParser.dottedNamePart"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitDottedNamePart([NotNull] CILParser.DottedNamePartContext context);
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="CILParser.compQstring"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>

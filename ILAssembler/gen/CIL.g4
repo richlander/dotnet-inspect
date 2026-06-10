@@ -397,7 +397,12 @@ id:
 	| 'async'
 	| 'extended'
 	| SQSTRING;
-dottedName: DOTTEDNAME | ((ID '.')* ID);
+// ECMA-335: DottedName ::= Id ('.' Id)* where Id ::= ID | SQSTRING. The lexer's
+// maximal munch folds runs of unquoted segments into one DOTTEDNAME token, so a
+// part is a pre-folded run, a bare ID, or a quoted segment (e.g. xunit.v3.'mtp-v1').
+dottedName: dottedNamePart ('.' dottedNamePart)*;
+
+dottedNamePart: DOTTEDNAME | ID | SQSTRING;
 compQstring: (QSTRING PLUS)* QSTRING;
 
 
@@ -680,7 +685,7 @@ instr:
 
 labels:
 	/* empty */
-	| (id | int32 ',')* (id | int32);
+	| ((id | int32) ',')* (id | int32);
 
 typeArgs: '<' (type ',')* type '>';
 

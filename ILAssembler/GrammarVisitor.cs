@@ -1900,7 +1900,33 @@ namespace ILAssembler
 
         public static GrammarResult.String VisitDottedName(CILParser.DottedNameContext context)
         {
-            return new(context.GetText());
+            var parts = context.dottedNamePart();
+            if (parts.Length == 1)
+            {
+                return new(VisitDottedNamePart(parts[0]).Value);
+            }
+
+            StringBuilder name = new();
+            foreach (var part in parts)
+            {
+                if (name.Length > 0)
+                {
+                    name.Append('.');
+                }
+                name.Append(VisitDottedNamePart(part).Value);
+            }
+            return new(name.ToString());
+        }
+
+        GrammarResult ICILVisitor<GrammarResult>.VisitDottedNamePart(CILParser.DottedNamePartContext context) => VisitDottedNamePart(context);
+
+        public static GrammarResult.String VisitDottedNamePart(CILParser.DottedNamePartContext context)
+        {
+            // Quoted segments (SQSTRING) carry names outside the identifier
+            // charset, e.g. xunit.v3.'mtp-v1'; store the unescaped raw name.
+            return context.SQSTRING() is { } quoted
+                ? new(StringHelpers.ParseQuotedString(quoted.GetText()))
+                : new(context.GetText());
         }
         GrammarResult ICILVisitor<GrammarResult>.VisitElementType(CILParser.ElementTypeContext context) => VisitElementType(context);
         public GrammarResult.FormattedBlob VisitElementType(CILParser.ElementTypeContext context)
