@@ -149,6 +149,9 @@ public class CSharpEmitterTests
         string output = EmitCoreLibMethod("System.Math", "Abs", overloadIndex: 0);
 
         Assert.Contains("    Math.ThrowNegateTwosCompOverflow();", output);
+        // The inner guard's branch-to-return renders as a conditional return.
+        Assert.Contains("if (value >= 0) return value;", output);
+        Assert.DoesNotContain("goto", output);
     }
 
     [Fact]
@@ -160,6 +163,8 @@ public class CSharpEmitterTests
         string output = EmitCoreLibMethod("System.Collections.Generic.List`1", "Clear");
 
         Assert.Contains("    Array.Clear", output);
+        Assert.Contains("if (V_0 <= 0) return;", output);
+        Assert.DoesNotContain("goto", output);
     }
 
     // --- Generic ldelem (type-parameter element access) ---
