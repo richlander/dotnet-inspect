@@ -79,9 +79,6 @@ public static class CommandLineBuilder
         // Cache command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateCacheCommand(opts));
 
-        // Demo command
-        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateDemoCommand(rootCommand, opts));
-
         // Diff command
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
 

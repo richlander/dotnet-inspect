@@ -633,7 +633,8 @@ public static class ILAstBuilder
                 {
                     OpCode = opcode, Operand = name,
                     ResultType = StackValue.CreatePrimitive(StackValueKind.NativeInt),
-                    Offset = offset
+                    Offset = offset,
+                    Member = name is null ? null : MemberRefInfo.FromQualifiedName(name)
                 };
             }
 
@@ -647,7 +648,8 @@ public static class ILAstBuilder
                     OpCode = opcode, Operand = name,
                     Arguments = { obj },
                     ResultType = StackValue.CreatePrimitive(StackValueKind.NativeInt),
-                    Offset = offset
+                    Offset = offset,
+                    Member = name is null ? null : MemberRefInfo.FromQualifiedName(name)
                 };
             }
 

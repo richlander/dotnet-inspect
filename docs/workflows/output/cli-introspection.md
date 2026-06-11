@@ -23,7 +23,6 @@ dotnet-inspect -v:n
 
 ```expect
 ├─ cache
-├─ demo
 ├─ depends
 ├─ diff
 ├─ extensions

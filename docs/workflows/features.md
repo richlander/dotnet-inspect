@@ -23,7 +23,7 @@
 | `implements` command | 7a59766 | 0.1.x | ✓ | Find types implementing an interface |
 | `cli` command | b2bb428 | 0.2.x | ✓ | Display CLI structure as API listing (now `--help -v`) |
 | `skill` command | 385ba19 | 0.2.x | ✓ | Print SKILL.md for Claude Code |
-| `demo` command | c378030 | 0.4.0 | ✓ | Run curated demo queries |
+| `demo` command | c378030 | 0.4.0 | ✗ | Removed; use workflow docs for guided examples |
 | `depends` command | c378030 | 0.4.0 | ✓ | Walk type dependency graphs upward |
 | `member` command | 14f93c9 | 0.5.0 | ✓ | Inspect type members (split from `api`) |
 | `package search` | — | 0.2.x | ✓ | Search NuGet for packages by keyword |
@@ -213,15 +213,6 @@
 | Lowered C# section | b033660 | 0.3.x | Decompiled C# faithful to IL |
 | IL (Annotated) section | — | 0.3.x | IL with stack state annotations |
 | `source --il-offset` | — | 0.8.0 | Map MethodDef token + IL offset to source file location |
-
-## Demo and Documentation
-
-| Feature | Commit | Version | Description |
-| --------- | -------- | --------- | ------------- |
-| `demo` command | c378030 | 0.4.0 | Curated demo queries |
-| `demo list` | c378030 | 0.4.0 | List all demos |
-| `--feeling-lucky` | 07d1037 | 0.4.1 | Random demo selection |
-| 16 curated demos | 59e4487 | 0.4.2 | Expanded demo coverage |
 
 ## Plugin and Integration
 
