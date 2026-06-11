@@ -1,10 +1,10 @@
 # Decompiler vs Source: Head-to-Head Comparison
 
-Comparison of `dotnet-inspect` decompiler output against the actual C# source from [dotnet/runtime](https://github.com/dotnet/runtime). All methods decompiled from the installed .NET 10 runtime assemblies (`System.Private.CoreLib`, `System.Collections`), which are Release builds — the IL shapes below are what the tool sees in the field.
+Comparison of `dotnet-inspect` decompiler output against the actual C# source from [dotnet/runtime](https://github.com/dotnet/runtime). All methods decompiled from the installed .NET runtime assemblies (`System.Private.CoreLib`, `System.Collections`), which are Release builds — the IL shapes below are what the tool sees in the field.
 
-Snapshot: June 2026. Previous snapshot graded a **B** average; the gap items it listed (field compound assignment, `&&`/`||` reconstruction, `goto`-to-`continue`, `ref` arguments, bool return context) have all since been closed.
+Snapshot: June 2026 (third). The previous snapshot graded **B+** with 12 of 17 methods at A-/A; this one grades **A-** with 16 of 17. Everything the previous snapshot listed as a top gap has been closed: generic `ldelem` rendering, dangling `goto` labels, inverted-guard re-nesting, and the `ref`/`typeof`/generic-naming expression artifacts.
 
-Methodology note: grades compare against the original dotnet/runtime source. When refreshing this document, [ilspycmd](https://www.nuget.org/packages/ilspycmd) (`dotnet tool install -g ilspycmd`) is a useful second reference — decompiling the same methods with a mature decompiler distinguishes "information lost in compilation" (ILSpy can't recover it either) from "gap in our pipeline" (ILSpy renders it, we don't). It is an analysis aid only; no test or CI infrastructure depends on it.
+Methodology note: grades compare against the original dotnet/runtime source. When refreshing this document, [ilspycmd](https://www.nuget.org/packages/ilspycmd) (`dotnet tool install -g ilspycmd`) is a useful second reference — decompiling the same methods with a mature decompiler distinguishes "information lost in compilation" (ILSpy can't recover it either) from "gap in our pipeline" (ILSpy renders it, we don't). It is an analysis aid only; no test or CI infrastructure depends on it. ILSpy observations below are from ilspycmd 9.1.
 
 ---
 
@@ -77,7 +77,7 @@ if (value < min)
 return !(value > max) ? value : max;
 ```
 
-**Verdict:** Semantically exact, including NaN behavior — `!(value > max)` is the precise rendering of the IL's unordered branch, not the (incorrect for NaN) `value <= max`. The `else if` + tail return is composed into a ternary. **Grade: A-**
+**Verdict:** Semantically exact, including NaN behavior — `!(value > max)` is the precise rendering of the IL's unordered branch, not the (incorrect for NaN) `value <= max`. The `else if` + tail return is composed into a ternary; ILSpy keeps the statement form. **Grade: A-**
 
 ---
 
@@ -161,7 +161,7 @@ this._version++;
 return;
 ```
 
-**Verdict:** Exact. Field compound assignment (`_size++`) and the `ref` argument are both reconstructed — the two gaps this method exposed in the previous snapshot. **Grade: A**
+**Verdict:** Exact. Field compound assignment (`_size++`) and the `ref` argument are both reconstructed. **Grade: A**
 
 ---
 
@@ -209,7 +209,7 @@ for (V_0 = 0; V_0 < value.Length; V_0++)
 return true;
 ```
 
-**Verdict:** Source-exact shape — loop structure, negated condition, and return polarity all match (the previous snapshot inverted the logic and leaked a `goto`). Only the hoisted `int V_0;` declaration differs, because the local's declaration point isn't recoverable without a PDB. **Grade: A-**
+**Verdict:** Source-exact shape — loop structure, negated condition, and return polarity all match. Only the hoisted `int V_0;` declaration differs, because the local's declaration point isn't recoverable without a PDB. **Grade: A-**
 
 ---
 
@@ -239,7 +239,7 @@ if (value == null)
 return Runtime.CompilerServices.RuntimeHelpers.IsKnownConstant(value) && value.Length == 1 ? base.Contains(value[0]) : SpanHelpers.IndexOf(ref this._firstChar, base.Length, ref value._firstChar, value.Length) >= 0;
 ```
 
-**Verdict:** The `&&` condition is reconstructed exactly (previously split into nested ifs with a `goto`), the enum argument renders as `ExceptionArgument.value` instead of a bare `7`, and `ref` arguments are preserved. The if/return pair folds into one long ternary — correct, though the source's statement form reads better. **Grade: A-**
+**Verdict:** The `&&` condition is reconstructed exactly, the enum argument renders as `ExceptionArgument.value`, and `ref` arguments are preserved. The if/return pair folds into one long ternary — correct, though the source's statement form reads better. **Grade: A-**
 
 ---
 
@@ -278,7 +278,50 @@ this._size = V_0 + 1;
 return;
 ```
 
-**Verdict:** Semantically exact, and the `(uint)` bounds-check casts are preserved (they are load-bearing here — the operands are signed). The if/else is rendered as a guard clause with early return: the compiler emits the rare branch first, and the decompiler follows the IL order. **Grade: A-**
+**Verdict:** Semantically exact, and the `(uint)` bounds-check casts are preserved (load-bearing — the operands are signed). The if/else is rendered as a guard clause with early return: the compiler emits the rare branch first, and the decompiler follows the IL order. **Grade: A-**
+
+---
+
+### `Stack<T>.Pop` / `Queue<T>.Dequeue`
+
+**Source (Pop):**
+
+```csharp
+int size = _size - 1;
+T[] array = _array;
+if ((uint)size >= (uint)array.Length)
+    ThrowForEmptyStack();
+_version++;
+_size = size;
+T item = array[size];
+if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+    array[size] = default!;
+return item;
+```
+
+**Decompiled (Pop):**
+
+```csharp
+T V_2;
+
+int V_0 = this._size - 1;
+T[] V_1 = this._array;
+if ((uint)V_0 >= (uint)V_1.Length)
+{
+    base.ThrowForEmptyStack();
+}
+this._version++;
+this._size = V_0;
+T S_0 = V_1[V_0];
+if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences())
+{
+    V_2 = default;
+    V_1[V_0] = V_2;
+}
+return S_0;
+```
+
+**Verdict:** Source-exact structure. The generic element load (`T item = array[size]`) lives on the eval stack across the clearing branch in the IL; it now spills to a typed local consumed by the return. ILSpy's rendering of this method is structurally identical (`T result = array[num]; ... return result;`) — the only difference between the two decompilers here is invented names vs slot names. `Queue.Dequeue` matches its source the same way. The previous snapshot graded these **D+** (comment fallback + stack-machine artifacts). **Grade: A-**
 
 ---
 
@@ -304,15 +347,13 @@ return value;
 if (value < 0)
 {
     value = (short)-value;
-    if (value >= 0) goto IL_0012;
+    if (value >= 0) return value;
+    Math.ThrowNegateTwosCompOverflow();
 }
-Math.ThrowNegateTwosCompOverflow();
 return value;
 ```
 
-**Verdict:** All statements present and the semantics are right, but the nested early-exit shape isn't re-nested: the throw is hoisted out and reached by fallthrough, with a `goto` skipping it. Worse, the `IL_0012` target label is not emitted, so the `goto` dangles as written. **Grade: B**
-
-**Gap: nested-if early-exit re-nesting; `goto` targets must always render a label.**
+**Verdict:** Goto-free and semantically exact. The inner guard renders as an inverted early return rather than re-nesting the throw under `if (value < 0)` as the source (and ILSpy) spell it — an honest rendering of the IL's branch-past-the-throw, one inversion short of source-exact. **Grade: A-**
 
 ---
 
@@ -345,70 +386,19 @@ if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences())
 {
     V_0 = this._size;
     this._size = 0;
-    if (V_0 <= 0) goto IL_003C;
+    if (V_0 <= 0) return;
+    Array.Clear(this._items, 0, V_0);
+    return;
 }
-else
-{
-    this._size = 0;
-}
-Array.Clear(this._items, 0, V_0);
-return;
+this._size = 0;
 return;
 ```
 
-**Verdict:** The statements are all preserved and `_version++` now renders as a compound assignment, but the control flow is misleading: as written, the `else` arm falls through into `Array.Clear`, the `goto IL_003C` has no rendered label, and there is a double `return;`. The inner `if (size > 0) Array.Clear(...)` should be re-nested. **Grade: B-**
-
-**Gap: re-nesting code after an inverted guard; unlabeled `goto`; duplicate trailing returns.**
+**Verdict:** Goto-free and semantically exact (two snapshots ago this method rendered the else path appearing to flow into `Array.Clear` — wrong output; one snapshot ago, a dangling `goto`). Same early-return-vs-re-nesting difference as `Abs`: the source nests `if (size > 0) Array.Clear(...)`; we render the inverted guard. **Grade: A-**
 
 ---
 
 ## Major Structural Gaps
-
-### `Stack<T>.Pop` / `Queue<T>.Dequeue`
-
-**Source (Pop):**
-
-```csharp
-int size = _size - 1;
-T[] array = _array;
-if ((uint)size >= (uint)array.Length)
-    ThrowForEmptyStack();
-_version++;
-_size = size;
-T item = array[size];
-if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-    array[size] = default!;
-return item;
-```
-
-**Decompiled (Pop):**
-
-```csharp
-T V_2;
-
-int V_0 = this._size - 1;
-T[] V_1 = this._array;
-if ((uint)V_0 >= (uint)V_1.Length)
-{
-    base.ThrowForEmptyStack();
-}
-this._version++;
-this._size = V_0;
-/* ldelem(ldloc.1 V_1, ldloc.0 V_0) */
-if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences())
-{
-    V_2 = default;
-    V_1[V_0] = V_2;
-    S_0 = S_in_0;
-}
-return S_in_0;
-```
-
-**Verdict:** Everything is exact until `T item = array[size]`: the generic `ldelem` (type-parameter element load) falls back to an IL comment, and the value it should have produced leaks through as `S_0`/`S_in_0` stack-machine artifacts, ending in an opaque `return S_in_0`. `Queue.Dequeue` fails identically on the same pattern. This is now the single largest gap in the corpus. **Grade: D+**
-
-**Gap: generic `ldelem` expression rendering; stack-value names must never reach output.**
-
----
 
 ### `Dictionary<K,V>.ContainsValue`
 
@@ -428,31 +418,32 @@ return false;
 Entry<TKey, TValue>[] V_0 = this._entries;
 if ((object)value != null)
 {
-    if (Type.GetTypeFromHandle(typeof(TValue)).IsValueType)
+    if (typeof(TValue).IsValueType)
     {
         V_2 = 0;
-        if (ref V_0[V_2].next >= -1) { ... }
+IL_005E:
+        if (V_0[V_2].next >= -1)
+        {
+            if (EqualityComparer<TValue>.Default.Equals(V_0[V_2].value, value))
+            {
+                return true;
+            }
+        }
         V_2++;
         if (V_2 < this._count) goto IL_005E;
         return false;
     }
 }
-else
-{
-    V_1 = 0;
-}
-for (; V_1 < this._count; V_1++) { ... }
+for (V_1 = 0; V_1 < this._count; V_1++) { /* null-compare loop */ }
 return false;
 for (; V_2 < this._count; V_2++)
 {
 }
-V_3 = EqualityComparer<T1>.Default;
-for (V_4 = 0; V_4 < this._count; V_4++) { ... }
+V_3 = EqualityComparer<TValue>.Default;
+for (V_4 = 0; V_4 < this._count; V_4++) { /* cached-comparer loop */ }
 ```
 
-**Verdict:** Three independent loop paths sharing a return is still beyond the structuring pass: one loop is unrolled into if+goto (with the `IL_005E` label never emitted), another renders empty, and unreachable code trails the first `return false`. Expression-level artifacts compound it: `ref V_0[V_2].next` for a field-of-ref access (not valid C#), `Type.GetTypeFromHandle(typeof(TValue))` instead of `typeof(TValue)`, and `EqualityComparer<T1>` mis-naming the type parameter. The bool returns themselves are now correct (`return false`, not `return 0`). **Grade: D+**
-
-**Gap: multi-path loop structuring; `ref` element/field access rendering; `typeof().IsValueType` idiom; generic parameter naming through member refs.**
+**Verdict:** Every expression now renders correctly — `typeof(TValue).IsValueType`, `EqualityComparer<TValue>.Default`, `V_0[V_2].next` (the previous snapshot had `Type.GetTypeFromHandle(...)`, `EqualityComparer<T1>`, and invalid `ref` receivers). What remains is purely structural: three parallel loops sharing exit paths unravel — one loop renders as if+goto, one renders empty, and the third trails unreachably after a `return`. ILSpy fully recovers the three-loop `if/else if/else` shape from this exact IL, so this is a pipeline gap, not lost information — and the last one in the corpus. **Grade: C**
 
 ---
 
@@ -472,31 +463,26 @@ for (V_4 = 0; V_4 < this._count; V_4++) { ... }
 | `String.IsNullOrWhiteSpace` | **A-** | hoisted local declaration |
 | `String.Contains` | **A-** | if/return folded into long ternary |
 | `Stack.Push` | **A-** | guard-clause inversion of if/else |
-| `Math.Abs` | **B** | un-nested early exit, unlabeled `goto` |
-| `List.Clear` | **B-** | unlabeled `goto`, misleading fallthrough, double return |
-| `Stack.Pop` | **D+** | generic `ldelem` comment, `S_in_0` leak |
-| `Queue.Dequeue` | **D+** | generic `ldelem` comment, `S_in_0` leak |
-| `Dictionary.ContainsValue` | **D+** | multi-path loops flattened, `ref` artifacts |
+| `Stack.Pop` | **A-** | slot naming (`S_0`); structure exact |
+| `Queue.Dequeue` | **A-** | slot naming; structure exact |
+| `Math.Abs` | **A-** | early return instead of re-nested throw |
+| `List.Clear` | **A-** | inverted guard instead of re-nested if |
+| `Dictionary.ContainsValue` | **C** | multi-path loops unravel; expressions all correct |
 
-### Overall: **B+** average across 17 methods (12 of 17 at A-/A; previous snapshot: B average, 8 of 17)
+### Overall: **A-** average across 17 methods (16 of 17 at A-/A; previous snapshots: B, then B+)
 
 **Closed since the previous snapshot:**
 
-- `&&` / `||` short-circuit reconstruction (`IsNullOrEmpty`, `List.Contains`, `String.Contains` now exact)
-- Ternary composition (`Max`, `Min`, `Clamp`)
-- Field compound assignment (`_size++`, `_version++`)
-- `ref` argument rendering (`MoveNext(ref this._tail)`)
-- Loop `continue`/`break` and condition polarity (`IsNullOrWhiteSpace` now source-shaped)
-- Bool return context (`return false`, not `return 0`)
-- Enum argument names (`ExceptionArgument.value`, not `7`)
-- Redundant unsigned casts dropped when operands are unsigned-typed; kept for the `(uint)i < (uint)length` idiom
-- Statement preservation: condition-chain absorption and cross-block inlining no longer drop statements (`Math.Abs`, `Dictionary.Clear`)
+- Generic `ldelem` rendering + eval-stack spills (`Stack.Pop`, `Queue.Dequeue`: D+ → A-)
+- Dangling `goto` labels — labels are now demand-driven (emitted iff a rendered goto references them)
+- Arm-only fallthrough code absorbed into if/else arms (`List.Clear` was semantically wrong output)
+- Conditional branch to return-only block → `if (cond) return ...;`; conditional loop re-entry → `if (cond) continue;`
+- Expression artifacts: `typeof(T)` collapse, struct element field access without `ref`, caller generic parameter names through MemberRef TypeSpecs
+- Stacked values crossing mutating statements now spill (Release keeps captured field reads on the eval stack)
 
 **Top remaining gaps:**
 
-1. **Generic `ldelem` rendering** (`Stack.Pop`, `Queue.Dequeue`) — element loads of type-parameter type fall back to an IL comment and leak `S_in_0` stack names — high impact
-2. **Unlabeled `goto` targets** (`Abs`, `List.Clear`, `ContainsValue`) — every emitted `goto` must have a rendered label, or the output is not even syntactically honest — small fix
-3. **Re-nesting inverted guards** (`List.Clear`, `Abs`) — code after `if (x <= 0) goto END;` belongs inside `if (x > 0) { ... }`
-4. **Multi-path loop structuring** (`ContainsValue`) — parallel loops sharing exits unravel into goto soup
-5. **`ref` element/field access** (`ContainsValue`) — `ref V_0[V_2].next` should render as a plain member access
-6. **Duplicate trailing `return;`** — cosmetic, easy
+1. **Multi-path loop structuring** (`ContainsValue`) — parallel loops sharing exits; ILSpy recovers the full `if/else if/else` three-loop shape from the same IL, so this is provably reachable
+2. **Re-nesting inverted guards to source shape** (`Abs`, `List.Clear`) — our early-return rendering is correct but one inversion away from the source's nested form
+3. **Statement-form preference** (`Clamp`, `String.Contains`) — aggressive ternary folding where the source uses if/return
+4. **Local naming** — `V_0`/`S_0` vs source names; recoverable only with a PDB, but synthesized names (`size`, `array`) modeled on ILSpy's heuristics could close most of the cosmetic distance
