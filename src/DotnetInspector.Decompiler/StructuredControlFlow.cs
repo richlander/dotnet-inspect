@@ -300,69 +300,151 @@ public sealed class StructuredControlFlow
             }
         }
 
-        // Predecessor counts (distinct edges) for arm-chain absorption.
-        var predCounts = new int[cfg.BasicBlocks.Count];
-        foreach (var bb in cfg.BasicBlocks)
+        StructuredBlock MakeBasic(int idx) => new()
         {
-            var succs = new HashSet<int>();
-            if (bb.BranchTarget is not null) succs.Add(cfg.IndexOf(bb.BranchTarget));
-            if (bb.FallthroughTarget is not null) succs.Add(cfg.IndexOf(bb.FallthroughTarget));
-            if (bb.SwitchCaseTargets is not null)
-                foreach (var t in bb.SwitchCaseTargets) succs.Add(cfg.IndexOf(t));
-            foreach (int sIdx in succs)
-                if (sIdx >= 0) predCounts[sIdx]++;
+            Kind = StructuredBlockKind.BasicBlock,
+            BlockIndex = idx,
+            Label = $"Block_{idx}"
+        };
+
+        // Shared structuring dispatch for one block — used by the top-level
+        // walk and, recursively, by if/else arm regions. Exception regions are
+        // NOT handled here; the top-level walk claims those first and arm
+        // regions skip them.
+        void DispatchStructured(int i, List<StructuredBlock> output)
+        {
+            if (blockToLoop.TryGetValue(i, out var loop))
+            {
+                var loopChildren = new List<StructuredBlock>();
+                foreach (int bodyIdx in loop.BodyIndices.OrderBy(x => x))
+                {
+                    processed.Add(bodyIdx);
+                    loopChildren.Add(MakeBasic(bodyIdx));
+                }
+
+                output.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.Loop,
+                    LoopHeaderIndex = loop.HeaderIndex,
+                    Children = loopChildren
+                });
+                return;
+            }
+
+            // Switch detection: block terminates with IL switch opcode
+            if (switchBlocks.ContainsKey(i))
+            {
+                var bb = cfg.BasicBlocks[i];
+                var caseTargets = new List<(int CaseValue, int TargetBlockIndex)>();
+                var caseBlockIndices = new HashSet<int>();
+
+                if (bb.SwitchCaseTargets is not null)
+                {
+                    for (int c = 0; c < bb.SwitchCaseTargets.Count; c++)
+                    {
+                        int targetIdx = cfg.IndexOf(bb.SwitchCaseTargets[c]);
+                        if (targetIdx >= 0)
+                        {
+                            caseTargets.Add((c, targetIdx));
+                            caseBlockIndices.Add(targetIdx);
+                        }
+                    }
+                }
+
+                int defaultIdx = bb.FallthroughTarget is not null
+                    ? cfg.IndexOf(bb.FallthroughTarget)
+                    : -1;
+
+                // Mark case target blocks as processed (they belong to the switch)
+                foreach (int caseIdx in caseBlockIndices)
+                    processed.Add(caseIdx);
+                if (defaultIdx >= 0)
+                    processed.Add(defaultIdx);
+
+                processed.Add(i);
+                output.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.Switch,
+                    SwitchBlockIndex = i,
+                    SwitchCases = caseTargets,
+                    SwitchDefaultIndex = defaultIdx,
+                    Children = caseBlockIndices.OrderBy(x => x)
+                        .Concat(defaultIdx >= 0 ? [defaultIdx] : [])
+                        .Distinct()
+                        .Select(MakeBasic)
+                        .ToList()
+                });
+                return;
+            }
+
+            if (conditionBlocks.TryGetValue(i, out var cond))
+            {
+                processed.Add(i);
+                foreach (var term in cond.ChainTerms)
+                    processed.Add(term.BlockIndex);
+
+                var thenBlock = BuildArm(cond.ThenIndex);
+                StructuredBlock? elseBlock = cond.ElseIndex >= 0 ? BuildArm(cond.ElseIndex) : null;
+
+                output.Add(new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.IfThenElse,
+                    ConditionBlockIndex = i,
+                    ThenBlock = thenBlock,
+                    ElseBlock = elseBlock,
+                    NegateCondition = cond.NegateCondition,
+                    ConditionChain = cond.ChainTerms
+                });
+                return;
+            }
+
+            processed.Add(i);
+            output.Add(MakeBasic(i));
         }
 
-        // An if/else arm is the arm head plus its single-predecessor
-        // fallthrough chain: blocks only reachable from inside the arm (e.g.
-        // the continuation after an inverted guard) must render inside the
-        // arm's braces — emitted at top level, the OTHER arm's fallthrough
-        // would appear to flow into them.
+        // An if/else arm is the dominated region of its head: every block
+        // reachable ONLY through the arm. Emitted anywhere else, the other
+        // arm's fallthrough would appear to flow into that code. The region
+        // is structured recursively with the same dispatch as the top level,
+        // so nested loops and conditionals keep their shape inside arms
+        // (Dictionary.ContainsValue's per-path scan loops).
         StructuredBlock BuildArm(int headIndex)
         {
-            if (headIndex >= 0)
-                processed.Add(headIndex);
+            if (headIndex < 0 || processed.Contains(headIndex))
+                return MakeBasic(headIndex);
 
-            List<int> chain = [headIndex];
-            int cur = headIndex;
-            while (cur >= 0)
+            var region = new List<int>();
+            CollectDominated(headIndex, region);
+            region.Sort();
+
+            var armChildren = new List<StructuredBlock>();
+            foreach (int idx in region)
             {
-                var ft = cfg.BasicBlocks[cur].FallthroughTarget;
-                int next = ft is null ? -1 : cfg.IndexOf(ft);
-                if (next < 0 || processed.Contains(next)
-                    || predCounts[next] != 1
-                    || loopHeaders.ContainsKey(next) || blockToLoop.ContainsKey(next)
-                    || inExceptionRegion.ContainsKey(next)
-                    || switchBlocks.ContainsKey(next)
-                    || conditionBlocks.ContainsKey(next))
-                {
-                    break;
-                }
-                chain.Add(next);
-                processed.Add(next);
-                cur = next;
+                if (processed.Contains(idx))
+                    continue;
+                // Exception-region blocks stay with the top-level walk.
+                if (inExceptionRegion.ContainsKey(idx) || exRegionsByBlock.ContainsKey(idx))
+                    continue;
+                DispatchStructured(idx, armChildren);
             }
 
-            if (chain.Count == 1)
+            return armChildren.Count switch
             {
-                return new StructuredBlock
+                0 => MakeBasic(headIndex),
+                1 => armChildren[0],
+                _ => new StructuredBlock
                 {
-                    Kind = StructuredBlockKind.BasicBlock,
-                    BlockIndex = headIndex,
-                    Label = $"Block_{headIndex}"
-                };
-            }
-
-            return new StructuredBlock
-            {
-                Kind = StructuredBlockKind.Sequence,
-                Children = chain.Select(idx => new StructuredBlock
-                {
-                    Kind = StructuredBlockKind.BasicBlock,
-                    BlockIndex = idx,
-                    Label = $"Block_{idx}"
-                }).ToList()
+                    Kind = StructuredBlockKind.Sequence,
+                    Children = armChildren
+                },
             };
+        }
+
+        void CollectDominated(int node, List<int> region)
+        {
+            region.Add(node);
+            foreach (int child in domTree.GetDominatorTreeChildren(node))
+                CollectDominated(child, region);
         }
 
         for (int i = 0; i < cfg.BasicBlocks.Count; i++)
@@ -498,108 +580,7 @@ public sealed class StructuredControlFlow
                 continue;
             }
 
-            if (blockToLoop.TryGetValue(i, out var loop))
-            {
-                var loopChildren = new List<StructuredBlock>();
-                foreach (int bodyIdx in loop.BodyIndices.OrderBy(x => x))
-                {
-                    processed.Add(bodyIdx);
-                    loopChildren.Add(new StructuredBlock
-                    {
-                        Kind = StructuredBlockKind.BasicBlock,
-                        BlockIndex = bodyIdx,
-                        Label = $"Block_{bodyIdx}"
-                    });
-                }
-
-                children.Add(new StructuredBlock
-                {
-                    Kind = StructuredBlockKind.Loop,
-                    LoopHeaderIndex = loop.HeaderIndex,
-                    Children = loopChildren
-                });
-                continue;
-            }
-
-            // Switch detection: block terminates with IL switch opcode
-            if (switchBlocks.ContainsKey(i))
-            {
-                var bb = cfg.BasicBlocks[i];
-                var caseTargets = new List<(int CaseValue, int TargetBlockIndex)>();
-                var caseBlockIndices = new HashSet<int>();
-
-                if (bb.SwitchCaseTargets is not null)
-                {
-                    for (int c = 0; c < bb.SwitchCaseTargets.Count; c++)
-                    {
-                        int targetIdx = cfg.IndexOf(bb.SwitchCaseTargets[c]);
-                        if (targetIdx >= 0)
-                        {
-                            caseTargets.Add((c, targetIdx));
-                            caseBlockIndices.Add(targetIdx);
-                        }
-                    }
-                }
-
-                int defaultIdx = bb.FallthroughTarget is not null
-                    ? cfg.IndexOf(bb.FallthroughTarget)
-                    : -1;
-
-                // Mark case target blocks as processed (they belong to the switch)
-                foreach (int caseIdx in caseBlockIndices)
-                    processed.Add(caseIdx);
-                if (defaultIdx >= 0)
-                    processed.Add(defaultIdx);
-
-                processed.Add(i);
-                children.Add(new StructuredBlock
-                {
-                    Kind = StructuredBlockKind.Switch,
-                    SwitchBlockIndex = i,
-                    SwitchCases = caseTargets,
-                    SwitchDefaultIndex = defaultIdx,
-                    Children = caseBlockIndices.OrderBy(x => x)
-                        .Concat(defaultIdx >= 0 ? [defaultIdx] : [])
-                        .Distinct()
-                        .Select(idx => new StructuredBlock
-                        {
-                            Kind = StructuredBlockKind.BasicBlock,
-                            BlockIndex = idx,
-                            Label = $"Block_{idx}"
-                        })
-                        .ToList()
-                });
-                continue;
-            }
-
-            if (conditionBlocks.TryGetValue(i, out var cond))
-            {
-                processed.Add(i);
-                foreach (var term in cond.ChainTerms)
-                    processed.Add(term.BlockIndex);
-
-                var thenBlock = BuildArm(cond.ThenIndex);
-                StructuredBlock? elseBlock = cond.ElseIndex >= 0 ? BuildArm(cond.ElseIndex) : null;
-
-                children.Add(new StructuredBlock
-                {
-                    Kind = StructuredBlockKind.IfThenElse,
-                    ConditionBlockIndex = i,
-                    ThenBlock = thenBlock,
-                    ElseBlock = elseBlock,
-                    NegateCondition = cond.NegateCondition,
-                    ConditionChain = cond.ChainTerms
-                });
-                continue;
-            }
-
-            processed.Add(i);
-            children.Add(new StructuredBlock
-            {
-                Kind = StructuredBlockKind.BasicBlock,
-                BlockIndex = i,
-                Label = $"Block_{i}"
-            });
+            DispatchStructured(i, children);
         }
 
         return new StructuredBlock
