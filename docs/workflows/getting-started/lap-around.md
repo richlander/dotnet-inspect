@@ -1,7 +1,7 @@
 ---
 id: lap-around
 description: The big walkthrough — all the major commands in one doc
-commands: [type, member, library, package, find, implements, depends, extensions, diff, source, demo]
+commands: [type, member, library, package, find, implements, depends, extensions, diff, source]
 areas: [routing, resolution, output, discovery, inspection, source]
 ---
 
@@ -465,19 +465,4 @@ dotnet-inspect package dotnet-inspect -v:q
 
 ```expect
 Type: Tool v2
-```
-
-## 12. Demo
-
-The `demo` command provides pre-canned invocations that showcase the tool's capabilities. Great for demos and onboarding.
-
-```bash
-dotnet-inspect demo list
-```
-
-```expect
-generic math
-JsonSerializer
-System.CommandLine
-dependency injection
 ```
