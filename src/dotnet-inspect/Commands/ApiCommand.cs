@@ -807,6 +807,30 @@ public class ApiCommand
             }
         }
 
+        // --raw: only the selected code section's content — no heading, no
+        // fence — suitable for redirecting to a .cs/.il file.
+        if (options.Raw)
+        {
+            var raw = options.IncludeSections is { Count: 1 } included
+                ? included.First() switch
+                {
+                    SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
+                    SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
+                    "IL" => view.MemberCode?.ILCode.Content,
+                    "IL (Annotated)" => view.MemberCode?.AnnotatedIL.Content,
+                    _ => null,
+                }
+                : null;
+            if (raw is null)
+            {
+                Console.Error.WriteLine(
+                    "Error: --raw requires a single -S code section with content (Decompiled Source, IL, IL (Annotated), Original Source).");
+                return;
+            }
+            sink.WriteLine(raw.TrimEnd());
+            return;
+        }
+
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);

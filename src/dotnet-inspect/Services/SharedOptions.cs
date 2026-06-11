@@ -17,6 +17,7 @@ public class SharedOptions
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
+    public Option<bool> Raw { get; } = new("--raw") { Description = "Print only the selected section's content, undecorated (single -S code section; e.g. redirect Decompiled Source to a .cs file)" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
