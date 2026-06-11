@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.10.3
+
+### Library integrations
+
+- Adds library integration discovery for AI, Aspire, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and OpenTelemetry.
+- Adds `package <id> --library` to inspect the primary DLL in a package when it is unambiguous.
+- Adds section categories such as `@Integrations` so agents can discover or render related library sections together.
+- Refines focused integration sections to show package-owned starter APIs and user-facing support types instead of raw referenced assemblies.
+- Adds OpenTelemetry telemetry-control rows for public `DisableTracing` and `DisableMetrics` APIs.
+- Adds HTTP Client sub-kinds such as HTTP Logging, HTTP Latency, and HTTP Diagnostics.
+
+### Decompiled source
+
+- Improves lowered C# rendering for loops, conditional returns, generic element loads, operator sugar, lambdas, local functions, enum cases, and compound assignments.
+- Reduces unnecessary goto labels and unsigned casts while preserving clearer control flow.
+
+### Cleanup
+
+- Removes the stale `demo` command.
+
 ## v0.10.2
 
 ### Full member signatures
