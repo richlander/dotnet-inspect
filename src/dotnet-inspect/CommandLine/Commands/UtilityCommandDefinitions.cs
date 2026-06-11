@@ -7,7 +7,7 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the cache, demo, samples, skill, perf, and perf-test commands.
+/// Defines the cache, skill, perf, and perf-test commands.
 /// </summary>
 public static class UtilityCommandDefinitions
 {
@@ -49,54 +49,6 @@ public static class UtilityCommandDefinitions
         });
 
         return cacheCommand;
-    }
-
-    public static Command CreateDemoCommand(RootCommand rootCommand, SharedOptions opts)
-    {
-        var demoCommand = new Command("demo", "Run curated demo queries that showcase the tool");
-
-        var feelingLuckyOption = new Option<bool>("--feeling-lucky") { Description = "Pick a random demo and run it" };
-        demoCommand.Options.Add(feelingLuckyOption);
-        demoCommand.Options.Add(opts.Limit);
-
-        var indexArg = new Argument<int?>("index")
-        {
-            Description = "Demo index to run (from 'demo list')",
-            Arity = ArgumentArity.ZeroOrOne
-        };
-        demoCommand.Arguments.Add(indexArg);
-
-        // Subcommand: list
-        var listCommand = new Command("list", "List all available demos");
-        listCommand.SetAction(async (parseResult, cancellationToken) =>
-        {
-            return await DemoCommand.ExecuteListAsync();
-        });
-        demoCommand.Subcommands.Add(listCommand);
-
-        // Default: index, --feeling-lucky, or show help
-        demoCommand.SetAction(async (parseResult, cancellationToken) =>
-        {
-            var index = parseResult.GetValue(indexArg);
-            if (index.HasValue)
-            {
-                return await DemoCommand.ExecuteInvokeAsync(index.Value, rootCommand);
-            }
-
-            if (parseResult.GetValue(feelingLuckyOption))
-            {
-                return await DemoCommand.ExecuteFeelingLuckyAsync(rootCommand);
-            }
-
-            // No index and no flag: show help + random demo tips
-            HelpWriter.WriteHelp(demoCommand);
-            var tips = DemoCommand.Demos.Select((d, i) =>
-                new Tip("demo", $"{i + 1}", d.Title)).ToArray();
-            Hints.WriteTips(TipLevel.Minimal, tips, randomize: true);
-            return 0;
-        });
-
-        return demoCommand;
     }
 
     public static Command CreateSkillCommand(SharedOptions opts)
