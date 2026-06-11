@@ -129,10 +129,9 @@ if (V_0 > 0)
     _freeCount = 0;
     Array.Clear(_entries, 0, V_0);
 }
-return;
 ```
 
-**Verdict:** Exact, statement for statement. Only `V_0` vs `count` (no PDB in this snapshot's flow) and the trailing `return;` differ. **Grade: A**
+**Verdict:** Exact, statement for statement. Only `V_0` vs `count` (no PDB in this snapshot's flow) differs. **Grade: A**
 
 ---
 
@@ -160,7 +159,6 @@ _array[_tail] = item;
 base.MoveNext(ref _tail);
 _size++;
 _version++;
-return;
 ```
 
 **Verdict:** Exact. Field compound assignment (`_size++`) and the `ref` argument are both reconstructed. **Grade: A**
@@ -277,7 +275,6 @@ if ((uint)V_0 >= (uint)V_1.Length)
 V_1[V_0] = item;
 _version++;
 _size = V_0 + 1;
-return;
 ```
 
 **Verdict:** Semantically exact, and the `(uint)` bounds-check casts are preserved (load-bearing — the operands are signed). The if/else is rendered as a guard clause with early return: the compiler emits the rare branch first, and the decompiler follows the IL order. **Grade: A-**
@@ -393,7 +390,6 @@ if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences())
     return;
 }
 _size = 0;
-return;
 ```
 
 **Verdict:** Goto-free and semantically exact (two snapshots ago this method rendered the else path appearing to flow into `Array.Clear` — wrong output; one snapshot ago, a dangling `goto`). Same early-return-vs-re-nesting difference as `Abs`: the source nests `if (size > 0) Array.Clear(...)`; we render the inverted guard. **Grade: A-**

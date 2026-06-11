@@ -285,6 +285,16 @@ internal static class TypeSourceComposer
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
 
+        // The extractor's property signatures sometimes omit modifiers.
+        if (!head.StartsWith("public", StringComparison.Ordinal)
+            && !head.StartsWith("protected", StringComparison.Ordinal)
+            && !head.StartsWith("internal", StringComparison.Ordinal)
+            && !head.StartsWith("private", StringComparison.Ordinal))
+        {
+            string access = member.Accessibility ?? "public";
+            head = member.IsStatic ? $"{access} static {head}" : $"{access} {head}";
+        }
+
         var accessors = new List<(string Keyword, string? Body)>();
         if (accessorList >= 0)
         {
@@ -303,6 +313,16 @@ internal static class TypeSourceComposer
             return;
         }
 
+        // Expression bodies per the style oracle
+        // (csharp_style_expression_bodied_properties/accessors = true):
+        // a lone getter returning one expression is 'head => expr;', and any
+        // single-statement accessor is 'get/set => ...;'.
+        if (accessors is [("get", { } loneGet)] && ExpressionOf(loneGet) is { } propExpr)
+        {
+            sb.AppendLine($"    {head} => {propExpr};");
+            return;
+        }
+
         sb.AppendLine($"    {head}");
         sb.AppendLine("    {");
         for (int i = 0; i < accessors.Count; i++)
@@ -314,12 +334,34 @@ internal static class TypeSourceComposer
                 sb.AppendLine($"        {keyword};");
                 continue;
             }
+            if (ExpressionOf(body) is { } accessorExpr)
+            {
+                sb.AppendLine($"        {keyword} => {accessorExpr};");
+                continue;
+            }
             sb.AppendLine($"        {keyword}");
             sb.AppendLine("        {");
             AppendIndented(sb, body, "            ");
             sb.AppendLine("        }");
         }
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// The expression of a single-statement body suitable for '=>':
+    /// 'return X;' yields X; a lone statement yields itself without ';'.
+    /// </summary>
+    static string? ExpressionOf(string body)
+    {
+        string line = body.Trim();
+        if (line.Contains('\n') || !line.EndsWith(';'))
+            return null;
+        line = line[..^1];
+        if (line.StartsWith("return ", StringComparison.Ordinal))
+            return line[7..];
+        if (line is "return")
+            return null;
+        return line;
     }
 
     static string? DecompileBody(
