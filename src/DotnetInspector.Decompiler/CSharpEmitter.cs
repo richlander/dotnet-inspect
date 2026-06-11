@@ -1457,6 +1457,9 @@ public static class CSharpEmitter
             // Item 2: Pre-scan for locals whose first use is a store in the entry block
             DetectMergedLocals();
 
+            // Switch-expression arm temps fold away; suppress their declarations.
+            ScanForSwitchExpressionLocals();
+
             // Emit local variable declarations
             if (_ast.Locals.Count > 0)
             {
@@ -5245,11 +5248,6 @@ public static class CSharpEmitter
                 _currentBlockNodes = null;
             }
 
-            WriteIndent(indent);
-            _sb.AppendLine($"switch ({switchValue})");
-            WriteIndent(indent);
-            _sb.AppendLine("{");
-
             // Group cases that target the same block
             var blockToCases = new Dictionary<int, List<int>>();
             foreach (var (caseValue, targetIdx) in block.SwitchCases)
@@ -5261,6 +5259,17 @@ public static class CSharpEmitter
                 }
                 cases.Add(caseValue);
             }
+
+            // When every arm returns a value (or throws), the switch IS a
+            // switch expression (editorconfig: csharp_style_prefer_switch_
+            // expression) — and the exact rendering of the IL.
+            if (TryEmitSwitchExpression(block, blockToCases, switchValue, switchEnumType, indent))
+                return;
+
+            WriteIndent(indent);
+            _sb.AppendLine($"switch ({switchValue})");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
 
             // Emit case groups in order of first case value
             foreach (var (targetIdx, cases) in blockToCases.OrderBy(kv => kv.Value[0]))
@@ -5330,6 +5339,256 @@ public static class CSharpEmitter
 
             WriteIndent(indent);
             _sb.AppendLine("}");
+        }
+
+        /// <summary>
+        /// Renders a switch whose every arm is a single returned value (or a
+        /// throw) as a return switch expression (editorconfig:
+        /// csharp_style_prefer_switch_expression). Returns false when any arm
+        /// does more — including when an arm temp is read outside the arms,
+        /// where eliding the stores would drop statements.
+        /// </summary>
+        bool TryEmitSwitchExpression(
+            StructuredBlock block,
+            Dictionary<int, List<int>> blockToCases,
+            string switchValue,
+            string? switchEnumType,
+            int indent)
+        {
+            if (!TryValidateSwitchExpression(block, blockToCases,
+                    out var armValues, out var consumedBlocks, out _))
+            {
+                return false;
+            }
+
+            WriteIndent(indent);
+            _sb.AppendLine($"return {switchValue} switch");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+            foreach (var (targetIdx, cases) in blockToCases.OrderBy(kv => kv.Value[0]))
+            {
+                if (targetIdx == block.SwitchDefaultIndex)
+                    continue;
+                string labels = string.Join(" or ", cases.Select(c => FormatCaseValue(c, switchEnumType)));
+                WriteIndent(indent + 1);
+                _sb.Append($"{labels} => ");
+                EmitSwitchArmValue(armValues[targetIdx]);
+                _sb.AppendLine(",");
+            }
+            WriteIndent(indent + 1);
+            _sb.Append("_ => ");
+            EmitSwitchArmValue(armValues[block.SwitchDefaultIndex]);
+            _sb.AppendLine();
+            WriteIndent(indent);
+            _sb.AppendLine("};");
+
+            foreach (int idx in consumedBlocks)
+            {
+                _consumedBlocks.Add(idx);
+                RemoveGotoTargetsForConsumedBlock(idx);
+            }
+            return true;
+        }
+
+        bool TryValidateSwitchExpression(
+            StructuredBlock block,
+            Dictionary<int, List<int>> blockToCases,
+            out Dictionary<int, ILAstExpression> armValues,
+            out HashSet<int> consumedBlocks,
+            out HashSet<string> armTemps)
+        {
+            armValues = [];
+            consumedBlocks = [];
+            armTemps = [];
+            if (block.SwitchDefaultIndex < 0)
+                return false;
+
+            foreach (var (targetIdx, _) in blockToCases)
+            {
+                if (targetIdx == block.SwitchDefaultIndex)
+                    continue;
+                var value = ResolveSwitchArm(targetIdx, consumedBlocks, armTemps);
+                if (value is null)
+                    return false;
+                armValues[targetIdx] = value;
+            }
+            var defaultValue = ResolveSwitchArm(block.SwitchDefaultIndex, consumedBlocks, armTemps);
+            if (defaultValue is null)
+                return false;
+            armValues[block.SwitchDefaultIndex] = defaultValue;
+
+            // Arm temps fold into the expression; a read anywhere else would
+            // lose its store.
+            foreach (var (idx, astBlock) in _blockMap)
+            {
+                if (consumedBlocks.Contains(idx) || idx == block.SwitchBlockIndex)
+                    continue;
+                foreach (string temp in armTemps)
+                {
+                    if (BlockReferencesLocal(astBlock, temp))
+                        return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The value expression a switch arm produces: a lone ret(value), a
+        /// lone throw, a stloc temp + ret(temp) pair, or stloc temp + br to a
+        /// shared ret(temp) block (Debug) — following one bare br hop. Adds
+        /// every block the arm spans to <paramref name="consumed"/>.
+        /// </summary>
+        ILAstExpression? ResolveSwitchArm(int blockIdx, HashSet<int> consumed, HashSet<string> temps)
+        {
+            int idx = blockIdx;
+            for (int hop = 0; hop < 2; hop++)
+            {
+                if (!_blockMap.TryGetValue(idx, out var b))
+                    return null;
+                var nodes = b.Nodes
+                    .Where(n => n is not ILAstStatement { Expression.OpCode: ILOpCode.Nop })
+                    .ToList();
+                if (nodes.Count == 1 && nodes[0] is ILAstStatement { Expression: var e })
+                {
+                    if (e.OpCode == ILOpCode.Ret && e.Arguments.Count > 0)
+                    {
+                        consumed.Add(idx);
+                        return e.Arguments[0];
+                    }
+                    if (e.OpCode == ILOpCode.Throw && e.Arguments.Count > 0)
+                    {
+                        consumed.Add(idx);
+                        return e;
+                    }
+                    if (e.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                        && e.Operand is string hopTarget
+                        && BlockAtLabel(hopTarget) is { } hopIdx)
+                    {
+                        consumed.Add(idx);
+                        idx = hopIdx;
+                        continue;
+                    }
+                    return null;
+                }
+                if (nodes.Count == 2
+                    && nodes[0] is ILAstStatement { Expression: var st }
+                    && st.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                        or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                    && st.Arguments.Count == 1
+                    && nodes[1] is ILAstStatement { Expression: var tail })
+                {
+                    string temp = st.Operand ?? GetLocalName(st.OpCode);
+                    // stloc temp; ret(temp)
+                    if (tail is { OpCode: ILOpCode.Ret, Arguments.Count: 1 }
+                        && GetLocalReferenceName(tail.Arguments[0]) == temp)
+                    {
+                        consumed.Add(idx);
+                        temps.Add(temp);
+                        return st.Arguments[0];
+                    }
+                    // stloc temp; br SHARED where SHARED is ret(temp) (Debug)
+                    if (tail.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                        && tail.Operand is string brTarget
+                        && BlockAtLabel(brTarget) is { } sharedIdx
+                        && _blockMap.TryGetValue(sharedIdx, out var shared)
+                        && shared.Nodes.Where(n => n is not ILAstStatement { Expression.OpCode: ILOpCode.Nop })
+                            .ToList() is [ILAstStatement { Expression: { OpCode: ILOpCode.Ret, Arguments.Count: 1 } sharedRet }]
+                        && GetLocalReferenceName(sharedRet.Arguments[0]) == temp)
+                    {
+                        consumed.Add(idx);
+                        consumed.Add(sharedIdx);
+                        temps.Add(temp);
+                        return st.Arguments[0];
+                    }
+                }
+                return null;
+            }
+            return null;
+        }
+
+        int? BlockAtLabel(string label)
+        {
+            foreach (var (idx, off) in _blockStartOffset)
+            {
+                if ($"IL_{off:X4}" == label)
+                    return idx;
+            }
+            return null;
+        }
+
+        static bool BlockReferencesLocal(ILAstBlock block, string name)
+        {
+            foreach (var node in block.Nodes)
+            {
+                var expr = NodeExpression(node);
+                if (expr is not null && TreeReadsOrWritesLocal(expr, name))
+                    return true;
+            }
+            return false;
+        }
+
+        static bool TreeReadsOrWritesLocal(ILAstExpression expr, string name)
+        {
+            if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                or ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                or ILOpCode.Stloc or ILOpCode.Stloc_s
+                or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3)
+            {
+                string? referenced = expr.Operand ?? GetLocalName(expr.OpCode);
+                if (referenced == name)
+                    return true;
+            }
+            foreach (var arg in expr.Arguments)
+            {
+                if (TreeReadsOrWritesLocal(arg, name))
+                    return true;
+            }
+            return false;
+        }
+
+        void EmitSwitchArmValue(ILAstExpression armValue)
+        {
+            if (armValue.OpCode == ILOpCode.Throw)
+            {
+                _sb.Append("throw ");
+                EmitExpression(armValue.Arguments[0]);
+                return;
+            }
+            bool wasBool = _emitBoolContext;
+            if (_returnsBool)
+                _emitBoolContext = true;
+            EmitExpression(armValue, _returnTypeName);
+            _emitBoolContext = wasBool;
+        }
+
+        /// <summary>
+        /// Switch-expression arm temps render inside the expression; their
+        /// declarations would dangle. Scanned before locals are declared.
+        /// </summary>
+        void ScanForSwitchExpressionLocals()
+        {
+            void Walk(StructuredBlock node)
+            {
+                if (node.Kind == StructuredBlockKind.Switch)
+                {
+                    var blockToCases = new Dictionary<int, List<int>>();
+                    foreach (var (caseValue, targetIdx) in node.SwitchCases)
+                    {
+                        if (!blockToCases.TryGetValue(targetIdx, out var cases))
+                            blockToCases[targetIdx] = cases = [];
+                        cases.Add(caseValue);
+                    }
+                    if (TryValidateSwitchExpression(node, blockToCases, out _, out _, out var temps))
+                        _suppressedLocals.UnionWith(temps);
+                }
+                foreach (var c in node.Children) Walk(c);
+                foreach (var c in node.TryChildren) Walk(c);
+                foreach (var c in node.HandlerChildren) Walk(c);
+                if (node.ThenBlock is not null) Walk(node.ThenBlock);
+                if (node.ElseBlock is not null) Walk(node.ElseBlock);
+            }
+            Walk(_structure.Root);
         }
 
         /// <summary>Case labels on enum-typed switches use the member names.</summary>
