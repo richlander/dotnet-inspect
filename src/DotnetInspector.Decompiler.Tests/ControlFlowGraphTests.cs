@@ -359,6 +359,17 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    public static short AbsShort(short value)
+    {
+        if (value < 0)
+        {
+            value = (short)-value;
+            if (value < 0)
+                throw new OverflowException();
+        }
+        return value;
+    }
+
     public static int CountPositive(int[] values) => values.Count(v => v > 0);
 
     public static int CountAbove(int[] values, int min) => values.Count(v => v > min);

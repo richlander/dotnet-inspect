@@ -60,7 +60,8 @@ internal static class ConditionalDetector
         ControlFlowGraph cfg,
         DominatorTree domTree,
         List<NaturalLoop> loops,
-        int[]? entryStackHeights = null)
+        int[]? entryStackHeights = null,
+        ILAstMethod? ast = null)
     {
         List<ConditionalPattern> patterns = [];
         var loopHeaders = new HashSet<int>(loops.Select(l => l.HeaderIndex));
@@ -69,7 +70,7 @@ internal static class ConditionalDetector
         // single-predecessor condition block forms one combined a && b / a || b
         // condition. Detect chains first; absorbed continuation blocks don't get
         // their own pattern.
-        var chains = DetectShortCircuitChains(cfg, loopHeaders, entryStackHeights, out var absorbed);
+        var chains = DetectShortCircuitChains(cfg, loopHeaders, entryStackHeights, ast, out var absorbed);
 
         for (int i = 0; i < cfg.BasicBlocks.Count; i++)
         {
@@ -213,8 +214,18 @@ internal static class ConditionalDetector
     /// only kept when every link classifies cleanly.
     /// </summary>
     static Dictionary<int, (List<ConditionChainTerm> Terms, bool NegateLast)> DetectShortCircuitChains(
-        ControlFlowGraph cfg, HashSet<int> loopHeaders, int[]? entryStackHeights, out HashSet<int> absorbed)
+        ControlFlowGraph cfg, HashSet<int> loopHeaders, int[]? entryStackHeights, ILAstMethod? ast, out HashSet<int> absorbed)
     {
+        // Absorbing a continuation block hides everything in it except its
+        // condition, so it must contain NOTHING but the condition computation:
+        // nops, foldable local-free temps the branch consumes, and the branch.
+        // Without the AST to verify that, don't chain at all.
+        if (ast is null)
+        {
+            absorbed = [];
+            return [];
+        }
+
         absorbed = [];
         var result = new Dictionary<int, (List<ConditionChainTerm> Terms, bool NegateLast)>();
 
@@ -257,7 +268,8 @@ internal static class ConditionalDetector
             {
                 int ft = cfg.LookupIndex(cfg.BasicBlocks[cur].FallthroughTarget?.Start ?? -1);
                 if (ft < 0 || predCount[ft] != 1 || loopHeaders.Contains(ft) || ConditionEdges(cfg, ft) is null
-                    || EntryHeight(ft) > 0)
+                    || EntryHeight(ft) > 0
+                    || !IsPureConditionBlock(ast, ft))
                     break;
                 chain.Add(ft);
                 cur = ft;
@@ -313,6 +325,105 @@ internal static class ConditionalDetector
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// A block that computes ONLY a condition: optional nops, optional
+    /// single-use local-free temp stores the branch consumes (Debug bool
+    /// routing — mirroring what the emitter's condition folding can absorb),
+    /// and a trailing conditional branch. Anything else (assignments, calls,
+    /// stores) would be silently dropped if the block were absorbed.
+    /// </summary>
+    static bool IsPureConditionBlock(ILAstMethod ast, int blockIdx)
+    {
+        if (blockIdx < 0 || blockIdx >= ast.Blocks.Count)
+            return false;
+        var nodes = ast.Blocks[blockIdx].Nodes;
+        if (nodes.Count == 0)
+            return false;
+        if (nodes[^1] is not ILAstStatement { Expression: var branch }
+            || branch.OpCode is not (ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                or ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                or ILOpCode.Beq or ILOpCode.Beq_s or ILOpCode.Bne_un or ILOpCode.Bne_un_s
+                or ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bge_un or ILOpCode.Bge_un_s
+                or ILOpCode.Bgt or ILOpCode.Bgt_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s
+                or ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
+                or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Blt_un or ILOpCode.Blt_un_s))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < nodes.Count - 1; i++)
+        {
+            if (nodes[i] is not ILAstStatement { Expression: var expr })
+                return false;
+            if (expr.OpCode == ILOpCode.Nop)
+                continue;
+            // Foldable temp: a store the branch reads, whose value loads no
+            // locals. The branch must actually load the stored local — the
+            // emitter folds by substituting that load; an unreferenced store
+            // would be dropped.
+            if (expr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                    or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                && expr.Arguments.Count == 1
+                && !TreeLoadsAnyLocal(expr.Arguments[0])
+                && StoredLocalName(expr) is string stored
+                && TreeLoadsLocal(branch, stored))
+            {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    static string? StoredLocalName(ILAstExpression store) => store.Operand ?? store.OpCode switch
+    {
+        ILOpCode.Stloc_0 => "V_0",
+        ILOpCode.Stloc_1 => "V_1",
+        ILOpCode.Stloc_2 => "V_2",
+        ILOpCode.Stloc_3 => "V_3",
+        _ => null,
+    };
+
+    static bool TreeLoadsLocal(ILAstExpression expr, string name)
+    {
+        if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3)
+        {
+            string? loaded = expr.Operand ?? expr.OpCode switch
+            {
+                ILOpCode.Ldloc_0 => "V_0",
+                ILOpCode.Ldloc_1 => "V_1",
+                ILOpCode.Ldloc_2 => "V_2",
+                ILOpCode.Ldloc_3 => "V_3",
+                _ => null,
+            };
+            if (loaded == name)
+                return true;
+        }
+        foreach (var arg in expr.Arguments)
+        {
+            if (TreeLoadsLocal(arg, name))
+                return true;
+        }
+        return false;
+    }
+
+    static bool TreeLoadsAnyLocal(ILAstExpression expr)
+    {
+        if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+            or ILOpCode.Ldloca or ILOpCode.Ldloca_s)
+        {
+            return true;
+        }
+        foreach (var arg in expr.Arguments)
+        {
+            if (TreeLoadsAnyLocal(arg))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
