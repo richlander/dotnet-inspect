@@ -578,7 +578,7 @@ public record AuditSignalRow(
 [MarkoutSerializable]
 public record IntegrationRow(
     string Integration,
-    int Examples);
+    [property: MarkoutPropertyName("APIs")] int Apis);
 
 [MarkoutSerializable]
 public record IntegrationSignalRow(

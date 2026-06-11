@@ -1976,7 +1976,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
-        Assert.Contains("| Integration | Examples |", output);
+        Assert.Contains("| Integration | APIs |", output);
         Assert.Contains("| OpenTelemetry |", output);
         Assert.DoesNotContain("## OpenTelemetry", output);
         Assert.DoesNotContain("Tip:", error);

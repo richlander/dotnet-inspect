@@ -31,7 +31,7 @@ The roll-up reports one row per detected integration:
 | Column | Meaning |
 | ------ | ------- |
 | Integration | Ecosystem area, such as Logging or OpenTelemetry. |
-| Examples | Count of actionable API examples in the focused section. |
+| APIs | Count of actionable APIs, support types, and telemetry controls in the focused section. |
 
 `Library Info` also includes an `Integrations` field. That field counts detected
 integration categories, not example rows. It is computed from cheap metadata
