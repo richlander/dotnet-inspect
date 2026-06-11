@@ -261,6 +261,28 @@ public class CommandExecutionTests
         return tempFile;
     }
 
+    private static (string EventStream, string SourceFile, string TempDir) CreateBuildErrorEventStream()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"build-error-events-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var sourceFile = Path.Combine(tempDir, "Program.cs");
+        File.WriteAllText(sourceFile, """
+            using System;
+
+            Console.WriteLine(undefinedValue);
+            Console.WriteLine("after");
+            """);
+        var eventStream = Path.Combine(tempDir, "events.jsonl");
+        string escapedSourceFile = JsonSerializer.Serialize(sourceFile);
+        File.WriteAllLines(eventStream,
+        [
+            "{\"schemaVersion\":0,\"kind\":\"build.started\",\"sequenceNumber\":1,\"timestamp\":\"2026-06-10T04:00:00Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"message\":\"Build started\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"diagnostic\",\"sequenceNumber\":2,\"timestamp\":\"2026-06-10T04:00:05Z\",\"threadId\":1,\"context\":{\"submissionId\":0,\"nodeId\":1,\"evaluationId\":-1,\"projectInstanceId\":10,\"projectContextId\":100,\"targetId\":7,\"taskId\":8},\"payload\":{\"severity\":\"error\",\"subcategory\":null,\"code\":\"CS0103\",\"file\":" + escapedSourceFile + ",\"projectFile\":\"/repo/App.csproj\",\"lineNumber\":3,\"columnNumber\":19,\"endLineNumber\":3,\"endColumnNumber\":33,\"message\":\"The name 'undefinedValue' does not exist in the current context\",\"helpKeyword\":\"CS0103\"}}",
+            "{\"schemaVersion\":0,\"kind\":\"build.finished\",\"sequenceNumber\":3,\"timestamp\":\"2026-06-10T04:00:06Z\",\"threadId\":1,\"context\":{\"submissionId\":-1,\"nodeId\":-2,\"evaluationId\":-1,\"projectInstanceId\":-1,\"projectContextId\":-2,\"targetId\":-1,\"taskId\":-1},\"payload\":{\"succeeded\":false,\"message\":\"Build failed\"}}"
+        ]);
+        return (eventStream, sourceFile, tempDir);
+    }
+
     [Fact]
     public async Task BuildCommand_Discover_ListsSections()
     {
@@ -332,6 +354,25 @@ public class CommandExecutionTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task BuildCommand_Errors_RendersSourceContext()
+    {
+        var (eventStream, sourceFile, tempDir) = CreateBuildErrorEventStream();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("build", eventStream, "-S", "Errors");
+
+            Assert.Equal(0, exit);
+            Assert.Contains($"{sourceFile}(3,19): error CS0103", output);
+            Assert.Contains("Console.WriteLine(undefinedValue);", output);
+            Assert.Contains("^", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 

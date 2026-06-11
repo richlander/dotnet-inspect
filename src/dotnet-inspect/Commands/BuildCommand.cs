@@ -16,7 +16,7 @@ public static class BuildCommand
 {
     public const string Name = "build";
 
-    private static readonly string[] s_sections = ["Projects", "Diagnostics", "Targets", "Tasks", "Graph"];
+    private static readonly string[] s_sections = ["Projects", "Diagnostics", "Errors", "Targets", "Tasks", "Graph"];
 
     public static int Execute(BuildOptions options)
     {
@@ -48,6 +48,7 @@ public static class BuildCommand
         {
             "Projects" => WriteRows(ProjectRows(log), options),
             "Diagnostics" => WriteRows(DiagnosticRows(log), options),
+            "Errors" => WriteErrors(log, options),
             "Targets" => WriteRows(TargetRows(log), options),
             "Tasks" => WriteRows(TaskRows(log), options),
             "Graph" => WriteGraph(log, options),
@@ -90,7 +91,8 @@ public static class BuildCommand
         {
             WriteTable([new Dictionary<string, object?> { ["Name"] = "Projects", ["Kind"] = "section" },
                 new Dictionary<string, object?> { ["Name"] = "Diagnostics", ["Kind"] = "section" },
-                new Dictionary<string, object?> { ["Name"] = "Targets", ["Kind"] = "section" },
+            new Dictionary<string, object?> { ["Name"] = "Errors", ["Kind"] = "section" },
+            new Dictionary<string, object?> { ["Name"] = "Targets", ["Kind"] = "section" },
                 new Dictionary<string, object?> { ["Name"] = "Tasks", ["Kind"] = "section" },
                 new Dictionary<string, object?> { ["Name"] = "Graph", ["Kind"] = "section" }], noHeader: false);
             return;
@@ -101,6 +103,7 @@ public static class BuildCommand
         {
             "Projects" => ["Project", "TargetFramework", "RuntimeIdentifier", "Configuration", "ParentProject"],
             "Diagnostics" => ["Severity", "Code", "Project", "File", "Line", "Column", "Message"],
+            "Errors" => ["File", "Line", "Column", "Code", "Message", "Context"],
             "Targets" => ["Project", "Target", "Sequence"],
             "Tasks" => ["Project", "TargetId", "Task", "Sequence"],
             "Graph" => ["Mermaid"],
@@ -127,6 +130,25 @@ public static class BuildCommand
         else
         {
             Console.Write(mermaid);
+        }
+
+        return 0;
+    }
+
+    private static int WriteErrors(BuildEventLog log, BuildOptions options)
+    {
+        List<DiagnosticEvent> errors = log.Diagnostics
+            .Where(diagnostic => string.Equals(diagnostic.Severity, "error", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (options.Format is OutputFormat.Json or OutputFormat.Jsonl or OutputFormat.Tsv)
+        {
+            return WriteRows(errors.Select(ErrorRow).ToList(), options);
+        }
+
+        foreach (DiagnosticEvent error in errors)
+        {
+            WriteErrorCard(error);
         }
 
         return 0;
@@ -191,6 +213,114 @@ public static class BuildCommand
                 ["Message"] = diagnostic.Message,
             })
             .ToList();
+    }
+
+    private static Dictionary<string, object?> ErrorRow(DiagnosticEvent diagnostic)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["File"] = diagnostic.File,
+            ["Line"] = diagnostic.LineNumber,
+            ["Column"] = diagnostic.ColumnNumber,
+            ["Code"] = diagnostic.Code,
+            ["Message"] = diagnostic.Message,
+            ["Context"] = TryReadSourceLine(diagnostic.File, diagnostic.LineNumber),
+        };
+    }
+
+    private static void WriteErrorCard(DiagnosticEvent diagnostic)
+    {
+        Console.Write(diagnostic.File);
+        if (diagnostic.LineNumber > 0)
+        {
+            Console.Write('(');
+            Console.Write(diagnostic.LineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (diagnostic.ColumnNumber > 0)
+            {
+                Console.Write(',');
+                Console.Write(diagnostic.ColumnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            Console.Write(')');
+        }
+
+        Console.Write(": error");
+        if (!string.IsNullOrEmpty(diagnostic.Code))
+        {
+            Console.Write(' ');
+            Console.Write(diagnostic.Code);
+        }
+
+        Console.Write(": ");
+        Console.WriteLine(diagnostic.Message);
+
+        WriteSourceContext(diagnostic);
+        Console.WriteLine();
+    }
+
+    private static void WriteSourceContext(DiagnosticEvent diagnostic)
+    {
+        if (string.IsNullOrEmpty(diagnostic.File) ||
+            diagnostic.LineNumber <= 0 ||
+            !File.Exists(diagnostic.File))
+        {
+            return;
+        }
+
+        string[] lines;
+        try
+        {
+            lines = File.ReadAllLines(diagnostic.File);
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        int errorIndex = diagnostic.LineNumber - 1;
+        if (errorIndex < 0 || errorIndex >= lines.Length)
+        {
+            return;
+        }
+
+        int start = Math.Max(0, errorIndex - 2);
+        int end = Math.Min(lines.Length - 1, errorIndex + 2);
+        int width = (end + 1).ToString(System.Globalization.CultureInfo.InvariantCulture).Length;
+
+        for (int i = start; i <= end; i++)
+        {
+            string lineNumber = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(width);
+            Console.Write("  ");
+            Console.Write(lineNumber);
+            Console.Write(" | ");
+            Console.WriteLine(lines[i]);
+
+            if (i == errorIndex && diagnostic.ColumnNumber > 0)
+            {
+                Console.Write("  ");
+                Console.Write(new string(' ', width));
+                Console.Write(" | ");
+                Console.Write(new string(' ', Math.Max(0, diagnostic.ColumnNumber - 1)));
+                Console.WriteLine("^");
+            }
+        }
+    }
+
+    private static string? TryReadSourceLine(string? file, int lineNumber)
+    {
+        if (string.IsNullOrEmpty(file) || lineNumber <= 0 || !File.Exists(file))
+        {
+            return null;
+        }
+
+        try
+        {
+            return File.ReadLines(file).Skip(lineNumber - 1).FirstOrDefault();
+        }
+        catch (IOException)
+        {
+            return null;
+        }
     }
 
     private static List<Dictionary<string, object?>> TargetRows(BuildEventLog log)
@@ -380,6 +510,8 @@ internal sealed class BuildEventLog
                         ReadString(payload, "projectFile"),
                         ReadInt32(payload, "lineNumber"),
                         ReadInt32(payload, "columnNumber"),
+                        ReadInt32(payload, "endLineNumber"),
+                        ReadInt32(payload, "endColumnNumber"),
                         ReadString(payload, "message")));
                     break;
 
@@ -431,6 +563,8 @@ internal sealed record DiagnosticEvent(
     string? ProjectFile,
     int LineNumber,
     int ColumnNumber,
+    int EndLineNumber,
+    int EndColumnNumber,
     string? Message);
 
 internal sealed record TargetEvent(long SequenceNumber, BuildEventContext Context, string? TargetName)
