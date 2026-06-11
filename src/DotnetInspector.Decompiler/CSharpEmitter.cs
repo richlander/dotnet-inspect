@@ -6823,9 +6823,11 @@ public static class CSharpEmitter
         void EmitUnsignedOperand(ILAstExpression arg, string cast, ILOpCode redundantConv)
         {
             // Non-negative constants are unchanged by unsigned reinterpretation,
-            // and an operand that is itself the matching conversion already
-            // renders the cast.
-            if ((IsLdcI4(arg.OpCode) && GetI4Value(arg) >= 0) || arg.OpCode == redundantConv)
+            // an operand that is itself the matching conversion already renders
+            // the cast, and an operand whose static type is already unsigned
+            // (C# compiles ulong >= ulong straight to bge.un) needs none.
+            if ((IsLdcI4(arg.OpCode) && GetI4Value(arg) >= 0) || arg.OpCode == redundantConv
+                || IsUnsignedTyped(arg))
             {
                 EmitExpression(arg);
                 return;
@@ -6836,6 +6838,23 @@ public static class CSharpEmitter
             if (wrap) _sb.Append('(');
             EmitExpression(arg);
             if (wrap) _sb.Append(')');
+        }
+
+        /// <summary>
+        /// True when the operand's static type is an unsigned (or otherwise
+        /// non-negative: char) integer, so unsigned reinterpretation is the
+        /// identity. Signed-typed operands keep their casts — that is the
+        /// bounds-check idiom (uint)i &lt; (uint)length.
+        /// </summary>
+        static bool IsUnsignedTyped(ILAstExpression arg)
+        {
+            var tn = arg.ResultType.TypeName;
+            if (tn is null)
+                return false;
+            if (tn.StartsWith("System.", StringComparison.Ordinal))
+                tn = tn[7..];
+            return tn is "ulong" or "uint" or "ushort" or "byte" or "nuint" or "char"
+                or "UInt64" or "UInt32" or "UInt16" or "Byte" or "UIntPtr" or "Char";
         }
 
         /// <summary>Joint stack-value kind of a comparison's operands.</summary>
