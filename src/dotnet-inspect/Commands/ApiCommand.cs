@@ -532,6 +532,35 @@ public class ApiCommand
         return filtered;
     }
 
+    /// <summary>
+    /// Acquires the portable PDB for an assembly (symbol server / symbol
+    /// package) and returns its on-disk path, so the decompiler can render
+    /// real local-variable names instead of V_n slots. Best-effort: returns
+    /// null when no PDB can be obtained (offline, Windows PDB, no symbols).
+    /// </summary>
+    internal static async Task<string?> TryAcquirePdbPathAsync(
+        string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    {
+        try
+        {
+            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var context = service.Context;
+            if (context.NeedsPdb)
+            {
+                var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
+                    ? PackageExtractor.ParsePackageReference(options.PackagePath)
+                    : (null, null);
+                await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+            }
+            return context.PortablePdbPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
