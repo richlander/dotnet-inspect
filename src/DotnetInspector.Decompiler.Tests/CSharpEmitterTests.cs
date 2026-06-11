@@ -359,6 +359,18 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("this.", output);
     }
 
+    [Fact]
+    public void CoreLib_QueueCtor_NoImplicitBaseCall_ExplicitGenericArgs()
+    {
+        // The implicit base constructor call is never written in C# source,
+        // and a parameterless generic method requires explicit type args
+        // (no inference basis): Array.Empty<T>().
+        string output = EmitCoreLibMethod("System.Collections.Generic.Queue`1", ".ctor", overloadIndex: 0);
+
+        Assert.DoesNotContain("base(", output);
+        Assert.Contains("Array.Empty<T>()", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]
