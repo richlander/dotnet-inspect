@@ -86,6 +86,10 @@ public static class CSharpEmitter
         // Labels already emitted (avoid duplicates for shared blocks)
         readonly HashSet<string> _emittedLabels;
 
+        // Stack-slot locals (S_N) declared so far — they exist nowhere in
+        // metadata, so the first surviving store must declare them.
+        readonly HashSet<string> _declaredSlotLocals = [];
+
         // Gotos actually written to the output, and where a suppressed label
         // WOULD have gone — so dangling references can be repaired at the end.
         readonly HashSet<string> _emittedGotos = [];
@@ -1627,13 +1631,7 @@ public static class CSharpEmitter
                 switch (node)
                 {
                     case ILAstAssignment assign:
-                        if (TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
-                            break;
-                        WriteIndent(indent);
-                        string assignType = SimplifyTypeName(assign.Variable.TypeName ?? "var");
-                        _sb.Append($"{assign.Variable.Name} = ");
-                        EmitExpression(assign.Value);
-                        _sb.AppendLine(";");
+                        EmitAssignmentNode(assign, indent);
                         break;
 
                     case ILAstStatement stmt:
@@ -1643,6 +1641,35 @@ public static class CSharpEmitter
             }
 
             _currentBlockNodes = null;
+        }
+
+        void EmitAssignmentNode(ILAstAssignment assign, int indent)
+        {
+            // A stack-slot merge re-storing the slot it entered the block with
+            // (S_0 = S_in_0) is the identity — both names denote eval-stack
+            // slot 0 — unless a pattern substituted the incoming value.
+            if (assign.Variable.Kind == ILVariableKind.StackSlot
+                && assign.Value is { OpCode: ILOpCode.Nop, Operand: string inName }
+                && inName == $"S_in_{assign.Variable.Index}"
+                && _nullConditionalReceiver is null
+                && !_syntheticSubstitutions.ContainsKey(inName)
+                && !_syntheticSubstitutions.ContainsKey($"{assign.Value.Offset}:{inName}"))
+            {
+                return;
+            }
+
+            if (TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
+                return;
+
+            WriteIndent(indent);
+            if (assign.Variable.Kind == ILVariableKind.StackSlot
+                && _declaredSlotLocals.Add(assign.Variable.Name))
+            {
+                _sb.Append($"{SimplifyTypeName(assign.Variable.TypeName ?? "var")} ");
+            }
+            _sb.Append($"{assign.Variable.Name} = ");
+            EmitExpression(assign.Value);
+            _sb.AppendLine(";");
         }
 
         void EmitIfThenElse(StructuredBlock block, int indent)
@@ -1731,13 +1758,7 @@ public static class CSharpEmitter
                         EmitStatement(stmt.Expression, indent);
                     else if (condBlock.Nodes[i] is ILAstAssignment assign)
                     {
-                        if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
-                        {
-                            WriteIndent(indent);
-                            _sb.Append($"{assign.Variable.Name} = ");
-                            EmitExpression(assign.Value);
-                            _sb.AppendLine(";");
-                        }
+                        EmitAssignmentNode(assign, indent);
                     }
                 }
 
@@ -5836,6 +5857,10 @@ public static class CSharpEmitter
                         _sb.Append(blockSubst);
                     else if (_syntheticSubstitutions.TryGetValue(expr.Operand, out var subst))
                         _sb.Append(subst);
+                    else if (expr.Operand.StartsWith("S_in_", StringComparison.Ordinal))
+                        // The incoming slot IS the S_N every predecessor stored:
+                        // render the unified name so the reference resolves.
+                        _sb.Append("S_").Append(expr.Operand.AsSpan("S_in_".Length));
                     else
                         _sb.Append(expr.Operand);
                     break;

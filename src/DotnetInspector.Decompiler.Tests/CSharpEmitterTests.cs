@@ -139,6 +139,33 @@ public class CSharpEmitterTests
         }
     }
 
+    // --- Generic ldelem (type-parameter element access) ---
+
+    [Fact]
+    public void GetAt_RendersGenericElementLoad()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.GetAt));
+
+        // ldelem with a type token previously fell back to an IL comment.
+        Assert.Contains("array[index]", output);
+        Assert.DoesNotContain("ldelem", output);
+    }
+
+    [Fact]
+    public void CoreLib_QueueDequeue_SpillsElementLoadToTypedLocal()
+    {
+        // Release shape: the dequeued element stays on the eval stack across
+        // the IsReferenceOrContainsReferences branch. The spill must render as
+        // a typed declaration consumed by the return — no comment fallbacks,
+        // no S_in_* artifacts.
+        string output = EmitCoreLibMethod("System.Collections.Generic.Queue`1", "Dequeue");
+
+        Assert.Contains("T S_0 = V_1[V_0];", output);
+        Assert.Contains("return S_0;", output);
+        Assert.DoesNotContain("S_in_", output);
+        Assert.DoesNotContain("/*", output);
+    }
+
     // --- Exception filters (catch...when) ---
 
     [Fact]

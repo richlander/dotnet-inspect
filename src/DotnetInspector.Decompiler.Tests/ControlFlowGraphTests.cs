@@ -295,6 +295,8 @@ public class CfgSampleClass
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
 
+    public static T GetAt<T>(T[] array, int index) => array[index];
+
     public static ulong MaxULong(ulong a, ulong b)
     {
         if (a >= b)

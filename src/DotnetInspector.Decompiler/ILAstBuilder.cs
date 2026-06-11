@@ -102,13 +102,24 @@ public static class ILAstBuilder
         {
             var remaining = stack.ToArray();
             Array.Reverse(remaining);
+
+            // The values were computed before the block's terminator ran, so
+            // the spill must precede it — a trailing branch statement must stay
+            // last for condition extraction and structuring.
+            int insertAt = block.Nodes.Count;
+            if (insertAt > 0 && block.Nodes[insertAt - 1] is ILAstStatement { Expression.OpCode: var termOp }
+                && (termOp.IsBranch() || termOp is ILOpCode.Switch or ILOpCode.Leave or ILOpCode.Leave_s))
+            {
+                insertAt--;
+            }
+
             for (int i = 0; i < remaining.Length; i++)
             {
                 var variable = new ILVariable(
                     ILVariableKind.StackSlot,
                     remaining[i].ResultType,
                     index: i);
-                block.Nodes.Add(new ILAstAssignment
+                block.Nodes.Insert(insertAt++, new ILAstAssignment
                 {
                     Variable = variable,
                     Value = remaining[i],
@@ -701,14 +712,23 @@ public static class ILAstBuilder
                  ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref or
                  ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4:
             {
+                // The token form (ldelem !T in generic code) carries the element
+                // type; resolving it gives the result a real stack kind — Unknown
+                // would read as void and the load would never join the stack.
+                string? elementType = null;
                 if (opcode == ILOpCode.Ldelem)
-                    reader.ReadILToken(); // type token, unused for now
+                {
+                    int token = reader.ReadILToken();
+                    elementType = ResolveTypeName(context.Reader, token, context.GenericContext);
+                }
                 var index = TryPop(stack);
                 var array = TryPop(stack);
                 return new ILAstExpression
                 {
-                    OpCode = opcode, Arguments = { array, index },
-                    ResultType = StackValue.CreatePrimitive(opcode == ILOpCode.Ldelem_ref ? StackValueKind.ObjRef : opcode.ResultKind()),
+                    OpCode = opcode, Operand = elementType, Arguments = { array, index },
+                    ResultType = opcode == ILOpCode.Ldelem
+                        ? StackValue.FromTypeName(elementType ?? "object")
+                        : StackValue.CreatePrimitive(opcode == ILOpCode.Ldelem_ref ? StackValueKind.ObjRef : opcode.ResultKind()),
                     Offset = offset
                 };
             }
