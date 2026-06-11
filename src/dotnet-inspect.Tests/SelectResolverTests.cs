@@ -2,6 +2,11 @@ using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
+// SelectOutput writes to Console.Error directly; without the Console
+// collection these tests run in parallel with ConsoleCapture-based tests
+// and their stderr lands in whichever capture is active (CI flake:
+// Member_NonMethodRows saw "No sections match 'Source*'").
+[Collection("Console")]
 public class SelectResolverTests
 {
     private static readonly string[] TestSections =
@@ -131,28 +136,34 @@ public class SelectResolverTests
     }
 
     [Fact]
-    public void WriteUnresolved_PartialMatch_ReturnsFalse()
+    public async Task WriteUnresolved_PartialMatch_ReturnsFalse()
     {
         var result = new SelectResult(
             new HashSet<string> { "Package Info" },
             [new SelectMiss("Source*", TestSections.ToList(), IsGlob: true)]);
 
-        // Partial match: some resolved, some not — should not be a total failure
-        bool totalFailure = SelectOutput.WriteUnresolved(result);
+        // Partial match: some resolved, some not — should not be a total failure.
+        // Captured so the warning doesn't leak to the real console.
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SelectOutput.WriteUnresolved(result) ? 1 : 0));
 
-        Assert.False(totalFailure);
+        Assert.Equal(0, exit);
+        Assert.Contains("Warning: No sections match 'Source*'.", error);
     }
 
     [Fact]
-    public void WriteUnresolved_TotalFailure_ReturnsTrue()
+    public async Task WriteUnresolved_TotalFailure_ReturnsTrue()
     {
         var result = new SelectResult(
             null,
             [new SelectMiss("Source*", TestSections.ToList(), IsGlob: true)]);
 
-        // Total failure: nothing matched — should be a hard error
-        bool totalFailure = SelectOutput.WriteUnresolved(result);
+        // Total failure: nothing matched — should be a hard error.
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SelectOutput.WriteUnresolved(result) ? 1 : 0));
 
-        Assert.True(totalFailure);
+        Assert.Equal(1, exit);
+        Assert.Contains("Error: No sections match 'Source*'.", error);
+        Assert.Contains("Available sections:", error);
     }
 }
