@@ -5373,9 +5373,9 @@ public static class CSharpEmitter
         {
             foreach (var (rootIdx, rootBlock) in _blockMap)
             {
-                // Find: stloc H = call ComputeStringHash(ldloc subject)
+                // Hash form: stloc H = call ComputeStringHash(subject).
                 string? hashLocal = null;
-                string? subjectLocal = null;
+                ILAstExpression? subjectExpr = null;
                 ILAstNode? hashNode = null;
                 foreach (var node in rootBlock.Nodes)
                 {
@@ -5386,28 +5386,95 @@ public static class CSharpEmitter
                         && e.Arguments[0] is { OpCode: ILOpCode.Call } call
                         && call.Operand?.Contains("ComputeStringHash", StringComparison.Ordinal) == true
                         && call.Arguments.Count == 1
-                        && GetLocalReferenceName(call.Arguments[0]) is { } subj)
+                        && SubjectRefName(call.Arguments[0]) is not null)
                     {
                         hashLocal = e.Operand ?? GetLocalName(e.OpCode);
-                        subjectLocal = subj;
+                        subjectExpr = call.Arguments[0];
                         hashNode = node;
                         break;
                     }
                 }
-                if (hashLocal is null || subjectLocal is null)
+
+                // Char/length-bucket form (Release): the root is a null test
+                // on a string subject; the dispatch reads only the subject's
+                // Length and chars. Validation rejects unrelated null checks
+                // (it requires two or more verification leaves and a single
+                // shared default).
+                if (hashLocal is null
+                    && rootBlock.Nodes.LastOrDefault() is ILAstStatement { Expression: var br }
+                    && br.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                    && br.Arguments.Count == 1
+                    && SubjectRefName(br.Arguments[0]) is not null
+                    && br.Arguments[0].ResultType.TypeName is "string" or "System.String")
+                {
+                    subjectExpr = br.Arguments[0];
+                }
+
+                if (subjectExpr is null)
+                    continue;
+                if (_stringSwitches.Values.Any(ss => ss.ConsumedBlocks.Contains(rootIdx)))
                     continue;
 
-                if (TryBuildStringSwitch(rootIdx, rootBlock, hashNode!, hashLocal, subjectLocal) is { } info)
+                if (TryBuildStringSwitch(rootIdx, rootBlock, hashNode, hashLocal, subjectExpr) is { } info)
                     _stringSwitches[rootIdx] = info;
             }
         }
 
-        StringSwitchInfo? TryBuildStringSwitch(
-            int rootIdx, ILAstBlock rootBlock, ILAstNode hashNode, string hashLocal, string subjectLocal)
+        /// <summary>Canonical name of a plain local/argument reference.</summary>
+        static string? SubjectRefName(ILAstExpression expr) => expr.OpCode switch
         {
+            ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                => GetLocalReferenceName(expr),
+            ILOpCode.Ldarg or ILOpCode.Ldarg_s => expr.Operand,
+            ILOpCode.Ldarg_0 => "P_0",
+            ILOpCode.Ldarg_1 => "P_1",
+            ILOpCode.Ldarg_2 => "P_2",
+            ILOpCode.Ldarg_3 => "P_3",
+            _ => null,
+        };
+
+        StringSwitchInfo? TryBuildStringSwitch(
+            int rootIdx, ILAstBlock rootBlock, ILAstNode? hashNode, string? hashLocal, ILAstExpression subjectExpr)
+        {
+            string subjectRef = SubjectRefName(subjectExpr)!;
             var consumed = new HashSet<int>();
             var verifications = new List<(string Literal, int ArmStart)>();
             var defaultCandidates = new HashSet<int>();
+
+            // Locals the dispatch may branch on: the hash local (hash form)
+            // and char/length temps discovered as the walk proceeds.
+            var dispatchLocals = new HashSet<string>();
+            if (hashLocal is not null)
+                dispatchLocals.Add(hashLocal);
+
+            bool IsDispatchStatement(ILAstExpression d)
+            {
+                if (d.OpCode is ILOpCode.Br or ILOpCode.Br_s)
+                    return true;
+                // Null re-test of the subject.
+                if (d.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
+                    && d.Arguments.Count == 1
+                    && SubjectRefName(d.Arguments[0]) == subjectRef)
+                {
+                    return true;
+                }
+                // Char/length temp: stloc T = subject.Length / subject[const].
+                if (d.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                        or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                    && d.Arguments.Count == 1
+                    && d.Arguments[0] is { OpCode: ILOpCode.Call or ILOpCode.Callvirt } sel
+                    && (sel.Operand?.Contains("get_Length", StringComparison.Ordinal) == true
+                        || sel.Operand?.Contains("get_Chars", StringComparison.Ordinal) == true)
+                    && sel.Arguments.Count >= 1
+                    && SubjectRefName(sel.Arguments[0]) == subjectRef)
+                {
+                    dispatchLocals.Add(d.Operand ?? GetLocalName(d.OpCode));
+                    return true;
+                }
+                // Branch over the dispatch locals and constants.
+                return d.OpCode.IsBranch() && TreeOnlyLoadsLocalsOrConsts(d, dispatchLocals);
+            }
 
             // Walk the dispatch tree from the root's trailing branch.
             var queue = new Queue<int>();
@@ -5430,7 +5497,7 @@ public static class CSharpEmitter
                     && leaf.Arguments.Count == 1
                     && leaf.Arguments[0] is { OpCode: ILOpCode.Call, Arguments.Count: 2 } eq
                     && eq.Operand?.Contains("op_Equality", StringComparison.Ordinal) == true
-                    && GetLocalReferenceName(eq.Arguments[0]) == subjectLocal
+                    && SubjectRefName(eq.Arguments[0]) == subjectRef
                     && eq.Arguments[1].OpCode == ILOpCode.Ldstr
                     && eq.Arguments[1].Operand is { } literal
                     && leaf.Operand is string leafTarget
@@ -5439,21 +5506,23 @@ public static class CSharpEmitter
                     bool isTrue = leaf.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s;
                     int armStart = isTrue ? leafTargetIdx : idx + 1;
                     int failStart = isTrue ? idx + 1 : leafTargetIdx;
-                    // The fail path must be (a hop to) the shared default.
-                    int failResolved = ResolveBareBr(failStart);
                     consumed.Add(idx);
+                    verifications.Add((literal, armStart));
+                    // The fail path is the shared default — or another
+                    // verification when a bucket holds several candidates.
+                    // Enqueue it and let classification decide.
+                    int failResolved = ResolveBareBr(failStart);
                     if (failResolved != failStart)
                         consumed.Add(failStart);
-                    verifications.Add((literal, armStart));
-                    defaultCandidates.Add(failResolved);
+                    if (seen.Add(failResolved))
+                        queue.Enqueue(failResolved);
                     continue;
                 }
 
-                // Dispatch block: every statement only touches the hash local.
+                // Dispatch block: selector temps, subject null tests, and
+                // branches over the dispatch locals.
                 bool isDispatch = nodes.Count > 0 && nodes.All(n =>
-                    n is ILAstStatement { Expression: var d }
-                    && (d.OpCode is ILOpCode.Br or ILOpCode.Br_s
-                        || (d.OpCode.IsBranch() && TreeOnlyLoadsLocalOrConsts(d, hashLocal))));
+                    n is ILAstStatement { Expression: var d } && IsDispatchStatement(d));
                 if (isDispatch)
                 {
                     consumed.Add(idx);
@@ -5491,10 +5560,12 @@ public static class CSharpEmitter
             // Subject: follow trivial copies inside the root block; the copies
             // and hash store render inside the expression, so they are skipped
             // when nothing else reads them.
-            var skipNodes = new List<ILAstNode> { hashNode };
-            string subject = subjectLocal;
-            var suppressNames = new HashSet<string> { hashLocal };
-            string cur = subjectLocal;
+            var skipNodes = new List<ILAstNode>();
+            if (hashNode is not null)
+                skipNodes.Add(hashNode);
+            var suppressNames = new HashSet<string>(dispatchLocals);
+            string subject = ExpressionToString(subjectExpr);
+            string cur = subjectRef;
             for (int hops = 0; hops < 3; hops++)
             {
                 ILAstNode? copyNode = null;
@@ -5528,11 +5599,12 @@ public static class CSharpEmitter
             }
 
             // Locals folded into the expression must have no reads elsewhere.
+            // (The subject itself may be read anywhere — it still exists.)
             foreach (var (idx, b) in _blockMap)
             {
                 if (consumed.Contains(idx) || idx == rootIdx)
                     continue;
-                foreach (string name in suppressNames.Append(subjectLocal).Concat(temps))
+                foreach (string name in suppressNames.Concat(temps))
                 {
                     if (BlockReferencesLocal(b, name))
                         return null;
@@ -5575,12 +5647,12 @@ public static class CSharpEmitter
             return idx;
         }
 
-        static bool TreeOnlyLoadsLocalOrConsts(ILAstExpression expr, string local)
+        static bool TreeOnlyLoadsLocalsOrConsts(ILAstExpression expr, HashSet<string> locals)
         {
             if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
                 or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3)
             {
-                return (expr.Operand ?? GetLocalName(expr.OpCode)) == local;
+                return (expr.Operand ?? GetLocalName(expr.OpCode)) is { } name && locals.Contains(name);
             }
             if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Calli or ILOpCode.Newobj
                 or ILOpCode.Ldfld or ILOpCode.Ldsfld or ILOpCode.Ldarg or ILOpCode.Ldarg_s
@@ -5590,7 +5662,7 @@ public static class CSharpEmitter
             }
             foreach (var arg in expr.Arguments)
             {
-                if (!TreeOnlyLoadsLocalOrConsts(arg, local))
+                if (!TreeOnlyLoadsLocalsOrConsts(arg, locals))
                     return false;
             }
             return true;
