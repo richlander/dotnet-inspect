@@ -225,6 +225,29 @@ public class CSharpEmitterTests
         Assert.Contains("Yellow", output);
     }
 
+    // --- Loop branches: continue / break ---
+
+    [Fact]
+    public void LoopWithContinue_RendersContinue()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.LoopWithContinue));
+
+        Assert.Contains("continue;", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+        // The summing statement must remain reachable (it follows the guard).
+        Assert.Contains("+=", output);
+    }
+
+    [Fact]
+    public void LoopWithBreak_RendersBreak()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.LoopWithBreak));
+
+        Assert.Contains("break;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
     // --- Inliner soundness ---
 
     [Fact]
