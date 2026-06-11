@@ -2240,6 +2240,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_LoggingSection_ForSerilog_ShowsProviderApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Serilog.Extensions.Logging", "--library", "-S", "Logging", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Logging", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("SerilogLoggingBuilderExtensions.AddSerilog(...)", output);
+        Assert.Contains("SerilogLoggerFactoryExtensions.AddSerilog(...)", output);
+        Assert.DoesNotContain("SerilogLoggingBuilderExtensions` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DependencyInjectionSection_ShowsActionableTypesOnly()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2253,6 +2268,96 @@ public class CommandExecutionTests
         Assert.DoesNotContain("| Kind |", output);
         Assert.DoesNotContain("Assembly Reference", output);
         Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.IServiceCollection", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DependencyInjectionSection_ForAzureClients_ShowsServiceRegistrationApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.Azure", "--library", "-S", "Dependency Injection", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Dependency Injection", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("AzureClientServiceCollectionExtensions.AddAzureClients(...)", output);
+        Assert.Contains("AzureClientServiceCollectionExtensions.AddAzureClientsCore(...)", output);
+        Assert.DoesNotContain("AzureClientServiceCollectionExtensions` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_HealthChecksSection_ForSqlServer_ShowsHealthCheckBuilderApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "AspNetCore.HealthChecks.SqlServer", "--library", "-S", "@Integrations", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Health Checks | 1 |", output);
+        Assert.DoesNotContain("Dependency Injection", output);
+        Assert.Contains("## Health Checks", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("SqlServerHealthCheckBuilderExtensions.AddSqlServer(...)", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_OpenApiSection_ForSwashbuckle_ShowsOpenApiCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Swashbuckle.AspNetCore.Swagger", "--library", "-S", "@Integrations", "--rows", "-n", "30");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| OpenAPI | 4 |", output);
+        Assert.Contains("## OpenAPI", output);
+        Assert.Contains("| Configuration | `Swashbuckle.AspNetCore.Swagger.SwaggerOptions` |", output);
+        Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.MapSwagger(...)` |", output);
+        Assert.Contains("| Middleware | `Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.UseSwagger(...)` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_OpenApiSection_ForMicrosoftOpenApi_ShowsServiceAndEndpointApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.AspNetCore.OpenApi", "--library", "-S", "OpenAPI", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## OpenAPI", output);
+        Assert.Contains("| Configuration | `Microsoft.AspNetCore.OpenApi.OpenApiOptions` |", output);
+        Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.OpenApiEndpointRouteBuilderExtensions.MapOpenApi(...)` |", output);
+        Assert.Contains("| Service Registration | `Microsoft.Extensions.DependencyInjection.OpenApiServiceCollectionExtensions.AddOpenApi(...)` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_HostingSection_ForMassTransit_ShowsHostBuilderApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "MassTransit", "--library", "-S", "Hosting", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Hosting", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("DependencyInjectionHostingExtensions.UseMassTransit(...)", output);
+        Assert.Contains("DependencyInjectionHostingExtensions.UseMediator(...)", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_OpenTelemetrySection_ForAzureMonitorExporter_ShowsBuilderApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Azure.Monitor.OpenTelemetry.Exporter", "--library", "-S", "OpenTelemetry", "--rows", "-n", "30");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## OpenTelemetry", output);
+        Assert.Contains("| Logging | `Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorLogExporter(...)` |", output);
+        Assert.Contains("| Metrics | `Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorMetricExporter(...)` |", output);
+        Assert.Contains("| OpenTelemetry | `Azure.Monitor.OpenTelemetry.Exporter.OpenTelemetryBuilderExtensions.UseAzureMonitorExporter(...)` |", output);
+        Assert.Contains("| Tracing | `Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorTraceExporter(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

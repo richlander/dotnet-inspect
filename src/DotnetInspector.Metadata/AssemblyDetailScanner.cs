@@ -374,6 +374,7 @@ public static class AssemblyDetailScanner
         flags.HasHostingSupport = integrationPresence.HasHostingSupport;
         flags.HasHealthChecksSupport = integrationPresence.HasHealthChecksSupport;
         flags.HasHttpClientSupport = integrationPresence.HasHttpClientSupport;
+        flags.HasOpenApiSupport = integrationPresence.HasOpenApiSupport;
 
         // Type forwarders: iterate ExportedTypes, stop at first forwarder
         foreach (var handle in reader.ExportedTypes)
@@ -514,6 +515,7 @@ public class PresenceFlags
     public bool HasHostingSupport { get; set; }
     public bool HasHealthChecksSupport { get; set; }
     public bool HasHttpClientSupport { get; set; }
+    public bool HasOpenApiSupport { get; set; }
 
     /// <summary>Whether the assembly has any public runtime-async methods (impl flag 0x2000).</summary>
     public bool HasRuntimeAsync { get; set; }

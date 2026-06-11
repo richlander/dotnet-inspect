@@ -30,6 +30,8 @@ public static class OpenTelemetryScanner
         var metricsTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         var diagnosticSourceTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         var microsoftTelemetryTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+        var openTelemetryApis = new Dictionary<string, string>(StringComparer.Ordinal);
+        var loggingApis = new Dictionary<string, string>(StringComparer.Ordinal);
         var tracingApis = new Dictionary<string, string>(StringComparer.Ordinal);
         var metricsApis = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -42,8 +44,11 @@ public static class OpenTelemetryScanner
             var typeName = reader.GetFullTypeName(typeDefinition);
             AddTypeMatches(typeName, "TypeDef");
             AddTelemetryControlProperties(reader, typeDefinition, typeName);
+            AddTelemetryBuilderMethods(reader, typeDefinition, typeName);
         }
         List<OpenTelemetrySignalInfo> results = [];
+        AddApiRows(results, "OpenTelemetry", openTelemetryApis);
+        AddApiRows(results, "Logging", loggingApis);
         AddApiRows(results, "Metrics", metricsApis);
         AddTypeRows(results, "OpenTelemetry", openTelemetryTypes);
         AddTypeRows(results, "Tracing", tracingTypes);
@@ -100,6 +105,54 @@ public static class OpenTelemetryScanner
                     AddType(metricsApis, api, "Property");
             }
         }
+
+        void AddTelemetryBuilderMethods(MetadataReader metadataReader, TypeDefinition typeDefinition, string typeName)
+        {
+            var attributes = typeDefinition.Attributes;
+            var isStatic = (attributes & TypeAttributes.Sealed) != 0
+                           && (attributes & TypeAttributes.Abstract) != 0;
+            if (!isStatic || !AttributeReader.HasExtensionAttribute(metadataReader, typeDefinition.GetCustomAttributes()))
+                return;
+
+            foreach (var methodHandle in typeDefinition.GetMethods())
+            {
+                var method = metadataReader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                    || (method.Attributes & MethodAttributes.Static) == 0
+                    || !AttributeReader.HasExtensionAttribute(metadataReader, method.GetCustomAttributes()))
+                    continue;
+
+                var methodName = metadataReader.GetString(method.Name);
+                if (!methodName.StartsWith("Add", StringComparison.Ordinal)
+                    && !methodName.StartsWith("Use", StringComparison.Ordinal))
+                    continue;
+
+                MethodSignature<string> signature;
+                try
+                {
+                    var context = GenericContext.ForMethod(metadataReader, typeDefinition, method);
+                    signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                }
+                catch (BadImageFormatException)
+                {
+                    continue;
+                }
+
+                if (!TryClassifyTelemetryBuilderMethod(signature, out var kind))
+                    continue;
+
+                var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
+                AddType(GetTelemetryApiBucket(kind), api, "Method");
+            }
+        }
+
+        Dictionary<string, string> GetTelemetryApiBucket(string kind) => kind switch
+        {
+            "Logging" => loggingApis,
+            "Metrics" => metricsApis,
+            "Tracing" => tracingApis,
+            _ => openTelemetryApis
+        };
     }
 
     public static bool HasSupport(PEReader peReader)
@@ -115,6 +168,8 @@ public static class OpenTelemetryScanner
 
             if (IsTelemetryType(reader.GetFullTypeName(typeDefinition))
                 || HasTelemetryControlProperty(reader, typeDefinition))
+                return true;
+            if (HasTelemetryBuilderMethod(reader, typeDefinition))
                 return true;
         }
 
@@ -207,6 +262,65 @@ public static class OpenTelemetryScanner
         }
 
         return false;
+    }
+
+    private static bool HasTelemetryBuilderMethod(MetadataReader reader, TypeDefinition typeDefinition)
+    {
+        var attributes = typeDefinition.Attributes;
+        var isStatic = (attributes & TypeAttributes.Sealed) != 0
+                       && (attributes & TypeAttributes.Abstract) != 0;
+        if (!isStatic || !AttributeReader.HasExtensionAttribute(reader, typeDefinition.GetCustomAttributes()))
+            return false;
+
+        foreach (var methodHandle in typeDefinition.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                || (method.Attributes & MethodAttributes.Static) == 0
+                || !AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                continue;
+
+            var methodName = reader.GetString(method.Name);
+            if (!methodName.StartsWith("Add", StringComparison.Ordinal)
+                && !methodName.StartsWith("Use", StringComparison.Ordinal))
+                continue;
+
+            try
+            {
+                var context = GenericContext.ForMethod(reader, typeDefinition, method);
+                var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                if (TryClassifyTelemetryBuilderMethod(signature, out _))
+                    return true;
+            }
+            catch (BadImageFormatException)
+            {
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryClassifyTelemetryBuilderMethod(MethodSignature<string> signature, out string kind)
+    {
+        kind = "";
+        if (signature.ParameterTypes.Length == 0)
+            return false;
+
+        var receiver = signature.ParameterTypes[0];
+        if (receiver == "OpenTelemetry.Trace.TracerProviderBuilder"
+            || signature.ReturnType == "OpenTelemetry.Trace.TracerProviderBuilder")
+            kind = "Tracing";
+        else if (receiver == "OpenTelemetry.Metrics.MeterProviderBuilder"
+                 || signature.ReturnType == "OpenTelemetry.Metrics.MeterProviderBuilder")
+            kind = "Metrics";
+        else if (receiver == "OpenTelemetry.Logs.OpenTelemetryLoggerOptions"
+                 || signature.ReturnType == "OpenTelemetry.Logs.OpenTelemetryLoggerOptions")
+            kind = "Logging";
+        else if (receiver is "OpenTelemetry.IOpenTelemetryBuilder" or "OpenTelemetry.OpenTelemetryBuilder"
+                 || signature.ReturnType is "OpenTelemetry.IOpenTelemetryBuilder" or "OpenTelemetry.OpenTelemetryBuilder")
+            kind = "OpenTelemetry";
+
+        return kind.Length > 0;
     }
 
     private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)

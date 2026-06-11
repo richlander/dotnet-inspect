@@ -263,6 +263,12 @@ public class LibraryInspection
     public List<IntegrationSignal>? HttpClient { get; set; }
 
     /// <summary>
+    /// Metadata evidence of OpenAPI/Swagger integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? OpenApi { get; set; }
+
+    /// <summary>
     /// Manifest resources embedded in this assembly.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -354,6 +360,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly references HttpClientFactory primitives.</summary>
     [JsonIgnore]
     public bool HasHttpClientSupport { get; set; }
+
+    /// <summary>Whether the assembly contains OpenAPI/Swagger primitives.</summary>
+    [JsonIgnore]
+    public bool HasOpenApiSupport { get; set; }
 
     /// <summary>Whether the assembly has non-well-known custom attributes.</summary>
     [JsonIgnore]

@@ -58,6 +58,13 @@ internal static class LibraryIntegrationCatalog
         inspection => inspection.HasOpenTelemetrySupport,
         IncludeTypesWhenApisPresent: true);
 
+    public static readonly LibraryIntegrationDescriptor OpenAPI = new(
+        EcosystemIntegrationNames.OpenAPI,
+        inspection => inspection.OpenApi,
+        (inspection, signals) => inspection.OpenApi = signals,
+        inspection => inspection.HasOpenApiSupport,
+        IncludeTypesWhenApisPresent: true);
+
     public static readonly LibraryIntegrationDescriptor Options = new(
         EcosystemIntegrationNames.Options,
         inspection => inspection.Options,
@@ -93,6 +100,7 @@ internal static class LibraryIntegrationCatalog
         DependencyInjection,
         Logging,
         OpenTelemetry,
+        OpenAPI,
         Options,
         Hosting,
         HealthChecks,
@@ -105,6 +113,7 @@ internal static class LibraryIntegrationCatalog
         Aspire,
         DependencyInjection,
         Logging,
+        OpenAPI,
         Options,
         Hosting,
         HealthChecks,

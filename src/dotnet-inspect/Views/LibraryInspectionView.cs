@@ -290,6 +290,23 @@ public class LibraryInspectionView
     public List<IntegrationSignalRow>? OpenTelemetryTypeSection => ToIntegrationSignalRows(_data.OpenTelemetry);
 
     [MarkoutIgnore]
+    public bool HasOpenApi => _data.OpenApi is { Count: > 0 };
+
+    [MarkoutIgnore]
+    public bool HasOpenApiApis => _data.OpenApi?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasOpenApiTypesOnly => HasOpenApi && !HasOpenApiApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.OpenAPI, ShowWhenProperty = nameof(HasOpenApiApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? OpenApiApiSection => HasOpenApiApis ? ToIntegrationApiSignalRows(_data.OpenApi, includeTypes: true) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.OpenAPI, ShowWhenProperty = nameof(HasOpenApiTypesOnly))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? OpenApiTypeSection => ToIntegrationSignalRows(_data.OpenApi);
+
+    [MarkoutIgnore]
     public bool HasOptions => _data.Options is { Count: > 0 };
 
     [MarkoutSection(Name = EcosystemIntegrationNames.Options, ShowWhenProperty = nameof(HasOptions))]
@@ -316,9 +333,19 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasHealthChecks => _data.HealthChecks is { Count: > 0 };
 
-    [MarkoutSection(Name = EcosystemIntegrationNames.HealthChecks, ShowWhenProperty = nameof(HasHealthChecks))]
+    [MarkoutIgnore]
+    public bool HasHealthChecksApis => _data.HealthChecks?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasHealthChecksTypesOnly => HasHealthChecks && !HasHealthChecksApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.HealthChecks, ShowWhenProperty = nameof(HasHealthChecksApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? HealthChecksApiSection => HasHealthChecksApis ? ToIntegrationApiSignalRows(_data.HealthChecks, includeTypes: false) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.HealthChecks, ShowWhenProperty = nameof(HasHealthChecksTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? HealthChecksSection => ToIntegrationSignalRows(_data.HealthChecks);
+    public List<IntegrationSignalRow>? HealthChecksTypeSection => ToIntegrationSignalRows(_data.HealthChecks);
 
     [MarkoutIgnore]
     public bool HasHttpClient => _data.HttpClient is { Count: > 0 };
