@@ -371,6 +371,18 @@ public class CSharpEmitterTests
         Assert.Contains("Array.Empty<T>()", output);
     }
 
+    [Fact]
+    public void CoreLib_IsNullOrWhiteSpace_DeclaresCounterInForInitializer()
+    {
+        // The counter's only references are the loop's — it declares in the
+        // for-initializer as the source writes it, not as a hoisted forward
+        // declaration.
+        string output = EmitCoreLibMethod("System.String", "IsNullOrWhiteSpace");
+
+        Assert.Contains("for (int V_0 = 0;", output);
+        Assert.DoesNotContain("int V_0;", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]

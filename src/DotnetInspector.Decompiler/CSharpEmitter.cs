@@ -101,6 +101,10 @@ public static class CSharpEmitter
         // member reference would bind to these, so 'this.' must stay.
         readonly HashSet<string> _thisShadowedNames = [];
 
+        // Locals that found an inline declaration during emission (e.g. a
+        // for-initializer that owns its variable) — excluded from hoisting.
+        readonly HashSet<string> _inlineDeclaredLocals = [];
+
         // Stack-slot locals (S_N) declared so far — they exist nowhere in
         // metadata, so the first surviving store must declare them.
         readonly HashSet<string> _declaredSlotLocals = [];
@@ -1497,32 +1501,11 @@ public static class CSharpEmitter
             // switch expressions; suppresses hash/copy/temp declarations.
             ScanForStringSwitches();
 
-            // Emit local variable declarations
-            if (_ast.Locals.Count > 0)
-            {
-                bool anyEmitted = false;
-                foreach (var local in _ast.Locals)
-                {
-                    // Skip variables consumed by interpolated string or using detection
-                    if (_interpolationParts.ContainsKey(local.Name))
-                        continue;
-                    if (_suppressedLocals.Contains(local.Name))
-                        continue;
-                    if (_inlinedLocals.Contains(local.Name))
-                        continue;
-                    // Skip locals that will be declared inline with their first assignment
-                    if (_mergedLocals.ContainsKey(local.Name))
-                        continue;
-                    string typeName = SimplifyTypeName(local.TypeName ?? "var");
-                    // Skip compiler-generated closure variable declarations
-                    if (typeName.Contains("/* closure */", StringComparison.Ordinal))
-                        continue;
-                    _sb.AppendLine($"{typeName} {local.Name};");
-                    anyEmitted = true;
-                }
-                if (anyEmitted)
-                    _sb.AppendLine();
-            }
+            // Hoisted declarations are inserted AFTER body emission (at this
+            // recorded position): emission may claim locals for better homes
+            // (a for-initializer declares its own variable), and only then is
+            // the leftover set known.
+            int declInsertPos = _sb.Length;
 
             // Emit the structured body
             EmitStructuredBlock(_structure.Root, 0);
@@ -1534,6 +1517,44 @@ public static class CSharpEmitter
 
             FixupGotoLabels();
             TrimRedundantTrailingReturn();
+            InsertHoistedDeclarations(declInsertPos);
+        }
+
+        /// <summary>
+        /// Declares the locals that found no inline home during emission, at
+        /// the method's start. Runs LAST among the fixups: inserting before
+        /// the body would shift every recorded label position.
+        /// </summary>
+        void InsertHoistedDeclarations(int insertPos)
+        {
+            if (_ast.Locals.Count == 0)
+                return;
+            var block = new StringBuilder();
+            foreach (var local in _ast.Locals)
+            {
+                // Skip variables consumed by interpolated string or using detection
+                if (_interpolationParts.ContainsKey(local.Name))
+                    continue;
+                if (_suppressedLocals.Contains(local.Name))
+                    continue;
+                if (_inlinedLocals.Contains(local.Name))
+                    continue;
+                // Declared inline with their first assignment
+                if (_mergedLocals.ContainsKey(local.Name))
+                    continue;
+                // Claimed by a for-initializer during emission
+                if (_inlineDeclaredLocals.Contains(local.Name))
+                    continue;
+                string typeName = SimplifyTypeName(local.TypeName ?? "var");
+                // Skip compiler-generated closure variable declarations
+                if (typeName.Contains("/* closure */", StringComparison.Ordinal))
+                    continue;
+                block.AppendLine($"{typeName} {local.Name};");
+            }
+            if (block.Length == 0)
+                return;
+            block.AppendLine();
+            _sb.Insert(insertPos, block.ToString());
         }
 
         /// <summary>
@@ -3974,7 +3995,7 @@ public static class CSharpEmitter
                     if (increment is not null)
                     {
                         // Try to extract loop init from the preceding emitted line
-                        string? init = TryExtractForInit(condition);
+                        string? init = TryExtractForInit(condition, loop);
 
                         WriteIndent(indent);
                         if (init is not null)
@@ -4190,7 +4211,7 @@ public static class CSharpEmitter
         /// Looks for the last line matching <c>V_X = expr;</c> where V_X appears in the condition.
         /// If found, removes it from the StringBuilder and returns the init expression (e.g., "V_1 = 0").
         /// </summary>
-        string? TryExtractForInit(string condition)
+        string? TryExtractForInit(string condition, NaturalLoop? loop = null)
         {
             // Find the last newline to get the last emitted line
             string current = _sb.ToString();
@@ -4223,7 +4244,75 @@ public static class CSharpEmitter
             if (updated.EndsWith("\n\n"))
                 _sb.Length = _sb.Length - 1;
 
+            // Declare the variable in the initializer (source shape:
+            // 'for (int i = 0; ...)') when every reference lives inside the
+            // loop — a for-scoped variable is invisible after the loop, so
+            // any outside reference (including a later loop reusing the
+            // slot) keeps the hoisted declaration.
+            if (lastSpace < 0 && loop is not null
+                && !_inlineDeclaredLocals.Contains(varName)
+                && !_mergedLocals.ContainsKey(varName)
+                && LoopOwnsAllReferences(varName, loop)
+                && _ast.Locals.FirstOrDefault(l => l.Name == varName) is { } declLocal)
+            {
+                string declType = SimplifyTypeName(declLocal.TypeName ?? "var");
+                if (!declType.Contains("/*", StringComparison.Ordinal))
+                {
+                    _inlineDeclaredLocals.Add(varName);
+                    return $"{declType} {withoutSemicolon}";
+                }
+            }
+
             return withoutSemicolon;
+        }
+
+        /// <summary>
+        /// True when every read of <paramref name="name"/> occurs in the
+        /// loop's header or body blocks, and the only outside write is the
+        /// initializer itself (which by definition precedes the loop).
+        /// </summary>
+        bool LoopOwnsAllReferences(string name, NaturalLoop loop)
+        {
+            var inside = new HashSet<int>(loop.BodyIndices) { loop.HeaderIndex };
+            int outsideStores = 0;
+            foreach (var (idx, block) in _blockMap)
+            {
+                if (inside.Contains(idx))
+                    continue;
+                foreach (var node in block.Nodes)
+                {
+                    var expr = NodeExpression(node);
+                    if (expr is null)
+                        continue;
+                    if (TreeLoadsLocal(expr, name))
+                        return false;
+                    if (expr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                            or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                        && (expr.Operand ?? GetLocalName(expr.OpCode)) == name
+                        && ++outsideStores > 1)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        static bool TreeLoadsLocal(ILAstExpression expr, string name)
+        {
+            if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                or ILOpCode.Ldloca or ILOpCode.Ldloca_s)
+            {
+                if ((expr.Operand ?? GetLocalName(expr.OpCode)) == name)
+                    return true;
+            }
+            foreach (var arg in expr.Arguments)
+            {
+                if (TreeLoadsLocal(arg, name))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -4325,7 +4414,7 @@ public static class CSharpEmitter
 
                 if (increment is not null)
                 {
-                    string? init = TryExtractForInit(condition);
+                    string? init = TryExtractForInit(condition, innerLoop);
                     WriteIndent(indent);
                     if (init is not null)
                         _sb.AppendLine($"for ({init}; {condition}; {increment})");
@@ -6240,9 +6329,12 @@ public static class CSharpEmitter
                     if (expr.Arguments.Count > 0 && TryEmitCompoundAssignment(varName, expr.Arguments[0], indent))
                         break;
                     WriteIndent(indent);
-                    // Item 2: Merge declaration with first assignment
+                    // Item 2: Merge declaration with first assignment. The
+                    // entry is consumed here, so the inline-declared set is
+                    // what the deferred hoisting consults afterwards.
                     if (_mergedLocals.Remove(varName))
                     {
+                        _inlineDeclaredLocals.Add(varName);
                         var local = _ast.Locals.FirstOrDefault(l => l.Name == varName);
                         string typeName = SimplifyTypeName(local?.TypeName ?? "var");
                         _sb.Append($"{typeName} {varName} = ");
