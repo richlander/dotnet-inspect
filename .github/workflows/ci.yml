@@ -120,8 +120,30 @@ jobs:
           echo "$ILASM_DIR" >> "$GITHUB_PATH"
           echo "$ILDASM_DIR" >> "$GITHUB_PATH"
 
-      - name: Run tests
+      - name: Run CLI tests
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
+
+      # Decompiler tests run on every OS deliberately: many decompile the
+      # PLATFORM's CoreLib (chain/loop/spill regression tests, emit-all
+      # stress), so each OS contributes a genuinely different IL corpus.
+      - name: Run decompiler tests
+        run: dotnet run --project src/DotnetInspector.Decompiler.Tests -c Release
+
+      - name: Run metadata tests
+        run: dotnet run --project tests/DotnetInspector.Metadata.Tests -c Release
+
+      - name: Run services tests
+        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
+      # The IL round-trip oracle (vendored managed ILAssembler) is
+      # platform-neutral at the IL level, so one leg suffices.
+      - name: Restore vendored ILAssembler
+        if: matrix.rid == 'linux-x64'
+        run: bash eng/restore-ilassembler.sh
+
+      - name: Run IL round-trip tests
+        if: matrix.rid == 'linux-x64'
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 
   # Pack and smoke test on Ubuntu
   pack:

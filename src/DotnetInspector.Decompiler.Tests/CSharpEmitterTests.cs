@@ -52,10 +52,13 @@ public class CSharpEmitterTests
     [Fact]
     public void UnsignedBoundsBranch_KeepsUnsignedCasts()
     {
+        // Debug compiles the fixture to branches (if/return); Release to a
+        // ternary. Either shape is correct — what must hold is that the
+        // unsigned reinterpretation casts survive on the signed operands.
         string output = EmitMethod(nameof(CfgSampleClass.UnsignedBoundsBranch));
 
-        Assert.Contains("(uint)", output);
-        Assert.Contains("if", output);
+        Assert.Contains("(uint)index", output);
+        Assert.Contains("(uint)array.Length", output);
     }
 
     [Fact]
@@ -114,9 +117,13 @@ public class CSharpEmitterTests
     [Fact]
     public void MaxULong_OmitsRedundantUnsignedCasts()
     {
+        // Debug keeps the if/return branch shape (>=); Release inverts to a
+        // ternary (<). Either way no reinterpretation casts may appear —
+        // the operands are already unsigned.
         string output = EmitMethod(nameof(CfgSampleClass.MaxULong));
 
-        Assert.Contains(">=", output);
+        Assert.True(output.Contains(">=") || output.Contains('<'),
+            $"Expected an unsigned comparison in:\n{output}");
         Assert.DoesNotContain("(ulong)", output);
     }
 

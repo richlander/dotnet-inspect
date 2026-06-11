@@ -1650,7 +1650,7 @@ public static class CSharpEmitter
             // slot 0 — unless a pattern substituted the incoming value.
             if (assign.Variable.Kind == ILVariableKind.StackSlot
                 && assign.Value is { OpCode: ILOpCode.Nop, Operand: string inName }
-                && inName == $"S_in_{assign.Variable.Index}"
+                && (inName == $"S_in_{assign.Variable.Index}" || inName == assign.Variable.Name)
                 && _nullConditionalReceiver is null
                 && !_syntheticSubstitutions.ContainsKey(inName)
                 && !_syntheticSubstitutions.ContainsKey($"{assign.Value.Offset}:{inName}"))
@@ -5214,23 +5214,39 @@ public static class CSharpEmitter
         /// </summary>
         bool TryEmitLoopJump(string target, int indent)
         {
-            if (_loopJumpLabels.Count == 0)
+            if (LoopJumpKeyword(target) is not { } keyword)
                 return false;
+            WriteIndent(indent);
+            _sb.AppendLine($"{keyword};");
+            return true;
+        }
 
+        /// <summary>
+        /// Conditional form: Release csc fuses 'if (cond) continue;' into a
+        /// single conditional branch to the loop's re-entry point (Debug
+        /// routes it through an unconditional br).
+        /// </summary>
+        bool TryEmitConditionalLoopJump(ILAstExpression branchExpr, string target, int indent)
+        {
+            if (LoopJumpKeyword(target) is not { } keyword)
+                return false;
+            WriteIndent(indent);
+            _sb.Append("if (");
+            EmitBranchCondition(branchExpr);
+            _sb.AppendLine($") {keyword};");
+            return true;
+        }
+
+        string? LoopJumpKeyword(string target)
+        {
+            if (_loopJumpLabels.Count == 0)
+                return null;
             var (continueLabels, breakLabel) = _loopJumpLabels.Peek();
             if (continueLabels.Contains(target))
-            {
-                WriteIndent(indent);
-                _sb.AppendLine("continue;");
-                return true;
-            }
+                return "continue";
             if (target == breakLabel)
-            {
-                WriteIndent(indent);
-                _sb.AppendLine("break;");
-                return true;
-            }
-            return false;
+                return "break";
+            return null;
         }
 
         void EmitStatement(ILAstExpression expr, int indent)
@@ -5448,6 +5464,10 @@ public static class CSharpEmitter
                     // Conditional branches — when not consumed by structuring
                     // Try guard clause pattern: if (cond) goto TARGET; body → if (negated) { body; }
                     if (expr.Operand is string condTarget && TryEmitGuardClause(expr, condTarget, indent))
+                        break;
+                    // Conditional jump to the innermost loop's re-entry/exit:
+                    // if (cond) continue; / if (cond) break;
+                    if (expr.Operand is string loopJump && TryEmitConditionalLoopJump(expr, loopJump, indent))
                         break;
                     // Branch to a return-only block: render the return under
                     // the condition — no goto, no label needed.
