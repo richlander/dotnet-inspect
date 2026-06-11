@@ -86,6 +86,11 @@ public static class CSharpEmitter
         // Labels already emitted (avoid duplicates for shared blocks)
         readonly HashSet<string> _emittedLabels;
 
+        // Gotos actually written to the output, and where a suppressed label
+        // WOULD have gone — so dangling references can be repaired at the end.
+        readonly HashSet<string> _emittedGotos = [];
+        readonly Dictionary<string, int> _suppressedLabelPositions = [];
+
         // Catch handler statements to suppress (blockIndex, nodeIndex) — already emitted in catch clause
         readonly HashSet<(int blockIndex, int nodeIndex)> _catchVariableStatements;
 
@@ -1482,6 +1487,35 @@ public static class CSharpEmitter
             // Shared return blocks may be consumed by an IfThenElse else branch
             // but still need to appear at method end for other paths.
             EnsureTrailingReturn();
+
+            FixupDanglingGotoLabels();
+        }
+
+        /// <summary>
+        /// Inserts labels for gotos that rendered while their target's label was
+        /// suppressed. Structuring suppresses then/else/follow labels assuming
+        /// every branch to them is absorbed; any branch that still fell back to
+        /// a textual goto would otherwise dangle. Insertions run back-to-front
+        /// so earlier recorded positions stay valid.
+        /// </summary>
+        void FixupDanglingGotoLabels()
+        {
+            List<(int Pos, string Label)>? pending = null;
+            foreach (string target in _emittedGotos)
+            {
+                if (_emittedLabels.Contains(target))
+                    continue;
+                if (_suppressedLabelPositions.TryGetValue(target, out int pos))
+                {
+                    (pending ??= []).Add((pos, target));
+                    _emittedLabels.Add(target);
+                }
+            }
+            if (pending is null)
+                return;
+            pending.Sort((a, b) => b.Pos.CompareTo(a.Pos));
+            foreach (var (pos, label) in pending)
+                _sb.Insert(pos, $"{label}:\n");
         }
 
         void EnsureTrailingReturn()
@@ -5333,6 +5367,7 @@ public static class CSharpEmitter
                     if (expr.Operand is string brRetTarget && TryEmitInlinedReturn(brRetTarget, indent))
                         break;
                     WriteIndent(indent);
+                    if (expr.Operand is string brGoto) _emittedGotos.Add(brGoto);
                     _sb.AppendLine($"goto {expr.Operand};");
                     break;
 
@@ -5352,6 +5387,7 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     _sb.Append($"if (");
                     EmitBranchCondition(expr);
+                    if (expr.Operand is string condGoto) _emittedGotos.Add(condGoto);
                     _sb.AppendLine($") goto {expr.Operand};");
                     break;
 
@@ -5363,6 +5399,7 @@ public static class CSharpEmitter
                         if (!TryEmitInlinedReturn(leaveTarget, indent))
                         {
                             WriteIndent(indent);
+                            _emittedGotos.Add(leaveTarget);
                             _sb.AppendLine($"goto {leaveTarget};");
                         }
                     }
@@ -7234,6 +7271,12 @@ public static class CSharpEmitter
             if (_blockStartOffset.TryGetValue(blockIndex, out int startOffset))
             {
                 string label = $"IL_{startOffset:X4}";
+                // Wherever a label is withheld, remember the spot: structuring
+                // marks labels consumed on the ASSUMPTION every branch to them
+                // is structured away, but a stray branch can still render as a
+                // goto — FixupDanglingGotoLabels repairs those at the end.
+                if (!_emittedLabels.Contains(label))
+                    _suppressedLabelPositions.TryAdd(label, _sb.Length);
                 // Suppress labels consumed by while-loop conditions or loop headers
                 if (_loopConsumedLabels.Contains(label) || _loopHeaderLabels.Contains(label))
                     return;
