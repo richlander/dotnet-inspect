@@ -315,14 +315,15 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void ReverseCopy_SpilledSlotsAreDeclared()
+    public void ReverseCopy_RendersIncrementDecrementInExpression()
     {
-        // dst[--j] = src[i++] spills the pre-decrement/post-increment values;
-        // inside a loop body the spill stores must still declare their slots.
+        // The spill pair 'S = X - 1; X = X - 1;' IS the pre-decrement and
+        // 'S = X; X = X + 1;' the post-increment — they fold back to the
+        // source's compact form at the use site.
         string output = EmitMethod(nameof(CfgSampleClass.ReverseCopy));
 
-        Assert.DoesNotContain("\n    S_", output.Replace("var S_", "").Replace("int S_", ""));
-        Assert.Contains("S_1", output);
+        Assert.Contains("dst[--V_1] = src[V_0++];", output);
+        Assert.DoesNotContain("S_", output);
     }
 
     [Fact]
