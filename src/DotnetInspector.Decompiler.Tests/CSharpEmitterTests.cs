@@ -647,13 +647,16 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void CountPositive_InlinesStaticLambdaBody()
+    public void CountPositive_ElidesCachedDelegateDance()
     {
         string output = EmitMethod(nameof(CfgSampleClass.CountPositive));
 
-        // The cached-delegate frame is still visible (known follow-up), but the
-        // lambda body itself must be.
-        Assert.Contains("v => v > 0", output);
+        // The <>9__ null-check/build/store dance is elided entirely; only the
+        // inlined lambda remains.
+        Assert.Contains("values.Count(v => v > 0)", output);
+        Assert.DoesNotContain("9__", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("S_", output);
     }
 
     [Fact]
