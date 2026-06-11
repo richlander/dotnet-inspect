@@ -1470,6 +1470,9 @@ public static class CSharpEmitter
             // Switch-expression arm temps fold away; suppress their declarations.
             ScanForSwitchExpressionLocals();
 
+            // Spilled increment/decrement pairs render as ++/-- at the use.
+            ScanForSpilledIncrementDecrements();
+
             // Hash-form string switches (ComputeStringHash dispatch) fold to
             // switch expressions; suppresses hash/copy/temp declarations.
             ScanForStringSwitches();
@@ -1662,6 +1665,112 @@ public static class CSharpEmitter
             }
 
             _currentBlockNodes = null;
+        }
+
+        /// <summary>
+        /// A stack spill immediately followed by the matching store is the
+        /// lowering of an increment/decrement used as a value:
+        ///   S = X - 1; X = X - 1;   →  --X at S's use (new value)
+        ///   S = X;     X = X + 1;   →  X++ at S's use (old value)
+        /// The side effect renders exactly where the IL produced the value,
+        /// so evaluation order is preserved — provided no statement between
+        /// the pair and the use touches X, and the use consumes S once.
+        /// </summary>
+        void ScanForSpilledIncrementDecrements()
+        {
+            foreach (var (_, block) in _blockMap)
+            {
+                var nodes = block.Nodes;
+                for (int i = 0; i + 1 < nodes.Count; i++)
+                {
+                    if (nodes[i] is not ILAstAssignment { Variable.Kind: ILVariableKind.StackSlot } spill)
+                        continue;
+                    if (nodes[i + 1] is not ILAstStatement { Expression: var store }
+                        || store.OpCode is not (ILOpCode.Stloc or ILOpCode.Stloc_s
+                            or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3)
+                        || store.Arguments.Count != 1)
+                    {
+                        continue;
+                    }
+
+                    string local = store.Operand ?? GetLocalName(store.OpCode);
+                    if (StepOf(store.Arguments[0], local) is not { } step)
+                        continue;
+
+                    string? text = null;
+                    // Pre form: the spill holds the stepped value.
+                    if (StepOf(spill.Value, local) == step)
+                        text = step > 0 ? $"++{local}" : $"--{local}";
+                    // Post form: the spill holds the original value.
+                    else if (GetLocalReferenceName(UnwrapDup(spill.Value)) == local)
+                        text = step > 0 ? $"{local}++" : $"{local}--";
+                    if (text is null)
+                        continue;
+
+                    // Find the single use; nothing in between may touch X.
+                    string slotName = spill.Variable.Name;
+                    int useIdx = -1;
+                    bool safe = true;
+                    for (int j = i + 2; j < nodes.Count; j++)
+                    {
+                        var expr = NodeExpression(nodes[j]);
+                        if (expr is null)
+                        {
+                            safe = false;
+                            break;
+                        }
+                        int uses = CountSlotUses(expr, slotName)
+                            + (nodes[j] is ILAstAssignment { Variable.Name: var an } && an == slotName ? 1 : 0);
+                        if (uses > 0)
+                        {
+                            useIdx = uses == 1 && nodes[j] is not ILAstAssignment ? j : -1;
+                            break;
+                        }
+                        if (TreeReadsOrWritesLocal(expr, local))
+                        {
+                            safe = false;
+                            break;
+                        }
+                    }
+                    if (!safe || useIdx < 0)
+                        continue;
+
+                    // The spill load carries the spill statement's offset.
+                    _syntheticSubstitutions[$"{spill.Offset}:{slotName}"] = text;
+                    _skipNodes.Add(nodes[i]);
+                    _skipNodes.Add(nodes[i + 1]);
+                    i++;
+                }
+            }
+
+            // ±1 step of a load of <paramref name="local"/>: +1, -1, or null.
+            // dup wrappers from the value-and-store lowering are transparent.
+            static int? StepOf(ILAstExpression expr, string local)
+            {
+                expr = UnwrapDup(expr);
+                if (expr.OpCode is not (ILOpCode.Add or ILOpCode.Sub) || expr.Arguments.Count != 2)
+                    return null;
+                if (GetLocalReferenceName(UnwrapDup(expr.Arguments[0])) != local)
+                    return null;
+                var one = expr.Arguments[1];
+                bool isOne = one.OpCode == ILOpCode.Ldc_i4_1
+                    || (one.OpCode == ILOpCode.Ldc_i4_s && one.Operand == "1")
+                    || (one.OpCode == ILOpCode.Ldc_i4 && one.Operand == "1");
+                if (!isOne)
+                    return null;
+                return expr.OpCode == ILOpCode.Add ? 1 : -1;
+            }
+
+            static ILAstExpression UnwrapDup(ILAstExpression e)
+                => e.OpCode == ILOpCode.Dup && e.Arguments.Count > 0 ? UnwrapDup(e.Arguments[0]) : e;
+
+            static int CountSlotUses(ILAstExpression expr, string slotName)
+            {
+                int count = expr is { OpCode: ILOpCode.Nop, Operand: var op } && op == slotName ? 1 : 0;
+                foreach (var arg in expr.Arguments)
+                    count += CountSlotUses(arg, slotName);
+                return count;
+            }
         }
 
         void EmitAssignmentNode(ILAstAssignment assign, int indent)
