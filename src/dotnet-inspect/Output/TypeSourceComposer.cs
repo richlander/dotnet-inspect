@@ -63,7 +63,9 @@ internal static class TypeSourceComposer
             }
 
             sb.AppendLine("}");
-            return any ? sb.ToString().TrimEnd() : null;
+            if (!any)
+                return null;
+            return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace);
         }
         catch
         {
@@ -369,6 +371,141 @@ internal static class TypeSourceComposer
             else
                 sb.AppendLine($"{indent}{trimmed}");
         }
+    }
+
+    /// <summary>
+    /// Shortens qualified type names against the assembly's own metadata
+    /// (TypeDefs + TypeRefs give the real namespace/type tables — no
+    /// guessing about what is a namespace) and hoists the namespaces used
+    /// into a using block. Ambiguous short names stay qualified; string
+    /// literal contents are never rewritten; namespaces covered by implicit
+    /// usings and the type's own namespace are shortened without a using.
+    /// </summary>
+    static string HoistUsings(string listing, MetadataReader reader, string? ownNamespace)
+    {
+        // Namespace → simple type names (arity-stripped), from real metadata.
+        var nsToNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        void Register(string ns, string name)
+        {
+            if (ns.Length == 0)
+                return;
+            int tick = name.IndexOf('`');
+            bool generic = tick >= 0;
+            if (generic)
+                name = name[..tick];
+            if (!nsToNames.TryGetValue(ns, out var names))
+                nsToNames[ns] = names = new HashSet<string>(StringComparer.Ordinal);
+            names.Add(generic ? name + "<" : name);
+        }
+        foreach (var h in reader.TypeDefinitions)
+        {
+            var td = reader.GetTypeDefinition(h);
+            Register(reader.GetString(td.Namespace), reader.GetString(td.Name));
+        }
+        foreach (var h in reader.TypeReferences)
+        {
+            var tr = reader.GetTypeReference(h);
+            Register(reader.GetString(tr.Namespace), reader.GetString(tr.Name));
+        }
+
+        // A short name imported from two namespaces would be ambiguous —
+        // but generic and non-generic names are distinct in C#, so owners
+        // are counted per (name, arity-kind). Registration tracked the kind
+        // via the metadata arity suffix.
+        var shortNameOwners = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (_, names) in nsToNames)
+            foreach (var n in names)
+                shortNameOwners[n] = shortNameOwners.GetValueOrDefault(n) + 1;
+
+        // The emitter strips "System." eagerly, so qualified occurrences may
+        // appear either in full or with the System. prefix already removed —
+        // register both spellings for each namespace.
+        var prefixes = new List<(string Text, string Namespace)>();
+        foreach (var ns in nsToNames.Keys)
+        {
+            prefixes.Add((ns, ns));
+            if (ns.StartsWith("System.", StringComparison.Ordinal))
+                prefixes.Add((ns[7..], ns));
+        }
+        // Longest first so System.Collections.Generic wins over System.Collections.
+        prefixes.Sort((a, b) => b.Text.Length.CompareTo(a.Text.Length));
+
+        var usings = new SortedSet<string>(StringComparer.Ordinal);
+        var output = new StringBuilder(listing.Length);
+        foreach (var rawLine in listing.Split('\n'))
+        {
+            string line = rawLine.TrimEnd('\r');
+            // Never rewrite string literal contents: transform only the
+            // segments outside double quotes.
+            var segments = line.Split('"');
+            for (int i = 0; i < segments.Length; i += 2)
+                segments[i] = ShortenSegment(segments[i], prefixes, nsToNames, shortNameOwners, usings);
+            output.AppendLine(string.Join('"', segments));
+        }
+
+        // Implicit usings (and the type's own namespace) need no directive.
+        usings.Remove(ownNamespace ?? "");
+        foreach (var implicitNs in (string[])
+            ["System", "System.Collections.Generic", "System.IO", "System.Linq",
+             "System.Net.Http", "System.Threading", "System.Threading.Tasks"])
+        {
+            usings.Remove(implicitNs);
+        }
+
+        string result = output.ToString().TrimEnd();
+        if (usings.Count == 0)
+            return result;
+
+        // dotnet/runtime style: using directives precede the namespace.
+        string directives = string.Join('\n', usings.Select(ns => $"using {ns};"));
+        return $"{directives}\n\n{result}";
+    }
+
+    static string ShortenSegment(
+        string segment,
+        List<(string Text, string Namespace)> prefixes,
+        Dictionary<string, HashSet<string>> nsToNames,
+        Dictionary<string, int> shortNameOwners,
+        SortedSet<string> usings)
+    {
+        foreach (var (text, ns) in prefixes)
+        {
+            int searchFrom = 0;
+            while (true)
+            {
+                int at = segment.IndexOf(text + ".", searchFrom, StringComparison.Ordinal);
+                if (at < 0)
+                    break;
+                searchFrom = at + 1;
+
+                // Word boundary before the prefix.
+                if (at > 0 && (char.IsLetterOrDigit(segment[at - 1]) || segment[at - 1] is '_' or '.'))
+                    continue;
+
+                // The identifier after the prefix must be a type from this
+                // namespace, fully present (next char ends the identifier).
+                int nameStart = at + text.Length + 1;
+                int nameEnd = nameStart;
+                while (nameEnd < segment.Length && (char.IsLetterOrDigit(segment[nameEnd]) || segment[nameEnd] == '_'))
+                    nameEnd++;
+                if (nameEnd == nameStart)
+                    continue;
+                string name = segment[nameStart..nameEnd];
+                bool generic = nameEnd < segment.Length && segment[nameEnd] == '<';
+                string key = generic ? name + "<" : name;
+                if (!nsToNames[ns].Contains(key))
+                    continue;
+                // Ambiguity: a (name, arity-kind) owned by more than one
+                // namespace stays qualified.
+                if (shortNameOwners.GetValueOrDefault(key) > 1)
+                    continue;
+
+                segment = segment[..at] + segment[nameStart..];
+                usings.Add(ns);
+                searchFrom = at;
+            }
+        }
+        return segment;
     }
 
     static string Shorten(string typeName) =>
