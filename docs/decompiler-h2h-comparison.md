@@ -4,6 +4,8 @@ Comparison of `dotnet-inspect` decompiler output against the actual C# source fr
 
 Snapshot: June 2026 (third). The previous snapshot graded **B+** with 12 of 17 methods at A-/A; this one grades **A-** with 16 of 17. Everything the previous snapshot listed as a top gap has been closed: generic `ldelem` rendering, dangling `goto` labels, inverted-guard re-nesting, and the `ref`/`typeof`/generic-naming expression artifacts.
 
+Style target: where one IL shape admits several C# spellings, the decompiler renders the form that dotnet/runtime's `.editorconfig` and enabled IDE analyzers (code fixers) encourage. This is an established, versioned external choice — no per-change style debates — and it makes grading against dotnet/runtime coherent: the corpus below is written under that style, so fixer-style output and h2h exactness are the same goal. The bias has a hard limit: a preferred form is adopted only when it is IL-exact (`is null` for a reference `ceq` test, an is-pattern for `isinst`+branch). Forms that would erase a distinction the IL makes are never adopted — `&` is not rendered as `&&` (the IL evaluates both operands), and float comparisons are never "simplified" across NaN behavior.
+
 Methodology note: grades compare against the original dotnet/runtime source. When refreshing this document, [ilspycmd](https://www.nuget.org/packages/ilspycmd) (`dotnet tool install -g ilspycmd`) is a useful second reference — decompiling the same methods with a mature decompiler distinguishes "information lost in compilation" (ILSpy can't recover it either) from "gap in our pipeline" (ILSpy renders it, we don't). It is an analysis aid only; no test or CI infrastructure depends on it. ILSpy observations below are from ilspycmd 9.1.
 
 ---
