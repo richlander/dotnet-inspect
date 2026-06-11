@@ -20,7 +20,7 @@ public static class LibrarySections
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
-    public const string ScannerIntegrations = "Integrations";
+    public const string ScannerIntegrations = LibraryIntegrationCatalog.RollupName;
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -52,17 +52,7 @@ public static class LibrarySections
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
-            .AddCategory("@Integrations",
-                "Integrations",
-                "AI",
-                "Aspire",
-                "Dependency Injection",
-                "Logging",
-                "Options",
-                "Hosting",
-                "Health Checks",
-                "HTTP Client",
-                "OpenTelemetry");
+            .AddCategory("@Integrations", LibraryIntegrationCatalog.CategorySections);
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>
@@ -122,111 +112,94 @@ public static class LibrarySections
 
     public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "OpenTelemetry";
+        public static string Name => LibraryIntegrationCatalog.OpenTelemetry.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model)
-            => model.OpenTelemetry is { Count: > 0 } || model.HasOpenTelemetrySupport;
+            => LibraryIntegrationCatalog.OpenTelemetry.CanRender(model);
     }
 
     public sealed class Integrations : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Integrations";
+        public static string Name => LibraryIntegrationCatalog.RollupName;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.Integrations is { Count: > 0 }
-               || model.HasAISupport
-               || model.HasAspireSupport
-               || model.HasOpenTelemetrySupport
-               || model.HasDependencyInjectionSupport
-               || model.HasLoggingSupport
-               || model.HasOptionsSupport
-               || model.HasHostingSupport
-               || model.HasHealthChecksSupport
-               || model.HasHttpClientSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.CanRenderAny(model);
     }
 
     public sealed class AI : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "AI";
+        public static string Name => LibraryIntegrationCatalog.AI.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.AI is { Count: > 0 } || model.HasAISupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.AI.CanRender(model);
     }
 
     public sealed class Aspire : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Aspire";
+        public static string Name => LibraryIntegrationCatalog.Aspire.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.Aspire is { Count: > 0 } || model.HasAspireSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Aspire.CanRender(model);
     }
 
     public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Dependency Injection";
+        public static string Name => LibraryIntegrationCatalog.DependencyInjection.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model)
-            => model.DependencyInjection is { Count: > 0 } || model.HasDependencyInjectionSupport;
+            => LibraryIntegrationCatalog.DependencyInjection.CanRender(model);
     }
 
     public sealed class Logging : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Logging";
+        public static string Name => LibraryIntegrationCatalog.Logging.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.Logging is { Count: > 0 } || model.HasLoggingSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Logging.CanRender(model);
     }
 
     public sealed class Options : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Options";
+        public static string Name => LibraryIntegrationCatalog.Options.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.Options is { Count: > 0 } || model.HasOptionsSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Options.CanRender(model);
     }
 
     public sealed class Hosting : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Hosting";
+        public static string Name => LibraryIntegrationCatalog.Hosting.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.Hosting is { Count: > 0 } || model.HasHostingSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Hosting.CanRender(model);
     }
 
     public sealed class HealthChecks : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Health Checks";
+        public static string Name => LibraryIntegrationCatalog.HealthChecks.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.HealthChecks is { Count: > 0 } || model.HasHealthChecksSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.HealthChecks.CanRender(model);
     }
 
     public sealed class HttpClient : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "HTTP Client";
+        public static string Name => LibraryIntegrationCatalog.HttpClient.Name;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model)
-            => model.HttpClient is { Count: > 0 } || model.HasHttpClientSupport;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.HttpClient.CanRender(model);
     }
 
     // ===== Opt-in SourceLink sections =====
