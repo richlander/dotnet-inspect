@@ -242,7 +242,7 @@ public class CSharpEmitterTests
         string output = EmitCoreLibMethod("System.String", "Contains", overloadIndex: 0);
 
         Assert.Contains("&& value.Length == 1)", output);
-        Assert.Contains("    return base.Contains(value[0]);", output);
+        Assert.Contains("    return Contains(value[0]);", output);
         Assert.DoesNotContain(" ? ", output);
     }
 

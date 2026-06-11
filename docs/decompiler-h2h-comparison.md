@@ -94,10 +94,10 @@ return _size != 0 && IndexOf(item) >= 0;
 **Decompiled:**
 
 ```csharp
-return _size != 0 && base.IndexOf(item) >= 0;
+return _size != 0 && IndexOf(item) >= 0;
 ```
 
-**Verdict:** Exact. The `&&` chain is reconstructed. The `base.` prefix is kept deliberately: it is the exact C# for the IL's non-virtual dispatch. **Grade: A**
+**Verdict:** Exact, character for character — same-type non-virtual calls render bare names, as the source writes them. **Grade: A**
 
 ---
 
@@ -153,10 +153,10 @@ _version++;
 ```csharp
 if (_size == _array.Length)
 {
-    base.Grow(_size + 1);
+    Grow(_size + 1);
 }
 _array[_tail] = item;
-base.MoveNext(ref _tail);
+MoveNext(ref _tail);
 _size++;
 _version++;
 ```
@@ -171,8 +171,8 @@ Both are one-liners and match exactly:
 
 | Method | Source | Decompiled | Grade |
 | --- | --- | --- | --- |
-| `HashSet.Contains` | `return FindItemIndex(item) >= 0;` | `return base.FindItemIndex(item) >= 0;` | **A** |
-| `StringBuilder.Clear` | `Length = 0; return this;` | `base.Length = 0; return this;` | **A** |
+| `HashSet.Contains` | `return FindItemIndex(item) >= 0;` | `return FindItemIndex(item) >= 0;` | **A** |
+| `StringBuilder.Clear` | `Length = 0; return this;` | `Length = 0; return this;` | **A** |
 
 ---
 
@@ -234,7 +234,7 @@ if (value == null)
 {
     ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
 }
-return Runtime.CompilerServices.RuntimeHelpers.IsKnownConstant(value) && value.Length == 1 ? base.Contains(value[0]) : SpanHelpers.IndexOf(ref _firstChar, base.Length, ref value._firstChar, value.Length) >= 0;
+return Runtime.CompilerServices.RuntimeHelpers.IsKnownConstant(value) && value.Length == 1 ? Contains(value[0]) : SpanHelpers.IndexOf(ref _firstChar, Length, ref value._firstChar, value.Length) >= 0;
 ```
 
 **Verdict:** The `&&` condition is reconstructed exactly, the enum argument renders as `ExceptionArgument.value`, and `ref` arguments are preserved. The if/return pair folds into one long ternary — correct, though the source's statement form reads better. **Grade: A-**
@@ -267,7 +267,7 @@ int V_0 = _size;
 T[] V_1 = _array;
 if ((uint)V_0 >= (uint)V_1.Length)
 {
-    base.PushWithResize(item);
+    PushWithResize(item);
     return;
 }
 V_1[V_0] = item;
@@ -305,7 +305,7 @@ int V_0 = _size - 1;
 T[] V_1 = _array;
 if ((uint)V_0 >= (uint)V_1.Length)
 {
-    base.ThrowForEmptyStack();
+    ThrowForEmptyStack();
 }
 _version++;
 _size = V_0;
@@ -450,7 +450,7 @@ for (V_4 = 0; V_4 < _count; V_4++) { /* cached-comparer loop */ }
 | `String.IsNullOrEmpty` | **A** | exact |
 | `Math.Max` | **A** | exact |
 | `Math.Min` | **A** | exact |
-| `List.Contains` | **A** | exact (`base.` semantic) |
+| `List.Contains` | **A** | exact |
 | `Dictionary.Clear` | **A** | exact (`V_0` naming) |
 | `HashSet.Contains` | **A** | exact |
 | `StringBuilder.Clear` | **A** | exact |
