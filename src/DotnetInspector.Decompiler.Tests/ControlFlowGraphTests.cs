@@ -358,6 +358,30 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    public static int LoopWithContinue(int[] values)
+    {
+        int sum = 0;
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (values[i] < 0)
+                continue;
+            sum += values[i];
+        }
+        return sum;
+    }
+
+    public static int LoopWithBreak(int[] values, int limit)
+    {
+        int sum = 0;
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (sum > limit)
+                break;
+            sum += values[i];
+        }
+        return sum;
+    }
+
     public static string ColorName(Color c)
     {
         switch (c)

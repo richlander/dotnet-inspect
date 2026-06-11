@@ -3416,7 +3416,32 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     _sb.AppendLine("{");
 
-                    EmitLoopBody(bodyIndices, indent + 1, loop);
+                    // Branches inside the body to the loop's re-entry points
+                    // render as continue (header for while; the hoisted increment
+                    // block for for-loops); branches to the exit render as break.
+                    var continueLabels = new HashSet<string>();
+                    if (_blockStartOffset.TryGetValue(headerIdx, out int headerOff))
+                        continueLabels.Add($"IL_{headerOff:X4}");
+                    if (increment is not null && bodyIndices.Count > 0
+                        && _blockStartOffset.TryGetValue(bodyIndices[^1], out int incrOff))
+                    {
+                        continueLabels.Add($"IL_{incrOff:X4}");
+                    }
+                    string? breakLabel = FindLoopExitLabel(headerBlock, loop);
+                    MarkTrailingBackEdgeSkipped(bodyIndices, continueLabels);
+                    // Branches to these render as continue, so their labels
+                    // have no remaining referees inside the loop.
+                    foreach (string cl in continueLabels)
+                        _loopConsumedLabels.Add(cl);
+                    _loopJumpLabels.Push((continueLabels, breakLabel));
+                    try
+                    {
+                        EmitLoopBody(bodyIndices, indent + 1, loop);
+                    }
+                    finally
+                    {
+                        _loopJumpLabels.Pop();
+                    }
 
                     WriteIndent(indent);
                     _sb.AppendLine("}");
@@ -3429,6 +3454,50 @@ public static class CSharpEmitter
                 // Fallback: emit as before
                 foreach (var child in block.Children)
                     EmitStructuredBlock(child, indent);
+            }
+        }
+
+        /// <summary>
+        /// The label of the loop's exit: the header branch's target that is NOT
+        /// a body block, or the fallthrough block after the header.
+        /// </summary>
+        string? FindLoopExitLabel(ILAstBlock headerBlock, NaturalLoop loop)
+        {
+            if (headerBlock.Nodes.LastOrDefault() is not ILAstStatement { Expression: var branchExpr }
+                || branchExpr.Operand is not string branchTarget)
+            {
+                return null;
+            }
+
+            bool targetIsBody = loop.BodyIndices.Any(idx =>
+                _blockStartOffset.TryGetValue(idx, out int off) && branchTarget == $"IL_{off:X4}");
+
+            if (!targetIsBody)
+                return branchTarget;
+
+            // Branch enters the body; the exit is the block following the header.
+            int headerIdx = loop.HeaderIndex;
+            if (_blockStartOffset.TryGetValue(headerIdx + 1, out int nextOff))
+                return $"IL_{nextOff:X4}";
+            return null;
+        }
+
+        /// <summary>
+        /// The loop-around branch at the end of the last body block is implied
+        /// by the loop construct; mark it skipped so it doesn't render as a
+        /// trailing continue.
+        /// </summary>
+        void MarkTrailingBackEdgeSkipped(List<int> bodyIndices, HashSet<string> continueLabels)
+        {
+            if (bodyIndices.Count == 0 || !_blockMap.TryGetValue(bodyIndices[^1], out var lastBody))
+                return;
+            if (lastBody.Nodes.LastOrDefault() is ILAstStatement
+                {
+                    Expression: { OpCode: ILOpCode.Br or ILOpCode.Br_s, Operand: string target }
+                } trailing
+                && continueLabels.Contains(target))
+            {
+                _skipNodes.Add(trailing);
             }
         }
 
@@ -3538,6 +3607,9 @@ public static class CSharpEmitter
 
         // Set of (blockIndex, nodeIndex) for for-loop increment statements to suppress
         readonly HashSet<(int blockIndex, int nodeIndex)> _forIncrementStatements = [];
+
+        // Innermost-loop jump targets: branches to these render as continue/break.
+        readonly Stack<(HashSet<string> ContinueLabels, string? BreakLabel)> _loopJumpLabels = new();
 
         /// <summary>
         /// Try to extract a loop initializer from the already-emitted output.
@@ -3720,6 +3792,11 @@ public static class CSharpEmitter
         void EmitBasicBlockForLoop(int blockIndex, int indent, NaturalLoop loop)
         {
             if (blockIndex < 0 || !_blockMap.TryGetValue(blockIndex, out var astBlock))
+                return;
+
+            // A guard clause earlier in the body may have consumed this block
+            // (its fallthrough body); re-emitting would duplicate statements.
+            if (_consumedBlocks.Contains(blockIndex))
                 return;
 
             _consumedBlocks.Add(blockIndex);
@@ -4850,6 +4927,31 @@ public static class CSharpEmitter
 
         // --- Expression emission ---
 
+        /// <summary>
+        /// Renders a branch to the innermost loop's re-entry point as continue
+        /// and to its exit as break.
+        /// </summary>
+        bool TryEmitLoopJump(string target, int indent)
+        {
+            if (_loopJumpLabels.Count == 0)
+                return false;
+
+            var (continueLabels, breakLabel) = _loopJumpLabels.Peek();
+            if (continueLabels.Contains(target))
+            {
+                WriteIndent(indent);
+                _sb.AppendLine("continue;");
+                return true;
+            }
+            if (target == breakLabel)
+            {
+                WriteIndent(indent);
+                _sb.AppendLine("break;");
+                return true;
+            }
+            return false;
+        }
+
         void EmitStatement(ILAstExpression expr, int indent)
         {
             TryEnsureCollectionTempForMutation(expr, indent);
@@ -5039,6 +5141,9 @@ public static class CSharpEmitter
 
                 // Branches become comments in the initial output
                 case ILOpCode.Br or ILOpCode.Br_s:
+                    // Loop jumps: continue/break for the innermost loop.
+                    if (expr.Operand is string loopTarget && TryEmitLoopJump(loopTarget, indent))
+                        break;
                     // Suppress gotos into loop headers (the while condition replaces them)
                     if (expr.Operand is string brTarget && _loopHeaderLabels.Contains(brTarget))
                         break;
