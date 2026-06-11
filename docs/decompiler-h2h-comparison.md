@@ -94,10 +94,10 @@ return _size != 0 && IndexOf(item) >= 0;
 **Decompiled:**
 
 ```csharp
-return this._size != 0 && base.IndexOf(item) >= 0;
+return _size != 0 && base.IndexOf(item) >= 0;
 ```
 
-**Verdict:** Exact. The `&&` chain is reconstructed. `this.`/`base.` prefixes are cosmetic (`base.` because the call binds through `callvirt`). **Grade: A**
+**Verdict:** Exact. The `&&` chain is reconstructed. The `base.` prefix is kept deliberately: it is the exact C# for the IL's non-virtual dispatch. **Grade: A**
 
 ---
 
@@ -120,19 +120,19 @@ if (count > 0)
 **Decompiled:**
 
 ```csharp
-int V_0 = this._count;
+int V_0 = _count;
 if (V_0 > 0)
 {
-    Array.Clear(this._buckets);
-    this._count = 0;
-    this._freeList = -1;
-    this._freeCount = 0;
-    Array.Clear(this._entries, 0, V_0);
+    Array.Clear(_buckets);
+    _count = 0;
+    _freeList = -1;
+    _freeCount = 0;
+    Array.Clear(_entries, 0, V_0);
 }
 return;
 ```
 
-**Verdict:** Exact, statement for statement. Only `V_0` vs `count` (no PDB for release CoreLib) and the trailing `return;` differ. **Grade: A**
+**Verdict:** Exact, statement for statement. Only `V_0` vs `count` (no PDB in this snapshot's flow) and the trailing `return;` differ. **Grade: A**
 
 ---
 
@@ -152,14 +152,14 @@ _version++;
 **Decompiled:**
 
 ```csharp
-if (this._size == this._array.Length)
+if (_size == _array.Length)
 {
-    base.Grow(this._size + 1);
+    base.Grow(_size + 1);
 }
-this._array[this._tail] = item;
-base.MoveNext(ref this._tail);
-this._size++;
-this._version++;
+_array[_tail] = item;
+base.MoveNext(ref _tail);
+_size++;
+_version++;
 return;
 ```
 
@@ -238,7 +238,7 @@ if (value == null)
 {
     ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
 }
-return Runtime.CompilerServices.RuntimeHelpers.IsKnownConstant(value) && value.Length == 1 ? base.Contains(value[0]) : SpanHelpers.IndexOf(ref this._firstChar, base.Length, ref value._firstChar, value.Length) >= 0;
+return Runtime.CompilerServices.RuntimeHelpers.IsKnownConstant(value) && value.Length == 1 ? base.Contains(value[0]) : SpanHelpers.IndexOf(ref _firstChar, base.Length, ref value._firstChar, value.Length) >= 0;
 ```
 
 **Verdict:** The `&&` condition is reconstructed exactly, the enum argument renders as `ExceptionArgument.value`, and `ref` arguments are preserved. The if/return pair folds into one long ternary — correct, though the source's statement form reads better. **Grade: A-**
@@ -267,16 +267,16 @@ else
 **Decompiled:**
 
 ```csharp
-int V_0 = this._size;
-T[] V_1 = this._array;
+int V_0 = _size;
+T[] V_1 = _array;
 if ((uint)V_0 >= (uint)V_1.Length)
 {
     base.PushWithResize(item);
     return;
 }
 V_1[V_0] = item;
-this._version++;
-this._size = V_0 + 1;
+_version++;
+_size = V_0 + 1;
 return;
 ```
 
@@ -306,14 +306,14 @@ return item;
 ```csharp
 T V_2;
 
-int V_0 = this._size - 1;
-T[] V_1 = this._array;
+int V_0 = _size - 1;
+T[] V_1 = _array;
 if ((uint)V_0 >= (uint)V_1.Length)
 {
     base.ThrowForEmptyStack();
 }
-this._version++;
-this._size = V_0;
+_version++;
+_size = V_0;
 T S_0 = V_1[V_0];
 if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences())
 {
@@ -383,16 +383,16 @@ else
 ```csharp
 int V_0;
 
-this._version++;
+_version++;
 if (Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences())
 {
-    V_0 = this._size;
-    this._size = 0;
+    V_0 = _size;
+    _size = 0;
     if (V_0 <= 0) return;
-    Array.Clear(this._items, 0, V_0);
+    Array.Clear(_items, 0, V_0);
     return;
 }
-this._size = 0;
+_size = 0;
 return;
 ```
 
@@ -417,7 +417,7 @@ return false;
 **Decompiled (abbreviated):**
 
 ```csharp
-Entry<TKey, TValue>[] V_0 = this._entries;
+Entry<TKey, TValue>[] V_0 = _entries;
 if ((object)value != null)
 {
     if (typeof(TValue).IsValueType)
@@ -432,17 +432,17 @@ IL_005E:
             }
         }
         V_2++;
-        if (V_2 < this._count) goto IL_005E;
+        if (V_2 < _count) goto IL_005E;
         return false;
     }
 }
-for (V_1 = 0; V_1 < this._count; V_1++) { /* null-compare loop */ }
+for (V_1 = 0; V_1 < _count; V_1++) { /* null-compare loop */ }
 return false;
-for (; V_2 < this._count; V_2++)
+for (; V_2 < _count; V_2++)
 {
 }
 V_3 = EqualityComparer<TValue>.Default;
-for (V_4 = 0; V_4 < this._count; V_4++) { /* cached-comparer loop */ }
+for (V_4 = 0; V_4 < _count; V_4++) { /* cached-comparer loop */ }
 ```
 
 **Verdict:** Every expression now renders correctly — `typeof(TValue).IsValueType`, `EqualityComparer<TValue>.Default`, `V_0[V_2].next` (the previous snapshot had `Type.GetTypeFromHandle(...)`, `EqualityComparer<T1>`, and invalid `ref` receivers). What remains is purely structural: three parallel loops sharing exit paths unravel — one loop renders as if+goto, one renders empty, and the third trails unreachably after a `return`. ILSpy fully recovers the three-loop `if/else if/else` shape from this exact IL, so this is a pipeline gap, not lost information — and the last one in the corpus. **Grade: C**
@@ -456,7 +456,7 @@ for (V_4 = 0; V_4 < this._count; V_4++) { /* cached-comparer loop */ }
 | `String.IsNullOrEmpty` | **A** | exact |
 | `Math.Max` | **A** | exact |
 | `Math.Min` | **A** | exact |
-| `List.Contains` | **A** | exact (`this.`/`base.` cosmetic) |
+| `List.Contains` | **A** | exact (`base.` semantic) |
 | `Dictionary.Clear` | **A** | exact (`V_0` naming) |
 | `HashSet.Contains` | **A** | exact |
 | `StringBuilder.Clear` | **A** | exact |
