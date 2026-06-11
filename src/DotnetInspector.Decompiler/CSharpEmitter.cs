@@ -278,6 +278,105 @@ public static class CSharpEmitter
             }
         }
 
+        /// <summary>
+        /// Recognizes the static cached-delegate pattern and elides it:
+        /// <c>S = dup(ldsfld &lt;&gt;9__N); brtrue USE</c> with a fallthrough block
+        /// that builds and stores the delegate. The consuming block's stack
+        /// slots are substituted with the underlying expressions (the delegate
+        /// slot gets the inlined lambda), the branch and trailing slot
+        /// assignments are skipped, and the build block is consumed whole.
+        /// </summary>
+        void ScanForCachedDelegates()
+        {
+            for (int bi = 0; bi + 1 < _ast.Blocks.Count; bi++)
+            {
+                var blockX = _ast.Blocks[bi];
+                ILAstNode? branchNode = null;
+                ILAstExpression? branchExpr = null;
+                string? useLabel = null;
+                foreach (var node in blockX.Nodes)
+                {
+                    if (node is ILAstStatement
+                        {
+                            Expression: { OpCode: ILOpCode.Brtrue or ILOpCode.Brtrue_s, Operand: string label } expr
+                        }
+                        && expr.Arguments.Count == 1)
+                    {
+                        branchNode = node;
+                        branchExpr = expr;
+                        useLabel = label;
+                    }
+                }
+                if (branchNode is null || branchExpr is null || useLabel is null)
+                    continue;
+                if (FindCacheFieldLoad(branchExpr.Arguments[0]) is not { Member: { } cacheField })
+                    continue;
+
+                // Fallthrough block must store the same cache field from a
+                // delegate construction.
+                var blockY = _ast.Blocks[bi + 1];
+                ILAstExpression? newObj = null;
+                foreach (var node in blockY.Nodes)
+                {
+                    if (NodeExpression(node) is { OpCode: ILOpCode.Stsfld, Member: { } storedField } storeExpr
+                        && storedField.Name == cacheField.Name
+                        && storedField.DeclaringType == cacheField.DeclaringType)
+                    {
+                        newObj = FindOpcodeInTree(storeExpr, ILOpCode.Newobj);
+                    }
+                }
+                if (newObj is null)
+                    continue;
+
+                // Resolve the consuming block's offset for slot-keyed substitutions.
+                int useOffset = -1;
+                foreach (var (idx, off) in _blockStartOffset)
+                {
+                    if ($"IL_{off:X4}" == useLabel)
+                    {
+                        useOffset = off;
+                        break;
+                    }
+                }
+                if (useOffset < 0)
+                    continue;
+
+                // Substitute each of X's trailing stack-slot values at the use
+                // site; the slot carrying the cached delegate gets the freshly
+                // built (lambda-inlined) expression instead of the field load.
+                foreach (var node in blockX.Nodes)
+                {
+                    if (node is not ILAstAssignment { Variable.Kind: ILVariableKind.StackSlot } slotAssign)
+                        continue;
+                    var value = FindCacheFieldLoad(slotAssign.Value) is not null ? newObj : slotAssign.Value;
+                    _syntheticSubstitutions[$"{useOffset}:S_in_{slotAssign.Variable.Index}"] = ExpressionToString(value);
+                    _skipNodes.Add(node);
+                }
+
+                _skipNodes.Add(branchNode);
+                int yIdx = bi + 1;
+                _consumedBlocks.Add(yIdx);
+                RemoveGotoTargetsForConsumedBlock(yIdx);
+                _loopConsumedLabels.Add(useLabel);
+            }
+
+            ILAstExpression? FindCacheFieldLoad(ILAstExpression expr)
+            {
+                if (expr.OpCode == ILOpCode.Ldsfld
+                    && expr.Member is { Name: var n }
+                    && n.Contains(">9__", StringComparison.Ordinal))
+                {
+                    return expr;
+                }
+                foreach (var arg in expr.Arguments)
+                {
+                    if (FindCacheFieldLoad(arg) is { } found)
+                        return found;
+                }
+                return null;
+            }
+        }
+
         sealed class LockPattern
         {
             public required ILAstExpression LockExpression { get; init; }
@@ -1340,6 +1439,12 @@ public static class CSharpEmitter
 
         public void EmitMethod()
         {
+            // Cached static delegates (<>9__ fields): elide the null-check/build
+            // dance, substituting the inlined lambda at the consuming stack slot.
+            // Runs here rather than the constructor because lambda rendering
+            // needs BodyContext, an init property assigned after construction.
+            ScanForCachedDelegates();
+
             // Item 2: Pre-scan for locals whose first use is a store in the entry block
             DetectMergedLocals();
 
@@ -1517,6 +1622,22 @@ public static class CSharpEmitter
                     ConsumeStructuredBlock(block.ThenBlock);
                 if (block.ElseBlock is not null)
                     ConsumeStructuredBlock(block.ElseBlock);
+                return;
+            }
+
+            // A skipped condition BRANCH means a pre-scan elided the conditional
+            // itself (cached-delegate dance): emit the remaining statements and
+            // both arms as straight-line code.
+            if (block.ConditionBlockIndex >= 0
+                && _blockMap.TryGetValue(block.ConditionBlockIndex, out var elidedCond)
+                && elidedCond.Nodes.Any(n => _skipNodes.Contains(n)
+                    && n is ILAstStatement { Expression.OpCode: ILOpCode.Brtrue or ILOpCode.Brtrue_s }))
+            {
+                EmitBasicBlock(block.ConditionBlockIndex, indent);
+                if (block.ThenBlock is not null)
+                    EmitStructuredBlock(block.ThenBlock, indent);
+                if (block.ElseBlock is not null)
+                    EmitStructuredBlock(block.ElseBlock, indent);
                 return;
             }
 
@@ -5674,6 +5795,8 @@ public static class CSharpEmitter
                     if (_nullConditionalReceiver is not null
                         && expr.Operand.StartsWith("S_in_", StringComparison.Ordinal))
                         _sb.Append(_nullConditionalReceiver);
+                    else if (_syntheticSubstitutions.TryGetValue($"{expr.Offset}:{expr.Operand}", out var blockSubst))
+                        _sb.Append(blockSubst);
                     else if (_syntheticSubstitutions.TryGetValue(expr.Operand, out var subst))
                         _sb.Append(subst);
                     else
@@ -7184,7 +7307,13 @@ public static class CSharpEmitter
         string ExpressionToString(ILAstExpression expr)
         {
             var sb = new StringBuilder();
-            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames);
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames)
+            {
+                // Carry recursive-decompilation context so nested renderings
+                // (inlined lambda bodies) work from string conversions too.
+                BodyContext = BodyContext,
+                LambdaDepth = LambdaDepth,
+            };
             tempCtx.EmitExpression(expr);
             return sb.ToString();
         }
