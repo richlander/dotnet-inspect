@@ -295,6 +295,21 @@ public class CfgSampleClass
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
 
+    public static int LenOrZero(object o)
+    {
+        var s = o as string;
+        if (s != null)
+            return s.Length;
+        return 0;
+    }
+
+    public static int LenViaIsCast(object o)
+    {
+        if (o is string)
+            return ((string)o).Length;
+        return 0;
+    }
+
     public static bool NeitherOr(bool a, bool b, bool c)
     {
         if (a && b)
