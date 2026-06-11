@@ -72,12 +72,14 @@ public static class RouterCommandDefinition
                     // Router-level discovery: show package sections (no input required)
                     var routerSchemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                     var routerFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    var routerPipeline = PackageSectionDescriptors.CreatePipeline();
                     return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree,
                         json: routerFormat == OutputFormat.Json,
                         tsv: routerFormat == OutputFormat.Tsv,
                         jsonl: routerFormat == OutputFormat.Jsonl,
                         markdown: routerFormat == OutputFormat.Markdown,
-                        verbosity: (int)opts.ParseVerbosity(parseResult));
+                        verbosity: (int)opts.ParseVerbosity(parseResult),
+                        sectionCategories: routerPipeline.GetCategoryMap());
 
                 case RouterOptionsParser.ParseError error:
                     Console.Error.WriteLine(error.Message);

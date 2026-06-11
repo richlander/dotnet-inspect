@@ -795,7 +795,7 @@ public class CommandExecutionTests
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| IL (Annotated) | section |", output);
-        Assert.DoesNotContain("Use -S All to select all sections.", output);
+        Assert.DoesNotContain("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
 
@@ -817,7 +817,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Original Source | section |", output);
-        Assert.DoesNotContain("Use -S All to select all sections.", output);
+        Assert.DoesNotContain("Use -S @All to select all sections.", output);
     }
 
     [Fact]
@@ -1942,6 +1942,36 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsRenderableIntegrationSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-D", "@Integrations", "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Integrations", output);
+        Assert.Contains("Dependency Injection", output);
+        Assert.Contains("Logging", output);
+        Assert.Contains("OpenTelemetry", output);
+        Assert.DoesNotContain("Options", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectIntegrationsCategory_RendersIntegrationSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-S", "@Integrations", "--rows", "-n", "6");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("## Dependency Injection", output);
+        Assert.Contains("## Logging", output);
+        Assert.Contains("## OpenTelemetry", output);
+        Assert.DoesNotContain("## Options", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IntegrationsSection_RollsUpLogging()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2304,7 +2334,9 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Signals", output);
             Assert.Contains("section (opt-in)", output);
-            Assert.Contains("Use -S All to select all sections.", output);
+            Assert.Contains("@Default", output);
+            Assert.Contains("@All", output);
+            Assert.Contains("Use -S @All to select all sections.", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -2409,7 +2441,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "All");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "@All");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);

@@ -49,7 +49,16 @@ public static class LibrarySections
             .Add<Resources>()
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
-            .Add<NonNormalizedPaths>();
+            .Add<NonNormalizedPaths>()
+            .AddCategory("@Integrations",
+                "Integrations",
+                "Dependency Injection",
+                "Logging",
+                "Options",
+                "Hosting",
+                "Health Checks",
+                "HTTP Client",
+                "OpenTelemetry");
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>

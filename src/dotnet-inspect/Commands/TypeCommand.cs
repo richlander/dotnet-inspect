@@ -94,7 +94,8 @@ public static class TypeCommand
                     return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
-                        sectionCostAnnotations: typePipeline.GetCostAnnotations());
+                        sectionCostAnnotations: typePipeline.GetCostAnnotations(),
+                        sectionCategories: typePipeline.GetCategoryMap());
                 }
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);

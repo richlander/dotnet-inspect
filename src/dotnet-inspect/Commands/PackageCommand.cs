@@ -36,7 +36,8 @@ public class PackageCommand
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
-                sectionCostAnnotations: pipeline.GetCostAnnotations());
+                sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                sectionCategories: pipeline.GetCategoryMap());
         }
 
         // -D defaults to effective discovery for target-based commands.
@@ -48,7 +49,8 @@ public class PackageCommand
         if (!packageLibraryMode)
         {
             // -S/--select with values: resolve as section filter for backpressure
-            var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, sectionNames, pipeline.InfoSectionNames);
+            var selectResult = SelectResolver.ResolveSelectAsSections(
+                options.Select, sectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
@@ -354,7 +356,8 @@ public class PackageCommand
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
-                    sectionCostAnnotations: pipeline.GetCostAnnotations());
+                    sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                    sectionCategories: pipeline.GetCategoryMap());
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };

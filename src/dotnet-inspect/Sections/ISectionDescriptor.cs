@@ -28,7 +28,7 @@ public interface ISectionDescriptor<TModel>
     static virtual bool ExplicitOnly => false;
 
     /// <summary>
-    /// When true, this section is part of the command/context's curated Info preset
+    /// When true, this section is part of the command/context's curated @Default preset
     /// selected by bare <c>-S</c>.
     /// </summary>
     static virtual bool Info => false;

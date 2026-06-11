@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -84,7 +85,7 @@ public class SharedOptions
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select sections by name, wildcard, or All (comma/semicolon-separated)",
+            Description = "Select sections/categories by name, wildcard, or @All (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");
@@ -283,7 +284,7 @@ public class SharedOptions
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, Info for bare -S, or populated array with section names.
+    /// Returns null if not specified, @Default for bare -S, or populated array with section/category names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
         => IsBareFlag(parseResult, Select)
@@ -376,6 +377,14 @@ public class SharedOptions
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
-        return value.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return value
+            .Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(UnescapeAtCategory)
+            .ToArray();
     }
+
+    private static string UnescapeAtCategory(string value)
+        => value.StartsWith(ArgumentPreprocessor.EscapedAtCategoryPrefix, StringComparison.Ordinal)
+            ? "@" + value[ArgumentPreprocessor.EscapedAtCategoryPrefix.Length..]
+            : value;
 }

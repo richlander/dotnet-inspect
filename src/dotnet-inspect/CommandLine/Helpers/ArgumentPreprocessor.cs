@@ -50,6 +50,7 @@ public static class ArgumentPreprocessor
         args = MergeRepeatedListOption(args, SelectAliases, "-S");
         args = MergeRepeatedListOption(args, ["--columns"], "--columns");
         args = MergeRepeatedListOption(args, ["--fields"], "--fields");
+        args = EscapeAtCategoryOptionValues(args, [.. SelectAliases, "-D", "--discover"]);
 
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
@@ -119,6 +120,33 @@ public static class ArgumentPreprocessor
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
+    internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
+
+    private static string[] EscapeAtCategoryOptionValues(string[] args, string[] aliases)
+    {
+        var result = args.ToArray();
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (IsListOptionAlias(result[i], aliases, out var inlineValue))
+            {
+                if (inlineValue != null)
+                {
+                    result[i] = result[i][..result[i].IndexOf('=')] + "=" + EscapeAtCategoryValue(inlineValue);
+                }
+                else if (i + 1 < result.Length)
+                {
+                    result[i + 1] = EscapeAtCategoryValue(result[i + 1]);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static string EscapeAtCategoryValue(string value)
+        => value.StartsWith("@", StringComparison.Ordinal)
+            ? EscapedAtCategoryPrefix + value[1..]
+            : value;
 
     /// <summary>
     /// Collapses repeated occurrences of a single-valued list option into one ';'-joined token at the

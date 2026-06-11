@@ -57,7 +57,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-Bare `-S` renders a curated high-density view; `-S All` renders an exhaustive document. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
+Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document. Categories such as `@Integrations` expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
 
 ## General tips
 

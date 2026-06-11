@@ -43,7 +43,8 @@ public class LibraryCommand
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
-                    sectionCostAnnotations: pipeline.GetCostAnnotations());
+                    sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                    sectionCategories: pipeline.GetCategoryMap());
             }
         }
 
@@ -55,7 +56,8 @@ public class LibraryCommand
             options = options with { Verbosity = Verbosity.Detailed };
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, pipeline.AllSectionNames, pipeline.InfoSectionNames);
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select, pipeline.AllSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
@@ -301,7 +303,8 @@ public class LibraryCommand
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
-            sectionCostAnnotations: pipeline.GetCostAnnotations());
+            sectionCostAnnotations: pipeline.GetCostAnnotations(),
+            sectionCategories: pipeline.GetCategoryMap());
     }
 
     // ── Effective sections cache ──
@@ -369,7 +372,8 @@ public class LibraryCommand
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
-            sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations());
+            sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
+            sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap());
     }
 
     /// <summary>

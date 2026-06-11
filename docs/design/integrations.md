@@ -100,14 +100,17 @@ metadata inventory.
 
 ## Relationship to sections and categories
 
-`Integrations` is a section, not a global category selector. Existing
-dotnet-inspect commands already use sections, fields, columns, and
-command-specific flags for query shape. A future category model may group
-sections for discovery, but for now the stable user workflow is:
+`Integrations` is both a roll-up section and part of the `@Integrations`
+section category. Categories are section-selection macros, not a new filtering
+axis. They expand to command-local section sets and then normal section
+renderability still applies.
+
+Use:
 
 ```bash
 -S Integrations
 -S "<focused integration>"
+-S @Integrations
 ```
 
 This keeps integrations aligned with section backpressure and schema discovery.

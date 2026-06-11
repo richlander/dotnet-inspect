@@ -19,10 +19,16 @@ public static class DiscoverOutput
     /// </summary>
     public static int Execute(string[]? discover, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
-        string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
+        string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
+        sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
+
         // Auto-promote to tree when discovering items from multiple sections
-        if (!tree && discover is { Length: > 0 } && ResolvedSectionCount(discover, schema) > 1)
+        if (!tree
+            && discover is { Length: > 0 }
+            && !discover.Any(value => value.StartsWith("@", StringComparison.Ordinal))
+            && ResolvedSectionCount(discover, schema, sectionCategories) > 1)
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
@@ -30,9 +36,9 @@ public static class DiscoverOutput
             tree = true;
 
         if (tree)
-            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations);
+            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories);
 
-        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations);
+        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories);
         if (rows == null)
             return 1;
 
@@ -80,7 +86,8 @@ public static class DiscoverOutput
     public static int ExecuteEffective(string[]? discover, List<string> effectiveSections, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
         string? rootLabel = null, DocumentSchema? fullSchema = null,
-        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -104,7 +111,7 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations);
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories);
     }
 
     /// <summary>
@@ -122,6 +129,12 @@ public static class DiscoverOutput
         bool emittedNote = false;
         foreach (var name in discover)
         {
+            if (name.StartsWith("@", StringComparison.Ordinal))
+            {
+                remaining.Add(name);
+                continue;
+            }
+
             var (effMatches, _) = SelectResolver.ResolveSingle(name, effective.SectionNames, singleGlob: true);
             if (effMatches.Count >= 1)
             {
@@ -292,24 +305,48 @@ public static class DiscoverOutput
     private static IEnumerable<string> ParseRowCells(string row)
         => row.Trim().Trim('|').Split('|').Select(c => c.Trim()).Where(c => c.Length > 0);
 
-    private static List<DiscoveryRow>? GetDiscoveryRows(string[]? discover, DocumentSchema schema,
-        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
+    private static List<DiscoveryRow>? GetDiscoveryRows(
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
         // Bare -D: list sections (enabled alpha, then opt-in alpha)
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
-            return items
+            var categoryRows = sectionCategories?
+                .Select(category => new DiscoveryRow(category.Key, "category"))
+                .OrderBy(row => GetCategorySortRank(row.Name))
+                .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+
+            var sectionRows = items
                 .Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations)))
                 .OrderBy(r => GetSectionSortRank(r.Name, sectionCostAnnotations))
                 .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            return [.. categoryRows, .. sectionRows];
         }
 
         // -D SectionName: list items within section
         var rows = new List<DiscoveryRow>();
         foreach (var name in discover)
         {
+            if (TryResolveCategory(name, sectionCategories, out var categorySections))
+            {
+                foreach (var sectionName in categorySections)
+                    rows.Add(new DiscoveryRow(sectionName, AnnotateKind("section", sectionName, sectionCostAnnotations)));
+                continue;
+            }
+
+            if (name.StartsWith("@", StringComparison.Ordinal))
+            {
+                WriteCategoryNotFound(name, sectionCategories);
+                return null;
+            }
+
             var resolved = ResolveDiscoverSection(name, schema);
             if (resolved == null)
                 return null;
@@ -325,11 +362,20 @@ public static class DiscoverOutput
         return rows;
     }
 
-    private static int ResolvedSectionCount(string[] discover, DocumentSchema schema)
+    private static int ResolvedSectionCount(
+        string[] discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories)
     {
         int count = 0;
         foreach (var name in discover)
         {
+            if (TryResolveCategory(name, sectionCategories, out var categorySections))
+            {
+                count += categorySections.Length;
+                continue;
+            }
+
             var (matches, _) = SelectResolver.ResolveSingle(name, schema.SectionNames, singleGlob: true);
             if (matches.Count == 1)
                 count++;
@@ -395,8 +441,14 @@ public static class DiscoverOutput
         };
     }
 
+    private static int GetCategorySortRank(string name)
+        => name.Equals(SelectResolver.InfoSelector, StringComparison.OrdinalIgnoreCase) ? 0
+            : name.Equals(SelectResolver.AllSelector, StringComparison.OrdinalIgnoreCase) ? 1
+            : 2;
+
     private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
-        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -405,6 +457,15 @@ public static class DiscoverOutput
             // Resolve each section and build grouped tree
             foreach (var name in discover)
             {
+                if (TryResolveCategory(name, sectionCategories, out var categorySections))
+                {
+                    nodes.Add(new TreeNode(name)
+                    {
+                        Children = categorySections.Select(section => new TreeNode(section)).ToList()
+                    });
+                    continue;
+                }
+
                 var resolved = ResolveDiscoverSection(name, schema);
                 if (resolved == null) return 1;
 
@@ -432,6 +493,18 @@ public static class DiscoverOutput
         }
         else
         {
+            if (sectionCategories is { Count: > 0 })
+            {
+                var categoryNodes = sectionCategories
+                    .OrderBy(category => GetCategorySortRank(category.Key))
+                    .ThenBy(category => category.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(category => new TreeNode($"{category.Key} (category)")
+                    {
+                        Children = category.Value.Select(section => new TreeNode(section)).ToList()
+                    });
+                nodes.AddRange(categoryNodes);
+            }
+
             // Full tree: sections → items (enabled alpha, then opt-in alpha)
             var orderedSections = schema.SectionNames
                 .OrderBy(n => GetSectionSortRank(n, sectionCostAnnotations))
@@ -460,6 +533,56 @@ public static class DiscoverOutput
         var view = new DiscoveryTreeView { Sections = nodes };
         MarkoutSerializer.Serialize(view, Console.Out, DiscoveryContext.Default);
         return 0;
+    }
+
+    private static IReadOnlyDictionary<string, string[]>? FilterCategories(
+        IReadOnlyDictionary<string, string[]>? categories,
+        string[] sectionNames)
+    {
+        if (categories == null)
+            return null;
+
+        HashSet<string> known = [.. sectionNames];
+        Dictionary<string, string[]> filtered = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, sections) in categories)
+        {
+            var existing = sections
+                .Where(section => known.Contains(section))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (existing.Length > 0)
+                filtered[name] = existing;
+        }
+
+        return filtered;
+    }
+
+    private static bool TryResolveCategory(
+        string name,
+        IReadOnlyDictionary<string, string[]>? categories,
+        out string[] sections)
+    {
+        sections = [];
+        if (categories == null)
+            return false;
+
+        if (!categories.TryGetValue(name, out var value))
+            return false;
+
+        sections = value;
+        return true;
+    }
+
+    private static void WriteCategoryNotFound(string name, IReadOnlyDictionary<string, string[]>? categories)
+    {
+        Console.Error.WriteLine($"Error: Category '{name}' not found.");
+        if (categories is not { Count: > 0 })
+            return;
+
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Available categories:");
+        foreach (var category in categories.Keys.OrderBy(GetCategorySortRank).ThenBy(c => c, StringComparer.OrdinalIgnoreCase))
+            Console.Error.WriteLine($"  {category}");
     }
 }
 
