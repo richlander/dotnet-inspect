@@ -100,6 +100,26 @@ public class CSharpEmitterTests
         Assert.Contains("/", output);
     }
 
+    [Fact]
+    public void ULongGe_OmitsRedundantUnsignedCasts()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ULongGe));
+
+        // Both operands are statically ulong — C# compiles a >= b straight to
+        // the unsigned compare, so reinterpretation casts are redundant noise.
+        Assert.Contains(">=", output);
+        Assert.DoesNotContain("(ulong)", output);
+    }
+
+    [Fact]
+    public void MaxULong_OmitsRedundantUnsignedCasts()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.MaxULong));
+
+        Assert.Contains(">=", output);
+        Assert.DoesNotContain("(ulong)", output);
+    }
+
     // --- Exception filters (catch...when) ---
 
     [Fact]

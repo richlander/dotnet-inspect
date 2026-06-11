@@ -293,6 +293,15 @@ public class CfgSampleClass
 
     public static uint UnsignedDivide(uint a, uint b) => a / b;
 
+    public static bool ULongGe(ulong a, ulong b) => a >= b;
+
+    public static ulong MaxULong(ulong a, ulong b)
+    {
+        if (a >= b)
+            return a;
+        return b;
+    }
+
     public static int FilterCatch(string s)
     {
         try
