@@ -1708,6 +1708,61 @@ public static class CSharpEmitter
             return NegateConditionString(condition);
         }
 
+        /// <summary>
+        /// Detects 'V = expr as T;' followed by a branch testing V against
+        /// null in the same block. Returns the store node (to suppress) and
+        /// the pattern condition 'expr is T V'. The branch forms covered all
+        /// render as the not-null sense (brtrue/brfalse normalize to the
+        /// true-path form; bne.un(V, null) is the jump-if-not-null), so the
+        /// substitution preserves polarity. Only locals declared at first
+        /// store qualify — a header-declared local would collide with the
+        /// pattern variable's declaration.
+        /// </summary>
+        (ILAstNode? Decl, string? Condition) DetectDeclarationPattern(ILAstBlock condBlock)
+        {
+            if (condBlock.Nodes.LastOrDefault() is not ILAstStatement { Expression: var branch })
+                return (null, null);
+
+            string? tested = branch switch
+            {
+                // Release: branch directly on the stored local.
+                { OpCode: ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s,
+                  Arguments.Count: 1 } => TestedLocalOf(branch.Arguments[0]),
+                { OpCode: ILOpCode.Bne_un or ILOpCode.Bne_un_s, Arguments.Count: 2 }
+                    when branch.Arguments[1].OpCode == ILOpCode.Ldnull
+                    => GetLocalReferenceName(branch.Arguments[0]),
+                _ => null,
+            };
+
+            // Debug: the branch consumes an inlined materialized comparison,
+            // cgt.un(ldloc V, ldnull).
+            static string? TestedLocalOf(ILAstExpression arg) => arg switch
+            {
+                { OpCode: ILOpCode.Cgt_un, Arguments.Count: 2 } cmp
+                    when cmp.Arguments[1].OpCode == ILOpCode.Ldnull
+                    => GetLocalReferenceName(cmp.Arguments[0]),
+                _ => GetLocalReferenceName(arg),
+            };
+            if (tested is null || !_mergedLocals.ContainsKey(tested))
+                return (null, null);
+
+            for (int i = 0; i < condBlock.Nodes.Count - 1; i++)
+            {
+                if (condBlock.Nodes[i] is ILAstStatement { Expression: var st }
+                    && st.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                        or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                    && (st.Operand ?? GetLocalName(st.OpCode)) == tested
+                    && st.Arguments.Count == 1
+                    && st.Arguments[0] is { OpCode: ILOpCode.Isinst, Arguments.Count: 1 } isinst)
+                {
+                    string condition =
+                        $"{ExpressionToString(isinst.Arguments[0])} is {SimplifyTypeName(isinst.Operand ?? "object")} {tested}";
+                    return (condBlock.Nodes[i], condition);
+                }
+            }
+            return (null, null);
+        }
+
         void EmitIfThenElse(StructuredBlock block, int indent)
         {
             // A consumed condition block means the construct was already rendered
@@ -1784,10 +1839,18 @@ public static class CSharpEmitter
                 // Emit IL label if this condition block is a goto target
                 TryEmitLabel(block.ConditionBlockIndex);
 
+                // Declaration pattern: 'V = x as T;' + branch testing V against
+                // null folds to 'x is T V' (editorconfig:
+                // csharp_style_pattern_matching_over_as_with_null_check). The
+                // store renders inside the condition, so it is skipped below.
+                var (patternDecl, patternCondition) = DetectDeclarationPattern(condBlock);
+
                 // Emit any statements before the branch
                 for (int i = 0; i < condBlock.Nodes.Count - 1; i++)
                 {
                     if (_skipNodes.Contains(condBlock.Nodes[i]))
+                        continue;
+                    if (ReferenceEquals(condBlock.Nodes[i], patternDecl))
                         continue;
 
                     if (condBlock.Nodes[i] is ILAstStatement stmt)
@@ -1803,7 +1866,7 @@ public static class CSharpEmitter
                 if (lastNode is ILAstStatement branchStmt)
                 {
                     branchExpression = branchStmt.Expression;
-                    condition = BranchConditionToString(branchExpression);
+                    condition = patternCondition ?? BranchConditionToString(branchExpression);
                 }
             }
 
@@ -5723,6 +5786,14 @@ public static class CSharpEmitter
                     // ExtractCondition (there are no cge/cle opcodes to map to).
                     if (expr.Operand == ">=u") { EmitUnsignedComparison(expr, ">=", "<"); break; }
                     if (expr.Operand == "<=u") { EmitUnsignedComparison(expr, "<=", ">"); break; }
+                    // Synthesized null tests (ExtractCondition) over an isinst
+                    // result are the 'is' operator.
+                    if (expr.Arguments.Count == 2 && expr.Arguments[1].OpCode == ILOpCode.Ldnull
+                        && expr.Operand is "!=" or "=="
+                        && TryEmitIsTest(expr.Arguments[0], negated: expr.Operand == "=="))
+                    {
+                        break;
+                    }
                     if (!TryEmitNegatedComparisonZero(expr))
                         EmitBinary(expr, expr.Operand ?? "==");
                     break;
@@ -6354,10 +6425,11 @@ public static class CSharpEmitter
         {
             if (isBaseCall)
                 _sb.Append("base");
-            else if (IsRuntimeAwaitExpression(receiver))
+            else if (IsRuntimeAwaitExpression(receiver) || NeedsReceiverParens(receiver))
             {
-                // `(await GetThingAsync()).Member` — the await result is the receiver, so it
-                // must be parenthesized; `await GetThingAsync().Member` would bind differently.
+                // `(await GetThingAsync()).Member`, `((string)o).Length`,
+                // `(o as string).Length` — these receivers bind looser than
+                // member access and must be parenthesized.
                 _sb.Append('(');
                 EmitExpression(receiver);
                 _sb.Append(')');
@@ -6365,6 +6437,11 @@ public static class CSharpEmitter
             else
                 EmitExpression(receiver);
         }
+
+        /// <summary>Casts and as-expressions bind looser than '.'.</summary>
+        static bool NeedsReceiverParens(ILAstExpression receiver) =>
+            receiver.OpCode is ILOpCode.Castclass or ILOpCode.Isinst or ILOpCode.Unbox_any
+                or ILOpCode.Unbox or ILOpCode.Box;
 
         /// <summary>
         /// True for a runtime-async await helper call: a static call to
@@ -6402,6 +6479,13 @@ public static class CSharpEmitter
                 _sb.Append('[');
                 EmitExpression(receiver.Arguments[1]);
                 _sb.Append(']');
+                return;
+            }
+            if (NeedsReceiverParens(receiver))
+            {
+                _sb.Append('(');
+                EmitExpression(receiver);
+                _sb.Append(')');
                 return;
             }
             EmitExpression(receiver);
@@ -6742,6 +6826,8 @@ public static class CSharpEmitter
                         var btArg = expr.Arguments[0];
                         if (btArg.ResultType.Kind is StackValueKind.ObjRef)
                         {
+                            if (TryEmitIsTest(btArg, negated: false))
+                                break;
                             EmitExpression(btArg);
                             _sb.Append(" != null");
                         }
@@ -6956,6 +7042,24 @@ public static class CSharpEmitter
         /// classic bounds-check (uint)i &lt; (uint)length). cgt.un against null is
         /// the compiler's reference-inequality idiom.
         /// </summary>
+        /// <summary>
+        /// An isinst result tested against null IS the C# 'is' operator —
+        /// the editorconfig-preferred pattern form is also the exact
+        /// rendering of the IL (csharp_style_pattern_matching_over_*).
+        /// </summary>
+        bool TryEmitIsTest(ILAstExpression operand, bool negated)
+        {
+            if (operand.OpCode != ILOpCode.Isinst || operand.Arguments.Count == 0)
+                return false;
+            if (negated)
+                _sb.Append("!(");
+            EmitParenthesized(operand, 0);
+            _sb.Append($" is {SimplifyTypeName(operand.Operand ?? "object")}");
+            if (negated)
+                _sb.Append(')');
+            return true;
+        }
+
         void EmitUnsignedComparison(ILAstExpression expr, string op, string orderedComplement)
         {
             if (expr.Arguments.Count < 2)
@@ -6969,6 +7073,8 @@ public static class CSharpEmitter
 
             if (op == ">" && right.OpCode == ILOpCode.Ldnull)
             {
+                if (TryEmitIsTest(left, negated: false))
+                    return;
                 EmitExpression(left);
                 _sb.Append(" != null");
                 return;
@@ -7014,6 +7120,8 @@ public static class CSharpEmitter
             // !(x != null) → x == null
             if (orderedOp == "<=" && right.OpCode == ILOpCode.Ldnull)
             {
+                if (TryEmitIsTest(left, negated: true))
+                    return;
                 EmitExpression(left);
                 _sb.Append(" == null");
                 return;

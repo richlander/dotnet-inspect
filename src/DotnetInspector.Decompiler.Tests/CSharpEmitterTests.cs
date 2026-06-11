@@ -257,6 +257,32 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("!a", output);
     }
 
+    // --- Pattern matching (editorconfig: pattern_matching_over_as/is) ---
+
+    [Fact]
+    public void LenOrZero_RendersDeclarationPattern()
+    {
+        // 'V = o as string;' + null test folds to the declaration pattern —
+        // the editorconfig-preferred form, and the exact IL rendering.
+        string output = EmitMethod(nameof(CfgSampleClass.LenOrZero));
+
+        Assert.Contains("o is string V_0", output);
+        Assert.DoesNotContain("as string", output);
+        Assert.DoesNotContain("!= null", output);
+    }
+
+    [Fact]
+    public void LenViaIsCast_RendersIsTestAndParenthesizedCast()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.LenViaIsCast));
+
+        // isinst tested against null IS the 'is' operator…
+        Assert.Contains("o is string", output);
+        // …and a cast receiver binds looser than member access.
+        Assert.Contains("((string)o).Length", output);
+        Assert.DoesNotContain("(string)o.Length", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]
