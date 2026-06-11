@@ -190,6 +190,19 @@ public static class TypeCommand
                     // sections (whole-type Decompiled Source).
                     effectiveOptions = effectiveOptions with { DllPath = runtimeAssemblyPath ?? apiDllPath };
 
+                    // Real local names for the listing: acquire the portable
+                    // PDB the same way the member command does — only when the
+                    // section is actually requested (network).
+                    if (effectiveOptions.DllPath is { } dllForPdb
+                        && effectiveOptions.IncludeSections is { Count: > 0 }
+                        && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
+                            .Contains(SectionNames.DecompiledSource))
+                    {
+                        var pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
+                            dllForPdb, effectiveOptions, logger, context.HttpClient);
+                        effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
+                    }
+
                     if (ShouldRejectQuietShape(effectiveOptions))
                     {
                         Console.Error.WriteLine("Error: -v:q is not supported by the type shape renderer.");
