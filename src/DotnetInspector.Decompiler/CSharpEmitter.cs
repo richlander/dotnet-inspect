@@ -1531,6 +1531,36 @@ public static class CSharpEmitter
             EnsureTrailingReturn();
 
             FixupGotoLabels();
+            TrimRedundantTrailingReturn();
+        }
+
+        /// <summary>
+        /// A bare 'return;' as the method's final top-level statement is
+        /// implicit in C#; the IL's trailing ret renders as noise. Kept when
+        /// a label points at it — a goto target needs a statement.
+        /// </summary>
+        void TrimRedundantTrailingReturn()
+        {
+            string text = _sb.ToString();
+            string trimmed = text.TrimEnd();
+            const string tail = "return;";
+            if (!trimmed.EndsWith(tail, StringComparison.Ordinal))
+                return;
+            int lineStart = trimmed.Length - tail.Length;
+            // Column 0 only — an indented return lives inside a construct.
+            if (lineStart > 0 && trimmed[lineStart - 1] != '\n')
+                return;
+            if (lineStart > 0)
+            {
+                int prevStart = trimmed.LastIndexOf('\n', lineStart - 2) + 1;
+                string prevLine = trimmed[prevStart..(lineStart - 1)].TrimEnd();
+                if (prevLine.EndsWith(':'))
+                    return; // label target
+            }
+            _sb.Clear();
+            string remaining = trimmed[..lineStart].TrimEnd();
+            if (remaining.Length > 0)
+                _sb.AppendLine(remaining);
         }
 
         /// <summary>
