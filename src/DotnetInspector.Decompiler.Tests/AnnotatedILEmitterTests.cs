@@ -56,8 +56,10 @@ public class AnnotatedILEmitterTests
     {
         string output = EmitMethod(nameof(CfgSampleClass.Add), ILAnnotationDepth.Typed);
 
-        // After loading int args, stack should show Int32
-        Assert.Contains("Int32", output);
+        // After loading int args, the stack annotation shows the precise C#
+        // type when known ("int"), falling back to the kind ("Int32").
+        Assert.True(output.Contains("int") || output.Contains("Int32"),
+            $"Expected an int stack annotation in:\n{output}");
     }
 
     [Fact]

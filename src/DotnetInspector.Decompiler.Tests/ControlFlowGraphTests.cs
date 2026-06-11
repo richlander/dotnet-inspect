@@ -331,6 +331,17 @@ public class CfgSampleClass
         public int Value;
     }
 
+    static int s_bumpCount;
+
+    public static void Bump(MutableHolder h, int n)
+    {
+        h.Value += n;
+        h.Value++;
+        s_bumpCount++;
+    }
+
+    public static bool IsSpaceOrTab(char c) => c == ' ' || c == '\t';
+
     public static int StaleFieldRead(MutableHolder h)
     {
         int v = h.Value;

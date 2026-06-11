@@ -2377,6 +2377,67 @@ public static class CSharpEmitter
             return false;
         }
 
+        /// <summary>
+        /// Renders <c>obj.f = obj.f OP x</c> as <c>obj.f OP= x</c> (and
+        /// <c>obj.f++/--</c> for OP 1) when the read and write target the same
+        /// field through the same side-effect-free receiver. The locals-only
+        /// version lives in TryEmitCompoundAssignment.
+        /// </summary>
+        bool TryEmitFieldCompoundAssignment(ILAstExpression expr, int indent)
+        {
+            if (expr.Member is not { } field)
+                return false;
+
+            bool isStatic = expr.OpCode == ILOpCode.Stsfld;
+            ILAstExpression? receiver = isStatic ? null : (expr.Arguments.Count >= 2 ? expr.Arguments[0] : null);
+            ILAstExpression? value = isStatic
+                ? (expr.Arguments.Count >= 1 ? expr.Arguments[0] : null)
+                : (expr.Arguments.Count >= 2 ? expr.Arguments[1] : null);
+            if (value is null || (!isStatic && receiver is null))
+                return false;
+            if (value.Arguments.Count < 2 || CompoundAssignmentOperator(value.OpCode) is not { } op)
+                return false;
+
+            // The left operand must read the SAME field (typed identity) through
+            // an equivalently-rendered, side-effect-free receiver.
+            var read = value.Arguments[0];
+            if (read.OpCode != (isStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
+                return false;
+            if (read.Member is not { } readField
+                || readField.Name != field.Name
+                || readField.DeclaringType != field.DeclaringType)
+            {
+                return false;
+            }
+            if (!isStatic)
+            {
+                if (!IsSideEffectFreeIndexExpression(receiver!)
+                    || read.Arguments.Count == 0
+                    || ExpressionToString(read.Arguments[0]) != ExpressionToString(receiver!))
+                {
+                    return false;
+                }
+            }
+
+            string target = isStatic
+                ? $"{SimplifyTypeName(field.DeclaringType)}.{field.Name}"
+                : $"{ExpressionToString(receiver!)}.{field.Name}";
+            var rhs = value.Arguments[1];
+
+            WriteIndent(indent);
+            if (op is "+" or "-" && IsConstantOne(rhs))
+            {
+                _sb.Append(target);
+                _sb.AppendLine(op == "+" ? "++;" : "--;");
+                return true;
+            }
+
+            _sb.Append($"{target} {op}= ");
+            EmitExpression(rhs, TryResolveFieldType(expr.Operand));
+            _sb.AppendLine(";");
+            return true;
+        }
+
         static string? CompoundAssignmentOperator(ILOpCode op) => op switch
         {
             ILOpCode.Add or ILOpCode.Add_ovf or ILOpCode.Add_ovf_un => "+",
@@ -4839,6 +4900,8 @@ public static class CSharpEmitter
 
                 case ILOpCode.Stfld or ILOpCode.Stsfld:
                 {
+                    if (TryEmitFieldCompoundAssignment(expr, indent))
+                        break;
                     WriteIndent(indent);
                     if (expr.OpCode == ILOpCode.Stfld && expr.Arguments.Count >= 2)
                     {
@@ -5034,6 +5097,13 @@ public static class CSharpEmitter
 
             // A bool-typed parameter/target means 0/1 integer literals are really false/true.
             boolCtx = boolCtx || resolvedType is "bool" or "System.Boolean" or "Boolean";
+
+            // Char literals for integer constants in char context (c == ' ').
+            if (IsLdcI4(expr.OpCode) && resolvedType is "char" or "System.Char" or "Char")
+            {
+                _sb.Append(CharLiteral(GetI4Value(expr)));
+                return;
+            }
 
             // Enum constant resolution for integer literals with known parameter types
             if (IsLdcI4(expr.OpCode) && resolvedType is not null
@@ -6176,9 +6246,14 @@ public static class CSharpEmitter
         {
             if (expr.Arguments.Count >= 2)
             {
-                EmitExpression(expr.Arguments[0]);
+                var lhs = expr.Arguments[0];
+                var rhs = expr.Arguments[1];
+                // Same char-literal context rule as EmitBinary.
+                string? rhsType = IsCharTyped(lhs) && IsLdcI4(rhs.OpCode) ? "char" : null;
+                string? lhsType = IsCharTyped(rhs) && IsLdcI4(lhs.OpCode) ? "char" : null;
+                EmitExpression(lhs, lhsType);
                 _sb.Append($" {op} ");
-                EmitExpression(expr.Arguments[1]);
+                EmitExpression(rhs, rhsType);
             }
         }
 
@@ -6353,6 +6428,25 @@ public static class CSharpEmitter
                     return;
                 }
 
+                // When one side is char-typed, an integer constant on the other
+                // side is a char literal (c == ' ', not c == 32).
+                var lhs = expr.Arguments[0];
+                var rhs = expr.Arguments[1];
+                if (IsCharTyped(lhs) && IsLdcI4(rhs.OpCode))
+                {
+                    EmitParenthesized(expr, 0);
+                    _sb.Append($" {op} ");
+                    _sb.Append(CharLiteral(GetI4Value(rhs)));
+                    return;
+                }
+                if (IsCharTyped(rhs) && IsLdcI4(lhs.OpCode))
+                {
+                    _sb.Append(CharLiteral(GetI4Value(lhs)));
+                    _sb.Append($" {op} ");
+                    EmitParenthesized(expr, 1);
+                    return;
+                }
+
                 EmitParenthesized(expr, 0);
                 _sb.Append($" {op} ");
                 EmitParenthesized(expr, 1);
@@ -6361,6 +6455,28 @@ public static class CSharpEmitter
             {
                 _sb.Append($"/* {op} */");
             }
+        }
+
+        static bool IsCharTyped(ILAstExpression expr)
+            => expr.ResultType.TypeName is "char" or "System.Char" or "Char";
+
+        /// <summary>C# char literal for a code unit, escaped as needed.</summary>
+        static string CharLiteral(int value)
+        {
+            if (value < 0 || value > 0xFFFF)
+                return value.ToString();
+            char c = (char)value;
+            return c switch
+            {
+                '\0' => "'\\0'",
+                '\t' => "'\\t'",
+                '\n' => "'\\n'",
+                '\r' => "'\\r'",
+                '\\' => "'\\\\'",
+                '\'' => "'\\''",
+                >= ' ' and <= '~' => $"'{c}'",
+                _ => $"'\\u{value:X4}'"
+            };
         }
 
         bool TryFoldBinary(ILAstExpression expr, string op, out ILAstExpression? foldedExpr)
