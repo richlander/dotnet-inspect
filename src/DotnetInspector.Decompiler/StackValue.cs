@@ -23,7 +23,7 @@ public readonly record struct StackValue
         TypeName = typeName;
     }
 
-    public static StackValue CreatePrimitive(StackValueKind kind) => new(kind);
+    public static StackValue CreatePrimitive(StackValueKind kind, string? typeName = null) => new(kind, typeName);
     public static StackValue CreateObjRef(string? typeName = null) => new(StackValueKind.ObjRef, typeName);
     public static StackValue CreateValueType(string typeName) => new(StackValueKind.ValueType, typeName);
     public static StackValue CreateByRef(string? referentType = null) => new(StackValueKind.ByRef, referentType);
@@ -35,6 +35,9 @@ public readonly record struct StackValue
     /// </summary>
     public static StackValue FromTypeName(string typeName) => typeName switch
     {
+        // The type name is preserved so the emitter can keep C#-level
+        // distinctions (char vs int literals, bool contexts) that the stack
+        // category erases.
         "bool" or "System.Boolean" or
         "char" or "System.Char" or
         "sbyte" or "System.SByte" or
@@ -43,15 +46,15 @@ public readonly record struct StackValue
         "ushort" or "System.UInt16" or
         "int" or "System.Int32" or
         "uint" or "System.UInt32"
-            => CreatePrimitive(StackValueKind.Int32),
+            => CreatePrimitive(StackValueKind.Int32, typeName),
 
         "long" or "System.Int64" or
         "ulong" or "System.UInt64"
-            => CreatePrimitive(StackValueKind.Int64),
+            => CreatePrimitive(StackValueKind.Int64, typeName),
 
         "float" or "System.Single" or
         "double" or "System.Double"
-            => CreatePrimitive(StackValueKind.Float),
+            => CreatePrimitive(StackValueKind.Float, typeName),
 
         "nint" or "System.IntPtr" or
         "nuint" or "System.UIntPtr"

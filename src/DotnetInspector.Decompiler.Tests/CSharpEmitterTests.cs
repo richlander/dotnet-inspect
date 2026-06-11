@@ -162,6 +162,28 @@ public class CSharpEmitterTests
         return CSharpEmitter.Emit(context);
     }
 
+    // --- P1 sugar: field compound assignment and char literals ---
+
+    [Fact]
+    public void Bump_RendersFieldCompoundAssignment()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.Bump));
+
+        Assert.Contains("+=", output);
+        Assert.Contains("++;", output);
+        Assert.DoesNotContain("h.Value = h.Value", output);
+    }
+
+    [Fact]
+    public void IsSpaceOrTab_RendersCharLiterals()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.IsSpaceOrTab));
+
+        Assert.Contains("' '", output);
+        Assert.Contains("'\\t'", output);
+        Assert.DoesNotContain("32", output);
+    }
+
     // --- Inliner soundness ---
 
     [Fact]
