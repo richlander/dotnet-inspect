@@ -5763,7 +5763,7 @@ public static class CSharpEmitter
                 case ILOpCode.Ldfld:
                     if (expr.Arguments.Count > 0)
                     {
-                        EmitExpression(expr.Arguments[0]);
+                        EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
                     }
                     _sb.Append(ExtractMemberName(expr.Operand));
@@ -5852,7 +5852,7 @@ public static class CSharpEmitter
                 case ILOpCode.Ldflda:
                     if (expr.Arguments.Count > 0)
                     {
-                        EmitExpression(expr.Arguments[0]);
+                        EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
                     }
                     _sb.Append(ExtractMemberName(expr.Operand));
@@ -6148,7 +6148,7 @@ public static class CSharpEmitter
                 case ILOpCode.Ldflda:
                     if (expr.Arguments.Count > 0)
                     {
-                        EmitExpression(expr.Arguments[0]);
+                        EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
                     }
                     _sb.Append(ExtractMemberName(expr.Operand));
@@ -6213,7 +6213,7 @@ public static class CSharpEmitter
                 case ILOpCode.Ldflda:
                     if (expr.Arguments.Count > 0)
                     {
-                        EmitExpression(expr.Arguments[0]);
+                        EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
                     }
                     _sb.Append(ExtractMemberName(expr.Operand));
@@ -6278,6 +6278,25 @@ public static class CSharpEmitter
         bool IsRuntimeAwaitExpression(ILAstExpression expr)
             => IsRuntimeAwaitCall(expr) || IsRuntimeCustomAwaitGetResultCall(expr);
 
+        /// <summary>
+        /// Renders a field-access receiver. A receiver that is an element
+        /// ADDRESS (ldelema) renders as plain element access — the IL takes
+        /// the address only because the element is a struct accessed in
+        /// place; C# spells that arr[i].field, not ref arr[i].field.
+        /// </summary>
+        void EmitFieldReceiver(ILAstExpression receiver)
+        {
+            if (receiver.OpCode == ILOpCode.Ldelema && receiver.Arguments.Count >= 2)
+            {
+                EmitExpression(receiver.Arguments[0]);
+                _sb.Append('[');
+                EmitExpression(receiver.Arguments[1]);
+                _sb.Append(']');
+                return;
+            }
+            EmitExpression(receiver);
+        }
+
         void EmitCallExpression(ILAstExpression expr)
         {
             string? methodName = expr.Operand;
@@ -6322,6 +6341,18 @@ public static class CSharpEmitter
             }
 
             memberPart = SimplifyLocalFunctionName(memberPart);
+
+            // ldtoken T; call Type.GetTypeFromHandle — the typeof(T) idiom.
+            // The ldtoken argument already renders as typeof(T); the wrapper
+            // call is lowering noise.
+            if (memberPart is "GetTypeFromHandle"
+                && typePart is "System.Type" or "Type"
+                && expr.Arguments.Count == 1
+                && expr.Arguments[0].OpCode == ILOpCode.Ldtoken)
+            {
+                EmitExpression(expr.Arguments[0]);
+                return;
+            }
 
             if (TryEmitInlineArrayAsSpanExpression(expr, memberPart))
                 return;

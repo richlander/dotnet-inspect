@@ -297,6 +297,12 @@ public class CfgSampleClass
 
     public static T GetAt<T>(T[] array, int index) => array[index];
 
+    public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;
+
+    public struct Pair { public int A; public int B; }
+
+    public static int FirstA(Pair[] pairs) => pairs[0].A;
+
     public static ulong MaxULong(ulong a, ulong b)
     {
         if (a >= b)
