@@ -77,8 +77,8 @@ When an integration has multiple kinds of currency, keep the `Kind` column:
 ```markdown
 | Kind | Type |
 | ---- | ---- |
-| Tracing API | `System.Diagnostics.ActivitySource` |
-| Metrics API | `System.Diagnostics.Metrics.Meter` |
+| Tracing | `System.Diagnostics.ActivitySource` |
+| Metrics | `System.Diagnostics.Metrics.Meter` |
 ```
 
 If every row in a focused section has the same kind, hide `Kind` and render only

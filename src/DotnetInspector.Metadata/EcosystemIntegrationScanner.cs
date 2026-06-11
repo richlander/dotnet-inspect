@@ -183,12 +183,12 @@ public static class EcosystemIntegrationScanner
 
         public static IntegrationBuckets Create() => new()
         {
-            DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection API"),
-            Logging = new IntegrationBucket("Logging", "Logging API"),
-            Options = new IntegrationBucket("Options", "Options API"),
-            Hosting = new IntegrationBucket("Hosting", "Hosting API"),
-            HealthChecks = new IntegrationBucket("Health Checks", "Health Check API"),
-            HttpClient = new IntegrationBucket("HTTP Client", "HTTP Client API")
+            DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection"),
+            Logging = new IntegrationBucket("Logging", "Logging"),
+            Options = new IntegrationBucket("Options", "Options"),
+            Hosting = new IntegrationBucket("Hosting", "Hosting"),
+            HealthChecks = new IntegrationBucket("Health Checks", "Health Check"),
+            HttpClient = new IntegrationBucket("HTTP Client", "HTTP Client")
         };
     }
 

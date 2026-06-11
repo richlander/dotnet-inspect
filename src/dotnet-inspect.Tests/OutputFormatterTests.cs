@@ -257,8 +257,8 @@ public class OutputFormatterTests
         ];
         libraryInspection.OpenTelemetry =
         [
-            new IntegrationSignal("Tracing API", "System.Diagnostics.ActivitySource"),
-            new IntegrationSignal("Metrics API", "System.Diagnostics.Metrics.UpDownCounter<T>")
+            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
+            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.UpDownCounter<T>")
         ];
         libraryInspection.SourceIntegrityChecked = true;
         libraryInspection.SourceIntegrityMismatched = 1;
@@ -453,8 +453,8 @@ public class OutputFormatterTests
         inspection.HasOpenTelemetrySupport = true;
         inspection.OpenTelemetry =
         [
-            new IntegrationSignal("Tracing API", "System.Diagnostics.ActivitySource"),
-            new IntegrationSignal("Metrics API", "System.Diagnostics.Metrics.Meter")
+            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
+            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.Meter")
         ];
 
         var output = Serialize(inspection);

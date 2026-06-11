@@ -1995,9 +1995,9 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## OpenTelemetry", output);
         Assert.Contains("| Kind | Type |", output);
-        Assert.Contains("| Tracing API | `System.Diagnostics.ActivitySource` |", output);
-        Assert.Contains("| Metrics API | `System.Diagnostics.Metrics.Meter` |", output);
-        Assert.Contains("| Metrics API | `System.Diagnostics.Metrics.UpDownCounter<T>` |", output);
+        Assert.Contains("| Tracing | `System.Diagnostics.ActivitySource` |", output);
+        Assert.Contains("| Metrics | `System.Diagnostics.Metrics.Meter` |", output);
+        Assert.Contains("| Metrics | `System.Diagnostics.Metrics.UpDownCounter<T>` |", output);
         Assert.Contains("System.Diagnostics.ActivitySource", output);
         Assert.Contains("System.Diagnostics.Metrics.Meter", output);
         Assert.DoesNotContain("UpDownCounter&#96;1", output);

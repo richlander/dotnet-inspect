@@ -35,11 +35,11 @@ public static class OpenTelemetryScanner
         foreach (var handle in reader.TypeDefinitions)
             AddTypeMatches(reader.GetFullTypeName(reader.GetTypeDefinition(handle)), "TypeDef");
         List<OpenTelemetrySignalInfo> results = [];
-        AddTypeRows(results, "OpenTelemetry API", openTelemetryTypes);
-        AddTypeRows(results, "Tracing API", tracingTypes);
-        AddTypeRows(results, "Metrics API", metricsTypes);
-        AddTypeRows(results, "DiagnosticSource API", diagnosticSourceTypes);
-        AddTypeRows(results, "Microsoft.Extensions.Telemetry API", microsoftTelemetryTypes);
+        AddTypeRows(results, "OpenTelemetry", openTelemetryTypes);
+        AddTypeRows(results, "Tracing", tracingTypes);
+        AddTypeRows(results, "Metrics", metricsTypes);
+        AddTypeRows(results, "DiagnosticSource", diagnosticSourceTypes);
+        AddTypeRows(results, "Microsoft.Extensions.Telemetry", microsoftTelemetryTypes);
         return results;
 
         void AddTypeMatches(string typeName, string source)
