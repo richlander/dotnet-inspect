@@ -48,6 +48,7 @@ Examples:
 
 | Integration | Currency examples |
 | ----------- | ----------------- |
+| AI | `IChatClient`, `IEmbeddingGenerator<TInput,TEmbedding>`, `AITool`, modality client interfaces. |
 | Dependency Injection | `IServiceCollection`, service registration extension types, builder types. |
 | Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, logging extension types. |
 | OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types. |

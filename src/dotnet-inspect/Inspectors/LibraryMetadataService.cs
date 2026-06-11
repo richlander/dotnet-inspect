@@ -77,6 +77,7 @@ internal static class LibraryMetadataService
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
             inspection.HasOpenTelemetrySupport = presenceFlags.HasOpenTelemetrySupport;
+            inspection.HasAISupport = presenceFlags.HasAISupport;
             inspection.HasDependencyInjectionSupport = presenceFlags.HasDependencyInjectionSupport;
             inspection.HasLoggingSupport = presenceFlags.HasLoggingSupport;
             inspection.HasOptionsSupport = presenceFlags.HasOptionsSupport;
@@ -563,6 +564,7 @@ internal static class LibraryMetadataService
     {
         inspection.OpenTelemetry = ScanOpenTelemetry(peReader, path, logger);
         var signals = EcosystemIntegrationScanner.Scan(peReader);
+        inspection.AI = SelectIntegrationSignals(signals, "AI");
         inspection.DependencyInjection = SelectIntegrationSignals(signals, "Dependency Injection");
         inspection.Logging = SelectIntegrationSignals(signals, "Logging");
         inspection.Options = SelectIntegrationSignals(signals, "Options");
@@ -604,6 +606,7 @@ internal static class LibraryMetadataService
     private static List<IntegrationSummary>? BuildIntegrations(LibraryInspection inspection)
     {
         List<IntegrationSummary> integrations = [];
+        AddIntegration(integrations, "AI", inspection.AI);
         AddIntegration(integrations, "Dependency Injection", inspection.DependencyInjection);
         AddIntegration(integrations, "Logging", inspection.Logging);
         AddIntegration(integrations, "OpenTelemetry", inspection.OpenTelemetry);

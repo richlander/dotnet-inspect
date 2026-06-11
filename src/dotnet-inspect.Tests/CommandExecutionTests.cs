@@ -1904,6 +1904,7 @@ public class CommandExecutionTests
             .ToArray();
         Assert.Equal(
             [
+                "AI",
                 "Async Methods",
                 "Custom Attributes",
                 "Dependency Injection",
@@ -1949,6 +1950,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Integrations", output);
+        Assert.Contains("AI", output);
         Assert.Contains("Dependency Injection", output);
         Assert.Contains("Logging", output);
         Assert.Contains("OpenTelemetry", output);
@@ -1964,6 +1966,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
+        Assert.Contains("## AI", output);
         Assert.Contains("## Dependency Injection", output);
         Assert.Contains("## Logging", output);
         Assert.Contains("## OpenTelemetry", output);
@@ -1982,6 +1985,22 @@ public class CommandExecutionTests
         Assert.Contains("Logging", output);
         Assert.Contains("-S Logging", output);
         Assert.DoesNotContain("## Logging", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AISection_DetectsAiCurrencyTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI.Abstractions", "--library", "-S", "AI", "--rows", "-n", "40");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## AI", output);
+        Assert.Contains("| Kind | Type |", output);
+        Assert.Contains("| Chat | `Microsoft.Extensions.AI.IChatClient` |", output);
+        Assert.Contains("| Embeddings | `Microsoft.Extensions.AI.IEmbeddingGenerator` |", output);
+        Assert.Contains("| Tools | `Microsoft.Extensions.AI.AITool` |", output);
+        Assert.DoesNotContain("Assembly Reference", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

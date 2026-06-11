@@ -33,6 +33,7 @@ public static class LibrarySections
             .Add<Symbols>()
             .Add<Signals>()
             .Add<Integrations>()
+            .Add<AI>()
             .Add<DependencyInjection>()
             .Add<Logging>()
             .Add<OpenTelemetry>()
@@ -52,6 +53,7 @@ public static class LibrarySections
             .Add<NonNormalizedPaths>()
             .AddCategory("@Integrations",
                 "Integrations",
+                "AI",
                 "Dependency Injection",
                 "Logging",
                 "Options",
@@ -134,6 +136,7 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model)
             => model.Integrations is { Count: > 0 }
+               || model.HasAISupport
                || model.HasOpenTelemetrySupport
                || model.HasDependencyInjectionSupport
                || model.HasLoggingSupport
@@ -141,6 +144,16 @@ public static class LibrarySections
                || model.HasHostingSupport
                || model.HasHealthChecksSupport
                || model.HasHttpClientSupport;
+    }
+
+    public sealed class AI : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "AI";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.AI is { Count: > 0 } || model.HasAISupport;
     }
 
     public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>

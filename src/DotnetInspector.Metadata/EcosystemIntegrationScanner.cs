@@ -10,6 +10,7 @@ public record EcosystemIntegrationSignalInfo(
 
 public record EcosystemIntegrationPresence
 {
+    public bool HasAISupport { get; init; }
     public bool HasOpenTelemetrySupport { get; init; }
     public bool HasDependencyInjectionSupport { get; init; }
     public bool HasLoggingSupport { get; init; }
@@ -59,6 +60,8 @@ public static class EcosystemIntegrationScanner
 
     private static void AddType(IntegrationBuckets buckets, string typeName, string source)
     {
+        if (TryGetAIKind(typeName, out var aiKind))
+            AddType(GetAIBucket(buckets, aiKind), typeName, source);
         if (IsDependencyInjectionType(typeName))
             AddType(buckets.DependencyInjection, typeName, source);
         if (IsLoggingType(typeName))
@@ -75,6 +78,8 @@ public static class EcosystemIntegrationScanner
 
     private static void MarkTypePresence(MutablePresence presence, string typeName)
     {
+        if (IsAIType(typeName))
+            presence.HasAISupport = true;
         if (IsDependencyInjectionType(typeName))
             presence.HasDependencyInjectionSupport = true;
         if (IsLoggingType(typeName))
@@ -109,6 +114,100 @@ public static class EcosystemIntegrationScanner
            || typeName.Equals("System.Net.Http.IHttpClientFactory", StringComparison.Ordinal)
            || (typeName.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal)
                && typeName.Contains("HttpClient", StringComparison.Ordinal));
+
+    private static bool IsAIType(string typeName) => TryGetAIKind(typeName, out _);
+
+    private static bool TryGetAIKind(string typeName, out string kind)
+        => AITypes.TryGetValue(typeName, out kind!);
+
+    private static IntegrationBucket GetAIBucket(IntegrationBuckets buckets, string kind) => kind switch
+    {
+        "Chat" => buckets.AIChat,
+        "Embeddings" => buckets.AIEmbeddings,
+        "Images" => buckets.AIImages,
+        "Realtime" => buckets.AIRealtime,
+        "Speech to Text" => buckets.AISpeechToText,
+        "Text to Speech" => buckets.AITextToSpeech,
+        "Tools" => buckets.AITools,
+        "Hosted Files" => buckets.AIHostedFiles,
+        _ => throw new InvalidOperationException($"Unknown AI integration kind '{kind}'.")
+    };
+
+    private static readonly Dictionary<string, string> AITypes = new(StringComparer.Ordinal)
+    {
+        ["Microsoft.Extensions.AI.IChatClient"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatClientBuilder"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatClientBuilderChatClientExtensions"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatClientExtensions"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatClientStructuredOutputExtensions"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatMessage"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatOptions"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatResponse"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatResponse`1"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatResponseUpdate"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatRole"] = "Chat",
+        ["Microsoft.Extensions.AI.ChatToolMode"] = "Chat",
+
+        ["Microsoft.Extensions.AI.IEmbeddingGenerator"] = "Embeddings",
+        ["Microsoft.Extensions.AI.IEmbeddingGenerator`2"] = "Embeddings",
+        ["Microsoft.Extensions.AI.EmbeddingGeneratorBuilder`2"] = "Embeddings",
+        ["Microsoft.Extensions.AI.EmbeddingGeneratorBuilderEmbeddingGeneratorExtensions"] = "Embeddings",
+        ["Microsoft.Extensions.AI.EmbeddingGeneratorExtensions"] = "Embeddings",
+        ["Microsoft.Extensions.AI.EmbeddingGenerationOptions"] = "Embeddings",
+        ["Microsoft.Extensions.AI.Embedding"] = "Embeddings",
+        ["Microsoft.Extensions.AI.Embedding`1"] = "Embeddings",
+        ["Microsoft.Extensions.AI.GeneratedEmbeddings`1"] = "Embeddings",
+
+        ["Microsoft.Extensions.AI.IImageGenerator"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGeneratorBuilder"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGeneratorBuilderImageGeneratorExtensions"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGeneratorExtensions"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGenerationOptions"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGenerationRequest"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGenerationResponse"] = "Images",
+        ["Microsoft.Extensions.AI.ImageGenerationResponseFormat"] = "Images",
+
+        ["Microsoft.Extensions.AI.IRealtimeClient"] = "Realtime",
+        ["Microsoft.Extensions.AI.IRealtimeClientSession"] = "Realtime",
+        ["Microsoft.Extensions.AI.RealtimeClientBuilder"] = "Realtime",
+        ["Microsoft.Extensions.AI.RealtimeClientBuilderRealtimeClientExtensions"] = "Realtime",
+        ["Microsoft.Extensions.AI.RealtimeClientExtensions"] = "Realtime",
+        ["Microsoft.Extensions.AI.RealtimeClientSessionExtensions"] = "Realtime",
+        ["Microsoft.Extensions.AI.RealtimeSessionOptions"] = "Realtime",
+
+        ["Microsoft.Extensions.AI.ISpeechToTextClient"] = "Speech to Text",
+        ["Microsoft.Extensions.AI.SpeechToTextClientBuilder"] = "Speech to Text",
+        ["Microsoft.Extensions.AI.SpeechToTextClientBuilderSpeechToTextClientExtensions"] = "Speech to Text",
+        ["Microsoft.Extensions.AI.SpeechToTextClientExtensions"] = "Speech to Text",
+        ["Microsoft.Extensions.AI.SpeechToTextOptions"] = "Speech to Text",
+        ["Microsoft.Extensions.AI.SpeechToTextResponse"] = "Speech to Text",
+        ["Microsoft.Extensions.AI.SpeechToTextResponseUpdate"] = "Speech to Text",
+
+        ["Microsoft.Extensions.AI.ITextToSpeechClient"] = "Text to Speech",
+        ["Microsoft.Extensions.AI.TextToSpeechClientBuilder"] = "Text to Speech",
+        ["Microsoft.Extensions.AI.TextToSpeechClientBuilderTextToSpeechClientExtensions"] = "Text to Speech",
+        ["Microsoft.Extensions.AI.TextToSpeechClientExtensions"] = "Text to Speech",
+        ["Microsoft.Extensions.AI.TextToSpeechOptions"] = "Text to Speech",
+        ["Microsoft.Extensions.AI.TextToSpeechResponse"] = "Text to Speech",
+        ["Microsoft.Extensions.AI.TextToSpeechResponseUpdate"] = "Text to Speech",
+
+        ["Microsoft.Extensions.AI.AITool"] = "Tools",
+        ["Microsoft.Extensions.AI.AIFunction"] = "Tools",
+        ["Microsoft.Extensions.AI.AIFunctionArguments"] = "Tools",
+        ["Microsoft.Extensions.AI.AIFunctionDeclaration"] = "Tools",
+        ["Microsoft.Extensions.AI.AIFunctionFactory"] = "Tools",
+        ["Microsoft.Extensions.AI.FunctionCallContent"] = "Tools",
+        ["Microsoft.Extensions.AI.FunctionResultContent"] = "Tools",
+        ["Microsoft.Extensions.AI.ToolCallContent"] = "Tools",
+        ["Microsoft.Extensions.AI.ToolResultContent"] = "Tools",
+
+        ["Microsoft.Extensions.AI.IHostedFileClient"] = "Hosted Files",
+        ["Microsoft.Extensions.AI.HostedFileClientBuilder"] = "Hosted Files",
+        ["Microsoft.Extensions.AI.HostedFileClientBuilderHostedFileClientExtensions"] = "Hosted Files",
+        ["Microsoft.Extensions.AI.HostedFileClientExtensions"] = "Hosted Files",
+        ["Microsoft.Extensions.AI.HostedFileClientOptions"] = "Hosted Files",
+        ["Microsoft.Extensions.AI.HostedFileContent"] = "Hosted Files",
+    };
 
     private static void AddType(IntegrationBucket bucket, string typeName, string source)
     {
@@ -152,6 +251,16 @@ public static class EcosystemIntegrationScanner
             "Microsoft.Extensions.Options.IOptionsMonitor`1" => 1,
             "Microsoft.Extensions.Hosting.BackgroundService" => 1,
             "Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult" => 1,
+            "Microsoft.Extensions.AI.IChatClient" => 0,
+            "Microsoft.Extensions.AI.IEmbeddingGenerator" => 0,
+            "Microsoft.Extensions.AI.IEmbeddingGenerator`2" => 0,
+            "Microsoft.Extensions.AI.IImageGenerator" => 0,
+            "Microsoft.Extensions.AI.IRealtimeClient" => 0,
+            "Microsoft.Extensions.AI.ISpeechToTextClient" => 0,
+            "Microsoft.Extensions.AI.ITextToSpeechClient" => 0,
+            "Microsoft.Extensions.AI.IHostedFileClient" => 0,
+            "Microsoft.Extensions.AI.AITool" => 0,
+            "Microsoft.Extensions.AI.AIFunction" => 1,
             _ => 10,
         };
 
@@ -164,6 +273,14 @@ public static class EcosystemIntegrationScanner
 
     private sealed class IntegrationBuckets
     {
+        public required IntegrationBucket AIChat { get; init; }
+        public required IntegrationBucket AIEmbeddings { get; init; }
+        public required IntegrationBucket AIImages { get; init; }
+        public required IntegrationBucket AIRealtime { get; init; }
+        public required IntegrationBucket AISpeechToText { get; init; }
+        public required IntegrationBucket AITextToSpeech { get; init; }
+        public required IntegrationBucket AITools { get; init; }
+        public required IntegrationBucket AIHostedFiles { get; init; }
         public required IntegrationBucket DependencyInjection { get; init; }
         public required IntegrationBucket Logging { get; init; }
         public required IntegrationBucket Options { get; init; }
@@ -173,6 +290,14 @@ public static class EcosystemIntegrationScanner
 
         public IntegrationBucket[] All =>
         [
+            AIChat,
+            AIEmbeddings,
+            AIImages,
+            AIRealtime,
+            AISpeechToText,
+            AITextToSpeech,
+            AITools,
+            AIHostedFiles,
             DependencyInjection,
             Logging,
             Options,
@@ -183,6 +308,14 @@ public static class EcosystemIntegrationScanner
 
         public static IntegrationBuckets Create() => new()
         {
+            AIChat = new IntegrationBucket("AI", "Chat"),
+            AIEmbeddings = new IntegrationBucket("AI", "Embeddings"),
+            AIImages = new IntegrationBucket("AI", "Images"),
+            AIRealtime = new IntegrationBucket("AI", "Realtime"),
+            AISpeechToText = new IntegrationBucket("AI", "Speech to Text"),
+            AITextToSpeech = new IntegrationBucket("AI", "Text to Speech"),
+            AITools = new IntegrationBucket("AI", "Tools"),
+            AIHostedFiles = new IntegrationBucket("AI", "Hosted Files"),
             DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection"),
             Logging = new IntegrationBucket("Logging", "Logging"),
             Options = new IntegrationBucket("Options", "Options"),
@@ -194,6 +327,7 @@ public static class EcosystemIntegrationScanner
 
     private sealed class MutablePresence
     {
+        public bool HasAISupport { get; set; }
         public bool HasOpenTelemetrySupport { get; init; }
         public bool HasDependencyInjectionSupport { get; set; }
         public bool HasLoggingSupport { get; set; }
@@ -204,6 +338,7 @@ public static class EcosystemIntegrationScanner
 
         public EcosystemIntegrationPresence ToImmutable() => new()
         {
+            HasAISupport = HasAISupport,
             HasOpenTelemetrySupport = HasOpenTelemetrySupport,
             HasDependencyInjectionSupport = HasDependencyInjectionSupport,
             HasLoggingSupport = HasLoggingSupport,
