@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Linq;
 using DotnetInspector.Decompiler;
 
 namespace DotnetInspector.Decompiler.Tests;
@@ -357,6 +358,10 @@ public class CfgSampleClass
 
         static int Twice(int v) => v * 2;
     }
+
+    public static int CountPositive(int[] values) => values.Count(v => v > 0);
+
+    public static int CountAbove(int[] values, int min) => values.Count(v => v > min);
 
     public static int LoopWithContinue(int[] values)
     {

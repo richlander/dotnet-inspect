@@ -617,23 +617,43 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void ClosureCapture_SimplifiesClosureType()
+    public void ClosureCapture_InlinesLambdaBody()
     {
         string output = EmitMethod(nameof(CfgSampleClass.ClosureCapture));
 
-        Assert.Contains("/* closure */", output);
-        Assert.Contains("/* lambda: ClosureCapture */", output);
+        // The captured variable appears by name inside the inlined body.
+        Assert.Contains("x => x + offset", output);
         Assert.DoesNotContain("<>c__DisplayClass", output);
-        Assert.DoesNotContain("System.Func", output);
+        Assert.DoesNotContain("/* lambda", output);
     }
 
     [Fact]
-    public void ClosureWithLinq_SimplifiesLambda()
+    public void ClosureWithLinq_InlinesLambdaBody()
     {
         string output = EmitMethod(nameof(CfgSampleClass.ClosureWithLinq));
 
-        Assert.Contains("/* lambda: ClosureWithLinq */", output);
+        Assert.Contains("x => x > threshold", output);
         Assert.DoesNotContain("<>c__DisplayClass", output);
+    }
+
+    [Fact]
+    public void CountAbove_InlinesCapturedLambdaExactly()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.CountAbove));
+
+        Assert.Contains("values.Count(v => v > min)", output);
+        // Closure construction is subsumed by the lambda syntax.
+        Assert.DoesNotContain("/* closure */", output);
+    }
+
+    [Fact]
+    public void CountPositive_InlinesStaticLambdaBody()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.CountPositive));
+
+        // The cached-delegate frame is still visible (known follow-up), but the
+        // lambda body itself must be.
+        Assert.Contains("v => v > 0", output);
     }
 
     [Fact]

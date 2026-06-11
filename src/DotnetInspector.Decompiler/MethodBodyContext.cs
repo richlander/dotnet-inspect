@@ -67,6 +67,12 @@ public sealed class MethodBodyContext
     /// </summary>
     public GenericContext? GenericContext { get; }
 
+    /// <summary>
+    /// The PE reader the context was created from, when available. Enables
+    /// recursive decompilation (lambda targets); the caller owns its lifetime.
+    /// </summary>
+    public System.Reflection.PortableExecutable.PEReader? PE { get; init; }
+
     MethodBodyContext(
         byte[] ilBytes,
         ImmutableArray<ExceptionRegion> exceptionRegions,
@@ -170,7 +176,10 @@ public sealed class MethodBodyContext
             effectiveReturnType,
             declaringType,
             genericContext,
-            localNames);
+            localNames)
+        {
+            PE = peReader,
+        };
     }
 
     /// <summary>

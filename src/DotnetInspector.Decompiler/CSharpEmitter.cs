@@ -15,13 +15,23 @@ public static class CSharpEmitter
     /// Emit C# source for a method.
     /// </summary>
     public static string Emit(MethodBodyContext context)
+        => Emit(context, lambdaDepth: 0);
+
+    internal static string Emit(MethodBodyContext context, int lambdaDepth)
     {
         var cfg = ControlFlowGraph.Create(context);
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
         var transforms = Transforms.TransformPipeline.Run(ast);
         var structure = StructuredControlFlow.Analyze(context, cfg);
-        return Emit(ast, structure, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals);
+        var sb = new StringBuilder();
+        var emitter = new EmitterContext(ast, structure, sb, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals)
+        {
+            BodyContext = context,
+            LambdaDepth = lambdaDepth,
+        };
+        emitter.EmitMethod();
+        return sb.ToString();
     }
 
     /// <summary>
@@ -126,6 +136,13 @@ public static class CSharpEmitter
         // Try/finally regions that are compiler-lowered lock statements.
         readonly Dictionary<StructuredBlock, LockPattern> _lockPatterns = [];
 
+        // Source context for recursive decompilation (lambda bodies); null when
+        // emitting from a pre-built AST without PE access.
+        public MethodBodyContext? BodyContext { get; init; }
+
+        // Lambda nesting depth — recursion guard for lambda body inlining.
+        public int LambdaDepth { get; init; }
+
         // Runtime-async custom awaits lower through an awaiter temp:
         // awaitable.GetAwaiter(); if (!awaiter.IsCompleted) AsyncHelpers.AwaitAwaiter(awaiter); awaiter.GetResult().
         readonly Dictionary<string, ILAstExpression> _runtimeCustomAwaitSources = [];
@@ -215,6 +232,50 @@ public static class CSharpEmitter
             // Pre-detect exception-filter bool temps (declarations print before
             // the filter is rendered as a when clause).
             ScanForFilterLocals(structure.Root);
+
+            // Closure containers: when lambda bodies inline, the display-class
+            // construction and capture stores are subsumed by the lambda syntax.
+            ScanForClosureConstruction(ast);
+        }
+
+        void ScanForClosureConstruction(ILAstMethod ast)
+        {
+            var closureLocals = new HashSet<string>();
+            foreach (var local in ast.Locals)
+            {
+                if (local.TypeName is { } t
+                    && (t.Contains("DisplayClass", StringComparison.Ordinal)
+                        || t.Contains("<>c__", StringComparison.Ordinal)))
+                {
+                    closureLocals.Add(local.Name);
+                }
+            }
+            if (closureLocals.Count == 0)
+                return;
+
+            foreach (var block in ast.Blocks)
+            {
+                foreach (var node in block.Nodes)
+                {
+                    if (node is ILAstAssignment assign && closureLocals.Contains(assign.Variable.Name))
+                    {
+                        _skipNodes.Add(node);
+                    }
+                    else if (node is ILAstStatement { Expression: var expr })
+                    {
+                        bool isClosureStore =
+                            (expr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                                or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                                && closureLocals.Contains(expr.Operand ?? GetLocalName(expr.OpCode)))
+                            || (expr.OpCode == ILOpCode.Stfld
+                                && expr.Arguments.Count >= 1
+                                && GetLocalReferenceName(expr.Arguments[0]) is { } recv
+                                && closureLocals.Contains(recv));
+                        if (isClosureStore)
+                            _skipNodes.Add(node);
+                    }
+                }
+            }
         }
 
         sealed class LockPattern
@@ -5632,12 +5693,15 @@ public static class CSharpEmitter
             string typeName = ExtractTypeName(expr.Operand);
             string simplified = SimplifyTypeName(typeName);
 
-            // Delegate construction with closure lambda: new Func<T,R>(closure, <Method>b__N)
-            // Simplify to lambda annotation
+            // Delegate construction with a compiler-generated lambda target:
+            // new Func<T,R>(closureOrNull, ldftn <Method>b__N). Decompile the
+            // target inline as lambda syntax; fall back to an annotation.
             if (expr.Arguments.Count == 2
-                && expr.Arguments[1] is { Operand: string lambdaName }
+                && expr.Arguments[1] is { Operand: string lambdaName } targetExpr
                 && lambdaName.Contains(">b__", StringComparison.Ordinal))
             {
+                if (TryEmitLambdaBody(targetExpr))
+                    return;
                 string cleanLambda = SimplifyLambdaName(lambdaName);
                 _sb.Append($"/* {cleanLambda} */");
                 return;
@@ -5650,6 +5714,114 @@ public static class CSharpEmitter
                 EmitExpression(expr.Arguments[i]);
             }
             _sb.Append(')');
+        }
+
+        /// <summary>
+        /// Decompiles a lambda's compiler-generated target method and renders it
+        /// as lambda syntax: <c>x =&gt; expr</c> for single-return bodies,
+        /// <c>(x, y) =&gt; { ... }</c> otherwise. Captured variables live as
+        /// display-class fields, whose loads render as <c>this.name</c> in the
+        /// inner body; the prefix is stripped since the field names ARE the
+        /// captured variable names.
+        /// </summary>
+        bool TryEmitLambdaBody(ILAstExpression targetExpr)
+        {
+            if (BodyContext?.PE is not { } pe || _reader is null)
+                return false;
+            if (LambdaDepth >= 3)
+                return false;
+            if (targetExpr.Member is not { } target)
+                return false;
+
+            var inner = FindLambdaTargetContext(pe, target);
+            if (inner is null)
+                return false;
+
+            string body;
+            try
+            {
+                body = Emit(inner, LambdaDepth + 1);
+            }
+            catch
+            {
+                return false;
+            }
+
+            bool isClosure = target.DeclaringType.Contains("DisplayClass", StringComparison.Ordinal);
+            if (isClosure)
+                body = body.Replace("this.", "", StringComparison.Ordinal);
+
+            var statements = body
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+
+            string parameters = inner.ParameterNames is { Count: > 0 } names
+                ? names.Count == 1 ? names[0] ?? "_" : $"({string.Join(", ", names)})"
+                : "()";
+
+            if (statements.Count == 1
+                && statements[0].StartsWith("return ", StringComparison.Ordinal)
+                && statements[0].EndsWith(';'))
+            {
+                _sb.Append($"{parameters} => {statements[0][7..^1]}");
+                return true;
+            }
+
+            // Statement-bodied lambda: rendered single-line inside the expression.
+            _sb.Append($"{parameters} => {{ {string.Join(" ", statements)} }}");
+            return true;
+        }
+
+        /// <summary>
+        /// Locates the lambda target method. Compiler-generated containers
+        /// (&lt;&gt;c, display classes) resolve by bare name, scoped to nested types
+        /// of the CURRENT method's declaring type — every class has its own
+        /// &lt;&gt;c, so a global simple-name search would find the wrong one.
+        /// </summary>
+        MethodBodyContext? FindLambdaTargetContext(System.Reflection.PortableExecutable.PEReader pe, MemberRefInfo target)
+        {
+            foreach (var tdh in _reader!.TypeDefinitions)
+            {
+                var td = _reader.GetTypeDefinition(tdh);
+                string fullName = Metadata.MetadataReaderExtensions.GetFullTypeName(_reader, td);
+
+                if (fullName == target.DeclaringType)
+                {
+                    if (FindMethodIn(pe, td, target.Name) is { } direct)
+                        return direct;
+                }
+
+                if (BodyContext?.DeclaringType is { } declaring && fullName == declaring)
+                {
+                    // The lambda may live on the declaring type itself or on one
+                    // of its compiler-generated nested containers.
+                    if (_reader.GetString(td.Name) == target.DeclaringType
+                        && FindMethodIn(pe, td, target.Name) is { } self)
+                    {
+                        return self;
+                    }
+                    foreach (var nested in td.GetNestedTypes())
+                    {
+                        var ntd = _reader.GetTypeDefinition(nested);
+                        if (_reader.GetString(ntd.Name) != target.DeclaringType)
+                            continue;
+                        if (FindMethodIn(pe, ntd, target.Name) is { } found)
+                            return found;
+                    }
+                }
+            }
+            return null;
+        }
+
+        MethodBodyContext? FindMethodIn(System.Reflection.PortableExecutable.PEReader pe, TypeDefinition td, string methodName)
+        {
+            foreach (var mh in td.GetMethods())
+            {
+                var method = _reader!.GetMethodDefinition(mh);
+                if (_reader.GetString(method.Name) == methodName)
+                    return MethodBodyContext.Create(pe, _reader, method);
+            }
+            return null;
         }
 
         bool TryEmitSpanCollectionExpression(ILAstExpression expr, string? expectedType)
