@@ -85,18 +85,19 @@ internal static class ConditionalDetector
             // Chain heads: then/else come from the LAST chain block (the head's
             // own fallthrough just enters the chain), and the readability swaps
             // don't apply — the combined condition's polarity is fixed.
-            if (chains.TryGetValue(i, out var chainTerms) && chainTerms.Count > 0)
+            if (chains.TryGetValue(i, out var chainInfo) && chainInfo.Terms.Count > 0)
             {
-                var lastEdges = ConditionEdges(cfg, chainTerms[^1].BlockIndex)!.Value;
-                int chainThen = lastEdges.TrueIdx;
-                int chainElse = lastEdges.FalseIdx;
-                int chainFollow = FindFollowBlock(cfg, domTree, chainTerms[^1].BlockIndex, chainThen, chainElse);
+                var lastEdges = ConditionEdges(cfg, chainInfo.Terms[^1].BlockIndex)!.Value;
+                int chainThen = chainInfo.NegateLast ? lastEdges.FalseIdx : lastEdges.TrueIdx;
+                int chainElse = chainInfo.NegateLast ? lastEdges.TrueIdx : lastEdges.FalseIdx;
+                int chainFollow = FindFollowBlock(cfg, domTree, chainInfo.Terms[^1].BlockIndex, chainThen, chainElse);
                 if (chainFollow == -1 && IsDirectPredecessor(cfg, chainThen, chainElse))
                 {
                     chainFollow = chainElse;
                     chainElse = -1;
                 }
-                patterns.Add(new ConditionalPattern(i, chainThen, chainElse, chainFollow, negateCondition: false, chainTerms));
+                // For chains, NegateCondition means: negate the LAST leaf only.
+                patterns.Add(new ConditionalPattern(i, chainThen, chainElse, chainFollow, chainInfo.NegateLast, chainInfo.Terms));
                 continue;
             }
 
@@ -211,11 +212,11 @@ internal static class ConditionalDetector
     /// goes to the overall then continues on false (an || link). Chains are
     /// only kept when every link classifies cleanly.
     /// </summary>
-    static Dictionary<int, List<ConditionChainTerm>> DetectShortCircuitChains(
+    static Dictionary<int, (List<ConditionChainTerm> Terms, bool NegateLast)> DetectShortCircuitChains(
         ControlFlowGraph cfg, HashSet<int> loopHeaders, int[]? entryStackHeights, out HashSet<int> absorbed)
     {
         absorbed = [];
-        var result = new Dictionary<int, List<ConditionChainTerm>>();
+        var result = new Dictionary<int, (List<ConditionChainTerm> Terms, bool NegateLast)>();
 
         // Entry stack height of a block; > 0 means it consumes stack-carried
         // values (a value merge, not a statement-level condition).
@@ -265,44 +266,49 @@ internal static class ConditionalDetector
             if (chain.Count < 2)
                 continue;
 
-            // Resolve overall then/else from the last block, then validate links.
+            // Resolve overall then/else from the last block — trying both
+            // polarities, since the final test may be inverted (a || b lowers
+            // to jump-if-a-true / jump-if-NOT-b-true) — then validate links.
             // Trim from the end until validation succeeds or the chain is gone.
-            while (chain.Count >= 2)
+            bool found = false;
+            while (!found && chain.Count >= 2)
             {
                 var last = ConditionEdges(cfg, chain[^1])!.Value;
-                int thenIdx = last.TrueIdx;
-                int elseIdx = last.FalseIdx;
-
-                var terms = new List<ConditionChainTerm>();
-                bool valid = EntryHeight(thenIdx) == 0 && EntryHeight(elseIdx) == 0;
-                int join = FindFollowBlock(cfg, null!, chain[^1], thenIdx, elseIdx);
-                if (join >= 0 && EntryHeight(join) > 0)
-                    valid = false;
-                for (int c = 0; c < chain.Count - 1; c++)
+                foreach (bool negateLast in (ReadOnlySpan<bool>)[false, true])
                 {
-                    var e = ConditionEdges(cfg, chain[c])!.Value;
-                    int next = chain[c + 1];
-                    if (e.TrueIdx == next && e.FalseIdx == elseIdx)
-                        terms.Add(new ConditionChainTerm(next, CombineWithOr: false)); // cond && rest
-                    else if (e.FalseIdx == next && e.TrueIdx == thenIdx)
-                        terms.Add(new ConditionChainTerm(next, CombineWithOr: true));  // cond || rest
-                    else
-                    {
+                    int thenIdx = negateLast ? last.FalseIdx : last.TrueIdx;
+                    int elseIdx = negateLast ? last.TrueIdx : last.FalseIdx;
+
+                    var terms = new List<ConditionChainTerm>();
+                    bool valid = EntryHeight(thenIdx) == 0 && EntryHeight(elseIdx) == 0;
+                    int join = FindFollowBlock(cfg, null!, chain[^1], thenIdx, elseIdx);
+                    if (join >= 0 && EntryHeight(join) > 0)
                         valid = false;
+                    for (int c = 0; valid && c < chain.Count - 1; c++)
+                    {
+                        var e = ConditionEdges(cfg, chain[c])!.Value;
+                        int next = chain[c + 1];
+                        if (e.TrueIdx == next && e.FalseIdx == elseIdx)
+                            terms.Add(new ConditionChainTerm(next, CombineWithOr: false)); // cond && rest
+                        else if (e.FalseIdx == next && e.TrueIdx == thenIdx)
+                            terms.Add(new ConditionChainTerm(next, CombineWithOr: true));  // cond || rest
+                        else
+                            valid = false;
+                    }
+
+                    if (valid)
+                    {
+                        result[chain[0]] = (terms, negateLast);
+                        foreach (var t in terms)
+                            absorbed.Add(t.BlockIndex);
+                        chainMembers.UnionWith(chain);
+                        found = true;
                         break;
                     }
                 }
 
-                if (valid)
-                {
-                    result[chain[0]] = terms;
-                    foreach (var t in terms)
-                        absorbed.Add(t.BlockIndex);
-                    chainMembers.UnionWith(chain);
-                    break;
-                }
-
-                chain.RemoveAt(chain.Count - 1);
+                if (!found)
+                    chain.RemoveAt(chain.Count - 1);
             }
         }
 

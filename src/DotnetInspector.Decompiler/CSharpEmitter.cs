@@ -1616,7 +1616,8 @@ public static class CSharpEmitter
             }
 
             // Apply negation if the conditional detector swapped then/else
-            if (block.NegateCondition)
+            // (chains consume the flag as last-leaf negation in composition).
+            if (!isChain && block.NegateCondition)
                 condition = NegateConditionString(condition);
 
             if (TryEmitRuntimeCustomAwaitGuard(block))
@@ -1680,7 +1681,13 @@ public static class CSharpEmitter
             {
                 string leaf = RenderTrueCondition(blocks[i]);
                 if (i == blocks.Count - 1)
+                {
+                    // For chains, NegateCondition flags an inverted final test
+                    // (a || b lowers to jump-if-a / jump-if-NOT-b).
+                    if (block.NegateCondition)
+                        leaf = NegateConditionString(leaf);
                     return (leaf, false);
+                }
 
                 // ConditionChain[i] holds the operator joining blocks[i] to the rest.
                 var (rest, restTopOr) = Compose(i + 1);
@@ -1727,10 +1734,12 @@ public static class CSharpEmitter
                 break;
             }
 
-            string rendered = BranchConditionToString(branchExpr);
-            return branchExpr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
-                ? NegateConditionString(rendered)
-                : rendered;
+            // BranchConditionToString already yields the fallthrough/true-path
+            // form for one-argument branches (ExtractCondition normalizes
+            // brfalse(x) to x / x != null / x != 0), and comparison branches
+            // render their jump condition, whose target IS the true edge — so
+            // no polarity adjustment is needed here.
+            return BranchConditionToString(branchExpr);
         }
 
         static bool ContainsLocalLoad(ILAstExpression expr)
