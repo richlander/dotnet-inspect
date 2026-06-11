@@ -120,6 +120,25 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("(ulong)", output);
     }
 
+    [Fact]
+    public void AbsShortHelper_EveryGotoHasALabel()
+    {
+        // CoreLib Math.Abs shape: structuring suppresses the follow-block label
+        // assuming all branches to it were absorbed, but the inner guard still
+        // renders as a goto. Any rendered goto must have its target label.
+        string output = EmitMethod(nameof(CfgSampleClass.AbsShortHelper));
+
+        foreach (string line in output.Split('\n'))
+        {
+            int at = line.IndexOf("goto IL_", StringComparison.Ordinal);
+            if (at < 0)
+                continue;
+            string label = line.Substring(at + 5, 7);
+            Assert.True(output.Contains(label + ":", StringComparison.Ordinal),
+                $"goto {label} has no target label in:\n{output}");
+        }
+    }
+
     // --- Exception filters (catch...when) ---
 
     [Fact]

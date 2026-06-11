@@ -368,6 +368,21 @@ public class CfgSampleClass
         static int Twice(int v) => v * 2;
     }
 
+    static void ThrowOverflow() => throw new OverflowException();
+
+    // CoreLib Math.Abs(short) shape: the throw is an out-of-line call reached
+    // by fallthrough, with both guards jumping PAST it to the return.
+    public static short AbsShortHelper(short value)
+    {
+        if (value < 0)
+        {
+            value = (short)-value;
+            if (value < 0)
+                ThrowOverflow();
+        }
+        return value;
+    }
+
     public static short AbsShort(short value)
     {
         if (value < 0)
