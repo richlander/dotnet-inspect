@@ -1599,11 +1599,15 @@ public static class CSharpEmitter
             if (_consumedBlocks.Contains(blockIndex))
                 return;
 
-            // Suppress return-only blocks whose gotos were all inlined
+            // Suppress return-only blocks whose gotos were all inlined — but
+            // only when nothing FALLS into the block: a path that reaches it
+            // by fallthrough (e.g. the last of several scan loops sharing one
+            // return) still needs the return rendered.
             if (astBlock.Nodes.Count == 1
                 && astBlock.Nodes[0] is ILAstStatement { Expression.OpCode: ILOpCode.Ret }
                 && _blockStartOffset.TryGetValue(blockIndex, out int retOffset)
-                && _inlinedReturnLabels.Contains($"IL_{retOffset:X4}"))
+                && _inlinedReturnLabels.Contains($"IL_{retOffset:X4}")
+                && !HasFallthroughPredecessor(blockIndex))
             {
                 _consumedBlocks.Add(blockIndex);
                 return;
@@ -1670,6 +1674,22 @@ public static class CSharpEmitter
             _sb.Append($"{assign.Variable.Name} = ");
             EmitExpression(assign.Value);
             _sb.AppendLine(";");
+        }
+
+        /// <summary>
+        /// True when the preceding block in layout order can fall into this
+        /// one (its last statement is not an unconditional transfer).
+        /// </summary>
+        bool HasFallthroughPredecessor(int blockIndex)
+        {
+            if (blockIndex <= 0 || !_blockMap.TryGetValue(blockIndex - 1, out var prev))
+                return false;
+            if (prev.Nodes.LastOrDefault() is not ILAstStatement { Expression.OpCode: var op })
+                return true;
+            return op is not (ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow
+                or ILOpCode.Br or ILOpCode.Br_s
+                or ILOpCode.Leave or ILOpCode.Leave_s
+                or ILOpCode.Endfinally or ILOpCode.Switch);
         }
 
         void EmitIfThenElse(StructuredBlock block, int indent)

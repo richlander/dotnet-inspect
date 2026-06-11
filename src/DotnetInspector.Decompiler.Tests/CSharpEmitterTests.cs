@@ -155,9 +155,9 @@ public class CSharpEmitterTests
         // appear reachable from the non-negative path.
         string output = EmitCoreLibMethod("System.Math", "Abs", overloadIndex: 0);
 
-        Assert.Contains("    Math.ThrowNegateTwosCompOverflow();", output);
-        // The inner guard's branch-to-return renders as a conditional return.
-        Assert.Contains("if (value >= 0) return value;", output);
+        // Source-exact nesting: the throw re-nests under the inner guard.
+        Assert.Contains("if (value < 0)", output);
+        Assert.Contains("        Math.ThrowNegateTwosCompOverflow();", output);
         Assert.DoesNotContain("goto", output);
     }
 
@@ -169,8 +169,9 @@ public class CSharpEmitterTests
         // straight to the return) would appear to flow into it.
         string output = EmitCoreLibMethod("System.Collections.Generic.List`1", "Clear");
 
-        Assert.Contains("    Array.Clear", output);
-        Assert.Contains("if (V_0 <= 0) return;", output);
+        // Source-exact nesting: Array.Clear re-nests under if (V_0 > 0).
+        Assert.Contains("if (V_0 > 0)", output);
+        Assert.Contains("        Array.Clear", output);
         Assert.DoesNotContain("goto", output);
     }
 
@@ -205,6 +206,20 @@ public class CSharpEmitterTests
         Assert.Contains("typeof(TValue).IsValueType", output);
         Assert.DoesNotContain("T1", output);
         Assert.DoesNotContain("ref V_0", output);
+    }
+
+    [Fact]
+    public void CoreLib_DictionaryContainsValue_StructuresAllThreePaths()
+    {
+        // Three parallel scan loops (null / value-type / cached-comparer),
+        // each inside its own arm of the if/else chain. Previously the loops
+        // unraveled at top level: one as if+goto, one empty, one unreachable.
+        string output = EmitCoreLibMethod("System.Collections.Generic.Dictionary`2", "ContainsValue");
+
+        Assert.Equal(3, output.Split("for (").Length - 1);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("for (;", output);
+        Assert.Contains("else", output);
     }
 
     // --- Generic ldelem (type-parameter element access) ---
