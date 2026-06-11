@@ -167,6 +167,39 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("goto", output);
     }
 
+    [Fact]
+    public void IsValueTypeOf_CollapsesGetTypeFromHandle()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.IsValueTypeOf));
+
+        Assert.Contains("typeof(T).IsValueType", output);
+        Assert.DoesNotContain("GetTypeFromHandle", output);
+    }
+
+    [Fact]
+    public void FirstA_RendersStructElementFieldWithoutRef()
+    {
+        // ldelema exists only because the element is a struct accessed in
+        // place; the C# spelling is pairs[0].A.
+        string output = EmitMethod(nameof(CfgSampleClass.FirstA));
+
+        Assert.Contains("pairs[0].A", output);
+        Assert.DoesNotContain("ref pairs", output);
+    }
+
+    [Fact]
+    public void CoreLib_DictionaryContainsValue_NamesCallerGenericParameters()
+    {
+        // The EqualityComparer<!1> TypeSpec's !1 is Dictionary's TValue;
+        // decoded without the caller's generic context it falls back to T1.
+        string output = EmitCoreLibMethod("System.Collections.Generic.Dictionary`2", "ContainsValue");
+
+        Assert.Contains("EqualityComparer<TValue>.Default", output);
+        Assert.Contains("typeof(TValue).IsValueType", output);
+        Assert.DoesNotContain("T1", output);
+        Assert.DoesNotContain("ref V_0", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]

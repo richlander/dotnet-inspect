@@ -829,7 +829,7 @@ public static class ILAstBuilder
                 case HandleKind.MemberReference:
                 {
                     var memberRef = reader.GetMemberReference((MemberReferenceHandle)handle);
-                    var genericCtx = StackSimulator.BuildGenericContextForMemberRef(reader, memberRef);
+                    var genericCtx = StackSimulator.BuildGenericContextForMemberRef(reader, memberRef, callerGenericContext);
                     // Merge caller's method params for !!N resolution in TypeSpec parents
                     if (callerGenericContext?.MethodParameters.Count > 0 && genericCtx is not null
                         && genericCtx.MethodParameters.Count == 0)
@@ -846,7 +846,10 @@ public static class ILAstBuilder
                     parameterModifiers = GetDefaultParameterModifiers(parameterTypes);
                     isStatic = !sig.Header.IsInstance;
                     returnType = sig.ReturnType;
-                    methodName = ResolveMethodRefName(reader, memberRef, genericCtx);
+                    // The NAME's parent TypeSpec decodes in the caller's context
+                    // (its !N are the caller's type params); the SIGNATURE above
+                    // decodes in the instantiation context built from it.
+                    methodName = ResolveMethodRefName(reader, memberRef, callerGenericContext);
                     break;
                 }
 

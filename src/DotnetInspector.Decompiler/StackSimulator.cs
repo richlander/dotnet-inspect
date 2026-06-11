@@ -850,15 +850,19 @@ internal static class StackSimulator
     /// <summary>
     /// Build a GenericContext from a MemberReference's parent type (if it's a generic instantiation).
     /// </summary>
-    internal static Metadata.GenericContext? BuildGenericContextForMemberRef(MetadataReader reader, MemberReference memberRef)
+    internal static Metadata.GenericContext? BuildGenericContextForMemberRef(MetadataReader reader, MemberReference memberRef,
+        Metadata.GenericContext? callerContext = null)
     {
         try
         {
             if (memberRef.Parent.Kind == HandleKind.TypeSpecification)
             {
                 var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
-                // Decode the parent type to get type arguments embedded in the name
-                var parentType = typeSpec.DecodeSignature(Metadata.SignatureDecoder.Instance, genericContext: null);
+                // Decode the parent type to get type arguments embedded in the name.
+                // !N inside the TypeSpec refer to the CALLER's enclosing generic
+                // parameters — without that context they decode to fallback names
+                // (EqualityComparer<T1> instead of EqualityComparer<TValue>).
+                var parentType = typeSpec.DecodeSignature(Metadata.SignatureDecoder.Instance, callerContext);
                 // Extract type arguments from the generic instantiation name like "Dict<string, Logger>"
                 var typeArgs = ExtractGenericArguments(parentType);
                 if (typeArgs.Count > 0)
