@@ -1147,6 +1147,12 @@ public class CommandExecutionTests
         Assert.Contains("private T[] _array;", output);
         Assert.Contains("public void Push(T item)", output);
         Assert.Contains("public bool TryPop(out T result)", output);
+        // Using hoisting: qualified names shorten against the metadata
+        // namespace tables; the directives appear at the top.
+        Assert.Contains("using System.Runtime.CompilerServices;", output);
+        Assert.Contains(": IEnumerable<T>, IEnumerable, ICollection, IReadOnlyCollection<T>", output);
+        Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
+        Assert.DoesNotContain("System.Collections.Generic.IEnumerable<T>", output);
     }
 
     [Fact]
@@ -1159,7 +1165,8 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         // Bare C#: no markdown heading, no section title, no code fence, no tips.
-        Assert.StartsWith("namespace System.Collections.Generic;", output);
+        Assert.StartsWith("using System.Collections;", output);
+        Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.DoesNotContain("# ", output);
         Assert.DoesNotContain("```", output);
         Assert.DoesNotContain("Tips:", output);
