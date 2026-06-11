@@ -58,6 +58,12 @@ public class StructuredBlock
     /// <summary>Whether the condition should be negated when emitting.</summary>
     public bool NegateCondition { get; init; }
 
+    /// <summary>
+    /// Short-circuit continuation condition blocks absorbed into this
+    /// conditional's combined condition (see <see cref="ConditionChainTerm"/>).
+    /// </summary>
+    public IReadOnlyList<ConditionChainTerm> ConditionChain { get; init; } = [];
+
     /// <summary>Loop header block index (for Loop).</summary>
     public int LoopHeaderIndex { get; init; } = -1;
 
@@ -207,7 +213,8 @@ public sealed class StructuredControlFlow
     {
         var domTree = DominatorTree.Build(cfg);
         var loops = LoopDetector.DetectLoops(cfg, domTree);
-        var conditionals = ConditionalDetector.DetectConditionals(cfg, domTree, loops);
+        var entryHeights = StackHeightCalculator.ComputeOffsetEntryHeights(context);
+        var conditionals = ConditionalDetector.DetectConditionals(cfg, domTree, loops, entryHeights);
         var exRegions = MapExceptionRegions(context, cfg);
 
         var root = BuildStructuredTree(cfg, domTree, loops, conditionals, exRegions);
@@ -515,13 +522,16 @@ public sealed class StructuredControlFlow
                 }
 
                 processed.Add(i);
+                foreach (var term in cond.ChainTerms)
+                    processed.Add(term.BlockIndex);
                 children.Add(new StructuredBlock
                 {
                     Kind = StructuredBlockKind.IfThenElse,
                     ConditionBlockIndex = i,
                     ThenBlock = thenBlock,
                     ElseBlock = elseBlock,
-                    NegateCondition = cond.NegateCondition
+                    NegateCondition = cond.NegateCondition,
+                    ConditionChain = cond.ChainTerms
                 });
                 continue;
             }

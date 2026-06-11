@@ -22,14 +22,31 @@ internal static class StackHeightCalculator
     /// Computes the maximum evaluation stack depth for the given method body.
     /// </summary>
     public static int ComputeMaxStack(MethodBodyContext context)
+        => Compute(context, heightsOut: null);
+
+    /// <summary>
+    /// Per-IL-offset entry stack heights (<see cref="StackHeightNotSet"/> for
+    /// offsets the linear walk never assigned). Lets conditional detection tell
+    /// statement-level joins (height 0) from stack value merges (height &gt; 0).
+    /// </summary>
+    public static int[] ComputeOffsetEntryHeights(MethodBodyContext context)
+    {
+        var heights = new int[context.ILBytes.Length];
+        Compute(context, heights);
+        return heights;
+    }
+
+    static int Compute(MethodBodyContext context, int[]? heightsOut)
     {
         var ilReader = new ILReaderLite(context.ILBytes);
         int stackHeight = 0;
         int maxStack = 0;
 
-        Span<int> stackHeights = ilReader.Size <= StackAllocThreshold
-            ? stackalloc int[StackAllocThreshold].Slice(0, ilReader.Size)
-            : new int[ilReader.Size];
+        Span<int> stackHeights = heightsOut is not null
+            ? heightsOut.AsSpan(0, ilReader.Size)
+            : ilReader.Size <= StackAllocThreshold
+                ? stackalloc int[StackAllocThreshold].Slice(0, ilReader.Size)
+                : new int[ilReader.Size];
 
         stackHeights.Fill(StackHeightNotSet);
 
