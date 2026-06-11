@@ -4231,13 +4231,7 @@ public static class CSharpEmitter
                 switch (node)
                 {
                     case ILAstAssignment assign:
-                        if (!TryEmitCompoundAssignment(assign.Variable.Name, assign.Value, indent))
-                        {
-                            WriteIndent(indent);
-                            _sb.Append($"{assign.Variable.Name} = ");
-                            EmitExpression(assign.Value);
-                            _sb.AppendLine(";");
-                        }
+                        EmitAssignmentNode(assign, indent);
                         break;
 
                     case ILAstStatement stmt:
@@ -7612,6 +7606,20 @@ public static class CSharpEmitter
             if (expr.ResultType.Kind is not (StackValueKind.Int32 or StackValueKind.NativeInt))
                 return false;
 
+            // The preserved static type settles it both ways: a bool is never
+            // numeric, and an int-typed call result always is (the opcode
+            // heuristics below can't know a method's return type).
+            switch (expr.ResultType.TypeName)
+            {
+                case "bool" or "System.Boolean" or "Boolean":
+                    return false;
+                case "int" or "System.Int32" or "uint" or "System.UInt32"
+                    or "short" or "System.Int16" or "ushort" or "System.UInt16"
+                    or "sbyte" or "System.SByte" or "byte" or "System.Byte"
+                    or "char" or "System.Char":
+                    return true;
+            }
+
             // Comparison instructions produce boolean results
             if (expr.OpCode is ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Clt
                 or ILOpCode.Cgt_un or ILOpCode.Clt_un)
@@ -7716,6 +7724,16 @@ public static class CSharpEmitter
                 return;
             }
 
+            // cgt.un against 0 is csc's != 0 idiom (identical for unsigned
+            // operands too: unsigned > 0 ⇔ != 0).
+            if (op == ">" && IsZeroLiteral(right)
+                && ComparisonKind(left, right) is StackValueKind.Int32 or StackValueKind.Int64 or StackValueKind.NativeInt)
+            {
+                EmitExpression(left);
+                _sb.Append(" != 0");
+                return;
+            }
+
             switch (ComparisonKind(left, right))
             {
                 case StackValueKind.Float:
@@ -7760,6 +7778,15 @@ public static class CSharpEmitter
                     return;
                 EmitExpression(left);
                 _sb.Append(" == null");
+                return;
+            }
+
+            // !(x != 0) → x == 0
+            if (orderedOp == "<=" && IsZeroLiteral(right)
+                && ComparisonKind(left, right) is StackValueKind.Int32 or StackValueKind.Int64 or StackValueKind.NativeInt)
+            {
+                EmitExpression(left);
+                _sb.Append(" == 0");
                 return;
             }
 

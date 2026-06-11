@@ -422,9 +422,6 @@ public sealed class StructuredControlFlow
             {
                 if (processed.Contains(idx))
                     continue;
-                // Exception-region blocks stay with the top-level walk.
-                if (inExceptionRegion.ContainsKey(idx) || exRegionsByBlock.ContainsKey(idx))
-                    continue;
                 DispatchStructured(idx, armChildren);
             }
 
@@ -442,6 +439,11 @@ public sealed class StructuredControlFlow
 
         void CollectDominated(int node, List<int> region)
         {
+            // Exception regions belong to the top-level walk — prune the WHOLE
+            // subtree, not just the region's blocks: code dominated through a
+            // try (its leave target) must render after it, not inside the arm.
+            if (inExceptionRegion.ContainsKey(node) || exRegionsByBlock.ContainsKey(node))
+                return;
             region.Add(node);
             foreach (int child in domTree.GetDominatorTreeChildren(node))
                 CollectDominated(child, region);

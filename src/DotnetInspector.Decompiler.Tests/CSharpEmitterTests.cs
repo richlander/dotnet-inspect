@@ -300,6 +300,46 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("[1]", output);
     }
 
+    // --- Type-scale review findings (whole-type Stack<T> listing) ---
+
+    [Fact]
+    public void LowerBoundCheck_IntCallResultGetsExplicitComparison()
+    {
+        // An int-returning call in condition position must compare against 0
+        // — 'if (array.GetLowerBound(0))' is not C#. The preserved return
+        // type settles bool context where opcode heuristics cannot.
+        string output = EmitMethod(nameof(CfgSampleClass.LowerBoundCheck));
+
+        Assert.Contains("array.GetLowerBound(0) != 0", output);
+        Assert.DoesNotContain("(uint)array", output);
+    }
+
+    [Fact]
+    public void ReverseCopy_SpilledSlotsAreDeclared()
+    {
+        // dst[--j] = src[i++] spills the pre-decrement/post-increment values;
+        // inside a loop body the spill stores must still declare their slots.
+        string output = EmitMethod(nameof(CfgSampleClass.ReverseCopy));
+
+        Assert.DoesNotContain("\n    S_", output.Replace("var S_", "").Replace("int S_", ""));
+        Assert.Contains("S_1", output);
+    }
+
+    [Fact]
+    public void ChecksThenTry_TryRendersAfterGuardsInOrder()
+    {
+        // The shared return block is the leave target — dominated THROUGH the
+        // try region. It must not be absorbed into a guard's arm (which
+        // rendered 'return;' before the try, reading as unreachable code).
+        string output = EmitMethod(nameof(CfgSampleClass.ChecksThenTry));
+
+        int tryIdx = output.IndexOf("try", StringComparison.Ordinal);
+        int firstReturn = output.IndexOf("return", StringComparison.Ordinal);
+        Assert.True(tryIdx >= 0, $"expected try block in:\n{output}");
+        Assert.True(firstReturn < 0 || firstReturn > tryIdx,
+            $"return must not precede the try block:\n{output}");
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]
