@@ -7,7 +7,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Base options shared by type and member commands.
 /// </summary>
-public record ApiOptions
+public partial record ApiOptions
 {
     /// <summary>
     /// Type name to inspect (positional argument). Null for full API listing.
@@ -103,6 +103,18 @@ public record ApiOptions
 /// <summary>
 /// Options specific to the type command.
 /// </summary>
+public partial record ApiOptions
+{
+    /// <summary>On-disk path of the resolved assembly, when a command has one
+    /// in hand — enables decompiler-backed sections (member code sections,
+    /// whole-type Decompiled Source).</summary>
+    public string? DllPath { get; init; }
+
+    /// <summary>On-disk path to an acquired portable PDB, used by the decompiler
+    /// to resolve real local-variable names instead of synthesized <c>V_n</c> slots.</summary>
+    public string? PdbPath { get; init; }
+}
+
 public record TypeOptions : ApiOptions
 {
     public string? TypeFilter { get; init; }
@@ -136,12 +148,7 @@ public record MemberOptions : ApiOptions
     public string[]? ParamTypes { get; init; }
     public string? FirstParamType { get; init; }
     public bool ShowSelect { get; init; }
-    public string? DllPath { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
-
-    /// <summary>On-disk path to an acquired portable PDB, used by the decompiler (--index code
-    /// sections) to resolve real local-variable names instead of synthesized <c>V_n</c> slots.</summary>
-    public string? PdbPath { get; init; }
 }
 
 /// <summary>

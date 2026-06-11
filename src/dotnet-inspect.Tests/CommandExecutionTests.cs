@@ -1135,6 +1135,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_DecompiledSource_RendersWholeTypeListing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
+            "-S", "Decompiled Source");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("namespace System.Collections.Generic;", output);
+        Assert.Contains("public class Stack<T>", output);
+        Assert.Contains("private T[] _array;", output);
+        Assert.Contains("public void Push(T item)", output);
+        Assert.Contains("public bool TryPop(out T result)", output);
+    }
+
+    [Fact]
     public async Task Member_NonMethodRows_RenderFullDeclarations()
     {
         var (exit, output, error) = await RunAppAsync(
