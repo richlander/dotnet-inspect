@@ -90,7 +90,13 @@ public static class ILAstBuilder
             }
             else
             {
-                // If there are unconsumed stack values, flush them as assignments
+                // A statement that runs while values sit on the simulated stack
+                // executes BEFORE those values render (they evaluate at their
+                // consumption site). Any stacked value the statement could
+                // invalidate must be spilled to a slot first, or the rendered
+                // expression reads post-mutation state (Release csc keeps
+                // captured field reads on the stack across the mutation).
+                SpillVulnerableStackValues(node, stack, block, offset);
                 block.Nodes.Add(new ILAstStatement { Expression = node, Offset = offset });
             }
         }
@@ -127,6 +133,160 @@ public static class ILAstBuilder
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Spills stack entries that <paramref name="stmt"/> could invalidate:
+    /// reads of a field the statement writes, reads of a local/argument the
+    /// statement stores, element/indirect reads when it writes through one,
+    /// and any mutable-state read when it calls (a callee can mutate
+    /// anything). Spilled entries become slot loads; dup-shared occurrences
+    /// are replaced together so the tree is never evaluated twice.
+    /// </summary>
+    static void SpillVulnerableStackValues(
+        ILAstExpression stmt, Stack<ILAstExpression> stack, ILAstBlock block, int offset)
+    {
+        if (stack.Count == 0)
+            return;
+
+        string? writtenField = stmt.OpCode is ILOpCode.Stfld or ILOpCode.Stsfld ? stmt.Operand : null;
+        string? writtenLocal = stmt.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+            or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+            ? stmt.Operand ?? StoredSlotName(stmt.OpCode)
+            : stmt.OpCode is ILOpCode.Starg or ILOpCode.Starg_s ? stmt.Operand : null;
+        bool writesElementOrIndirect = stmt.OpCode is ILOpCode.Stelem or ILOpCode.Stelem_i
+            or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8
+            or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8 or ILOpCode.Stelem_ref
+            or ILOpCode.Stind_i or ILOpCode.Stind_i1 or ILOpCode.Stind_i2 or ILOpCode.Stind_i4
+            or ILOpCode.Stind_i8 or ILOpCode.Stind_r4 or ILOpCode.Stind_r8 or ILOpCode.Stind_ref
+            or ILOpCode.Stobj or ILOpCode.Initobj or ILOpCode.Cpobj or ILOpCode.Cpblk or ILOpCode.Initblk;
+        bool stmtCalls = TreeContainsCall(stmt);
+
+        if (writtenField is null && writtenLocal is null && !writesElementOrIndirect && !stmtCalls)
+            return;
+
+        var entries = stack.ToArray(); // top of stack first
+        bool spilled = false;
+        for (int i = 0; i < entries.Length; i++)
+        {
+            var value = entries[i];
+            if (value.OpCode == ILOpCode.Nop)
+                continue; // already a slot or block-entry load
+
+            bool vulnerable =
+                (writtenField is not null && TreeReadsField(value, writtenField))
+                || (writtenLocal is not null && TreeReadsLocalOrArg(value, writtenLocal))
+                || (writesElementOrIndirect && TreeReadsElementOrIndirect(value))
+                || (stmtCalls && TreeReadsMutableState(value));
+            if (!vulnerable)
+                continue;
+
+            int position = entries.Length - 1 - i; // stack slot index from the bottom
+            var variable = new ILVariable(ILVariableKind.StackSlot, value.ResultType, index: position);
+            block.Nodes.Add(new ILAstAssignment { Variable = variable, Value = value, Offset = offset });
+            var slotLoad = new ILAstExpression
+            {
+                OpCode = ILOpCode.Nop,
+                Operand = variable.Name,
+                ResultType = value.ResultType,
+                Offset = offset,
+            };
+            for (int j = 0; j < entries.Length; j++)
+            {
+                if (ReferenceEquals(entries[j], value))
+                    entries[j] = slotLoad;
+            }
+            spilled = true;
+        }
+
+        if (!spilled)
+            return;
+        stack.Clear();
+        for (int j = entries.Length - 1; j >= 0; j--)
+            stack.Push(entries[j]);
+    }
+
+    static string? StoredSlotName(ILOpCode op) => op switch
+    {
+        ILOpCode.Stloc_0 => "V_0",
+        ILOpCode.Stloc_1 => "V_1",
+        ILOpCode.Stloc_2 => "V_2",
+        ILOpCode.Stloc_3 => "V_3",
+        _ => null,
+    };
+
+    static bool TreeContainsCall(ILAstExpression expr)
+    {
+        if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Calli or ILOpCode.Newobj)
+            return true;
+        foreach (var arg in expr.Arguments)
+            if (TreeContainsCall(arg))
+                return true;
+        return false;
+    }
+
+    static bool TreeReadsField(ILAstExpression expr, string field)
+    {
+        if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld or ILOpCode.Ldflda or ILOpCode.Ldsflda
+            && expr.Operand == field)
+            return true;
+        foreach (var arg in expr.Arguments)
+            if (TreeReadsField(arg, field))
+                return true;
+        return false;
+    }
+
+    static bool TreeReadsLocalOrArg(ILAstExpression expr, string name)
+    {
+        if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+            or ILOpCode.Ldloca or ILOpCode.Ldloca_s
+            or ILOpCode.Ldarg or ILOpCode.Ldarg_s
+            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
+            or ILOpCode.Ldarga or ILOpCode.Ldarga_s)
+        {
+            string? loaded = expr.Operand ?? expr.OpCode switch
+            {
+                ILOpCode.Ldloc_0 => "V_0",
+                ILOpCode.Ldloc_1 => "V_1",
+                ILOpCode.Ldloc_2 => "V_2",
+                ILOpCode.Ldloc_3 => "V_3",
+                ILOpCode.Ldarg_0 => "P_0",
+                ILOpCode.Ldarg_1 => "P_1",
+                ILOpCode.Ldarg_2 => "P_2",
+                ILOpCode.Ldarg_3 => "P_3",
+                _ => null,
+            };
+            if (loaded == name)
+                return true;
+        }
+        foreach (var arg in expr.Arguments)
+            if (TreeReadsLocalOrArg(arg, name))
+                return true;
+        return false;
+    }
+
+    static bool TreeReadsElementOrIndirect(ILAstExpression expr)
+    {
+        if (expr.OpCode is ILOpCode.Ldelem or ILOpCode.Ldelema
+            or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_i4
+            or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8 or ILOpCode.Ldelem_ref
+            or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4
+            or ILOpCode.Ldind_i or ILOpCode.Ldind_i1 or ILOpCode.Ldind_i2 or ILOpCode.Ldind_i4
+            or ILOpCode.Ldind_i8 or ILOpCode.Ldind_r4 or ILOpCode.Ldind_r8 or ILOpCode.Ldind_ref
+            or ILOpCode.Ldind_u1 or ILOpCode.Ldind_u2 or ILOpCode.Ldind_u4 or ILOpCode.Ldobj)
+            return true;
+        foreach (var arg in expr.Arguments)
+            if (TreeReadsElementOrIndirect(arg))
+                return true;
+        return false;
+    }
+
+    static bool TreeReadsMutableState(ILAstExpression expr)
+    {
+        if (expr.OpCode is ILOpCode.Ldfld or ILOpCode.Ldsfld or ILOpCode.Ldflda or ILOpCode.Ldsflda)
+            return true;
+        return TreeReadsElementOrIndirect(expr);
     }
 
     static ILAstExpression? DecodeInstruction(
