@@ -6873,7 +6873,13 @@ public static class CSharpEmitter
 
                 // Boxing - emit as cast to object (boxing is implicit in C#)
                 case ILOpCode.Box:
-                    _sb.Append("(object)");
+                    // C# never writes the box — conversions to object and
+                    // interfaces, null tests of unconstrained T, and ternary
+                    // arm unification all box implicitly. The cast renders
+                    // only where dropping it changes meaning: both operands
+                    // of an equality being boxes (reference identity).
+                    if (expr.ExpectedType is "object" or "System.Object")
+                        _sb.Append("(object)");
                     EmitParenthesized(expr, 0);
                     break;
                 case ILOpCode.Unbox_any:
@@ -7337,6 +7343,30 @@ public static class CSharpEmitter
             && receiver.OpCode == ILOpCode.Ldarg_0
             && !_thisShadowedNames.Contains(memberName);
 
+        /// <summary>
+        /// Whether a call operand's type part names the current declaring
+        /// type. Operands carry instantiated generic names (List&lt;T&gt;)
+        /// while the declaring type is the metadata name (List`1) — compare
+        /// the arity-stripped prefixes.
+        /// </summary>
+        bool TypeMatchesDeclaring(string typePart)
+        {
+            if (_declaringType is null)
+                return false;
+            ReadOnlySpan<char> caller = _declaringType.AsSpan();
+            int tick = caller.IndexOf('`');
+            if (tick >= 0)
+                caller = caller[..tick];
+            ReadOnlySpan<char> callee = typePart.AsSpan();
+            int angle = callee.IndexOf('<');
+            if (angle >= 0)
+                callee = callee[..angle];
+            int calleeTick = callee.IndexOf('`');
+            if (calleeTick >= 0)
+                callee = callee[..calleeTick];
+            return callee.SequenceEqual(caller);
+        }
+
         /// <summary>Receiver + dot, with implicit-this omitted per the style oracle.</summary>
         void EmitReceiverWithDot(ILAstExpression receiver, bool isBaseCall, string dot, string memberName)
         {
@@ -7618,11 +7648,15 @@ public static class CSharpEmitter
                     && expr.Arguments[0] is { OpCode: ILOpCode.Nop, Operand: { } op }
                     && op.StartsWith("S_in_", StringComparison.Ordinal);
 
-                // Base call: non-virtual call on 'this' → base.Method()
+                // Base dispatch: a non-virtual call on 'this' to a member of
+                // a DIFFERENT type is C#'s base.Method(). A non-virtual call
+                // to this type's OWN member is just an ordinary call — the
+                // source writes the bare name.
                 bool isBaseCall = expr.OpCode is ILOpCode.Call
                     && _hasThis
                     && expr.Arguments[0].OpCode is ILOpCode.Ldarg_0
-                    && memberPart != ".ctor";
+                    && memberPart != ".ctor"
+                    && !TypeMatchesDeclaring(typePart);
                 string dot = isNullConditionalCall ? "?." : ".";
 
                 // Indexer getter: get_Item(key)/get_Chars(index) → [key]
@@ -8644,7 +8678,7 @@ public static class CSharpEmitter
         string ExpressionToString(ILAstExpression expr)
         {
             var sb = new StringBuilder();
-            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames)
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames, declaringType: _declaringType)
             {
                 // Carry recursive-decompilation context so nested renderings
                 // (inlined lambda bodies) work from string conversions too.
@@ -8667,7 +8701,7 @@ public static class CSharpEmitter
 
             // For comparison-and-branch opcodes (beq, blt, ble, etc.), render via EmitBranchCondition
             var sb = new StringBuilder();
-            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames);
+            var tempCtx = new EmitterContext(_ast, _structure, sb, _reader, _hasThis, _returnsBool ? "bool" : null, _paramNames, declaringType: _declaringType);
             tempCtx.EmitBranchCondition(branchExpr);
             return sb.ToString();
         }
