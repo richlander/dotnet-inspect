@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -6,10 +7,18 @@ namespace DotnetInspector.Metadata;
 public record EcosystemIntegrationSignalInfo(
     string Integration,
     string Kind,
-    string Name);
+    string Name,
+    string Shape = IntegrationSignalShape.Type);
+
+public static class IntegrationSignalShape
+{
+    public const string Type = "Type";
+    public const string Api = "API";
+}
 
 public record EcosystemIntegrationPresence
 {
+    public bool HasAspireSupport { get; init; }
     public bool HasAISupport { get; init; }
     public bool HasOpenTelemetrySupport { get; init; }
     public bool HasDependencyInjectionSupport { get; init; }
@@ -30,11 +39,16 @@ public static class EcosystemIntegrationScanner
         var reader = peReader.GetMetadataReader();
         var buckets = IntegrationBuckets.Create();
 
-        foreach (var handle in reader.TypeReferences)
-            AddType(buckets, reader.GetFullTypeName(reader.GetTypeReference(handle)), "TypeRef");
-
         foreach (var handle in reader.TypeDefinitions)
-            AddType(buckets, reader.GetFullTypeName(reader.GetTypeDefinition(handle)), "TypeDef");
+        {
+            var typeDefinition = reader.GetTypeDefinition(handle);
+            if (!typeDefinition.IsPublic)
+                continue;
+
+            var typeName = reader.GetFullTypeName(typeDefinition);
+            AddType(buckets, typeName, "TypeDef");
+            AddStarterMethods(buckets, reader, typeDefinition, typeName);
+        }
 
         List<EcosystemIntegrationSignalInfo> results = [];
         foreach (var bucket in buckets.All)
@@ -49,18 +63,23 @@ public static class EcosystemIntegrationScanner
             HasOpenTelemetrySupport = OpenTelemetryScanner.HasSupport(reader)
         };
 
-        foreach (var handle in reader.TypeReferences)
-            MarkTypePresence(presence, reader.GetFullTypeName(reader.GetTypeReference(handle)));
-
         foreach (var handle in reader.TypeDefinitions)
-            MarkTypePresence(presence, reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
+        {
+            var typeDefinition = reader.GetTypeDefinition(handle);
+            if (!typeDefinition.IsPublic)
+                continue;
+
+            MarkTypePresence(presence, reader.GetFullTypeName(typeDefinition));
+        }
 
         return presence.ToImmutable();
     }
 
     private static void AddType(IntegrationBuckets buckets, string typeName, string source)
     {
-        if (TryGetAIKind(typeName, out var aiKind))
+        if (source == "TypeDef" && TryGetAspireKind(typeName, out var aspireKind))
+            AddType(buckets.Aspire, typeName, source, aspireKind);
+        if (source == "TypeDef" && TryGetAIKind(typeName, out var aiKind))
             AddType(GetAIBucket(buckets, aiKind), typeName, source);
         if (IsDependencyInjectionType(typeName))
             AddType(buckets.DependencyInjection, typeName, source);
@@ -72,12 +91,14 @@ public static class EcosystemIntegrationScanner
             AddType(buckets.Hosting, typeName, source);
         if (IsHealthChecksType(typeName))
             AddType(buckets.HealthChecks, typeName, source);
-        if (IsHttpClientType(typeName))
-            AddType(buckets.HttpClient, typeName, source);
+        if (TryGetHttpClientKind(typeName, out var httpClientKind))
+            AddType(buckets.HttpClient, typeName, source, httpClientKind);
     }
 
     private static void MarkTypePresence(MutablePresence presence, string typeName)
     {
+        if (IsAspireType(typeName))
+            presence.HasAspireSupport = true;
         if (IsAIType(typeName))
             presence.HasAISupport = true;
         if (IsDependencyInjectionType(typeName))
@@ -109,16 +130,76 @@ public static class EcosystemIntegrationScanner
     private static bool IsHealthChecksType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.Diagnostics.HealthChecks.", StringComparison.Ordinal);
 
-    private static bool IsHttpClientType(string typeName)
-        => typeName.StartsWith("Microsoft.Extensions.Http.", StringComparison.Ordinal)
-           || typeName.Equals("System.Net.Http.IHttpClientFactory", StringComparison.Ordinal)
-           || (typeName.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal)
-               && typeName.Contains("HttpClient", StringComparison.Ordinal));
+    private static bool IsHttpClientType(string typeName) => TryGetHttpClientKind(typeName, out _);
+
+    private static bool TryGetHttpClientKind(string typeName, out string kind)
+    {
+        kind = typeName switch
+        {
+            "System.Net.Http.IHttpClientFactory" => "Factory",
+            "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder" => "Builder",
+            _ => ""
+        };
+        if (kind.Length > 0)
+            return true;
+
+        if (typeName.StartsWith("Microsoft.Extensions.Http.Logging.", StringComparison.Ordinal))
+            kind = "HTTP Logging";
+        else if (typeName.StartsWith("Microsoft.Extensions.Http.Latency.", StringComparison.Ordinal))
+            kind = "HTTP Latency";
+        else if (typeName.StartsWith("Microsoft.Extensions.Http.Diagnostics.", StringComparison.Ordinal))
+            kind = "HTTP Diagnostics";
+        else if (typeName.StartsWith("Microsoft.Extensions.Http.", StringComparison.Ordinal))
+            kind = "HTTP Client";
+
+        return kind.Length > 0;
+    }
+
+    private static bool IsAspireType(string typeName) => TryGetAspireKind(typeName, out _);
+
+    private static bool TryGetAspireKind(string typeName, out string kind)
+    {
+        kind = "";
+        if (!typeName.StartsWith("Aspire.Hosting.", StringComparison.Ordinal))
+            return false;
+
+        if (typeName.EndsWith("Resource", StringComparison.Ordinal))
+        {
+            var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+            kind = simpleName is ['I', >= 'A' and <= 'Z', ..]
+                ? "Resource Interface"
+                : "Resource";
+            return true;
+        }
+
+        return false;
+    }
 
     private static bool IsAIType(string typeName) => TryGetAIKind(typeName, out _);
 
     private static bool TryGetAIKind(string typeName, out string kind)
-        => AITypes.TryGetValue(typeName, out kind!);
+    {
+        if (AITypes.TryGetValue(typeName, out kind!))
+            return true;
+
+        if (!typeName.StartsWith("Aspire.", StringComparison.Ordinal)
+            || !typeName.Contains("OpenAI", StringComparison.Ordinal))
+            return false;
+
+        if (typeName.EndsWith("ClientBuilder", StringComparison.Ordinal))
+        {
+            kind = "Builder";
+            return true;
+        }
+
+        if (typeName.EndsWith("Settings", StringComparison.Ordinal))
+        {
+            kind = "Configuration";
+            return true;
+        }
+
+        return false;
+    }
 
     private static IntegrationBucket GetAIBucket(IntegrationBuckets buckets, string kind) => kind switch
     {
@@ -126,10 +207,13 @@ public static class EcosystemIntegrationScanner
         "Embeddings" => buckets.AIEmbeddings,
         "Images" => buckets.AIImages,
         "Realtime" => buckets.AIRealtime,
+        "Hosting" => buckets.AIHosting,
         "Speech to Text" => buckets.AISpeechToText,
         "Text to Speech" => buckets.AITextToSpeech,
         "Tools" => buckets.AITools,
         "Hosted Files" => buckets.AIHostedFiles,
+        "Builder" => buckets.AIBuilder,
+        "Configuration" => buckets.AIConfiguration,
         _ => throw new InvalidOperationException($"Unknown AI integration kind '{kind}'.")
     };
 
@@ -210,6 +294,9 @@ public static class EcosystemIntegrationScanner
     };
 
     private static void AddType(IntegrationBucket bucket, string typeName, string source)
+        => AddType(bucket, typeName, source, bucket.ApiKind);
+
+    private static void AddType(IntegrationBucket bucket, string typeName, string source, string kind)
     {
         if (bucket.Types.TryGetValue(typeName, out var existing))
         {
@@ -219,22 +306,220 @@ public static class EcosystemIntegrationScanner
         }
 
         bucket.Types.Add(typeName, source);
+        bucket.Kinds[typeName] = kind;
+    }
+
+    private static void AddStarterMethods(
+        IntegrationBuckets buckets,
+        MetadataReader reader,
+        TypeDefinition typeDefinition,
+        string typeName)
+    {
+        var attributes = typeDefinition.Attributes;
+        var isStatic = (attributes & TypeAttributes.Sealed) != 0
+                       && (attributes & TypeAttributes.Abstract) != 0;
+        if (!isStatic || !AttributeReader.HasExtensionAttribute(reader, typeDefinition.GetCustomAttributes()))
+            return;
+
+        foreach (var methodHandle in typeDefinition.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if ((method.Attributes & MethodAttributes.Public) == 0
+                || (method.Attributes & MethodAttributes.Static) == 0
+                || !AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                continue;
+
+            var methodName = reader.GetString(method.Name);
+            if (!methodName.StartsWith("Add", StringComparison.Ordinal))
+                continue;
+
+            var context = GenericContext.ForMethod(reader, typeDefinition, method);
+            var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+            var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
+            if (TryClassifyAspireStarterMethod(typeName, methodName, signature, out var aspireKind))
+                buckets.Aspire.Apis.TryAdd(api, aspireKind);
+            if (TryClassifyAIStarterMethod(typeName, methodName, signature, out var aiKind))
+                GetAIBucket(buckets, aiKind).Apis.TryAdd(api, aiKind);
+            if (TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
+                buckets.DependencyInjection.Apis.TryAdd(api, dependencyInjectionKind);
+            if (TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
+                buckets.Hosting.Apis.TryAdd(api, hostingKind);
+            if (TryClassifyHttpClientStarterMethod(typeName, methodName, signature, out var httpClientKind))
+                buckets.HttpClient.Apis.TryAdd(api, httpClientKind);
+        }
+    }
+
+    private static bool TryClassifyDependencyInjectionStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!declaringType.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal)
+            || !methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || signature.ParameterTypes[0] != "Microsoft.Extensions.DependencyInjection.IServiceCollection")
+            return false;
+
+        kind = "Service Registration";
+        return true;
+    }
+
+    private static bool TryClassifyAspireStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!declaringType.StartsWith("Aspire.Hosting.", StringComparison.Ordinal)
+            || !methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || signature.ParameterTypes[0] != "Aspire.Hosting.IDistributedApplicationBuilder"
+            || !signature.ReturnType.StartsWith("Aspire.Hosting.ApplicationModel.IResourceBuilder<", StringComparison.Ordinal))
+            return false;
+
+        kind = "Resource Builder";
+        return true;
+    }
+
+    private static bool TryClassifyHostingStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!declaringType.StartsWith("Microsoft.Extensions.Hosting.", StringComparison.Ordinal)
+            || !methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || signature.ParameterTypes[0] != "Microsoft.Extensions.Hosting.IHostApplicationBuilder")
+            return false;
+
+        kind = "Hosting";
+        return true;
+    }
+
+    private static bool TryClassifyHttpClientStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || !declaringType.Contains("HttpClient", StringComparison.Ordinal))
+            return false;
+
+        if (declaringType.Contains("Logging", StringComparison.Ordinal))
+            kind = "HTTP Logging";
+        else if (declaringType.Contains("Latency", StringComparison.Ordinal))
+            kind = "HTTP Latency";
+        else if (declaringType.Contains("Diagnostics", StringComparison.Ordinal))
+            kind = "HTTP Diagnostics";
+        else
+            kind = signature.ParameterTypes[0] switch
+            {
+                "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder" => "Builder Configuration",
+                "Microsoft.Extensions.DependencyInjection.IServiceCollection" => "Service Registration",
+                _ => ""
+            };
+        return kind.Length > 0;
+    }
+
+    private static bool TryClassifyAIStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!declaringType.Contains("OpenAI", StringComparison.Ordinal)
+            && !methodName.Contains("AI", StringComparison.Ordinal)
+            && !methodName.Contains("Chat", StringComparison.Ordinal)
+            && !methodName.Contains("Embedding", StringComparison.Ordinal)
+            && !methodName.Contains("Image", StringComparison.Ordinal)
+            && !methodName.Contains("Speech", StringComparison.Ordinal)
+            && !methodName.Contains("Realtime", StringComparison.Ordinal)
+            && !methodName.Contains("HostedFile", StringComparison.Ordinal))
+            return false;
+
+        var returnType = signature.ReturnType;
+        if (returnType.Contains("ChatClientBuilder", StringComparison.Ordinal))
+            kind = "Chat";
+        else if (returnType.Contains("EmbeddingGeneratorBuilder", StringComparison.Ordinal))
+            kind = "Embeddings";
+        else if (returnType.Contains("ImageGeneratorBuilder", StringComparison.Ordinal))
+            kind = "Images";
+        else if (returnType.Contains("RealtimeClientBuilder", StringComparison.Ordinal))
+            kind = "Realtime";
+        else if (returnType.Contains("SpeechToTextClientBuilder", StringComparison.Ordinal))
+            kind = "Speech to Text";
+        else if (returnType.Contains("TextToSpeechClientBuilder", StringComparison.Ordinal))
+            kind = "Text to Speech";
+        else if (returnType.Contains("HostedFileClientBuilder", StringComparison.Ordinal))
+            kind = "Hosted Files";
+        else if (returnType.Contains("OpenAI", StringComparison.Ordinal)
+                 && returnType.EndsWith("ClientBuilder", StringComparison.Ordinal))
+            kind = "Hosting";
+
+        return kind.Length > 0;
     }
 
     private static void AddRows(List<EcosystemIntegrationSignalInfo> results, IntegrationBucket bucket)
     {
+        foreach (var api in OrderApis(bucket.Apis))
+            results.Add(new EcosystemIntegrationSignalInfo(
+                bucket.Integration,
+                bucket.Apis[api],
+                api,
+                IntegrationSignalShape.Api));
+
         foreach (var type in OrderTypes(bucket.Types))
             results.Add(new EcosystemIntegrationSignalInfo(
                 bucket.Integration,
-                bucket.ApiKind,
+                bucket.Kinds.TryGetValue(type, out var kind) ? kind : bucket.ApiKind,
                 TypeResolver.FormatDisplayName(type)));
     }
+
+    private static IEnumerable<string> OrderApis(Dictionary<string, string> apis)
+        => apis
+            .OrderBy(kv => GetKindRank(kv.Value))
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Key);
 
     private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)
         => types
             .OrderBy(kv => GetEvidenceRank(kv.Key))
             .ThenBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => kv.Key);
+
+    private static int GetKindRank(string kind) => kind switch
+    {
+        "Hosting" => 0,
+        "Resource Builder" => 0,
+        "Builder" => 1,
+        "Resource" => 1,
+        "Configuration" => 2,
+        "Resource Interface" => 2,
+        "Chat" => 3,
+        "Embeddings" => 4,
+        "Images" => 5,
+        "Realtime" => 6,
+        "Speech to Text" => 7,
+        "Text to Speech" => 8,
+        "Tools" => 9,
+        "Hosted Files" => 10,
+        "HTTP Logging" => 20,
+        "HTTP Latency" => 21,
+        "HTTP Diagnostics" => 22,
+        "Builder Configuration" => 23,
+        "Service Registration" => 24,
+        "Factory" => 26,
+        _ => 100
+    };
 
     private static int GetEvidenceRank(string typeName)
         => typeName switch
@@ -268,19 +553,25 @@ public static class EcosystemIntegrationScanner
     {
         public string Integration { get; } = integration;
         public string ApiKind { get; } = apiKind;
+        public Dictionary<string, string> Apis { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> Types { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, string> Kinds { get; } = new(StringComparer.Ordinal);
     }
 
     private sealed class IntegrationBuckets
     {
+        public required IntegrationBucket Aspire { get; init; }
         public required IntegrationBucket AIChat { get; init; }
         public required IntegrationBucket AIEmbeddings { get; init; }
         public required IntegrationBucket AIImages { get; init; }
         public required IntegrationBucket AIRealtime { get; init; }
+        public required IntegrationBucket AIHosting { get; init; }
         public required IntegrationBucket AISpeechToText { get; init; }
         public required IntegrationBucket AITextToSpeech { get; init; }
         public required IntegrationBucket AITools { get; init; }
         public required IntegrationBucket AIHostedFiles { get; init; }
+        public required IntegrationBucket AIBuilder { get; init; }
+        public required IntegrationBucket AIConfiguration { get; init; }
         public required IntegrationBucket DependencyInjection { get; init; }
         public required IntegrationBucket Logging { get; init; }
         public required IntegrationBucket Options { get; init; }
@@ -290,6 +581,10 @@ public static class EcosystemIntegrationScanner
 
         public IntegrationBucket[] All =>
         [
+            Aspire,
+            AIHosting,
+            AIBuilder,
+            AIConfiguration,
             AIChat,
             AIEmbeddings,
             AIImages,
@@ -308,14 +603,18 @@ public static class EcosystemIntegrationScanner
 
         public static IntegrationBuckets Create() => new()
         {
+            Aspire = new IntegrationBucket("Aspire", "Aspire"),
             AIChat = new IntegrationBucket("AI", "Chat"),
             AIEmbeddings = new IntegrationBucket("AI", "Embeddings"),
             AIImages = new IntegrationBucket("AI", "Images"),
             AIRealtime = new IntegrationBucket("AI", "Realtime"),
+            AIHosting = new IntegrationBucket("AI", "Hosting"),
             AISpeechToText = new IntegrationBucket("AI", "Speech to Text"),
             AITextToSpeech = new IntegrationBucket("AI", "Text to Speech"),
             AITools = new IntegrationBucket("AI", "Tools"),
             AIHostedFiles = new IntegrationBucket("AI", "Hosted Files"),
+            AIBuilder = new IntegrationBucket("AI", "Builder"),
+            AIConfiguration = new IntegrationBucket("AI", "Configuration"),
             DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection"),
             Logging = new IntegrationBucket("Logging", "Logging"),
             Options = new IntegrationBucket("Options", "Options"),
@@ -327,6 +626,7 @@ public static class EcosystemIntegrationScanner
 
     private sealed class MutablePresence
     {
+        public bool HasAspireSupport { get; set; }
         public bool HasAISupport { get; set; }
         public bool HasOpenTelemetrySupport { get; init; }
         public bool HasDependencyInjectionSupport { get; set; }
@@ -338,6 +638,7 @@ public static class EcosystemIntegrationScanner
 
         public EcosystemIntegrationPresence ToImmutable() => new()
         {
+            HasAspireSupport = HasAspireSupport,
             HasAISupport = HasAISupport,
             HasOpenTelemetrySupport = HasOpenTelemetrySupport,
             HasDependencyInjectionSupport = HasDependencyInjectionSupport,

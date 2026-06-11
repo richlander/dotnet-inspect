@@ -366,6 +366,7 @@ public static class AssemblyDetailScanner
         flags.HasManifestResources = reader.GetTableRowCount(TableIndex.ManifestResource) > 0;
         var integrationPresence = EcosystemIntegrationScanner.ScanPresence(reader);
         flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
+        flags.HasAspireSupport = integrationPresence.HasAspireSupport;
         flags.HasAISupport = integrationPresence.HasAISupport;
         flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
         flags.HasLoggingSupport = integrationPresence.HasLoggingSupport;
@@ -505,6 +506,7 @@ public class PresenceFlags
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
     public bool HasOpenTelemetrySupport { get; set; }
+    public bool HasAspireSupport { get; set; }
     public bool HasAISupport { get; set; }
     public bool HasDependencyInjectionSupport { get; set; }
     public bool HasLoggingSupport { get; set; }

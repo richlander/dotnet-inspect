@@ -209,6 +209,12 @@ public class LibraryInspection
     public List<IntegrationSummary>? Integrations { get; set; }
 
     /// <summary>
+    /// Metadata evidence of Aspire resource integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? Aspire { get; set; }
+
+    /// <summary>
     /// Metadata evidence of Microsoft.Extensions.AI integration.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -313,6 +319,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasManifestResources { get; set; }
 
+    /// <summary>Whether the assembly contains Aspire resource primitives.</summary>
+    [JsonIgnore]
+    public bool HasAspireSupport { get; set; }
+
     /// <summary>Whether the assembly references OpenTelemetry or .NET diagnostics telemetry primitives.</summary>
     [JsonIgnore]
     public bool HasOpenTelemetrySupport { get; set; }
@@ -389,9 +399,9 @@ public record class ClassifiedMethodSummary
 /// </summary>
 public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
 
-public record IntegrationSummary(string Integration, int Count, string NextSection);
+public record IntegrationSummary(string Integration, int Count);
 
-public record IntegrationSignal(string Kind, string Name);
+public record IntegrationSignal(string Kind, string Name, string Shape = IntegrationSignalShape.Type);
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic

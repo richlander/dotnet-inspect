@@ -77,6 +77,7 @@ internal static class LibraryMetadataService
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
             inspection.HasOpenTelemetrySupport = presenceFlags.HasOpenTelemetrySupport;
+            inspection.HasAspireSupport = presenceFlags.HasAspireSupport;
             inspection.HasAISupport = presenceFlags.HasAISupport;
             inspection.HasDependencyInjectionSupport = presenceFlags.HasDependencyInjectionSupport;
             inspection.HasLoggingSupport = presenceFlags.HasLoggingSupport;
@@ -564,6 +565,7 @@ internal static class LibraryMetadataService
     {
         inspection.OpenTelemetry = ScanOpenTelemetry(peReader, path, logger);
         var signals = EcosystemIntegrationScanner.Scan(peReader);
+        inspection.Aspire = SelectIntegrationSignals(signals, "Aspire");
         inspection.AI = SelectIntegrationSignals(signals, "AI");
         inspection.DependencyInjection = SelectIntegrationSignals(signals, "Dependency Injection");
         inspection.Logging = SelectIntegrationSignals(signals, "Logging");
@@ -579,7 +581,7 @@ internal static class LibraryMetadataService
         try
         {
             var signals = OpenTelemetryScanner.Scan(peReader)
-                .Select(s => new IntegrationSignal(s.Kind, s.Name))
+                .Select(s => new IntegrationSignal(s.Kind, s.Name, s.Shape))
                 .ToList();
 
             return signals.Count > 0 ? signals : null;
@@ -597,7 +599,7 @@ internal static class LibraryMetadataService
     {
         var selected = signals
             .Where(s => s.Integration.Equals(integration, StringComparison.Ordinal))
-            .Select(s => new IntegrationSignal(s.Kind, s.Name))
+            .Select(s => new IntegrationSignal(s.Kind, s.Name, s.Shape))
             .ToList();
 
         return selected.Count > 0 ? selected : null;
@@ -607,6 +609,7 @@ internal static class LibraryMetadataService
     {
         List<IntegrationSummary> integrations = [];
         AddIntegration(integrations, "AI", inspection.AI);
+        AddIntegration(integrations, "Aspire", inspection.Aspire);
         AddIntegration(integrations, "Dependency Injection", inspection.DependencyInjection);
         AddIntegration(integrations, "Logging", inspection.Logging);
         AddIntegration(integrations, "OpenTelemetry", inspection.OpenTelemetry);
@@ -623,7 +626,15 @@ internal static class LibraryMetadataService
         List<IntegrationSignal>? signals)
     {
         if (signals is { Count: > 0 })
-            integrations.Add(new IntegrationSummary(name, signals.Count, name));
+            integrations.Add(new IntegrationSummary(name, CountRenderedIntegrationExamples(name, signals)));
+    }
+
+    private static int CountRenderedIntegrationExamples(string name, List<IntegrationSignal> signals)
+    {
+        var apiCount = signals.Count(signal => signal.Shape == IntegrationSignalShape.Api);
+        return apiCount > 0 && name is not ("AI" or "Aspire" or "HTTP Client" or "OpenTelemetry")
+            ? apiCount
+            : signals.Count;
     }
 
     internal static void ScanInfoCounts(string path, LibraryInspection inspection, VerboseLogger logger)

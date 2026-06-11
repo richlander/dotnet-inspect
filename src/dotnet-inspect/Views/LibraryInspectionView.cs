@@ -201,23 +201,59 @@ public class LibraryInspectionView
         _data.Integrations?
             .Select(i => new IntegrationRow(
                 i.Integration,
-                i.Count,
-                FormatSectionSelect(i.NextSection)))
+                i.Count))
             .ToList();
 
     [MarkoutIgnore]
     public bool HasAI => _data.AI is { Count: > 0 };
 
+    [MarkoutIgnore]
+    public bool HasAIApis => _data.AI?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasAITypesOnly => HasAI && !HasAIApis;
+
     [MarkoutSection(Name = "AI", ShowWhenProperty = nameof(HasAI))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? AIApiSection => HasAIApis ? ToIntegrationApiSignalRows(_data.AI, includeTypes: true) : null;
+
+    [MarkoutSection(Name = "AI", ShowWhenProperty = nameof(HasAITypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? AISection => ToIntegrationSignalRows(_data.AI);
+    public List<IntegrationSignalRow>? AITypeSection => ToIntegrationSignalRows(_data.AI);
+
+    [MarkoutIgnore]
+    public bool HasAspire => _data.Aspire is { Count: > 0 };
+
+    [MarkoutIgnore]
+    public bool HasAspireApis => _data.Aspire?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasAspireTypesOnly => HasAspire && !HasAspireApis;
+
+    [MarkoutSection(Name = "Aspire", ShowWhenProperty = nameof(HasAspireApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? AspireApiSection => HasAspireApis ? ToIntegrationApiSignalRows(_data.Aspire, includeTypes: true) : null;
+
+    [MarkoutSection(Name = "Aspire", ShowWhenProperty = nameof(HasAspireTypesOnly))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? AspireTypeSection => ToIntegrationSignalRows(_data.Aspire);
 
     [MarkoutIgnore]
     public bool HasDependencyInjection => _data.DependencyInjection is { Count: > 0 };
 
-    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjection))]
+    [MarkoutIgnore]
+    public bool HasDependencyInjectionApis => _data.DependencyInjection?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasDependencyInjectionTypesOnly => HasDependencyInjection && !HasDependencyInjectionApis;
+
+    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjectionApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? DependencyInjectionApiSection => HasDependencyInjectionApis ? ToIntegrationApiSignalRows(_data.DependencyInjection, includeTypes: false) : null;
+
+    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjectionTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? DependencyInjectionSection => ToIntegrationSignalRows(_data.DependencyInjection);
+    public List<IntegrationSignalRow>? DependencyInjectionTypeSection => ToIntegrationSignalRows(_data.DependencyInjection);
 
     [MarkoutIgnore]
     public bool HasLogging => _data.Logging is { Count: > 0 };
@@ -229,9 +265,19 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasOpenTelemetry => _data.OpenTelemetry is { Count: > 0 };
 
-    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetry))]
+    [MarkoutIgnore]
+    public bool HasOpenTelemetryApis => _data.OpenTelemetry?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasOpenTelemetryTypesOnly => HasOpenTelemetry && !HasOpenTelemetryApis;
+
+    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetryApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? OpenTelemetryApiSection => HasOpenTelemetryApis ? ToIntegrationApiSignalRows(_data.OpenTelemetry, includeTypes: true) : null;
+
+    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetryTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? OpenTelemetrySection => ToIntegrationSignalRows(_data.OpenTelemetry);
+    public List<IntegrationSignalRow>? OpenTelemetryTypeSection => ToIntegrationSignalRows(_data.OpenTelemetry);
 
     [MarkoutIgnore]
     public bool HasOptions => _data.Options is { Count: > 0 };
@@ -243,9 +289,19 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasHosting => _data.Hosting is { Count: > 0 };
 
-    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHosting))]
+    [MarkoutIgnore]
+    public bool HasHostingApis => _data.Hosting?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasHostingTypesOnly => HasHosting && !HasHostingApis;
+
+    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHostingApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? HostingApiSection => HasHostingApis ? ToIntegrationApiSignalRows(_data.Hosting, includeTypes: false) : null;
+
+    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHostingTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? HostingSection => ToIntegrationSignalRows(_data.Hosting);
+    public List<IntegrationSignalRow>? HostingTypeSection => ToIntegrationSignalRows(_data.Hosting);
 
     [MarkoutIgnore]
     public bool HasHealthChecks => _data.HealthChecks is { Count: > 0 };
@@ -257,9 +313,19 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasHttpClient => _data.HttpClient is { Count: > 0 };
 
-    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClient))]
+    [MarkoutIgnore]
+    public bool HasHttpClientApis => _data.HttpClient?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasHttpClientTypesOnly => HasHttpClient && !HasHttpClientApis;
+
+    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClientApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? HttpClientApiSection => HasHttpClientApis ? ToIntegrationApiSignalRows(_data.HttpClient, includeTypes: true) : null;
+
+    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClientTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? HttpClientSection => ToIntegrationSignalRows(_data.HttpClient);
+    public List<IntegrationSignalRow>? HttpClientTypeSection => ToIntegrationSignalRows(_data.HttpClient);
 
     [MarkoutIgnore]
     public bool HasSourceLinkAudit => _data.AllSourcesAccessible.HasValue || _data.TotalSourceFiles > 0;
@@ -390,6 +456,7 @@ public class LibraryInspectionView
 
         var count = 0;
         if (inspection.HasAISupport) count++;
+        if (inspection.HasAspireSupport) count++;
         if (inspection.HasDependencyInjectionSupport) count++;
         if (inspection.HasLoggingSupport) count++;
         if (inspection.HasOpenTelemetrySupport) count++;
@@ -401,13 +468,26 @@ public class LibraryInspectionView
     }
 
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
-        => signals?.Select(s => new IntegrationSignalRow(s.Kind, MarkoutInline.Code(s.Name))).ToList();
+        => signals?
+            .Where(signal => signal.Shape == IntegrationSignalShape.Type)
+            .OrderBy(signal => signal.Kind, StringComparer.Ordinal)
+            .ThenBy(signal => signal.Name, StringComparer.Ordinal)
+            .Select(s => new IntegrationSignalRow(s.Kind, MarkoutInline.Code(s.Name)))
+            .ToList();
+
+    private static List<IntegrationApiSignalRow>? ToIntegrationApiSignalRows(List<IntegrationSignal>? signals, bool includeTypes)
+        => signals?
+            .Where(signal => includeTypes || signal.Shape == IntegrationSignalShape.Api)
+            .OrderBy(signal => signal.Kind, StringComparer.Ordinal)
+            .ThenBy(signal => signal.Name, StringComparer.Ordinal)
+            .Select(s => new IntegrationApiSignalRow(s.Kind, MarkoutInline.Code(s.Name)))
+            .ToList();
 
     public static bool IntegrationKindIsUniform(List<IntegrationSignalRow>? rows)
         => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
 
-    private static string FormatSectionSelect(string section)
-        => section.Contains(' ', StringComparison.Ordinal) ? $"-S \"{section}\"" : $"-S {section}";
+    public static bool IntegrationApiKindIsUniform(List<IntegrationApiSignalRow>? rows)
+        => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
 
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
@@ -498,13 +578,17 @@ public record AuditSignalRow(
 [MarkoutSerializable]
 public record IntegrationRow(
     string Integration,
-    int Examples,
-    string Next);
+    int Examples);
 
 [MarkoutSerializable]
 public record IntegrationSignalRow(
     string Kind,
     string Type);
+
+[MarkoutSerializable]
+public record IntegrationApiSignalRow(
+    string Kind,
+    [property: MarkoutPropertyName("API")] string Api);
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
