@@ -96,6 +96,10 @@ public static class CSharpEmitter
             HashSet<int> ConsumedBlocks,
             List<ILAstNode> SkipNodes);
 
+        // Names that shadow members in this method's scope: an unqualified
+        // member reference would bind to these, so 'this.' must stay.
+        readonly HashSet<string> _thisShadowedNames = [];
+
         // Stack-slot locals (S_N) declared so far — they exist nowhere in
         // metadata, so the first surviving store must declare them.
         readonly HashSet<string> _declaredSlotLocals = [];
@@ -200,6 +204,20 @@ public static class CSharpEmitter
             foreach (var local in ast.Locals)
                 if (local.TypeName is "bool" or "System.Boolean" or "Boolean")
                     _boolLocals.Add(local.Name);
+
+            // runtime style omits 'this.' qualification
+            // (dotnet_style_qualification_* = false); it must stay only where
+            // a local or parameter shadows the member name.
+            foreach (var local in ast.Locals)
+                _thisShadowedNames.Add(local.Name);
+            if (parameterNames is not null)
+            {
+                foreach (var p in parameterNames)
+                {
+                    if (!string.IsNullOrEmpty(p))
+                        _thisShadowedNames.Add(p);
+                }
+            }
 
             // Build set of loop header labels for goto suppression
             _loopHeaderLabels = [];
@@ -2889,7 +2907,9 @@ public static class CSharpEmitter
 
             string target = isStatic
                 ? $"{SimplifyTypeName(field.DeclaringType)}.{field.Name}"
-                : $"{ExpressionToString(receiver!)}.{field.Name}";
+                : OmitThisQualifier(receiver!, field.Name)
+                    ? field.Name
+                    : $"{ExpressionToString(receiver!)}.{field.Name}";
             var rhs = value.Arguments[1];
 
             WriteIndent(indent);
@@ -6206,8 +6226,13 @@ public static class CSharpEmitter
                     WriteIndent(indent);
                     if (expr.OpCode == ILOpCode.Stfld && expr.Arguments.Count >= 2)
                     {
-                        EmitExpression(expr.Arguments[0]);
-                        _sb.Append($".{ExtractMemberName(expr.Operand)} = ");
+                        string storedField = ExtractMemberName(expr.Operand);
+                        if (!OmitThisQualifier(expr.Arguments[0], storedField))
+                        {
+                            EmitExpression(expr.Arguments[0]);
+                            _sb.Append('.');
+                        }
+                        _sb.Append($"{storedField} = ");
                         EmitExpression(expr.Arguments[1], TryResolveFieldType(expr.Operand));
                     }
                     else if (expr.OpCode == ILOpCode.Stsfld && expr.Arguments.Count >= 1)
@@ -6681,7 +6706,8 @@ public static class CSharpEmitter
 
                 // Field access
                 case ILOpCode.Ldfld:
-                    if (expr.Arguments.Count > 0)
+                    if (expr.Arguments.Count > 0
+                        && !OmitThisQualifier(expr.Arguments[0], ExtractMemberName(expr.Operand)))
                     {
                         EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
@@ -6770,7 +6796,8 @@ public static class CSharpEmitter
                     _sb.Append($"{expr.Operand}");
                     break;
                 case ILOpCode.Ldflda:
-                    if (expr.Arguments.Count > 0)
+                    if (expr.Arguments.Count > 0
+                        && !OmitThisQualifier(expr.Arguments[0], ExtractMemberName(expr.Operand)))
                     {
                         EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
@@ -7066,7 +7093,8 @@ public static class CSharpEmitter
                     _sb.Append(RemapArg(expr.Operand, expr.OpCode));
                     break;
                 case ILOpCode.Ldflda:
-                    if (expr.Arguments.Count > 0)
+                    if (expr.Arguments.Count > 0
+                        && !OmitThisQualifier(expr.Arguments[0], ExtractMemberName(expr.Operand)))
                     {
                         EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
@@ -7131,7 +7159,8 @@ public static class CSharpEmitter
                     _sb.Append(RemapArg(expr.Operand, expr.OpCode));
                     break;
                 case ILOpCode.Ldflda:
-                    if (expr.Arguments.Count > 0)
+                    if (expr.Arguments.Count > 0
+                        && !OmitThisQualifier(expr.Arguments[0], ExtractMemberName(expr.Operand)))
                     {
                         EmitFieldReceiver(expr.Arguments[0]);
                         _sb.Append('.');
@@ -7158,6 +7187,25 @@ public static class CSharpEmitter
                     EmitExpression(expr);
                     break;
             }
+        }
+
+        /// <summary>
+        /// True when an implicit-this member access renders unqualified
+        /// (oracle: dotnet_style_qualification_* = false). Kept qualified
+        /// when a local/parameter shadows the member name.
+        /// </summary>
+        bool OmitThisQualifier(ILAstExpression receiver, string memberName)
+            => _hasThis
+            && receiver.OpCode == ILOpCode.Ldarg_0
+            && !_thisShadowedNames.Contains(memberName);
+
+        /// <summary>Receiver + dot, with implicit-this omitted per the style oracle.</summary>
+        void EmitReceiverWithDot(ILAstExpression receiver, bool isBaseCall, string dot, string memberName)
+        {
+            if (dot == "." && !isBaseCall && OmitThisQualifier(receiver, memberName))
+                return;
+            EmitReceiver(receiver, isBaseCall);
+            _sb.Append(dot);
         }
 
         void EmitReceiver(ILAstExpression receiver, bool isBaseCall)
@@ -7459,20 +7507,20 @@ public static class CSharpEmitter
                 // Property getter sugar: get_XXX() → .XXX
                 else if (memberPart.StartsWith("get_", StringComparison.Ordinal) && expr.Arguments.Count == 1)
                 {
-                    EmitReceiver(expr.Arguments[0], isBaseCall);
-                    _sb.Append($"{dot}{memberPart[4..]}");
+                    EmitReceiverWithDot(expr.Arguments[0], isBaseCall, dot, memberPart[4..]);
+                    _sb.Append(memberPart[4..]);
                 }
                 // Property setter sugar: set_XXX(value) → .XXX = value
                 else if (memberPart.StartsWith("set_", StringComparison.Ordinal) && expr.Arguments.Count == 2)
                 {
-                    EmitReceiver(expr.Arguments[0], isBaseCall);
-                    _sb.Append($"{dot}{memberPart[4..]} = ");
+                    EmitReceiverWithDot(expr.Arguments[0], isBaseCall, dot, memberPart[4..]);
+                    _sb.Append($"{memberPart[4..]} = ");
                     EmitCallArgument(expr.Arguments[1]);
                 }
                 else
                 {
-                    EmitReceiver(expr.Arguments[0], isBaseCall);
-                    _sb.Append($"{dot}{memberPart}(");
+                    EmitReceiverWithDot(expr.Arguments[0], isBaseCall, dot, memberPart);
+                    _sb.Append($"{memberPart}(");
                     for (int i = 1; i < expr.Arguments.Count; i++)
                     {
                         if (i > 1) _sb.Append(", ");

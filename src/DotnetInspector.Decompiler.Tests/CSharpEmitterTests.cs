@@ -341,6 +341,24 @@ public class CSharpEmitterTests
             $"return must not precede the try block:\n{output}");
     }
 
+    [Fact]
+    public void Shadowed_KeepsThisQualifierOnlyUnderCollision()
+    {
+        // Oracle: dotnet_style_qualification_* = false — 'this.' is omitted,
+        // EXCEPT where a parameter or local shadows the member name.
+        string output = EmitMethod(nameof(CfgSampleClass.Shadowed));
+
+        Assert.Contains("this._shadowed + _shadowed", output);
+    }
+
+    [Fact]
+    public void Bump_OmitsThisQualifier()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.Bump));
+
+        Assert.DoesNotContain("this.", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]

@@ -295,6 +295,10 @@ public class CfgSampleClass
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
 
+    int _shadowed = 1;
+
+    public int Shadowed(int _shadowed) => this._shadowed + _shadowed;
+
     public static string LowerBoundCheck(System.Array array)
     {
         if (array.GetLowerBound(0) != 0)
