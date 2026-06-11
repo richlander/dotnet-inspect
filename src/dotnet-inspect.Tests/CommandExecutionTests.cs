@@ -2222,6 +2222,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_LoggingSection_ForAwsLogger_ShowsProviderApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "AWS.Logger.AspNetCore", "--library", "-S", "@Integrations", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Logging | 2 |", output);
+        Assert.Contains("## Logging", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("AWSLoggerBuilderExtensions.AddAWSProvider(...)", output);
+        Assert.Contains("AWSLoggerFactoryExtensions.AddAWSProvider(...)", output);
+        Assert.DoesNotContain("| Type |", output);
+        Assert.DoesNotContain("AWSLoggerBuilderExtensions` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DependencyInjectionSection_ShowsActionableTypesOnly()
     {
         var (exit, output, error) = await RunAppAsync(

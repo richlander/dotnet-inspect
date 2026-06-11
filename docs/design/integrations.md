@@ -50,7 +50,7 @@ Examples:
 | AI | `IChatClient`, `IEmbeddingGenerator<TInput,TEmbedding>`, `AITool`, modality client interfaces, package-owned builder/registration/adapter APIs. |
 | Aspire | `AddRedis(...)`, `RedisResource`, resource-specific `Add*` APIs returning `IResourceBuilder<T>`. |
 | Dependency Injection | Package-owned `Add*` service registration APIs and DI builder types. |
-| Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, logging extension types. |
+| Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, provider registration APIs such as `AddAWSProvider(...)`. |
 | OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types, `DisableTracing`/`DisableMetrics` telemetry controls. |
 | Options | `IOptions<T>`, `IOptionsMonitor<T>`, configure/validate options types. |
 | Hosting | `IHostedService`, `BackgroundService`, host builder types. |

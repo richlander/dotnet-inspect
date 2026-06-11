@@ -258,9 +258,19 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasLogging => _data.Logging is { Count: > 0 };
 
-    [MarkoutSection(Name = EcosystemIntegrationNames.Logging, ShowWhenProperty = nameof(HasLogging))]
+    [MarkoutIgnore]
+    public bool HasLoggingApis => _data.Logging?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasLoggingTypesOnly => HasLogging && !HasLoggingApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Logging, ShowWhenProperty = nameof(HasLoggingApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? LoggingApiSection => HasLoggingApis ? ToIntegrationApiSignalRows(_data.Logging, includeTypes: false) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Logging, ShowWhenProperty = nameof(HasLoggingTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? LoggingSection => ToIntegrationSignalRows(_data.Logging);
+    public List<IntegrationSignalRow>? LoggingTypeSection => ToIntegrationSignalRows(_data.Logging);
 
     [MarkoutIgnore]
     public bool HasOpenTelemetry => _data.OpenTelemetry is { Count: > 0 };

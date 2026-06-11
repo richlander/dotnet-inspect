@@ -379,6 +379,8 @@ public static class EcosystemIntegrationScanner
                 GetAIBucket(buckets, aiKind).Apis.TryAdd(api, aiKind);
             if (TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
                 buckets.DependencyInjection.Apis.TryAdd(api, dependencyInjectionKind);
+            if (TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
+                buckets.Logging.Apis.TryAdd(api, loggingKind);
             if (TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
                 buckets.Hosting.Apis.TryAdd(api, hostingKind);
             if (TryClassifyHttpClientStarterMethod(typeName, methodName, signature, out var httpClientKind))
@@ -400,6 +402,23 @@ public static class EcosystemIntegrationScanner
             return false;
 
         kind = "Service Registration";
+        return true;
+    }
+
+    private static bool TryClassifyLoggingStarterMethod(
+        string declaringType,
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!declaringType.StartsWith("Microsoft.Extensions.Logging.", StringComparison.Ordinal)
+            || !methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || signature.ParameterTypes[0] is not ("Microsoft.Extensions.Logging.ILoggingBuilder" or "Microsoft.Extensions.Logging.ILoggerFactory"))
+            return false;
+
+        kind = "Provider";
         return true;
     }
 
