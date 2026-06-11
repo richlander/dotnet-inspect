@@ -196,7 +196,7 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasIntegrations => _data.Integrations is { Count: > 0 };
 
-    [MarkoutSection(Name = "Integrations", ShowWhenProperty = nameof(HasIntegrations))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Integrations, ShowWhenProperty = nameof(HasIntegrations))]
     public List<IntegrationRow>? IntegrationsSection =>
         _data.Integrations?
             .Select(i => new IntegrationRow(
@@ -213,11 +213,11 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasAITypesOnly => HasAI && !HasAIApis;
 
-    [MarkoutSection(Name = "AI", ShowWhenProperty = nameof(HasAI))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.AI, ShowWhenProperty = nameof(HasAI))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
     public List<IntegrationApiSignalRow>? AIApiSection => HasAIApis ? ToIntegrationApiSignalRows(_data.AI, includeTypes: true) : null;
 
-    [MarkoutSection(Name = "AI", ShowWhenProperty = nameof(HasAITypesOnly))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.AI, ShowWhenProperty = nameof(HasAITypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? AITypeSection => ToIntegrationSignalRows(_data.AI);
 
@@ -230,11 +230,11 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasAspireTypesOnly => HasAspire && !HasAspireApis;
 
-    [MarkoutSection(Name = "Aspire", ShowWhenProperty = nameof(HasAspireApis))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Aspire, ShowWhenProperty = nameof(HasAspireApis))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
     public List<IntegrationApiSignalRow>? AspireApiSection => HasAspireApis ? ToIntegrationApiSignalRows(_data.Aspire, includeTypes: true) : null;
 
-    [MarkoutSection(Name = "Aspire", ShowWhenProperty = nameof(HasAspireTypesOnly))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Aspire, ShowWhenProperty = nameof(HasAspireTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? AspireTypeSection => ToIntegrationSignalRows(_data.Aspire);
 
@@ -247,18 +247,18 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasDependencyInjectionTypesOnly => HasDependencyInjection && !HasDependencyInjectionApis;
 
-    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjectionApis))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.DependencyInjection, ShowWhenProperty = nameof(HasDependencyInjectionApis))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
     public List<IntegrationApiSignalRow>? DependencyInjectionApiSection => HasDependencyInjectionApis ? ToIntegrationApiSignalRows(_data.DependencyInjection, includeTypes: false) : null;
 
-    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjectionTypesOnly))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.DependencyInjection, ShowWhenProperty = nameof(HasDependencyInjectionTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? DependencyInjectionTypeSection => ToIntegrationSignalRows(_data.DependencyInjection);
 
     [MarkoutIgnore]
     public bool HasLogging => _data.Logging is { Count: > 0 };
 
-    [MarkoutSection(Name = "Logging", ShowWhenProperty = nameof(HasLogging))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Logging, ShowWhenProperty = nameof(HasLogging))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? LoggingSection => ToIntegrationSignalRows(_data.Logging);
 
@@ -271,18 +271,18 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasOpenTelemetryTypesOnly => HasOpenTelemetry && !HasOpenTelemetryApis;
 
-    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetryApis))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.OpenTelemetry, ShowWhenProperty = nameof(HasOpenTelemetryApis))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
     public List<IntegrationApiSignalRow>? OpenTelemetryApiSection => HasOpenTelemetryApis ? ToIntegrationApiSignalRows(_data.OpenTelemetry, includeTypes: true) : null;
 
-    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetryTypesOnly))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.OpenTelemetry, ShowWhenProperty = nameof(HasOpenTelemetryTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? OpenTelemetryTypeSection => ToIntegrationSignalRows(_data.OpenTelemetry);
 
     [MarkoutIgnore]
     public bool HasOptions => _data.Options is { Count: > 0 };
 
-    [MarkoutSection(Name = "Options", ShowWhenProperty = nameof(HasOptions))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Options, ShowWhenProperty = nameof(HasOptions))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? OptionsSection => ToIntegrationSignalRows(_data.Options);
 
@@ -295,18 +295,18 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasHostingTypesOnly => HasHosting && !HasHostingApis;
 
-    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHostingApis))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Hosting, ShowWhenProperty = nameof(HasHostingApis))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
     public List<IntegrationApiSignalRow>? HostingApiSection => HasHostingApis ? ToIntegrationApiSignalRows(_data.Hosting, includeTypes: false) : null;
 
-    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHostingTypesOnly))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.Hosting, ShowWhenProperty = nameof(HasHostingTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? HostingTypeSection => ToIntegrationSignalRows(_data.Hosting);
 
     [MarkoutIgnore]
     public bool HasHealthChecks => _data.HealthChecks is { Count: > 0 };
 
-    [MarkoutSection(Name = "Health Checks", ShowWhenProperty = nameof(HasHealthChecks))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.HealthChecks, ShowWhenProperty = nameof(HasHealthChecks))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? HealthChecksSection => ToIntegrationSignalRows(_data.HealthChecks);
 
@@ -319,11 +319,11 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasHttpClientTypesOnly => HasHttpClient && !HasHttpClientApis;
 
-    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClientApis))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.HttpClient, ShowWhenProperty = nameof(HasHttpClientApis))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
     public List<IntegrationApiSignalRow>? HttpClientApiSection => HasHttpClientApis ? ToIntegrationApiSignalRows(_data.HttpClient, includeTypes: true) : null;
 
-    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClientTypesOnly))]
+    [MarkoutSection(Name = EcosystemIntegrationNames.HttpClient, ShowWhenProperty = nameof(HasHttpClientTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? HttpClientTypeSection => ToIntegrationSignalRows(_data.HttpClient);
 
@@ -454,17 +454,7 @@ public class LibraryInspectionView
         if (inspection.Integrations is { Count: > 0 } integrations)
             return integrations.Count;
 
-        var count = 0;
-        if (inspection.HasAISupport) count++;
-        if (inspection.HasAspireSupport) count++;
-        if (inspection.HasDependencyInjectionSupport) count++;
-        if (inspection.HasLoggingSupport) count++;
-        if (inspection.HasOpenTelemetrySupport) count++;
-        if (inspection.HasOptionsSupport) count++;
-        if (inspection.HasHostingSupport) count++;
-        if (inspection.HasHealthChecksSupport) count++;
-        if (inspection.HasHttpClientSupport) count++;
-        return count;
+        return LibraryIntegrationCatalog.CountPresence(inspection);
     }
 
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)

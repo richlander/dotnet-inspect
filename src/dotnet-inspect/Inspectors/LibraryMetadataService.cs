@@ -563,16 +563,10 @@ internal static class LibraryMetadataService
 
     internal static void ScanIntegrations(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
     {
-        inspection.OpenTelemetry = ScanOpenTelemetry(peReader, path, logger);
+        LibraryIntegrationCatalog.OpenTelemetry.SetSignals(inspection, ScanOpenTelemetry(peReader, path, logger));
         var signals = EcosystemIntegrationScanner.Scan(peReader);
-        inspection.Aspire = SelectIntegrationSignals(signals, "Aspire");
-        inspection.AI = SelectIntegrationSignals(signals, "AI");
-        inspection.DependencyInjection = SelectIntegrationSignals(signals, "Dependency Injection");
-        inspection.Logging = SelectIntegrationSignals(signals, "Logging");
-        inspection.Options = SelectIntegrationSignals(signals, "Options");
-        inspection.Hosting = SelectIntegrationSignals(signals, "Hosting");
-        inspection.HealthChecks = SelectIntegrationSignals(signals, "Health Checks");
-        inspection.HttpClient = SelectIntegrationSignals(signals, "HTTP Client");
+        foreach (var descriptor in LibraryIntegrationCatalog.EcosystemScanned)
+            descriptor.SetSignals(inspection, SelectIntegrationSignals(signals, descriptor.Name));
         inspection.Integrations = BuildIntegrations(inspection);
     }
 
@@ -608,33 +602,18 @@ internal static class LibraryMetadataService
     private static List<IntegrationSummary>? BuildIntegrations(LibraryInspection inspection)
     {
         List<IntegrationSummary> integrations = [];
-        AddIntegration(integrations, "AI", inspection.AI);
-        AddIntegration(integrations, "Aspire", inspection.Aspire);
-        AddIntegration(integrations, "Dependency Injection", inspection.DependencyInjection);
-        AddIntegration(integrations, "Logging", inspection.Logging);
-        AddIntegration(integrations, "OpenTelemetry", inspection.OpenTelemetry);
-        AddIntegration(integrations, "Options", inspection.Options);
-        AddIntegration(integrations, "Hosting", inspection.Hosting);
-        AddIntegration(integrations, "Health Checks", inspection.HealthChecks);
-        AddIntegration(integrations, "HTTP Client", inspection.HttpClient);
+        foreach (var descriptor in LibraryIntegrationCatalog.All)
+            AddIntegration(integrations, descriptor, descriptor.GetSignals(inspection));
         return integrations.Count > 0 ? integrations : null;
     }
 
     private static void AddIntegration(
         List<IntegrationSummary> integrations,
-        string name,
+        LibraryIntegrationDescriptor descriptor,
         List<IntegrationSignal>? signals)
     {
         if (signals is { Count: > 0 })
-            integrations.Add(new IntegrationSummary(name, CountRenderedIntegrationApis(name, signals)));
-    }
-
-    private static int CountRenderedIntegrationApis(string name, List<IntegrationSignal> signals)
-    {
-        var apiCount = signals.Count(signal => signal.Shape == IntegrationSignalShape.Api);
-        return apiCount > 0 && name is not ("AI" or "Aspire" or "HTTP Client" or "OpenTelemetry")
-            ? apiCount
-            : signals.Count;
+            integrations.Add(new IntegrationSummary(descriptor.Name, descriptor.CountRenderedRows(signals)));
     }
 
     internal static void ScanInfoCounts(string path, LibraryInspection inspection, VerboseLogger logger)

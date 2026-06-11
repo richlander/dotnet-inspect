@@ -355,14 +355,23 @@ public static class EcosystemIntegrationScanner
         foreach (var methodHandle in typeDefinition.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if ((method.Attributes & MethodAttributes.Public) == 0
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
                 || (method.Attributes & MethodAttributes.Static) == 0
                 || !AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
                 continue;
 
             var methodName = reader.GetString(method.Name);
             var context = GenericContext.ForMethod(reader, typeDefinition, method);
-            var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+            MethodSignature<string> signature;
+            try
+            {
+                signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+            }
+            catch (BadImageFormatException)
+            {
+                continue;
+            }
+
             var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
             if (TryClassifyAspireStarterMethod(typeName, methodName, signature, out var aspireKind))
                 buckets.Aspire.Apis.TryAdd(api, aspireKind);
@@ -638,24 +647,24 @@ public static class EcosystemIntegrationScanner
 
         public static IntegrationBuckets Create() => new()
         {
-            Aspire = new IntegrationBucket("Aspire", "Aspire"),
-            AIChat = new IntegrationBucket("AI", "Chat"),
-            AIEmbeddings = new IntegrationBucket("AI", "Embeddings"),
-            AIImages = new IntegrationBucket("AI", "Images"),
-            AIRealtime = new IntegrationBucket("AI", "Realtime"),
-            AIHosting = new IntegrationBucket("AI", "Hosting"),
-            AISpeechToText = new IntegrationBucket("AI", "Speech to Text"),
-            AITextToSpeech = new IntegrationBucket("AI", "Text to Speech"),
-            AITools = new IntegrationBucket("AI", "Tools"),
-            AIHostedFiles = new IntegrationBucket("AI", "Hosted Files"),
-            AIBuilder = new IntegrationBucket("AI", "Builder"),
-            AIConfiguration = new IntegrationBucket("AI", "Configuration"),
-            DependencyInjection = new IntegrationBucket("Dependency Injection", "Dependency Injection"),
-            Logging = new IntegrationBucket("Logging", "Logging"),
-            Options = new IntegrationBucket("Options", "Options"),
-            Hosting = new IntegrationBucket("Hosting", "Hosting"),
-            HealthChecks = new IntegrationBucket("Health Checks", "Health Check"),
-            HttpClient = new IntegrationBucket("HTTP Client", "HTTP Client")
+            Aspire = new IntegrationBucket(EcosystemIntegrationNames.Aspire, "Aspire"),
+            AIChat = new IntegrationBucket(EcosystemIntegrationNames.AI, "Chat"),
+            AIEmbeddings = new IntegrationBucket(EcosystemIntegrationNames.AI, "Embeddings"),
+            AIImages = new IntegrationBucket(EcosystemIntegrationNames.AI, "Images"),
+            AIRealtime = new IntegrationBucket(EcosystemIntegrationNames.AI, "Realtime"),
+            AIHosting = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosting"),
+            AISpeechToText = new IntegrationBucket(EcosystemIntegrationNames.AI, "Speech to Text"),
+            AITextToSpeech = new IntegrationBucket(EcosystemIntegrationNames.AI, "Text to Speech"),
+            AITools = new IntegrationBucket(EcosystemIntegrationNames.AI, "Tools"),
+            AIHostedFiles = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosted Files"),
+            AIBuilder = new IntegrationBucket(EcosystemIntegrationNames.AI, "Builder"),
+            AIConfiguration = new IntegrationBucket(EcosystemIntegrationNames.AI, "Configuration"),
+            DependencyInjection = new IntegrationBucket(EcosystemIntegrationNames.DependencyInjection, "Dependency Injection"),
+            Logging = new IntegrationBucket(EcosystemIntegrationNames.Logging, "Logging"),
+            Options = new IntegrationBucket(EcosystemIntegrationNames.Options, "Options"),
+            Hosting = new IntegrationBucket(EcosystemIntegrationNames.Hosting, "Hosting"),
+            HealthChecks = new IntegrationBucket(EcosystemIntegrationNames.HealthChecks, "Health Check"),
+            HttpClient = new IntegrationBucket(EcosystemIntegrationNames.HttpClient, "HTTP Client")
         };
     }
 
