@@ -65,6 +65,13 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `library X -S "SourceLink Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 
+## Integrations
+
+`Integrations` is a library section for ecosystem support such as Dependency
+Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and
+OpenTelemetry. It is a usability index, not a raw evidence report: focused
+integration sections list actionable API types rather than assembly references.
+
 ## Output and querying
 
 Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.

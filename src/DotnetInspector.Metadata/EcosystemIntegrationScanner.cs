@@ -29,12 +29,6 @@ public static class EcosystemIntegrationScanner
         var reader = peReader.GetMetadataReader();
         var buckets = IntegrationBuckets.Create();
 
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var assemblyReference = reader.GetAssemblyReference(handle);
-            AddAssemblyReference(buckets, reader.GetString(assemblyReference.Name));
-        }
-
         foreach (var handle in reader.TypeReferences)
             AddType(buckets, reader.GetFullTypeName(reader.GetTypeReference(handle)), "TypeRef");
 
@@ -54,12 +48,6 @@ public static class EcosystemIntegrationScanner
             HasOpenTelemetrySupport = OpenTelemetryScanner.HasSupport(reader)
         };
 
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var assemblyReference = reader.GetAssemblyReference(handle);
-            MarkAssemblyPresence(presence, reader.GetString(assemblyReference.Name));
-        }
-
         foreach (var handle in reader.TypeReferences)
             MarkTypePresence(presence, reader.GetFullTypeName(reader.GetTypeReference(handle)));
 
@@ -67,22 +55,6 @@ public static class EcosystemIntegrationScanner
             MarkTypePresence(presence, reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
 
         return presence.ToImmutable();
-    }
-
-    private static void AddAssemblyReference(IntegrationBuckets buckets, string assemblyName)
-    {
-        if (IsDependencyInjectionAssembly(assemblyName))
-            buckets.DependencyInjection.AssemblyReferences.Add(assemblyName);
-        if (IsLoggingAssembly(assemblyName))
-            buckets.Logging.AssemblyReferences.Add(assemblyName);
-        if (IsOptionsAssembly(assemblyName))
-            buckets.Options.AssemblyReferences.Add(assemblyName);
-        if (IsHostingAssembly(assemblyName))
-            buckets.Hosting.AssemblyReferences.Add(assemblyName);
-        if (IsHealthChecksAssembly(assemblyName))
-            buckets.HealthChecks.AssemblyReferences.Add(assemblyName);
-        if (IsHttpClientAssembly(assemblyName))
-            buckets.HttpClient.AssemblyReferences.Add(assemblyName);
     }
 
     private static void AddType(IntegrationBuckets buckets, string typeName, string source)
@@ -101,22 +73,6 @@ public static class EcosystemIntegrationScanner
             AddType(buckets.HttpClient, typeName, source);
     }
 
-    private static void MarkAssemblyPresence(MutablePresence presence, string assemblyName)
-    {
-        if (IsDependencyInjectionAssembly(assemblyName))
-            presence.HasDependencyInjectionSupport = true;
-        if (IsLoggingAssembly(assemblyName))
-            presence.HasLoggingSupport = true;
-        if (IsOptionsAssembly(assemblyName))
-            presence.HasOptionsSupport = true;
-        if (IsHostingAssembly(assemblyName))
-            presence.HasHostingSupport = true;
-        if (IsHealthChecksAssembly(assemblyName))
-            presence.HasHealthChecksSupport = true;
-        if (IsHttpClientAssembly(assemblyName))
-            presence.HasHttpClientSupport = true;
-    }
-
     private static void MarkTypePresence(MutablePresence presence, string typeName)
     {
         if (IsDependencyInjectionType(typeName))
@@ -132,28 +88,6 @@ public static class EcosystemIntegrationScanner
         if (IsHttpClientType(typeName))
             presence.HasHttpClientSupport = true;
     }
-
-    private static bool IsDependencyInjectionAssembly(string name)
-        => IsAssemblyPrefix(name, "Microsoft.Extensions.DependencyInjection");
-
-    private static bool IsLoggingAssembly(string name)
-        => IsAssemblyPrefix(name, "Microsoft.Extensions.Logging");
-
-    private static bool IsOptionsAssembly(string name)
-        => IsAssemblyPrefix(name, "Microsoft.Extensions.Options");
-
-    private static bool IsHostingAssembly(string name)
-        => IsAssemblyPrefix(name, "Microsoft.Extensions.Hosting");
-
-    private static bool IsHealthChecksAssembly(string name)
-        => IsAssemblyPrefix(name, "Microsoft.Extensions.Diagnostics.HealthChecks");
-
-    private static bool IsHttpClientAssembly(string name)
-        => IsAssemblyPrefix(name, "Microsoft.Extensions.Http");
-
-    private static bool IsAssemblyPrefix(string name, string prefix)
-        => name.Equals(prefix, StringComparison.OrdinalIgnoreCase)
-           || name.StartsWith(prefix + ".", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsDependencyInjectionType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.DependencyInjection.", StringComparison.Ordinal);
@@ -190,12 +124,6 @@ public static class EcosystemIntegrationScanner
 
     private static void AddRows(List<EcosystemIntegrationSignalInfo> results, IntegrationBucket bucket)
     {
-        foreach (var reference in bucket.AssemblyReferences)
-            results.Add(new EcosystemIntegrationSignalInfo(
-                bucket.Integration,
-                "Assembly Reference",
-                reference));
-
         foreach (var type in OrderTypes(bucket.Types))
             results.Add(new EcosystemIntegrationSignalInfo(
                 bucket.Integration,
@@ -231,7 +159,6 @@ public static class EcosystemIntegrationScanner
     {
         public string Integration { get; } = integration;
         public string ApiKind { get; } = apiKind;
-        public SortedSet<string> AssemblyReferences { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, string> Types { get; } = new(StringComparer.Ordinal);
     }
 

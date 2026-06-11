@@ -1963,9 +1963,26 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Logging", output);
-        Assert.Contains("| Kind | Name |", output);
-        Assert.Contains("| Logging API | `Microsoft.Extensions.Logging.ILogger` |", output);
+        Assert.Contains("| Type |", output);
+        Assert.Contains("| `Microsoft.Extensions.Logging.ILogger` |", output);
+        Assert.DoesNotContain("| Kind |", output);
         Assert.Contains("Microsoft.Extensions.Logging.ILogger", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DependencyInjectionSection_ShowsActionableTypesOnly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-S", "Dependency Injection");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Dependency Injection", output);
+        Assert.Contains("| Type |", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.IServiceCollection", output);
+        Assert.DoesNotContain("| Kind |", output);
+        Assert.DoesNotContain("Assembly Reference", output);
+        Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.Abstractions", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -1977,7 +1994,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## OpenTelemetry", output);
-        Assert.Contains("| Kind | Name |", output);
+        Assert.Contains("| Kind | Type |", output);
         Assert.Contains("| Tracing API | `System.Diagnostics.ActivitySource` |", output);
         Assert.Contains("| Metrics API | `System.Diagnostics.Metrics.Meter` |", output);
         Assert.Contains("| Metrics API | `System.Diagnostics.Metrics.UpDownCounter<T>` |", output);

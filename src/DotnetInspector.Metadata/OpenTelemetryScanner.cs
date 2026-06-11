@@ -23,7 +23,6 @@ public static class OpenTelemetryScanner
             return [];
 
         var reader = peReader.GetMetadataReader();
-        var assemblyReferences = GetTelemetryAssemblyReferences(reader);
         var openTelemetryTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         var tracingTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         var metricsTypes = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -35,9 +34,7 @@ public static class OpenTelemetryScanner
 
         foreach (var handle in reader.TypeDefinitions)
             AddTypeMatches(reader.GetFullTypeName(reader.GetTypeDefinition(handle)), "TypeDef");
-
         List<OpenTelemetrySignalInfo> results = [];
-        AddAssemblyReferenceRows(results, assemblyReferences);
         AddTypeRows(results, "OpenTelemetry API", openTelemetryTypes);
         AddTypeRows(results, "Tracing API", tracingTypes);
         AddTypeRows(results, "Metrics API", metricsTypes);
@@ -65,14 +62,6 @@ public static class OpenTelemetryScanner
 
     internal static bool HasSupport(MetadataReader reader)
     {
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var assemblyReference = reader.GetAssemblyReference(handle);
-            var name = reader.GetString(assemblyReference.Name);
-            if (IsTelemetryAssembly(name))
-                return true;
-        }
-
         foreach (var handle in reader.TypeReferences)
         {
             if (IsTelemetryType(reader.GetFullTypeName(reader.GetTypeReference(handle))))
@@ -87,29 +76,6 @@ public static class OpenTelemetryScanner
 
         return false;
     }
-
-    private static SortedSet<string> GetTelemetryAssemblyReferences(MetadataReader reader)
-    {
-        SortedSet<string> references = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var assemblyReference = reader.GetAssemblyReference(handle);
-            var name = reader.GetString(assemblyReference.Name);
-            if (IsTelemetryAssembly(name))
-                references.Add(name);
-        }
-
-        return references;
-    }
-
-    private static bool IsTelemetryAssembly(string name)
-        => IsOpenTelemetryAssembly(name)
-           || name.StartsWith("Microsoft.Extensions.Telemetry", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("System.Diagnostics.DiagnosticSource", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsOpenTelemetryAssembly(string name)
-        => name.Equals("OpenTelemetry", StringComparison.OrdinalIgnoreCase)
-           || name.StartsWith("OpenTelemetry.", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsTelemetryType(string typeName)
         => IsOpenTelemetryType(typeName)
@@ -147,12 +113,6 @@ public static class OpenTelemetryScanner
         }
 
         matches.Add(typeName, source);
-    }
-
-    private static void AddAssemblyReferenceRows(List<OpenTelemetrySignalInfo> results, SortedSet<string> references)
-    {
-        foreach (var reference in references)
-            results.Add(new OpenTelemetrySignalInfo("Assembly Reference", reference));
     }
 
     private static void AddTypeRows(

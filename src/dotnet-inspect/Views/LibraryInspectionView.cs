@@ -209,42 +209,49 @@ public class LibraryInspectionView
     public bool HasDependencyInjection => _data.DependencyInjection is { Count: > 0 };
 
     [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjection))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? DependencyInjectionSection => ToIntegrationSignalRows(_data.DependencyInjection);
 
     [MarkoutIgnore]
     public bool HasLogging => _data.Logging is { Count: > 0 };
 
     [MarkoutSection(Name = "Logging", ShowWhenProperty = nameof(HasLogging))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? LoggingSection => ToIntegrationSignalRows(_data.Logging);
 
     [MarkoutIgnore]
     public bool HasOpenTelemetry => _data.OpenTelemetry is { Count: > 0 };
 
     [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetry))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? OpenTelemetrySection => ToIntegrationSignalRows(_data.OpenTelemetry);
 
     [MarkoutIgnore]
     public bool HasOptions => _data.Options is { Count: > 0 };
 
     [MarkoutSection(Name = "Options", ShowWhenProperty = nameof(HasOptions))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? OptionsSection => ToIntegrationSignalRows(_data.Options);
 
     [MarkoutIgnore]
     public bool HasHosting => _data.Hosting is { Count: > 0 };
 
     [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHosting))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? HostingSection => ToIntegrationSignalRows(_data.Hosting);
 
     [MarkoutIgnore]
     public bool HasHealthChecks => _data.HealthChecks is { Count: > 0 };
 
     [MarkoutSection(Name = "Health Checks", ShowWhenProperty = nameof(HasHealthChecks))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? HealthChecksSection => ToIntegrationSignalRows(_data.HealthChecks);
 
     [MarkoutIgnore]
     public bool HasHttpClient => _data.HttpClient is { Count: > 0 };
 
     [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClient))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
     public List<IntegrationSignalRow>? HttpClientSection => ToIntegrationSignalRows(_data.HttpClient);
 
     [MarkoutIgnore]
@@ -388,6 +395,9 @@ public class LibraryInspectionView
     private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
         => signals?.Select(s => new IntegrationSignalRow(s.Kind, MarkoutInline.Code(s.Name))).ToList();
 
+    public static bool IntegrationKindIsUniform(List<IntegrationSignalRow>? rows)
+        => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
+
     private static string FormatSectionSelect(string section)
         => section.Contains(' ', StringComparison.Ordinal) ? $"-S \"{section}\"" : $"-S {section}";
 
@@ -486,7 +496,7 @@ public record IntegrationRow(
 [MarkoutSerializable]
 public record IntegrationSignalRow(
     string Kind,
-    string Name);
+    string Type);
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
