@@ -246,6 +246,17 @@ public class CSharpEmitterTests
         Assert.DoesNotContain(" ? ", output);
     }
 
+    [Fact]
+    public void NeitherOr_NegatesCompoundConditionSoundly()
+    {
+        // 'if (a && b) return false; return c;' negates the condition for
+        // the short-circuit return form. '!' binds tighter than '&', so the
+        // compound must parenthesize: !(a & b) && c — never !a & b && c.
+        string output = EmitMethod(nameof(CfgSampleClass.NeitherOr));
+
+        Assert.DoesNotContain("!a", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]

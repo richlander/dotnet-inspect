@@ -295,6 +295,13 @@ public class CfgSampleClass
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
 
+    public static bool NeitherOr(bool a, bool b, bool c)
+    {
+        if (a && b)
+            return false;
+        return c;
+    }
+
     public static T GetAt<T>(T[] array, int index) => array[index];
 
     public static bool IsValueTypeOf<T>() => typeof(T).IsValueType;

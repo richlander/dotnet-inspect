@@ -1692,6 +1692,22 @@ public static class CSharpEmitter
                 or ILOpCode.Endfinally or ILOpCode.Switch);
         }
 
+        /// <summary>
+        /// Negation that prefers the IL dual (sound for floats and compound
+        /// conditions) and falls back to the string form when the branch
+        /// expression is unavailable.
+        /// </summary>
+        string NegatedConditionOf(ILAstExpression? branch, string condition)
+        {
+            // Comparison branches only: BranchConditionToString renders the
+            // TRUE-path form for both brtrue and brfalse (ExtractCondition
+            // normalizes 1-arg branches), so flipping those opcodes would not
+            // change the rendering — 1-arg branches use the string negation.
+            if (branch is { Arguments.Count: >= 2 } && NegateBranch(branch) is { } negated)
+                return BranchConditionToString(negated);
+            return NegateConditionString(condition);
+        }
+
         void EmitIfThenElse(StructuredBlock block, int indent)
         {
             // A consumed condition block means the construct was already rendered
@@ -1820,7 +1836,7 @@ public static class CSharpEmitter
                 if (thenValue is not null && elseValue is not null)
                 {
                     if (block.NegateCondition)
-                        condition = NegateConditionString(condition);
+                        condition = NegatedConditionOf(branchExpression, condition);
 
                     string? shortCircuit = TryBuildShortCircuit(condition, thenValue, elseValue);
                     string resultExpr = shortCircuit
@@ -1850,7 +1866,7 @@ public static class CSharpEmitter
                 if (thenValue is not null && followValue.expr is not null)
                 {
                     if (block.NegateCondition)
-                        condition = NegateConditionString(condition);
+                        condition = NegatedConditionOf(branchExpression, condition);
 
                     string? shortCircuit = TryBuildShortCircuit(condition, thenValue, followValue.expr);
                     string resultExpr = shortCircuit
@@ -1875,7 +1891,7 @@ public static class CSharpEmitter
             // Apply negation if the conditional detector swapped then/else
             // (chains consume the flag as last-leaf negation in composition).
             if (!isChain && block.NegateCondition)
-                condition = NegateConditionString(condition);
+                condition = NegatedConditionOf(branchExpression, condition);
 
             if (TryEmitRuntimeCustomAwaitGuard(block))
                 return;
@@ -3644,9 +3660,9 @@ public static class CSharpEmitter
                 }
 
                 negateCondition = !branchGoesIntoLoop;
-                condition = BranchConditionToString(branchExpr);
-                if (negateCondition)
-                    condition = NegateConditionString(condition);
+                condition = negateCondition
+                    ? NegatedConditionOf(branchExpr, BranchConditionToString(branchExpr))
+                    : BranchConditionToString(branchExpr);
             }
 
             // Collect body block indices (exclude header)
@@ -4044,9 +4060,9 @@ public static class CSharpEmitter
                 }
 
                 negateCondition = !branchGoesIntoLoop;
-                condition = BranchConditionToString(branchExpr);
-                if (negateCondition)
-                    condition = NegateConditionString(condition);
+                condition = negateCondition
+                    ? NegatedConditionOf(branchExpr, BranchConditionToString(branchExpr))
+                    : BranchConditionToString(branchExpr);
             }
 
             var bodyIndices = innerLoop.BodyIndices
@@ -4259,7 +4275,7 @@ public static class CSharpEmitter
             string condition = BranchConditionToString(branchExpr);
             string guardCondition = branchExpr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
                 ? condition
-                : NegateConditionString(condition);
+                : NegatedConditionOf(branchExpr, condition);
             WriteIndent(indent);
             _sb.AppendLine($"if ({guardCondition})");
             WriteIndent(indent);
@@ -4371,7 +4387,7 @@ public static class CSharpEmitter
             string condition = BranchConditionToString(branchExpr);
             string guardCondition = branchExpr.OpCode is ILOpCode.Brfalse or ILOpCode.Brfalse_s
                 ? condition
-                : NegateConditionString(condition);
+                : NegatedConditionOf(branchExpr, condition);
             WriteIndent(indent);
             _sb.AppendLine($"if ({guardCondition})");
             WriteIndent(indent);
@@ -7590,6 +7606,53 @@ public static class CSharpEmitter
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Negates a conditional branch at the IL level by flipping to its
+        /// exact dual opcode, so the normal rendering pipeline (including its
+        /// unordered-float and unsigned handling) produces the negation.
+        /// The dual is TYPE-dependent: for floats the .un suffix means
+        /// "or unordered" and ordered/unordered forms are duals
+        /// (bge ↔ blt.un); for integers .un means unsigned and signedness is
+        /// preserved (bge ↔ blt, bge.un ↔ blt.un). beq ↔ bne.un is exact for
+        /// both. Returns null when no sound dual exists.
+        /// </summary>
+        static ILAstExpression? NegateBranch(ILAstExpression branch)
+        {
+            bool isFloat = branch.Arguments.Count >= 2
+                && (branch.Arguments[0].ResultType.Kind == StackValueKind.Float
+                    || branch.Arguments[1].ResultType.Kind == StackValueKind.Float);
+
+            ILOpCode? dual = branch.OpCode switch
+            {
+                ILOpCode.Brtrue or ILOpCode.Brtrue_s => ILOpCode.Brfalse,
+                ILOpCode.Brfalse or ILOpCode.Brfalse_s => ILOpCode.Brtrue,
+                ILOpCode.Beq or ILOpCode.Beq_s => ILOpCode.Bne_un,
+                ILOpCode.Bne_un or ILOpCode.Bne_un_s => ILOpCode.Beq,
+                ILOpCode.Bge or ILOpCode.Bge_s => isFloat ? ILOpCode.Blt_un : ILOpCode.Blt,
+                ILOpCode.Bgt or ILOpCode.Bgt_s => isFloat ? ILOpCode.Ble_un : ILOpCode.Ble,
+                ILOpCode.Ble or ILOpCode.Ble_s => isFloat ? ILOpCode.Bgt_un : ILOpCode.Bgt,
+                ILOpCode.Blt or ILOpCode.Blt_s => isFloat ? ILOpCode.Bge_un : ILOpCode.Bge,
+                ILOpCode.Bge_un or ILOpCode.Bge_un_s => isFloat ? ILOpCode.Blt : ILOpCode.Blt_un,
+                ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => isFloat ? ILOpCode.Ble : ILOpCode.Ble_un,
+                ILOpCode.Ble_un or ILOpCode.Ble_un_s => isFloat ? ILOpCode.Bgt : ILOpCode.Bgt_un,
+                ILOpCode.Blt_un or ILOpCode.Blt_un_s => isFloat ? ILOpCode.Bge : ILOpCode.Bge_un,
+                _ => null,
+            };
+            if (dual is null)
+                return null;
+
+            var negated = new ILAstExpression
+            {
+                OpCode = dual.Value,
+                Operand = branch.Operand,
+                ResultType = branch.ResultType,
+                Offset = branch.Offset,
+            };
+            foreach (var arg in branch.Arguments)
+                negated.Arguments.Add(arg);
+            return negated;
+        }
+
         static string NegateConditionString(string condition)
         {
             // A fully-wrapped negation strips exactly. This must run before the
@@ -7602,24 +7665,44 @@ public static class CSharpEmitter
                 return condition[2..^1];
             }
 
-            // Flip comparison operators if present
-            if (condition.Contains(" != "))
-                return condition.Replace(" != ", " == ");
-            if (condition.Contains(" == "))
-                return condition.Replace(" == ", " != ");
-            if (condition.Contains(" > ") && !condition.Contains(" >= "))
-                return condition.Replace(" > ", " <= ");
-            if (condition.Contains(" < ") && !condition.Contains(" <= "))
-                return condition.Replace(" < ", " >= ");
-            if (condition.Contains(" >= "))
-                return condition.Replace(" >= ", " < ");
-            if (condition.Contains(" <= "))
-                return condition.Replace(" <= ", " > ");
+            // Flip the comparison operator — only for a SINGLE comparison.
+            // Compound conditions (&&/||, multiple comparisons) need De Morgan,
+            // not a textual flip; wrap those instead.
+            if (!condition.Contains("&&") && !condition.Contains("||"))
+            {
+                if (CountOccurrences(condition, " != ") == 1)
+                    return condition.Replace(" != ", " == ");
+                if (CountOccurrences(condition, " == ") == 1)
+                    return condition.Replace(" == ", " != ");
+                if (CountOccurrences(condition, " > ") == 1 && !condition.Contains(" >= "))
+                    return condition.Replace(" > ", " <= ");
+                if (CountOccurrences(condition, " < ") == 1 && !condition.Contains(" <= "))
+                    return condition.Replace(" < ", " >= ");
+                if (CountOccurrences(condition, " >= ") == 1)
+                    return condition.Replace(" >= ", " < ");
+                if (CountOccurrences(condition, " <= ") == 1)
+                    return condition.Replace(" <= ", " > ");
+            }
 
-            // Simple negation
-            if (condition.StartsWith('!'))
+            // Simple negation. A bare '!' binds tighter than any binary
+            // operator, so stripping or prefixing without parens is only
+            // sound for single-token conditions — '!a & b' is NOT the
+            // negation of 'a & b'.
+            bool singleToken = !condition.Contains(' ');
+            if (condition.StartsWith('!') && singleToken)
                 return condition[1..];
-            return $"!{condition}";
+            return singleToken ? $"!{condition}" : $"!({condition})";
+        }
+
+        static int CountOccurrences(string text, string token)
+        {
+            int count = 0;
+            for (int i = text.IndexOf(token, StringComparison.Ordinal); i >= 0;
+                 i = text.IndexOf(token, i + token.Length, StringComparison.Ordinal))
+            {
+                count++;
+            }
+            return count;
         }
 
         /// <summary>
