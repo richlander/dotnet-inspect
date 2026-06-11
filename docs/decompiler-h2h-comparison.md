@@ -193,13 +193,11 @@ return true;
 **Decompiled:**
 
 ```csharp
-int V_0;
-
 if (value == null)
 {
     return true;
 }
-for (V_0 = 0; V_0 < value.Length; V_0++)
+for (int V_0 = 0; V_0 < value.Length; V_0++)
 {
     if (!char.IsWhiteSpace(value[V_0]))
     {
@@ -209,7 +207,7 @@ for (V_0 = 0; V_0 < value.Length; V_0++)
 return true;
 ```
 
-**Verdict:** Source-exact shape — loop structure, negated condition, and return polarity all match. Only the hoisted `int V_0;` declaration differs, because the local's declaration point isn't recoverable without a PDB. **Grade: A-**
+**Verdict:** Source-exact — the loop counter declares in the for-initializer as the source writes it; only the counter's name differs. **Grade: A**
 
 ---
 
@@ -458,7 +456,7 @@ for (V_4 = 0; V_4 < _count; V_4++) { /* cached-comparer loop */ }
 | `StringBuilder.Clear` | **A** | exact |
 | `Queue.Enqueue` | **A** | exact |
 | `Math.Clamp` | **A-** | else-if tail folded into ternary |
-| `String.IsNullOrWhiteSpace` | **A-** | hoisted local declaration |
+| `String.IsNullOrWhiteSpace` | **A** | counter name only |
 | `String.Contains` | **A-** | if/return folded into long ternary |
 | `Stack.Push` | **A-** | guard-clause inversion of if/else |
 | `Stack.Pop` | **A-** | slot naming (`S_0`); structure exact |
