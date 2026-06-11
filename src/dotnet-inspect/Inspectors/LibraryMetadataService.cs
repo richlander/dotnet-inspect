@@ -76,6 +76,13 @@ internal static class LibraryMetadataService
             inspection.HasRuntimeAsync = presenceFlags.HasRuntimeAsync;
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;
             inspection.HasManifestResources = presenceFlags.HasManifestResources;
+            inspection.HasOpenTelemetrySupport = presenceFlags.HasOpenTelemetrySupport;
+            inspection.HasDependencyInjectionSupport = presenceFlags.HasDependencyInjectionSupport;
+            inspection.HasLoggingSupport = presenceFlags.HasLoggingSupport;
+            inspection.HasOptionsSupport = presenceFlags.HasOptionsSupport;
+            inspection.HasHostingSupport = presenceFlags.HasHostingSupport;
+            inspection.HasHealthChecksSupport = presenceFlags.HasHealthChecksSupport;
+            inspection.HasHttpClientSupport = presenceFlags.HasHttpClientSupport;
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
 
@@ -521,6 +528,99 @@ internal static class LibraryMetadataService
         {
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
         }
+    }
+
+    internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            return ScanOpenTelemetry(peReader, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    internal static void ScanIntegrations(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            ScanIntegrations(peReader, path, inspection, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning ecosystem integrations in {path}: {ex.Message}");
+        }
+    }
+
+    internal static void ScanIntegrations(PEReader peReader, string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        inspection.OpenTelemetry = ScanOpenTelemetry(peReader, path, logger);
+        var signals = EcosystemIntegrationScanner.Scan(peReader);
+        inspection.DependencyInjection = SelectIntegrationSignals(signals, "Dependency Injection");
+        inspection.Logging = SelectIntegrationSignals(signals, "Logging");
+        inspection.Options = SelectIntegrationSignals(signals, "Options");
+        inspection.Hosting = SelectIntegrationSignals(signals, "Hosting");
+        inspection.HealthChecks = SelectIntegrationSignals(signals, "Health Checks");
+        inspection.HttpClient = SelectIntegrationSignals(signals, "HTTP Client");
+        inspection.Integrations = BuildIntegrations(inspection);
+    }
+
+    internal static List<IntegrationSignal>? ScanOpenTelemetry(PEReader peReader, string path, VerboseLogger logger)
+    {
+        try
+        {
+            var signals = OpenTelemetryScanner.Scan(peReader)
+                .Select(s => new IntegrationSignal(s.Kind, s.Name))
+                .ToList();
+
+            return signals.Count > 0 ? signals : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static List<IntegrationSignal>? SelectIntegrationSignals(
+        List<EcosystemIntegrationSignalInfo> signals,
+        string integration)
+    {
+        var selected = signals
+            .Where(s => s.Integration.Equals(integration, StringComparison.Ordinal))
+            .Select(s => new IntegrationSignal(s.Kind, s.Name))
+            .ToList();
+
+        return selected.Count > 0 ? selected : null;
+    }
+
+    private static List<IntegrationSummary>? BuildIntegrations(LibraryInspection inspection)
+    {
+        List<IntegrationSummary> integrations = [];
+        AddIntegration(integrations, "Dependency Injection", inspection.DependencyInjection);
+        AddIntegration(integrations, "Logging", inspection.Logging);
+        AddIntegration(integrations, "OpenTelemetry", inspection.OpenTelemetry);
+        AddIntegration(integrations, "Options", inspection.Options);
+        AddIntegration(integrations, "Hosting", inspection.Hosting);
+        AddIntegration(integrations, "Health Checks", inspection.HealthChecks);
+        AddIntegration(integrations, "HTTP Client", inspection.HttpClient);
+        return integrations.Count > 0 ? integrations : null;
+    }
+
+    private static void AddIntegration(
+        List<IntegrationSummary> integrations,
+        string name,
+        List<IntegrationSignal>? signals)
+    {
+        if (signals is { Count: > 0 })
+            integrations.Add(new IntegrationSummary(name, signals.Count, name));
     }
 
     internal static void ScanInfoCounts(string path, LibraryInspection inspection, VerboseLogger logger)

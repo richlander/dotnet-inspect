@@ -19,7 +19,7 @@ Agents working in this repo should preserve these principles:
 1. Prefer factual inspection over guesses; keep `dotnet-inspect skill` guidance current with CLI behavior.
 2. Keep output section ownership clear: sectioned output should avoid duplicated rows across sections.
 3. Preserve behavior-safe defaults. Expensive network/source checks should stay explicit or capability-gated.
-4. Preserve the progressive-disclosure model: verbosity for curated defaults, `-D`/`-S` for query and backpressure, opt-in sections for expensive work, and `-S All` only for intentional exhaustive output.
+4. Preserve the progressive-disclosure model: verbosity for curated defaults, `-D`/`-S` for query and backpressure, opt-in sections for expensive work, and `-S @All` only for intentional exhaustive output.
 5. Use built-in query/limiter concepts (`-D`, `-S`, `--columns`, `--fields`, `--count`, `--rows`) instead of shell-pipe workarounds when possible.
 6. Treat cache schema changes as versioned categories and invalidate/clean stale metadata caches deliberately.
 
@@ -29,7 +29,8 @@ Agents working in this repo should preserve these principles:
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
-- [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S All`, and limiter behavior.
+- [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S @All`, and limiter behavior.
+- [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.

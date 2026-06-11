@@ -122,30 +122,31 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "Library Info")]
     public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info ? null : new LibraryInfoSection
     {
-        Name = info.AssemblyName,
-        Version = ResolveVersion(),
-        InformationalVersion = info.InformationalVersion,
-        AssemblyVersion = info.AssemblyVersion,
-        TargetFramework = info.TargetFramework,
         Architecture = info.Architecture,
-        Compilation = info.CompilationType,
-        Product = info.Product,
-        Company = info.Company,
-        Copyright = info.Copyright,
-        Signed = info.IsSigned ? "Yes" : null,
-        PublicKeyToken = info.PublicKeyToken,
-        Deterministic = _data.IsDeterministic,
-        Reproducible = _data.HasReproducibleFlag,
-        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
-        Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
-        Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
+        AssemblyVersion = info.AssemblyVersion,
         AsyncMethods = CountOrZero(_data.AsyncMethods),
+        Company = info.Company,
+        Compilation = info.CompilationType,
+        Copyright = info.Copyright,
         CustomAttributes = CountOrZero(_data.CustomAttributes),
+        Deterministic = _data.IsDeterministic,
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
-        Resources = CountOrZero(_data.Resources),
-        TypeForwarders = CountOrZero(_data.TypeForwarders),
-        Source = _data.Source,
+        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
+        InformationalVersion = info.InformationalVersion,
+        Integrations = CountIntegrations(_data),
+        Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
         Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
+        Name = info.AssemblyName,
+        Product = info.Product,
+        PublicKeyToken = info.PublicKeyToken,
+        Reproducible = _data.HasReproducibleFlag,
+        Resources = CountOrZero(_data.Resources),
+        Signed = info.IsSigned ? "Yes" : null,
+        Source = _data.Source,
+        TargetFramework = info.TargetFramework,
+        TypeForwarders = CountOrZero(_data.TypeForwarders),
+        Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
+        Version = ResolveVersion(),
     };
 
     [MarkoutSection(Name = "References")]
@@ -193,6 +194,67 @@ public class LibraryInspectionView
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
     [MarkoutIgnore]
+    public bool HasIntegrations => _data.Integrations is { Count: > 0 };
+
+    [MarkoutSection(Name = "Integrations", ShowWhenProperty = nameof(HasIntegrations))]
+    public List<IntegrationRow>? IntegrationsSection =>
+        _data.Integrations?
+            .Select(i => new IntegrationRow(
+                i.Integration,
+                i.Count,
+                FormatSectionSelect(i.NextSection)))
+            .ToList();
+
+    [MarkoutIgnore]
+    public bool HasDependencyInjection => _data.DependencyInjection is { Count: > 0 };
+
+    [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjection))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? DependencyInjectionSection => ToIntegrationSignalRows(_data.DependencyInjection);
+
+    [MarkoutIgnore]
+    public bool HasLogging => _data.Logging is { Count: > 0 };
+
+    [MarkoutSection(Name = "Logging", ShowWhenProperty = nameof(HasLogging))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? LoggingSection => ToIntegrationSignalRows(_data.Logging);
+
+    [MarkoutIgnore]
+    public bool HasOpenTelemetry => _data.OpenTelemetry is { Count: > 0 };
+
+    [MarkoutSection(Name = "OpenTelemetry", ShowWhenProperty = nameof(HasOpenTelemetry))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? OpenTelemetrySection => ToIntegrationSignalRows(_data.OpenTelemetry);
+
+    [MarkoutIgnore]
+    public bool HasOptions => _data.Options is { Count: > 0 };
+
+    [MarkoutSection(Name = "Options", ShowWhenProperty = nameof(HasOptions))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? OptionsSection => ToIntegrationSignalRows(_data.Options);
+
+    [MarkoutIgnore]
+    public bool HasHosting => _data.Hosting is { Count: > 0 };
+
+    [MarkoutSection(Name = "Hosting", ShowWhenProperty = nameof(HasHosting))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? HostingSection => ToIntegrationSignalRows(_data.Hosting);
+
+    [MarkoutIgnore]
+    public bool HasHealthChecks => _data.HealthChecks is { Count: > 0 };
+
+    [MarkoutSection(Name = "Health Checks", ShowWhenProperty = nameof(HasHealthChecks))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? HealthChecksSection => ToIntegrationSignalRows(_data.HealthChecks);
+
+    [MarkoutIgnore]
+    public bool HasHttpClient => _data.HttpClient is { Count: > 0 };
+
+    [MarkoutSection(Name = "HTTP Client", ShowWhenProperty = nameof(HasHttpClient))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? HttpClientSection => ToIntegrationSignalRows(_data.HttpClient);
+
+    [MarkoutIgnore]
     public bool HasSourceLinkAudit => _data.AllSourcesAccessible.HasValue || _data.TotalSourceFiles > 0;
 
     [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
@@ -210,17 +272,17 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "SourceLink Integrity", ShowWhenProperty = nameof(HasSourceIntegrity))]
     public SourceIntegritySection? SourceIntegritySection => !HasSourceIntegrity ? null : new SourceIntegritySection
     {
-        Status = _data.SourceIntegrityMismatched > 0 ? "Mismatch"
-            : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified",
-        Verified = _data.SourceIntegrityVerified,
+        CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
+            ? $"{_data.SourceIntegrityLineEndingNormalized} normalized"
+            : null,
         Mismatched = _data.SourceIntegrityMismatched,
         MismatchedFiles = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
             ? string.Join(", ", mismatches.Select(MarkoutInline.Code))
             : null,
-        CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
-            ? $"{_data.SourceIntegrityLineEndingNormalized} normalized"
-            : null,
-        Unverifiable = _data.SourceIntegrityUnverifiable
+        Status = _data.SourceIntegrityMismatched > 0 ? "Mismatch"
+            : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified",
+        Unverifiable = _data.SourceIntegrityUnverifiable,
+        Verified = _data.SourceIntegrityVerified,
     };
 
     [MarkoutIgnore]
@@ -314,6 +376,31 @@ public class LibraryInspectionView
     private static int CountExtensionMethods(List<ExtensionMethodSummary>? methods)
         => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
+    private static int CountIntegrations(LibraryInspection inspection)
+    {
+        if (inspection.Integrations is { Count: > 0 } integrations)
+            return integrations.Count;
+
+        var count = 0;
+        if (inspection.HasDependencyInjectionSupport) count++;
+        if (inspection.HasLoggingSupport) count++;
+        if (inspection.HasOpenTelemetrySupport) count++;
+        if (inspection.HasOptionsSupport) count++;
+        if (inspection.HasHostingSupport) count++;
+        if (inspection.HasHealthChecksSupport) count++;
+        if (inspection.HasHttpClientSupport) count++;
+        return count;
+    }
+
+    private static List<IntegrationSignalRow>? ToIntegrationSignalRows(List<IntegrationSignal>? signals)
+        => signals?.Select(s => new IntegrationSignalRow(s.Kind, MarkoutInline.Code(s.Name))).ToList();
+
+    public static bool IntegrationKindIsUniform(List<IntegrationSignalRow>? rows)
+        => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
+
+    private static string FormatSectionSelect(string section)
+        => section.Contains(' ', StringComparison.Ordinal) ? $"-S \"{section}\"" : $"-S {section}";
+
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -400,34 +487,46 @@ public record AuditSignalRow(
     string Value,
     string Evidence);
 
+[MarkoutSerializable]
+public record IntegrationRow(
+    string Integration,
+    int Examples,
+    string Next);
+
+[MarkoutSerializable]
+public record IntegrationSignalRow(
+    string Kind,
+    string Type);
+
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class LibraryInfoSection
 {
-    public string? AssemblyVersion { get; init; }
     public string? Architecture { get; init; }
+    public string? AssemblyVersion { get; init; }
+    public int AsyncMethods { get; init; }
     public string? Company { get; init; }
     public string? Compilation { get; init; }
     public string? Copyright { get; init; }
+    public int CustomAttributes { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Deterministic { get; init; }
+    public int ExtensionMethods { get; init; }
     public string? FileSize { get; init; }
     public string? InformationalVersion { get; init; }
+    public int Integrations { get; init; }
     public string? Methods { get; init; }
-    public int AsyncMethods { get; init; }
-    public int CustomAttributes { get; init; }
-    public int ExtensionMethods { get; init; }
-    public int Resources { get; init; }
-    public int TypeForwarders { get; init; }
     public string? Modified { get; init; }
     public string? Name { get; init; }
     public string? Product { get; init; }
     public string? PublicKeyToken { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Reproducible { get; init; }
+    public int Resources { get; init; }
     public string? Signed { get; init; }
     public string? Source { get; init; }
     public string? TargetFramework { get; init; }
+    public int TypeForwarders { get; init; }
     public string? Types { get; init; }
     public string? Version { get; init; }
 }
@@ -468,11 +567,11 @@ public class SourceLinkAuditSection
 [MarkoutSkipNull]
 public class SourceIntegritySection
 {
+    [MarkoutPropertyName("CR/LF Mismatch")]
+    public string? CrlfMismatch { get; init; }
     public int Mismatched { get; init; }
     [MarkoutPropertyName("Mismatched Files")]
     public string? MismatchedFiles { get; init; }
-    [MarkoutPropertyName("CR/LF Mismatch")]
-    public string? CrlfMismatch { get; init; }
     public string Status { get; init; } = "";
     public int Unverifiable { get; init; }
     public int Verified { get; init; }

@@ -58,6 +58,19 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalPrimaryLibPackage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(TestAssemblyPath, Path.Combine(libDir, "Test.Primary.dll"));
+
+        var packagePath = Path.Combine(tempDir, "Test.Primary.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
@@ -782,7 +795,7 @@ public class CommandExecutionTests
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| IL (Annotated) | section |", output);
-        Assert.DoesNotContain("Use -S All to select all sections.", output);
+        Assert.DoesNotContain("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
 
@@ -804,7 +817,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Original Source | section |", output);
-        Assert.DoesNotContain("Use -S All to select all sections.", output);
+        Assert.DoesNotContain("Use -S @All to select all sections.", output);
     }
 
     [Fact]
@@ -1893,7 +1906,15 @@ public class CommandExecutionTests
             [
                 "Async Methods",
                 "Custom Attributes",
+                "Dependency Injection",
                 "Extension Methods",
+                "Health Checks",
+                "Hosting",
+                "HTTP Client",
+                "Integrations",
+                "Logging",
+                "OpenTelemetry",
+                "Options",
                 "Resources",
                 "SourceLink Availability",
                 "SourceLink Integrity",
@@ -1903,18 +1924,126 @@ public class CommandExecutionTests
             optInNames);
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
+    }
 
-        static string ExtractSectionName(string line)
+    [Fact]
+    public async Task LibraryCommand_IntegrationsSection_RollsUpOpenTelemetry()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Examples | Next |", output);
+        Assert.Contains("| OpenTelemetry |", output);
+        Assert.Contains("-S OpenTelemetry", output);
+        Assert.DoesNotContain("## OpenTelemetry", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsRenderableIntegrationSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-D", "@Integrations", "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Integrations", output);
+        Assert.Contains("Dependency Injection", output);
+        Assert.Contains("Logging", output);
+        Assert.Contains("OpenTelemetry", output);
+        Assert.DoesNotContain("Options", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectIntegrationsCategory_RendersIntegrationSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-S", "@Integrations", "--rows", "-n", "6");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("## Dependency Injection", output);
+        Assert.Contains("## Logging", output);
+        Assert.Contains("## OpenTelemetry", output);
+        Assert.DoesNotContain("## Options", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationsSection_RollsUpLogging()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Logging", output);
+        Assert.Contains("-S Logging", output);
+        Assert.DoesNotContain("## Logging", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LoggingSection_DetectsLoggingPrimitives()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Logging");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Logging", output);
+        Assert.Contains("| Type |", output);
+        Assert.Contains("| `Microsoft.Extensions.Logging.ILogger` |", output);
+        Assert.DoesNotContain("| Kind |", output);
+        Assert.Contains("Microsoft.Extensions.Logging.ILogger", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DependencyInjectionSection_ShowsActionableTypesOnly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-S", "Dependency Injection");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Dependency Injection", output);
+        Assert.Contains("| Type |", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.IServiceCollection", output);
+        Assert.DoesNotContain("| Kind |", output);
+        Assert.DoesNotContain("Assembly Reference", output);
+        Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.Abstractions", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_OpenTelemetrySection_DetectsDiagnosticSourcePrimitives()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "OpenTelemetry");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## OpenTelemetry", output);
+        Assert.Contains("| Kind | Type |", output);
+        Assert.Contains("| Tracing | `System.Diagnostics.ActivitySource` |", output);
+        Assert.Contains("| Metrics | `System.Diagnostics.Metrics.Meter` |", output);
+        Assert.Contains("| Metrics | `System.Diagnostics.Metrics.UpDownCounter<T>` |", output);
+        Assert.Contains("System.Diagnostics.ActivitySource", output);
+        Assert.Contains("System.Diagnostics.Metrics.Meter", output);
+        Assert.DoesNotContain("UpDownCounter&#96;1", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    private static string ExtractSectionName(string line)
+    {
+        if (line.StartsWith('|'))
         {
-            if (line.StartsWith('|'))
-            {
-                var cells = line.Split('|', StringSplitOptions.TrimEntries);
-                return cells.Length > 1 ? cells[1] : line.Trim();
-            }
-
-            var marker = line.IndexOf("  section", StringComparison.Ordinal);
-            return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
+            var cells = line.Split('|', StringSplitOptions.TrimEntries);
+            return cells.Length > 1 ? cells[1] : line.Trim();
         }
+
+        var marker = line.IndexOf("  section", StringComparison.Ordinal);
+        return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
     }
 
     [Fact]
@@ -2013,6 +2142,89 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_BareSelectsUnambiguousLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## Library Info", output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_ExplicitSelectsLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "Latest.Two.dll", "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Latest.Two.dll", output);
+            Assert.Contains("## Library Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_BareReportsAmbiguousLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--library");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("contains multiple libraries", error);
+            Assert.Contains("lib/net10.0/Latest.One.dll", error);
+            Assert.Contains("lib/net10.0/Latest.Two.dll", error);
+            Assert.Contains("dotnet-inspect package", error);
+            Assert.Contains("--library <dll>", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Router_LibraryFlag_RoutesPackageToLibraryInspection()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(packagePath, "--library", "-S", "Library Info");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## Library Info", output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -2122,7 +2334,9 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Signals", output);
             Assert.Contains("section (opt-in)", output);
-            Assert.Contains("Use -S All to select all sections.", output);
+            Assert.Contains("@Default", output);
+            Assert.Contains("@All", output);
+            Assert.Contains("Use -S @All to select all sections.", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -2227,7 +2441,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "All");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "@All");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);

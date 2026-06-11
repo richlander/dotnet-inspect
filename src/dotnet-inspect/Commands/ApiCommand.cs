@@ -82,12 +82,16 @@ public class ApiCommand
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
-                sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null));
+                sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
+                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap()));
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(options.Select, knownSections,
-            singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames);
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            knownSections,
+            singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
+            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap());
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
@@ -909,7 +913,8 @@ public class ApiCommand
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
-            sectionCostAnnotations: memberPipeline.GetCostAnnotations());
+            sectionCostAnnotations: memberPipeline.GetCostAnnotations(),
+            sectionCategories: memberPipeline.GetCategoryMap());
     }
 
     /// <summary>

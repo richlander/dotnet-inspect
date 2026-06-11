@@ -45,11 +45,45 @@ public class SelectResolverTests
     [Fact]
     public void ResolveSelect_AllSelector_ReturnsAllSections()
     {
-        var result = SelectResolver.ResolveSelectAsSections(["All"], TestSections);
+        var result = SelectResolver.ResolveSelectAsSections(["@All"], TestSections);
 
         Assert.NotNull(result.Sections);
         Assert.Empty(result.Unresolved);
         Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
+    }
+
+    [Fact]
+    public void ResolveSelect_DefaultSelector_ReturnsDefaultSections()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["@Default"], TestSections, ["Package Info"]);
+
+        Assert.NotNull(result.Sections);
+        Assert.Empty(result.Unresolved);
+        Assert.Equal(["Package Info"], result.Sections!.ToArray());
+    }
+
+    [Fact]
+    public void ResolveSelect_CustomCategory_ReturnsCategorySections()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Signals"] = ["Vulnerabilities", "Statistics"]
+        };
+
+        var result = SelectResolver.ResolveSelectAsSections(["@Signals"], TestSections, ["Package Info"], categories);
+
+        Assert.NotNull(result.Sections);
+        Assert.Empty(result.Unresolved);
+        Assert.Equal(["Statistics", "Vulnerabilities"], result.Sections!.OrderBy(s => s).ToArray());
+    }
+
+    [Fact]
+    public void ResolveSelect_PlainAllIsNotSpecial()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["All"], TestSections);
+
+        Assert.Null(result.Sections);
+        Assert.Single(result.Unresolved);
     }
 
     [Fact]

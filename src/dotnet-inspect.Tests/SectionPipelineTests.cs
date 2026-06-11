@@ -207,7 +207,15 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(16, pipeline.AllSectionNames.Length);
+        Assert.Equal(24, pipeline.AllSectionNames.Length);
+        Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
+        Assert.Contains("Health Checks", pipeline.AllSectionNames);
+        Assert.Contains("Hosting", pipeline.AllSectionNames);
+        Assert.Contains("HTTP Client", pipeline.AllSectionNames);
+        Assert.Contains("Integrations", pipeline.AllSectionNames);
+        Assert.Contains("Logging", pipeline.AllSectionNames);
+        Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
+        Assert.Contains("Options", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
@@ -580,6 +588,71 @@ public class SectionPipelineTests
 
         Assert.DoesNotContain("Resources", effective);
         Assert.Contains("Resources", selected);
+    }
+
+    [Fact]
+    public void CanRender_OpenTelemetry_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasOpenTelemetrySupport = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OpenTelemetry" });
+
+        Assert.DoesNotContain("OpenTelemetry", effective);
+        Assert.Contains("OpenTelemetry", selected);
+    }
+
+    [Fact]
+    public void CanRender_Integrations_UsesPresenceFlag()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasOpenTelemetrySupport = true
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integrations" });
+
+        Assert.DoesNotContain("Integrations", effective);
+        Assert.Contains("Integrations", selected);
+    }
+
+    [Theory]
+    [InlineData("Dependency Injection")]
+    [InlineData("Logging")]
+    [InlineData("Options")]
+    [InlineData("Hosting")]
+    [InlineData("Health Checks")]
+    [InlineData("HTTP Client")]
+    public void CanRender_EcosystemIntegrationSections_UsePresenceFlags(string sectionName)
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasDependencyInjectionSupport = sectionName == "Dependency Injection",
+            HasLoggingSupport = sectionName == "Logging",
+            HasOptionsSupport = sectionName == "Options",
+            HasHostingSupport = sectionName == "Hosting",
+            HasHealthChecksSupport = sectionName == "Health Checks",
+            HasHttpClientSupport = sectionName == "HTTP Client",
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { sectionName });
+
+        Assert.DoesNotContain(sectionName, effective);
+        Assert.Contains(sectionName, selected);
     }
 
     [Fact]

@@ -34,8 +34,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current command and metadata architecture. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
-| [Progressive Disclosure](design/progressive-disclosure.md) | Current model for verbosity, `-D`/`-S`, opt-in sections, `-S All`, counts, and row limits. |
-| [Bare `-S` Info View](design/info-view.md) | Bullseye questions and section profiles for curated high-density Info views. |
+| [Progressive Disclosure](design/progressive-disclosure.md) | Current model for verbosity, `-D`/`-S`, opt-in sections, `-S @All`, counts, and row limits. |
+| [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
 | [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages. |
 | [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |

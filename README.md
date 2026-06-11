@@ -30,7 +30,7 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
+| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, source/decompiled/IL drill-in. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type filters. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. |
@@ -65,6 +65,13 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `library X -S "SourceLink Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 
+## Integrations
+
+`Integrations` is a library section for ecosystem support such as Dependency
+Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and
+OpenTelemetry. It is a usability index, not a raw evidence report: focused
+integration sections list actionable API types rather than assembly references.
+
 ## Output and querying
 
 Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
@@ -78,15 +85,22 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S "Async*" --count
+dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Logging
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S Signals
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S All` to select all sections; it renders the default section first, then remaining sections alphabetically.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically.
 
 ## Common examples
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals

@@ -24,7 +24,7 @@ Verbosity is the curated path. It controls how much of the default view appears.
 
 Verbosity should reveal more about the same subject. It should not silently run slow source-content checks or unrelated lenses.
 
-Minimal/default views use a summary strategy: keep the answer close to one screenful by showing compact fields, counts, or one row per logical item. They should not render long unbounded metadata lists. When a long list is valuable, the minimal view should expose a count or summary signal and leave the full list to a named section, higher verbosity, or `-S All`.
+Minimal/default views use a summary strategy: keep the answer close to one screenful by showing compact fields, counts, or one row per logical item. They should not render long unbounded metadata lists. When a long list is valuable, the minimal view should expose a count or summary signal and leave the full list to a named section, higher verbosity, or `-S @All`.
 
 ## Section selection
 
@@ -43,7 +43,7 @@ Section selection does two things:
 
 For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
 
-Bare `-S` is command/context-specific: package uses `Package Info` and `Library Files`; library uses `Library Info`; type and broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` Info view](info-view.md) for the bullseye question each preset is meant to answer.
+Bare `-S` is command/context-specific shorthand for `-S @Default`: package uses `Package Info` and `Library Files`; library uses `Library Info`; type and broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` default view](info-view.md) for the bullseye question each preset is meant to answer.
 
 For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (lowered C#), `IL`, and `IL (Annotated)`. `Original Source` is SourceLink-backed source text for one method, so it is enabled by detailed verbosity or explicit `-S`.
 
@@ -92,21 +92,23 @@ Some sections are explicit-only because they require stronger user intent than d
 Examples:
 
 ```bash
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
+dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "SourceLink Availability"
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 ```
 
-These sections do not run from normal verbosity or broad default output. Select them explicitly, or use `-S All` when you intentionally want every selectable section, including opt-in sections.
+These sections do not run from normal verbosity or broad default output. Select them explicitly, or use `-S @All` when you intentionally want every selectable section, including opt-in sections.
 
-## `-S All`
+## `-S @All`
 
-`-S All` means "select every section the command exposes," including opt-in sections. It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
+`-S @All` means "select every section the command exposes," including opt-in sections. It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
 
 Prefer:
 
 1. Start with a targeted section such as `Signals`, `Package Info`, `Library Files`, or `Async*`.
 2. Use `-D` to discover more sections.
-3. Use `-S All` only when the task truly requires exhaustive output.
+3. Use `-S @All` only when the task truly requires exhaustive output.
 
 ## Agent guidance
 

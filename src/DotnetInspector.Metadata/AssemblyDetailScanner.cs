@@ -224,7 +224,7 @@ public static class AssemblyDetailScanner
 
             var ns = reader.GetString(exportedType.Namespace);
             var name = reader.GetString(exportedType.Name);
-            var fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+            var fullName = TypeResolver.FormatDisplayName(string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}");
 
             string targetAssembly = "";
             if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
@@ -354,8 +354,8 @@ public static class AssemblyDetailScanner
     }
 
     /// <summary>
-    /// Cheap presence flags for section discovery. Single MetadataReader pass,
-    /// short-circuits at first match for each flag.
+    /// Cheap presence flags for section discovery. Uses metadata table scans
+    /// and short-circuits at first match for each flag where practical.
     /// </summary>
     public static PresenceFlags ScanPresenceFlags(PEReader peReader)
     {
@@ -364,6 +364,14 @@ public static class AssemblyDetailScanner
 
         // Resources: cheapest check — just a count
         flags.HasManifestResources = reader.GetTableRowCount(TableIndex.ManifestResource) > 0;
+        var integrationPresence = EcosystemIntegrationScanner.ScanPresence(reader);
+        flags.HasOpenTelemetrySupport = integrationPresence.HasOpenTelemetrySupport;
+        flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
+        flags.HasLoggingSupport = integrationPresence.HasLoggingSupport;
+        flags.HasOptionsSupport = integrationPresence.HasOptionsSupport;
+        flags.HasHostingSupport = integrationPresence.HasHostingSupport;
+        flags.HasHealthChecksSupport = integrationPresence.HasHealthChecksSupport;
+        flags.HasHttpClientSupport = integrationPresence.HasHttpClientSupport;
 
         // Type forwarders: iterate ExportedTypes, stop at first forwarder
         foreach (var handle in reader.ExportedTypes)
@@ -495,6 +503,13 @@ public class PresenceFlags
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }
     public bool HasTypeForwarders { get; set; }
+    public bool HasOpenTelemetrySupport { get; set; }
+    public bool HasDependencyInjectionSupport { get; set; }
+    public bool HasLoggingSupport { get; set; }
+    public bool HasOptionsSupport { get; set; }
+    public bool HasHostingSupport { get; set; }
+    public bool HasHealthChecksSupport { get; set; }
+    public bool HasHttpClientSupport { get; set; }
 
     /// <summary>Whether the assembly has any public runtime-async methods (impl flag 0x2000).</summary>
     public bool HasRuntimeAsync { get; set; }

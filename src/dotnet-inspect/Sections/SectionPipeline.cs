@@ -17,6 +17,8 @@ public sealed class SectionEntry<TModel>
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
+public sealed record SectionCategory(string Name, string[] Sections);
+
 public static class SectionAnnotations
 {
     public const string OptIn = "opt-in";
@@ -34,6 +36,10 @@ public static class SectionAnnotations
 public sealed class SectionPipeline<TModel>
 {
     private readonly List<SectionEntry<TModel>> _entries = [];
+    private readonly List<SectionCategory> _categories = [];
+
+    public const string DefaultCategory = "@Default";
+    public const string AllCategory = "@All";
 
     /// <summary>
     /// Registers a section descriptor. The descriptor type is never instantiated —
@@ -54,11 +60,34 @@ public sealed class SectionPipeline<TModel>
         return this;
     }
 
+    public SectionPipeline<TModel> AddCategory(string name, params string[] sections)
+    {
+        if (!name.StartsWith("@", StringComparison.Ordinal))
+            throw new ArgumentException("Section category names must start with '@'.", nameof(name));
+
+        _categories.Add(new SectionCategory(name, sections));
+        return this;
+    }
+
     /// <summary>All registered section names, in registration order.</summary>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
 
-    /// <summary>Sections in the curated Info preset, in registration order.</summary>
+    /// <summary>Sections in the curated @Default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries.Where(e => e.Info).Select(e => e.Name).ToArray();
+
+    public IReadOnlyDictionary<string, string[]> GetCategoryMap()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultCategory] = InfoSectionNames,
+            [AllCategory] = AllSectionNames
+        };
+
+        foreach (var category in _categories)
+            categories[category.Name] = category.Sections;
+
+        return categories;
+    }
 
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:
@@ -114,7 +143,7 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Computes the canonical render order for <c>-S All</c>: the Minimal/default
+    /// Computes the canonical render order for <c>-S @All</c>: the Minimal/default
     /// sections first (excluding headless Summary context), then every remaining
     /// renderable section in alpha order.
     /// </summary>

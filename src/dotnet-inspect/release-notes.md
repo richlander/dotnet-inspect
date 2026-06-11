@@ -79,7 +79,7 @@
 
 - Added `Library Files` to list all files under `lib/` across target frameworks.
 - Added package manifest version output and removed the redundant manifest schema row.
-- Added `-S All` to select all sections, including opt-in sections.
+- Added `-S @All` to select all sections, including opt-in sections.
 
 ### SourceLink
 

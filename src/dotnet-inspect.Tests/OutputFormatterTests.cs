@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -203,6 +204,86 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void AssertMarkdownTablesHaveUniformColumnCounts_CatchesMalformedRows()
+    {
+        const string markdown = """
+        | Name | Value |
+        | ---- | ----- |
+        | A | 1 |
+        | B |
+        """;
+
+        Assert.Throws<InvalidOperationException>(() => AssertMarkdownTablesHaveUniformColumnCounts(markdown));
+    }
+
+    [Fact]
+    public void RepresentativeMarkdownTables_HaveUniformColumnCounts()
+    {
+        var packageResult = new InspectionResult
+        {
+            PackageName = "Test.Package",
+            Version = "1.0.0",
+            LibraryFiles = ["lib/net10.0/Test.Package.dll"],
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = true,
+                Publisher = "Example Publisher",
+                Repository = "nuget.org",
+                RepositoryVerified = true,
+                StatusMessage = "Valid"
+            },
+            AuditSignals =
+            [
+                new AuditSignal("Package", "README", "Yes", "nuspec")
+            ]
+        };
+        var packageOptions = new InspectionOptions
+        {
+            IncludeSections =
+            [
+                PackageSections.PackageInfo,
+                PackageSections.LibraryFiles,
+                PackageSections.Signature,
+                PackageSections.Signals
+            ]
+        };
+        var packageOutput = OutputFormatter.FormatResult(
+            packageResult, packageOptions, PackageSectionDescriptors.CreatePipeline());
+
+        var libraryInspection = CreateTestAudit("Test.dll", "net9.0");
+        libraryInspection.Integrations =
+        [
+            new IntegrationSummary("OpenTelemetry", 2, "OpenTelemetry")
+        ];
+        libraryInspection.OpenTelemetry =
+        [
+            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
+            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.UpDownCounter<T>")
+        ];
+        libraryInspection.SourceIntegrityChecked = true;
+        libraryInspection.SourceIntegrityMismatched = 1;
+        libraryInspection.SourceIntegrityMismatches = ["/_/src/A.cs"];
+        var libraryOptions = new LibraryOptions
+        {
+            Verbosity = Verbosity.Normal,
+            IncludeSections =
+            [
+                "Library Info",
+                "Integrations",
+                "OpenTelemetry",
+                "SourceLink Integrity"
+            ]
+        };
+        var libraryOutput = SerializeWithInclude(
+            libraryInspection,
+            LibrarySections.CreatePipeline().ComputeIncludeSections(
+                libraryInspection, libraryOptions.Verbosity, libraryOptions.IncludeSections));
+
+        AssertMarkdownTablesHaveUniformColumnCounts(packageOutput);
+        AssertMarkdownTablesHaveUniformColumnCounts(libraryOutput);
+    }
+
+    [Fact]
     public void MarkdownSectionOrderer_ReordersH2SectionsAndKeepsFenceHeadings()
     {
         const string markdown = """
@@ -364,6 +445,44 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SingleAudit_LibraryInfo_CountsIntegrationCategories()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.HasDependencyInjectionSupport = true;
+        inspection.HasLoggingSupport = true;
+        inspection.HasOpenTelemetrySupport = true;
+        inspection.OpenTelemetry =
+        [
+            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
+            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.Meter")
+        ];
+
+        var output = Serialize(inspection);
+
+        Assert.Contains("| Integrations | 3 |", output);
+    }
+
+    [Fact]
+    public void SingleAudit_LibraryInfo_FieldsAreAlphabetical()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.AssemblyInfo!.InformationalVersion = "1.0.0+abc";
+        inspection.AssemblyInfo.MethodDefinitionCount = 42;
+        inspection.HasOpenTelemetrySupport = true;
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("| Architecture |", StringComparison.Ordinal)
+            < output.IndexOf("| Assembly Version |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Informational Version |", StringComparison.Ordinal)
+            < output.IndexOf("| Integrations |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Integrations |", StringComparison.Ordinal)
+            < output.IndexOf("| Methods |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Target Framework |", StringComparison.Ordinal)
+            < output.IndexOf("| Type Forwarders |", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SingleAudit_IncludesSymbols_AtDetailedVerbosity()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
@@ -501,6 +620,27 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SingleAudit_SourceIntegrity_FieldsAreAlphabetical()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.SourceIntegrityChecked = true;
+        inspection.SourceIntegrityVerified = 2;
+        inspection.SourceIntegrityMismatched = 1;
+        inspection.SourceIntegrityLineEndingNormalized = 1;
+        inspection.SourceIntegrityUnverifiable = 1;
+        inspection.SourceIntegrityMismatches = ["/_/src/A.cs"];
+
+        var output = Serialize(inspection);
+
+        Assert.True(output.IndexOf("| CR/LF Mismatch |", StringComparison.Ordinal)
+            < output.IndexOf("| Mismatched |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Mismatched Files |", StringComparison.Ordinal)
+            < output.IndexOf("| Status |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Unverifiable |", StringComparison.Ordinal)
+            < output.IndexOf("| Verified |", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SingleAudit_Signals_DoNotRenderSourceLinkCrlfMismatch()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
@@ -533,6 +673,58 @@ public class OutputFormatterTests
                 Architecture = "AnyCPU"
             }
         };
+    }
+
+    private static void AssertMarkdownTablesHaveUniformColumnCounts(string markdown)
+    {
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
+        var inCodeFence = false;
+        for (var i = 0; i < lines.Length - 1; i++)
+        {
+            if (IsCodeFence(lines[i]))
+            {
+                inCodeFence = !inCodeFence;
+                continue;
+            }
+
+            if (inCodeFence || !IsTableLine(lines[i]) || !IsSeparatorLine(lines[i + 1]))
+                continue;
+
+            var expected = CountCells(lines[i]);
+            var tableStart = i + 1;
+            i++;
+            while (i < lines.Length && IsTableLine(lines[i]))
+            {
+                var actual = CountCells(lines[i]);
+                if (actual != expected)
+                    throw new InvalidOperationException($"Markdown table row {i + 1} has {actual} columns; expected {expected}. Table starts at line {tableStart}.");
+                i++;
+            }
+        }
+
+        static bool IsCodeFence(string line)
+            => line.TrimStart().StartsWith("```", StringComparison.Ordinal);
+
+        static bool IsTableLine(string line)
+        {
+            var trimmed = line.Trim();
+            return trimmed.Length >= 2 && trimmed.StartsWith('|') && trimmed.EndsWith('|');
+        }
+
+        static bool IsSeparatorLine(string line)
+        {
+            if (!IsTableLine(line))
+                return false;
+
+            var cells = line.Trim().Trim('|').Split('|', StringSplitOptions.TrimEntries);
+            return cells.Length > 0 && cells.All(cell =>
+                cell.Length > 0
+                && cell.Any(c => c == '-')
+                && cell.All(c => c is '-' or ':' or ' '));
+        }
+
+        static int CountCells(string line)
+            => line.Trim().Trim('|').Split('|').Length;
     }
 
     private static LibraryInspectionReport CreateTestReport(string fileName, bool topFieldsOnly, params string[] tfms)
@@ -717,6 +909,36 @@ public class OutputFormatterTests
         Assert.NotNull(writerOptions.Projection);
         Assert.Equal(["Name"], writerOptions.Projection!.IncludeColumns);
         Assert.Equal(["Title"], writerOptions.Projection!.IncludeFields);
+    }
+
+    [Fact]
+    public void PackageSignature_FieldsAreAlphabetical()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test.Package",
+            Version = "1.0.0",
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = true,
+                Publisher = "Example Publisher",
+                Repository = "nuget.org",
+                RepositoryVerified = true,
+                StatusMessage = "Valid"
+            }
+        };
+
+        var output = OutputFormatter.FormatResult(result, new InspectionOptions
+        {
+            IncludeSections = [PackageSections.Signature]
+        }, PackageSectionDescriptors.CreatePipeline());
+
+        Assert.True(output.IndexOf("| Author Verified |", StringComparison.Ordinal)
+            < output.IndexOf("| Publisher |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Repository |", StringComparison.Ordinal)
+            < output.IndexOf("| Repository Verified |", StringComparison.Ordinal));
+        Assert.True(output.IndexOf("| Signed |", StringComparison.Ordinal)
+            < output.IndexOf("| Status |", StringComparison.Ordinal));
     }
 
     // ===== Quiet Output Tests =====

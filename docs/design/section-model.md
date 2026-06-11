@@ -150,7 +150,7 @@ Support for parsing command lines, supporting both POSIX and Windows conventions
 | Readme | Yes |
 ```
 
-The detailed verbosity (`-v:d`) prints all detailed-enabled sections. Bare `-S` renders a smaller curated high-density bundle, while `-S All` renders every renderable section.
+The detailed verbosity (`-v:d`) prints all detailed-enabled sections. Bare `-S` renders a smaller curated high-density bundle, while `-S @All` renders every renderable section.
 
 Each view can be paired with a formatter
 

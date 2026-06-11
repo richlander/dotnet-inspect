@@ -23,7 +23,8 @@ public static class RouterOptionsParser
         Option<bool> PrereleaseOption,
         Option<bool> OneLineOption,
         Option<bool> NoHeaderOption,
-        Option<bool> CompactOption);
+        Option<bool> CompactOption,
+        Option<string?> LibraryOption);
 
     /// <summary>
     /// Result of parsing router command options.
@@ -112,11 +113,18 @@ public static class RouterOptionsParser
 
         var name = packageArgs[0];
 
+        var libraryValue = parseResult.GetValue(args.LibraryOption);
+        var packageLibrary = parseResult.GetResult(args.LibraryOption) is { Implicit: false }
+            ? libraryValue ?? ""
+            : null;
+
         // Second positional argument: version number → auto-combine, otherwise → type name
         if (packageArgs.Length >= 2)
         {
             if (CommandLineHelpers.LooksLikeVersionNumber(packageArgs[1]))
                 name = $"{packageArgs[0]}@{packageArgs[1]}";
+            else if (packageLibrary != null)
+                return new ParseError("Error: When using --library, the second positional argument must be a package version. Use --library <dll> to select a DLL.");
             else
                 return new RouteToType(packageArgs);
         }
@@ -173,7 +181,7 @@ public static class RouterOptionsParser
         // Note: Qualified type names (e.g., System.Text.Json.JsonSerializer) are also platform candidates
         // and will be routed here. The ExecutePlatformLibraryAsync handler will check for qualified
         // type names if platform resolution fails.
-        if (!isVersionQuery && PlatformResolver.IsPlatformCandidate(bareName))
+        if (!isVersionQuery && packageLibrary == null && PlatformResolver.IsPlatformCandidate(bareName))
         {
             var assemblyOptions = BuildPlatformLibraryOptions(parseResult, opts, args, bareName, hasExplicitVersion, explicitVersion);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
@@ -183,7 +191,7 @@ public static class RouterOptionsParser
         // For single-arg names that aren't platform candidates, try local peel-and-probe.
         // If a local source (dotnet-inspect cache or NuGet cache) matches a prefix,
         // route as a qualified type name (e.g., "Humanizer.Core.DateHumanize").
-        if (!isVersionQuery && packageArgs.Length == 1)
+        if (!isVersionQuery && packageLibrary == null && packageArgs.Length == 1)
         {
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(bareName, allowPlatformPrefixFallback: false);
             if (memberSplit != null)
@@ -229,6 +237,7 @@ public static class RouterOptionsParser
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+            PackageLibrary = packageLibrary,
             ForceLatest = forceLatest || showLatestVersion
         };
 

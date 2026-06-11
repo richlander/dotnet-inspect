@@ -51,7 +51,7 @@ public static class ExtensionMethodScanner
                 continue;
 
             string classNs = reader.GetString(typeDef.Namespace);
-            string fullClassName = reader.GetFullTypeName(typeDef);
+            string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
             // Track property accessors seen (for deduplication of get_/set_ pairs)
             var seenPropertyNames = new HashSet<string>(StringComparer.Ordinal);
@@ -166,7 +166,7 @@ public static class ExtensionMethodScanner
                 continue;
 
             string classNs = reader.GetString(typeDef.Namespace);
-            string fullClassName = reader.GetFullTypeName(typeDef);
+            string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
             var seenPropertyNames = new HashSet<string>(StringComparer.Ordinal);
 

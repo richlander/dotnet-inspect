@@ -110,12 +110,14 @@ public static class ApiCommandDefinitions
                 case TypeOptionsParser.Discovery d:
                     var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var typeFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
                     return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree,
                         json: typeFormat == OutputFormat.Json,
                         tsv: typeFormat == OutputFormat.Tsv,
                         jsonl: typeFormat == OutputFormat.Jsonl,
                         markdown: typeFormat == OutputFormat.Markdown,
-                        verbosity: (int)opts.ParseVerbosity(parseResult));
+                        verbosity: (int)opts.ParseVerbosity(parseResult),
+                        sectionCategories: typePipeline.GetCategoryMap());
 
                 case TypeOptionsParser.ShowHelp:
                     HelpWriter.WriteHelp(typeCommand);
@@ -220,12 +222,14 @@ public static class ApiCommandDefinitions
                 case MemberOptionsParser.Discovery d:
                     var memberSchemaMap = ApiCommand.GetTypeDocumentSchema(new MemberOptions());
                     var memberFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    var memberPipeline = ApiMemberSectionPipelines.Create(new MemberOptions());
                     return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree,
                         json: memberFormat == OutputFormat.Json,
                         tsv: memberFormat == OutputFormat.Tsv,
                         jsonl: memberFormat == OutputFormat.Jsonl,
                         markdown: memberFormat == OutputFormat.Markdown,
-                        verbosity: (int)opts.ParseVerbosity(parseResult));
+                        verbosity: (int)opts.ParseVerbosity(parseResult),
+                        sectionCategories: memberPipeline.GetCategoryMap());
 
                 case MemberOptionsParser.ShowHelp:
                     HelpWriter.WriteHelp(memberCommand);

@@ -1,6 +1,7 @@
 namespace DotnetInspector.Output;
 
 using DotnetInspector.Metadata;
+using DotnetInspector.Sections;
 
 /// <summary>
 /// An unresolved -S/--select value with suggestions for what the user may have meant.
@@ -21,8 +22,8 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
 /// </summary>
 public static class SelectResolver
 {
-    public const string AllSelector = "All";
-    public const string InfoSelector = "Info";
+    public const string AllSelector = SectionPipeline<object>.AllCategory;
+    public const string InfoSelector = SectionPipeline<object>.DefaultCategory;
 
     public static bool IsAllSelector(string[]? select)
         => select?.Any(value => value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase)) == true;
@@ -77,34 +78,31 @@ public static class SelectResolver
     /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
     /// Returns matched sections and any unresolved values with suggestions.
     /// </summary>
-    public static SelectResult ResolveSelectAsSections(string[]? select, string[] knownSections, string[]? infoSections = null)
+    public static SelectResult ResolveSelectAsSections(
+        string[]? select,
+        string[] knownSections,
+        string[]? infoSections = null,
+        IReadOnlyDictionary<string, string[]>? categories = null)
     {
         if (select is not { Length: > 0 })
             return new(null, []);
 
+        categories ??= BuildFallbackCategories(knownSections, infoSections);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
 
         foreach (var value in select)
         {
-            if (value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase))
+            if (value.StartsWith('@'))
             {
-                foreach (var section in knownSections)
-                    matched.Add(section);
-                continue;
-            }
-
-            if (value.Equals(InfoSelector, StringComparison.OrdinalIgnoreCase))
-            {
-                if (infoSections is { Length: > 0 })
+                if (categories.TryGetValue(value, out var categorySections))
                 {
-                    foreach (var section in infoSections)
+                    foreach (var section in categorySections)
                         matched.Add(section);
+                    continue;
                 }
-                else
-                {
-                    unresolved.Add(new SelectMiss(value, knownSections.ToList()));
-                }
+
+                unresolved.Add(new SelectMiss(value, GetSuggestions(value, [.. knownSections, .. categories.Keys])));
                 continue;
             }
 
@@ -116,6 +114,16 @@ public static class SelectResolver
         }
 
         return new(matched.Count > 0 ? matched : null, unresolved);
+    }
+
+    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections, string[]? infoSections)
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [InfoSelector] = infoSections ?? [],
+            [AllSelector] = knownSections
+        };
+        return categories;
     }
 
     /// <summary>

@@ -47,10 +47,16 @@ public static class RouterCommandDefinition
 
         var routerCompactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         routerCommand.Options.Add(routerCompactOption);
+        var routerLibraryOption = new Option<string?>("--library")
+        {
+            Description = "Inspect a library from the resolved package; omit value to select the primary library when unambiguous",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        routerCommand.Options.Add(routerLibraryOption);
 
         var commandArgs = new RouterOptionsParser.RouterCommandArgs(
             packageNameArg, routerVersionOption, routerLatestVersionOption, routerVersionsOption,
-            routerPrereleaseOption, opts.OneLine, opts.NoHeaders, routerCompactOption);
+            routerPrereleaseOption, opts.OneLine, opts.NoHeaders, routerCompactOption, routerLibraryOption);
 
         routerCommand.SetAction(async (parseResult, ct) =>
         {
@@ -66,12 +72,14 @@ public static class RouterCommandDefinition
                     // Router-level discovery: show package sections (no input required)
                     var routerSchemaMap = InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema();
                     var routerFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
+                    var routerPipeline = PackageSectionDescriptors.CreatePipeline();
                     return DiscoverOutput.Execute(d.Discover, routerSchemaMap, tree: d.Tree,
                         json: routerFormat == OutputFormat.Json,
                         tsv: routerFormat == OutputFormat.Tsv,
                         jsonl: routerFormat == OutputFormat.Jsonl,
                         markdown: routerFormat == OutputFormat.Markdown,
-                        verbosity: (int)opts.ParseVerbosity(parseResult));
+                        verbosity: (int)opts.ParseVerbosity(parseResult),
+                        sectionCategories: routerPipeline.GetCategoryMap());
 
                 case RouterOptionsParser.ParseError error:
                     Console.Error.WriteLine(error.Message);
@@ -398,7 +406,7 @@ public static class RouterCommandDefinition
     {
         var exitCode = await PackageCommand.ExecuteAsync(route.Options);
 
-        if (exitCode == 0 && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
+        if (exitCode == 0 && route.Options.PackageLibrary == null && !route.Options.FormatExplicitlySet && !route.Options.IsRawOutput)
             TipWriter.WritePackageTips(route.BareName, route.Options.TipLevel, route.Verbosity);
 
         return exitCode;

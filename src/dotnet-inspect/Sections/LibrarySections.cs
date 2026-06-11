@@ -20,6 +20,7 @@ public static class LibrarySections
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
+    public const string ScannerIntegrations = "Integrations";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -31,6 +32,14 @@ public static class LibrarySections
             .Add<SourceIntegrity>()
             .Add<Symbols>()
             .Add<Signals>()
+            .Add<Integrations>()
+            .Add<DependencyInjection>()
+            .Add<Logging>()
+            .Add<OpenTelemetry>()
+            .Add<Options>()
+            .Add<Hosting>()
+            .Add<HealthChecks>()
+            .Add<HttpClient>()
             .Add<References>()
             .Add<Dependencies>()
             .Add<ExtensionMethods>()
@@ -40,7 +49,16 @@ public static class LibrarySections
             .Add<Resources>()
             .Add<CustomAttributes>()
             .Add<TypeForwarders>()
-            .Add<NonNormalizedPaths>();
+            .Add<NonNormalizedPaths>()
+            .AddCategory("@Integrations",
+                "Integrations",
+                "Dependency Injection",
+                "Logging",
+                "Options",
+                "Hosting",
+                "Health Checks",
+                "HTTP Client",
+                "OpenTelemetry");
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>
@@ -60,7 +78,9 @@ public static class LibrarySections
             .Add(ScannerInfoCounts, ctx =>
                 LibraryMetadataService.ScanInfoCounts(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerAuditSignals, ctx =>
-                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerIntegrations, ctx =>
+                LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Primary section =====
@@ -94,6 +114,93 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
+    }
+
+    public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "OpenTelemetry";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.OpenTelemetry is { Count: > 0 } || model.HasOpenTelemetrySupport;
+    }
+
+    public sealed class Integrations : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Integrations";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.Integrations is { Count: > 0 }
+               || model.HasOpenTelemetrySupport
+               || model.HasDependencyInjectionSupport
+               || model.HasLoggingSupport
+               || model.HasOptionsSupport
+               || model.HasHostingSupport
+               || model.HasHealthChecksSupport
+               || model.HasHttpClientSupport;
+    }
+
+    public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Dependency Injection";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.DependencyInjection is { Count: > 0 } || model.HasDependencyInjectionSupport;
+    }
+
+    public sealed class Logging : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Logging";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.Logging is { Count: > 0 } || model.HasLoggingSupport;
+    }
+
+    public sealed class Options : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Options";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.Options is { Count: > 0 } || model.HasOptionsSupport;
+    }
+
+    public sealed class Hosting : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Hosting";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.Hosting is { Count: > 0 } || model.HasHostingSupport;
+    }
+
+    public sealed class HealthChecks : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Health Checks";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.HealthChecks is { Count: > 0 } || model.HasHealthChecksSupport;
+    }
+
+    public sealed class HttpClient : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "HTTP Client";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.HttpClient is { Count: > 0 } || model.HasHttpClientSupport;
     }
 
     // ===== Opt-in SourceLink sections =====
