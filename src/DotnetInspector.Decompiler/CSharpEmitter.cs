@@ -4698,6 +4698,7 @@ public static class CSharpEmitter
         {
             // Extract the switch value expression from the switch block's last node
             string switchValue = "/* value */";
+            string? switchEnumType = null;
             if (block.SwitchBlockIndex >= 0 && _blockMap.TryGetValue(block.SwitchBlockIndex, out var switchBlock))
             {
                 _consumedBlocks.Add(block.SwitchBlockIndex);
@@ -4727,6 +4728,7 @@ public static class CSharpEmitter
                     && switchExpr.Arguments.Count > 0)
                 {
                     switchValue = ExpressionToString(switchExpr.Arguments[0]);
+                    switchEnumType = switchExpr.Arguments[0].ResultType.TypeName;
                 }
 
                 _currentBlockNodes = null;
@@ -4759,7 +4761,7 @@ public static class CSharpEmitter
                 foreach (int caseVal in cases)
                 {
                     WriteIndent(indent + 1);
-                    _sb.AppendLine($"case {caseVal}:");
+                    _sb.AppendLine($"case {FormatCaseValue(caseVal, switchEnumType)}:");
                 }
                 EmitBasicBlock(targetIdx, indent + 2);
                 // Add break if block doesn't end with return/throw
@@ -4817,6 +4819,14 @@ public static class CSharpEmitter
 
             WriteIndent(indent);
             _sb.AppendLine("}");
+        }
+
+        /// <summary>Case labels on enum-typed switches use the member names.</summary>
+        string FormatCaseValue(int value, string? switchType)
+        {
+            if (switchType is not null && TryResolveEnumName(switchType, value, out string? name) && name is not null)
+                return name;
+            return value.ToString();
         }
 
         bool BlockEndsWithReturn(int blockIndex)
@@ -5801,6 +5811,8 @@ public static class CSharpEmitter
                 memberPart = methodName[(colonIdx + 2)..].TrimEnd('(', ')');
             }
 
+            memberPart = SimplifyLocalFunctionName(memberPart);
+
             if (TryEmitInlineArrayAsSpanExpression(expr, memberPart))
                 return;
 
@@ -5867,8 +5879,26 @@ public static class CSharpEmitter
                         "op_ExclusiveOr" => "^",
                         "op_LeftShift" => "<<",
                         "op_RightShift" => ">>",
+                        "op_UnsignedRightShift" => ">>>",
                         _ => null
                     };
+                    string? checkedSymbol = memberPart switch
+                    {
+                        "op_CheckedAddition" => "+",
+                        "op_CheckedSubtraction" => "-",
+                        "op_CheckedMultiplication" => "*",
+                        "op_CheckedDivision" => "/",
+                        _ => null
+                    };
+                    if (checkedSymbol is not null)
+                    {
+                        _sb.Append("checked(");
+                        EmitExpression(expr.Arguments[0]);
+                        _sb.Append($" {checkedSymbol} ");
+                        EmitExpression(expr.Arguments[1]);
+                        _sb.Append(')');
+                        return;
+                    }
                     if (opSymbol is not null)
                     {
                         EmitExpression(expr.Arguments[0]);
@@ -5883,6 +5913,14 @@ public static class CSharpEmitter
                         EmitExpression(expr.Arguments[1]);
                         _sb.Append(')');
                     }
+                }
+                // Conversion operators render as casts (the return type is the
+                // target), unary operators as prefixes.
+                else if (memberPart.StartsWith("op_", StringComparison.Ordinal)
+                    && expr.Arguments.Count == 1
+                    && TryEmitUnaryOperator(memberPart, expr))
+                {
+                    // emitted by helper
                 }
                 else
                 {
@@ -7301,6 +7339,84 @@ public static class CSharpEmitter
         /// Simplify compiler-generated lambda method names like "&lt;ClosureCapture&gt;b__0"
         /// to readable form like "lambda: ClosureCapture".
         /// </summary>
+        /// <summary>
+        /// Renders one-argument operator methods: conversions (op_Implicit/
+        /// op_Explicit) as casts to the operator's return type, unary operators
+        /// as prefixes. Returns false for shapes without a C# spelling
+        /// (op_True/op_False, op_Increment as a plain call).
+        /// </summary>
+        bool TryEmitUnaryOperator(string memberPart, ILAstExpression expr)
+        {
+            var arg = expr.Arguments[0];
+
+            if (memberPart is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit")
+            {
+                string? target = expr.Member?.ReturnOrFieldType;
+                if (target is null)
+                    return false;
+                bool isChecked = memberPart == "op_CheckedExplicit";
+                if (isChecked) _sb.Append("checked(");
+                _sb.Append($"({SimplifyTypeName(target)})");
+                EmitPrefixOperand(arg);
+                if (isChecked) _sb.Append(')');
+                return true;
+            }
+
+            (string Prefix, bool Checked)? unary = memberPart switch
+            {
+                "op_UnaryNegation" => ("-", false),
+                "op_CheckedUnaryNegation" => ("-", true),
+                "op_UnaryPlus" => ("+", false),
+                "op_LogicalNot" => ("!", false),
+                "op_OnesComplement" => ("~", false),
+                _ => null
+            };
+            if (unary is not { } u)
+                return false;
+
+            if (u.Checked) _sb.Append("checked(");
+            _sb.Append(u.Prefix);
+            EmitPrefixOperand(arg);
+            if (u.Checked) _sb.Append(')');
+            return true;
+        }
+
+        void EmitPrefixOperand(ILAstExpression arg)
+        {
+            // A call operand may itself render as a binary expression (operator
+            // sugar: op_Addition becomes a + b), so parenthesize anything that
+            // isn't a plain load or constant.
+            bool wrap = !IsSimpleOperand(arg.OpCode);
+            if (wrap) _sb.Append('(');
+            EmitExpression(arg);
+            if (wrap) _sb.Append(')');
+        }
+
+        static bool IsSimpleOperand(ILOpCode op) => op is
+            ILOpCode.Ldarg or ILOpCode.Ldarg_s
+            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
+            or ILOpCode.Ldloc or ILOpCode.Ldloc_s
+            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+            or ILOpCode.Ldc_i4 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4_m1
+            or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3
+            or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7
+            or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r4 or ILOpCode.Ldc_r8
+            or ILOpCode.Ldstr or ILOpCode.Ldnull
+            or ILOpCode.Ldfld or ILOpCode.Ldsfld;
+
+        /// <summary>
+        /// Local functions compile to mangled names like
+        /// <c>&lt;Outer&gt;g__Helper|0_0</c>; render the source-level name.
+        /// </summary>
+        static string SimplifyLocalFunctionName(string memberPart)
+        {
+            int marker = memberPart.IndexOf(">g__", StringComparison.Ordinal);
+            if (marker < 0)
+                return memberPart;
+            int bar = memberPart.IndexOf('|', marker);
+            return bar > marker + 4 ? memberPart[(marker + 4)..bar] : memberPart;
+        }
+
         static string SimplifyLambdaName(string name)
         {
             // Extract the enclosing method name from "<>c__DisplayClass::<MethodName>b__N" 
