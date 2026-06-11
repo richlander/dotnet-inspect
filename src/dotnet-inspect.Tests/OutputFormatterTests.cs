@@ -204,6 +204,86 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void AssertMarkdownTablesHaveUniformColumnCounts_CatchesMalformedRows()
+    {
+        const string markdown = """
+        | Name | Value |
+        | ---- | ----- |
+        | A | 1 |
+        | B |
+        """;
+
+        Assert.Throws<InvalidOperationException>(() => AssertMarkdownTablesHaveUniformColumnCounts(markdown));
+    }
+
+    [Fact]
+    public void RepresentativeMarkdownTables_HaveUniformColumnCounts()
+    {
+        var packageResult = new InspectionResult
+        {
+            PackageName = "Test.Package",
+            Version = "1.0.0",
+            LibraryFiles = ["lib/net10.0/Test.Package.dll"],
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = true,
+                Publisher = "Example Publisher",
+                Repository = "nuget.org",
+                RepositoryVerified = true,
+                StatusMessage = "Valid"
+            },
+            AuditSignals =
+            [
+                new AuditSignal("Package", "README", "Yes", "nuspec")
+            ]
+        };
+        var packageOptions = new InspectionOptions
+        {
+            IncludeSections =
+            [
+                PackageSections.PackageInfo,
+                PackageSections.LibraryFiles,
+                PackageSections.Signature,
+                PackageSections.Signals
+            ]
+        };
+        var packageOutput = OutputFormatter.FormatResult(
+            packageResult, packageOptions, PackageSectionDescriptors.CreatePipeline());
+
+        var libraryInspection = CreateTestAudit("Test.dll", "net9.0");
+        libraryInspection.Integrations =
+        [
+            new IntegrationSummary("OpenTelemetry", 2, "OpenTelemetry")
+        ];
+        libraryInspection.OpenTelemetry =
+        [
+            new IntegrationSignal("Tracing API", "System.Diagnostics.ActivitySource"),
+            new IntegrationSignal("Metrics API", "System.Diagnostics.Metrics.UpDownCounter<T>")
+        ];
+        libraryInspection.SourceIntegrityChecked = true;
+        libraryInspection.SourceIntegrityMismatched = 1;
+        libraryInspection.SourceIntegrityMismatches = ["/_/src/A.cs"];
+        var libraryOptions = new LibraryOptions
+        {
+            Verbosity = Verbosity.Normal,
+            IncludeSections =
+            [
+                "Library Info",
+                "Integrations",
+                "OpenTelemetry",
+                "SourceLink Integrity"
+            ]
+        };
+        var libraryOutput = SerializeWithInclude(
+            libraryInspection,
+            LibrarySections.CreatePipeline().ComputeIncludeSections(
+                libraryInspection, libraryOptions.Verbosity, libraryOptions.IncludeSections));
+
+        AssertMarkdownTablesHaveUniformColumnCounts(packageOutput);
+        AssertMarkdownTablesHaveUniformColumnCounts(libraryOutput);
+    }
+
+    [Fact]
     public void MarkdownSectionOrderer_ReordersH2SectionsAndKeepsFenceHeadings()
     {
         const string markdown = """
@@ -593,6 +673,58 @@ public class OutputFormatterTests
                 Architecture = "AnyCPU"
             }
         };
+    }
+
+    private static void AssertMarkdownTablesHaveUniformColumnCounts(string markdown)
+    {
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
+        var inCodeFence = false;
+        for (var i = 0; i < lines.Length - 1; i++)
+        {
+            if (IsCodeFence(lines[i]))
+            {
+                inCodeFence = !inCodeFence;
+                continue;
+            }
+
+            if (inCodeFence || !IsTableLine(lines[i]) || !IsSeparatorLine(lines[i + 1]))
+                continue;
+
+            var expected = CountCells(lines[i]);
+            var tableStart = i + 1;
+            i++;
+            while (i < lines.Length && IsTableLine(lines[i]))
+            {
+                var actual = CountCells(lines[i]);
+                if (actual != expected)
+                    throw new InvalidOperationException($"Markdown table row {i + 1} has {actual} columns; expected {expected}. Table starts at line {tableStart}.");
+                i++;
+            }
+        }
+
+        static bool IsCodeFence(string line)
+            => line.TrimStart().StartsWith("```", StringComparison.Ordinal);
+
+        static bool IsTableLine(string line)
+        {
+            var trimmed = line.Trim();
+            return trimmed.Length >= 2 && trimmed.StartsWith('|') && trimmed.EndsWith('|');
+        }
+
+        static bool IsSeparatorLine(string line)
+        {
+            if (!IsTableLine(line))
+                return false;
+
+            var cells = line.Trim().Trim('|').Split('|', StringSplitOptions.TrimEntries);
+            return cells.Length > 0 && cells.All(cell =>
+                cell.Length > 0
+                && cell.Any(c => c == '-')
+                && cell.All(c => c is '-' or ':' or ' '));
+        }
+
+        static int CountCells(string line)
+            => line.Trim().Trim('|').Split('|').Length;
     }
 
     private static LibraryInspectionReport CreateTestReport(string fileName, bool topFieldsOnly, params string[] tfms)
