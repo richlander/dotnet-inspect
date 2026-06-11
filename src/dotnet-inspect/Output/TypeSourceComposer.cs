@@ -198,6 +198,53 @@ internal static class TypeSourceComposer
                     string? body = member.IsAbstract
                         ? null
                         : DecompileBody(peReader, reader, typeHandle, member, index, pdbPath);
+
+                    // An explicit interface property implementation surfaces
+                    // as its accessor method (Iface.get_X). Render the
+                    // property form the source writes: 'bool Iface.X => ...;'.
+                    if (member.Kind == "explicit-interface-implementation"
+                        && ExplicitPropertyName(member.Name) is { } propertyPath
+                        && body is not null)
+                    {
+                        // The signature's leading token is the accessor's
+                        // return type ('bool Iface.get_X()').
+                        string accessorReturn = member.ReturnType
+                            ?? (member.Signature is { } sig && sig.IndexOf(' ') is var sp and > 0
+                                ? sig[..sp]
+                                : "object");
+                        string head = $"    {accessorReturn} {propertyPath}";
+                        if (member.Name.Contains(".set_", StringComparison.Ordinal))
+                        {
+                            sb.AppendLine(head);
+                            sb.AppendLine("    {");
+                            if (ExpressionOf(body) is { } setExpr)
+                                sb.AppendLine($"        set => {setExpr};");
+                            else
+                            {
+                                sb.AppendLine("        set");
+                                sb.AppendLine("        {");
+                                AppendIndented(sb, body, "            ");
+                                sb.AppendLine("        }");
+                            }
+                            sb.AppendLine("    }");
+                        }
+                        else if (ExpressionOf(body) is { } getExpr)
+                        {
+                            sb.AppendLine($"{head} => {getExpr};");
+                        }
+                        else
+                        {
+                            sb.AppendLine(head);
+                            sb.AppendLine("    {");
+                            sb.AppendLine("        get");
+                            sb.AppendLine("        {");
+                            AppendIndented(sb, body, "            ");
+                            sb.AppendLine("        }");
+                            sb.AppendLine("    }");
+                        }
+                        break;
+                    }
+
                     AppendMember(sb, MethodDeclaration(type, member), body);
                     break;
                 }
@@ -224,6 +271,25 @@ internal static class TypeSourceComposer
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 'Iface.get_X' / 'Iface.set_X' → 'Iface.X'; null for non-accessor
+    /// names (including indexer accessors, which keep the method form).
+    /// </summary>
+    static string? ExplicitPropertyName(string name)
+    {
+        foreach (var marker in (string[])[".get_", ".set_"])
+        {
+            int at = name.IndexOf(marker, StringComparison.Ordinal);
+            if (at < 0)
+                continue;
+            string propName = name[(at + marker.Length)..];
+            if (propName.Length == 0 || propName is "Item" or "Chars")
+                return null;
+            return $"{name[..at]}.{propName}";
+        }
+        return null;
     }
 
     /// <summary>

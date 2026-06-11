@@ -1153,6 +1153,10 @@ public class CommandExecutionTests
         Assert.Contains(": IEnumerable<T>, IEnumerable, ICollection, IReadOnlyCollection<T>", output);
         Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
         Assert.DoesNotContain("System.Collections.Generic.IEnumerable<T>", output);
+        // Explicit interface property implementations render as properties,
+        // not their accessor methods.
+        Assert.Contains("bool ICollection.IsSynchronized => false;", output);
+        Assert.DoesNotContain("get_IsSynchronized", output);
     }
 
     [Fact]
