@@ -1135,6 +1135,37 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_DecompiledSource_RendersWholeTypeListing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
+            "-S", "Decompiled Source");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("namespace System.Collections.Generic;", output);
+        Assert.Contains("public class Stack<T>", output);
+        Assert.Contains("private T[] _array;", output);
+        Assert.Contains("public void Push(T item)", output);
+        Assert.Contains("public bool TryPop(out T result)", output);
+    }
+
+    [Fact]
+    public async Task Type_DecompiledSource_Raw_EmitsBareListing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
+            "-S", "Decompiled Source", "--raw");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        // Bare C#: no markdown heading, no section title, no code fence, no tips.
+        Assert.StartsWith("namespace System.Collections.Generic;", output);
+        Assert.DoesNotContain("# ", output);
+        Assert.DoesNotContain("```", output);
+        Assert.DoesNotContain("Tips:", output);
+    }
+
+    [Fact]
     public async Task Member_NonMethodRows_RenderFullDeclarations()
     {
         var (exit, output, error) = await RunAppAsync(

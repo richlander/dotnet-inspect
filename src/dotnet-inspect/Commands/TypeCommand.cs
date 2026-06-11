@@ -186,6 +186,10 @@ public static class TypeCommand
                     if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                         effectiveOptions = options with { ShowDocs = true };
 
+                    // The resolved assembly path enables decompiler-backed
+                    // sections (whole-type Decompiled Source).
+                    effectiveOptions = effectiveOptions with { DllPath = runtimeAssemblyPath ?? apiDllPath };
+
                     if (ShouldRejectQuietShape(effectiveOptions))
                     {
                         Console.Error.WriteLine("Error: -v:q is not supported by the type shape renderer.");

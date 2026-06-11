@@ -779,7 +779,7 @@ public class ApiCommand
                     .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method" && !m.IsAbstract)
                     .ToList();
                 if (methods.Count > 0)
-                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath,
+                    ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.Value - 1, requestedSections, mo4.PdbPath);
             }
 
@@ -790,6 +790,45 @@ public class ApiCommand
                 view.MemberCode ??= new MemberCodeView();
                 view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
             }
+
+            // Whole-type decompilation (type command; member flows populate per
+            // member above). Explicit-only: requires -S "Decompiled Source".
+            if (options is not MemberOptions
+                && options.DllPath is { } typeDllPath
+                && options.IncludeSections is { Count: > 0 }
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
+            {
+                var listing = TypeSourceComposer.Compose(type, typeDllPath, options.PdbPath);
+                if (listing is not null)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
+                }
+            }
+        }
+
+        // --raw: only the selected code section's content — no heading, no
+        // fence — suitable for redirecting to a .cs/.il file.
+        if (options.Raw)
+        {
+            var raw = options.IncludeSections is { Count: 1 } included
+                ? included.First() switch
+                {
+                    SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
+                    SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content,
+                    "IL" => view.MemberCode?.ILCode.Content,
+                    "IL (Annotated)" => view.MemberCode?.AnnotatedIL.Content,
+                    _ => null,
+                }
+                : null;
+            if (raw is null)
+            {
+                Console.Error.WriteLine(
+                    "Error: --raw requires a single -S code section with content (Decompiled Source, IL, IL (Annotated), Original Source).");
+                return;
+            }
+            sink.WriteLine(raw.TrimEnd());
+            return;
         }
 
         if (options.Count)
@@ -991,7 +1030,7 @@ public class ApiCommand
                     .ToList();
                 if (methods.Count > 0)
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
-                        memberOptions.DllPath, memberOptions.OverloadIndex.Value - 1,
+                        memberOptions.DllPath!, memberOptions.OverloadIndex.Value - 1,
                         requestedSections, memberOptions.PdbPath);
 
                 if (memberOptions.MethodSource != null && requestedSections.Contains(SectionNames.OriginalSource))

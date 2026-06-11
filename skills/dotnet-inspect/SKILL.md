@@ -112,6 +112,12 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json Serial
 
 A selected overload defaults to `Signature`; use bare `-S` for `Signature` plus `Decompiled Source`, or select `Original Source`, `IL`, or `IL (Annotated)` when you need specific implementation evidence.
 
+To read a whole type instead of one member, use `type Name -S "Decompiled Source"`: it renders the entire type as one C# listing — declaration, fields (including non-public, for context), and every member body. Add `--raw` to print only the bare listing (no headings or code fences), suitable for redirecting to a file:
+
+```text
+dnx dotnet-inspect -y -- type Stack --platform System.Collections -S "Decompiled Source" --raw > Stack.cs
+```
+
 Fidelity expectations: `Original Source` is the SourceLink-backed original source when available. `Decompiled Source` is lowered C#, a best-effort readable reconstruction from IL that helps explain intent; it uses PDB debug information such as local names when available, but is not guaranteed to match original syntax or compiler transformations. Raw IL and annotated IL are the highest-fidelity displays for exact opcodes, offsets, branches, tokens, and member calls; use them to confirm behavior when precision matters.
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.

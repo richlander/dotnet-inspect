@@ -226,6 +226,7 @@ public static class MemberOptionsParser
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
+            Raw = parseResult.GetValue(opts.Raw),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,

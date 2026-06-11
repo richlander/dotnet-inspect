@@ -133,6 +133,7 @@ public static class TypeOptionsParser
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
+            Raw = parseResult.GetValue(opts.Raw),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
