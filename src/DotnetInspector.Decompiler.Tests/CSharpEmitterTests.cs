@@ -284,24 +284,20 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void DayNumber_HashForm_FoldsToStringSwitchExpression()
+    public void DayNumber_FoldsToStringSwitchExpression()
     {
+        // Debug lowers the string switch through ComputeStringHash; Release
+        // through length/char bucketing. Both dispatch trees carry no source
+        // semantics and fold away — the rendering is identical from either.
         string output = EmitMethod(nameof(CfgSampleClass.DayNumber));
 
-#if DEBUG
-        // Debug lowers the string switch through ComputeStringHash — the
-        // dispatch tree carries no source semantics and folds away.
         Assert.Contains("return day switch", output);
         Assert.Contains("\"mon\" => 1,", output);
+        Assert.Contains("\"sun\" => 7,", output);
         Assert.Contains("_ => 0", output);
         Assert.DoesNotContain("ComputeStringHash", output);
-        Assert.DoesNotContain("uint", output);
-#else
-        // Release lowers via length/char bucketing — not yet recognized
-        // (follow-up); the rendering must still carry the semantics.
-        Assert.Contains("day == \"mon\"", output);
-        Assert.Contains("return 1;", output);
-#endif
+        Assert.DoesNotContain("Length", output);
+        Assert.DoesNotContain("[1]", output);
     }
 
     // --- Generic ldelem (type-parameter element access) ---
