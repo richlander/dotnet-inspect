@@ -254,9 +254,16 @@ public static class ApiOutputFormatter
 
     // ===== Shape Output (--shape) =====
 
-    public static void WriteShapeOutput(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
+    public static void WriteShapeOutput(
+        ApiType type,
+        string? foundIn,
+        string? packageName,
+        string? packageVersion,
+        HashSet<string> memberFilter,
+        HashSet<string>? kindFilter = null,
+        Verbosity verbosity = Verbosity.Minimal)
     {
-        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter);
+        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter, verbosity);
         if (view.Members is { Count: > 0 })
         {
             Console.WriteLine(view.FullName);
@@ -405,9 +412,17 @@ public static class ApiOutputFormatter
         return fields;
     }
 
-    internal static TypeShapeView BuildShapeView(ApiType type, string? foundIn, string? packageName, string? packageVersion, HashSet<string> memberFilter, HashSet<string>? kindFilter = null)
+    internal static TypeShapeView BuildShapeView(
+        ApiType type,
+        string? foundIn,
+        string? packageName,
+        string? packageVersion,
+        HashSet<string> memberFilter,
+        HashSet<string>? kindFilter = null,
+        Verbosity verbosity = Verbosity.Minimal)
     {
         bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
+        bool expandOverloads = verbosity >= Verbosity.Normal;
         List<TreeNode> nodes = [];
 
         // Group members by kind
@@ -435,19 +450,34 @@ public static class ApiOutputFormatter
 
             foreach (var group in membersByKind)
             {
-                var children = BuildShapeMemberNodes(group.Key, group);
-                var kindLabel = GetShapeKindLabel(group.Key, group.Count(), children.Count);
+                var membersInGroup = group.ToList();
+                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads);
+                var logicalCount = IsOverloadGroupedKind(group.Key)
+                    ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
+                    : membersInGroup.Count;
+                var kindLabel = GetShapeKindLabel(group.Key, membersInGroup.Count, logicalCount);
                 nodes.Add(new TreeNode(kindLabel) { Children = children });
             }
         }
 
-        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members)
+        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads)
         {
             if (IsOverloadGroupedKind(kind))
             {
-                return members
+                var groups = members
                     .GroupBy(m => m.Name)
                     .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                    .ToList();
+
+                if (expandOverloads)
+                {
+                    return groups
+                        .SelectMany(g => g.OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal))
+                        .Select(m => new TreeNode(m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                        .ToList();
+                }
+
+                return groups
                     .Select(g =>
                     {
                         var ordered = g
@@ -471,9 +501,9 @@ public static class ApiOutputFormatter
         static bool IsOverloadGroupedKind(string kind)
             => kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method";
 
-        static string GetShapeKindLabel(string kind, int overloadCount, int logicalCount)
+        static string GetShapeKindLabel(string kind, int memberCount, int logicalCount)
         {
-            if (IsOverloadGroupedKind(kind) && overloadCount != logicalCount)
+            if (IsOverloadGroupedKind(kind) && memberCount != logicalCount)
             {
                 var noun = kind switch
                 {
@@ -482,12 +512,12 @@ public static class ApiOutputFormatter
                     "operator" => "Operators",
                     "explicit-interface-implementation" => "Explicit Interface Implementations",
                     "extension-method" => "Extension Methods",
-                    _ => GetTreeKindLabel(kind, overloadCount).Split(' ')[0]
+                    _ => GetTreeKindLabel(kind, memberCount).Split(' ')[0]
                 };
-                return $"{noun} ({logicalCount} logical, {overloadCount} overloads)";
+                return $"{noun} ({logicalCount} logical, {memberCount} overloads)";
             }
 
-            return GetTreeKindLabel(kind, overloadCount);
+            return GetTreeKindLabel(kind, memberCount);
         }
 
         // Structural nodes (suppress when a filter is active but matched nothing)

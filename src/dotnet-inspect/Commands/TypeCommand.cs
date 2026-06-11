@@ -186,10 +186,17 @@ public static class TypeCommand
                     if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                         effectiveOptions = options with { ShowDocs = true };
 
-                    // Default --shape on for single-type view when no explicit format was
-                    // chosen and the user is not running a section/projection query. Selection
-                    // (-S) and projection (--columns/--fields) produce focused output, not the tree.
-                    if (!effectiveOptions.ShapeExplicitlySet && effectiveOptions.IsDefaultInvocation && !effectiveOptions.HasSectionQuery)
+                    if (ShouldRejectQuietShape(effectiveOptions))
+                    {
+                        Console.Error.WriteLine("Error: -v:q is not supported by the type shape renderer.");
+                        Console.Error.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
+                        return 1;
+                    }
+
+                    // Default --shape on for single-type view when the user is not running a
+                    // section/projection query and did not explicitly choose another renderer.
+                    // Verbosity grows the tree view; --markdown opts into the section/document view.
+                    if (!effectiveOptions.ShapeExplicitlySet && ShouldDefaultToShape(effectiveOptions))
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
 
                     // Explicit --shape cannot honor a section/projection query; warn rather than
@@ -345,4 +352,27 @@ public static class TypeCommand
             }
         }
     }
+
+    private static bool ShouldDefaultToShape(TypeOptions options)
+        => !options.HasSectionQuery
+           && !options.JsonOutput
+           && !options.OneLine
+           && !options.Tsv
+           && !options.Jsonl
+           && !options.NoHeader
+           && !options.PlainText
+           && !options.Count
+           && !options.MarkdownExplicitlySet;
+
+    private static bool ShouldRejectQuietShape(TypeOptions options)
+        => !options.MarkdownExplicitlySet
+           && !options.JsonOutput
+           && !options.OneLine
+           && !options.Tsv
+           && !options.Jsonl
+           && !options.NoHeader
+           && !options.PlainText
+           && !options.Count
+           && !options.HasSectionQuery
+           && options.Verbosity == Verbosity.Quiet;
 }

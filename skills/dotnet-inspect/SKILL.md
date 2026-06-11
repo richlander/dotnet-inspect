@@ -83,7 +83,7 @@ dnx dotnet-inspect -y -- extensions HttpClient --reachable
 dnx dotnet-inspect -y -- implements IJsonTypeInfoResolver --package System.Text.Json
 ```
 
-Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. Narrow member-name views render overload rows with full signatures and stable `Name:N` selectors. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. The `extensions` command reports extension methods and C# extension properties. Add `--mermaid` to `depends` when a diagram is more useful than a table.
+Default type output is a compact type shape with inheritance, interfaces, logical member groups, and overload counts. For single-type output, `-v:n` and `-v:d` grow the tree to show overload leaves; use `--markdown -v:q` for compact Markdown section output. Narrow member-name views render overload rows with full signatures and stable `Name:N` selectors. Relationship scopes include installed platform libraries by default, `--package Foo`, curated `--aspnetcore`/`--extensions`, and `--project ./App.csproj`. The `extensions` command reports extension methods and C# extension properties. Add `--mermaid` to `depends` when a diagram is more useful than a table.
 
 ## Upgrade and compatibility workflow
 

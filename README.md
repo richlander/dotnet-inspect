@@ -54,6 +54,10 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the embedded LLM skill definition. |
 
+Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
+to grow that tree to overload leaves; use `--markdown -v:q` when you want the
+compact Markdown section view instead.
+
 ## Signals
 
 `Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink Availability`, `SourceLink Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink Integrity`) is opt-in only.
