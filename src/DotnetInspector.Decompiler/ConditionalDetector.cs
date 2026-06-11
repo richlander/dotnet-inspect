@@ -23,15 +23,30 @@ public sealed class ConditionalPattern
     /// <summary>Whether the condition should be negated when emitting (due to then/else swap).</summary>
     public bool NegateCondition { get; }
 
-    public ConditionalPattern(int conditionIndex, int thenIndex, int elseIndex, int followIndex, bool negateCondition = false)
+    /// <summary>
+    /// Short-circuit continuation condition blocks absorbed into this pattern
+    /// (a &amp;&amp; b, a || b chains), in evaluation order after
+    /// <see cref="ConditionIndex"/>. Empty for plain conditionals.
+    /// </summary>
+    public IReadOnlyList<ConditionChainTerm> ChainTerms { get; }
+
+    public ConditionalPattern(int conditionIndex, int thenIndex, int elseIndex, int followIndex, bool negateCondition = false, IReadOnlyList<ConditionChainTerm>? chainTerms = null)
     {
         ConditionIndex = conditionIndex;
         ThenIndex = thenIndex;
         ElseIndex = elseIndex;
         FollowIndex = followIndex;
         NegateCondition = negateCondition;
+        ChainTerms = chainTerms ?? [];
     }
 }
+
+/// <summary>
+/// One absorbed short-circuit condition block. <see cref="CombineWithOr"/>
+/// gives the operator joining the preceding condition to the rest of the
+/// chain starting at this block: prev &amp;&amp; rest or prev || rest.
+/// </summary>
+public sealed record ConditionChainTerm(int BlockIndex, bool CombineWithOr);
 
 /// <summary>
 /// Detects if/else patterns from conditional branches in the CFG.
@@ -44,10 +59,17 @@ internal static class ConditionalDetector
     public static List<ConditionalPattern> DetectConditionals(
         ControlFlowGraph cfg,
         DominatorTree domTree,
-        List<NaturalLoop> loops)
+        List<NaturalLoop> loops,
+        int[]? entryStackHeights = null)
     {
         List<ConditionalPattern> patterns = [];
         var loopHeaders = new HashSet<int>(loops.Select(l => l.HeaderIndex));
+
+        // Short-circuit chains: a condition block whose fallthrough is another
+        // single-predecessor condition block forms one combined a && b / a || b
+        // condition. Detect chains first; absorbed continuation blocks don't get
+        // their own pattern.
+        var chains = DetectShortCircuitChains(cfg, loopHeaders, entryStackHeights, out var absorbed);
 
         for (int i = 0; i < cfg.BasicBlocks.Count; i++)
         {
@@ -55,6 +77,29 @@ internal static class ConditionalDetector
 
             // Need exactly 2 successors (conditional branch)
             if (block.Targets.Count != 2) continue;
+
+            // Continuation blocks of a short-circuit chain are rendered as part
+            // of the chain head's combined condition.
+            if (absorbed.Contains(i)) continue;
+
+            // Chain heads: then/else come from the LAST chain block (the head's
+            // own fallthrough just enters the chain), and the readability swaps
+            // don't apply — the combined condition's polarity is fixed.
+            if (chains.TryGetValue(i, out var chainInfo) && chainInfo.Terms.Count > 0)
+            {
+                var lastEdges = ConditionEdges(cfg, chainInfo.Terms[^1].BlockIndex)!.Value;
+                int chainThen = chainInfo.NegateLast ? lastEdges.FalseIdx : lastEdges.TrueIdx;
+                int chainElse = chainInfo.NegateLast ? lastEdges.TrueIdx : lastEdges.FalseIdx;
+                int chainFollow = FindFollowBlock(cfg, domTree, chainInfo.Terms[^1].BlockIndex, chainThen, chainElse);
+                if (chainFollow == -1 && IsDirectPredecessor(cfg, chainThen, chainElse))
+                {
+                    chainFollow = chainElse;
+                    chainElse = -1;
+                }
+                // For chains, NegateCondition means: negate the LAST leaf only.
+                patterns.Add(new ConditionalPattern(i, chainThen, chainElse, chainFollow, chainInfo.NegateLast, chainInfo.Terms));
+                continue;
+            }
 
             // Use the structured branch/fallthrough info when available
             int branchIdx = block.BranchTarget is not null ? cfg.LookupIndex(block.BranchTarget.Start) : -1;
@@ -157,6 +202,135 @@ internal static class ConditionalDetector
         }
 
         return patterns;
+    }
+
+    /// <summary>
+    /// Walks fallthrough successions of condition blocks. For each chain head,
+    /// resolves then/else from the LAST block's branch sense, then validates
+    /// every leading block against them: a block whose false-edge goes to the
+    /// overall else continues on true (an &amp;&amp; link); a block whose true-edge
+    /// goes to the overall then continues on false (an || link). Chains are
+    /// only kept when every link classifies cleanly.
+    /// </summary>
+    static Dictionary<int, (List<ConditionChainTerm> Terms, bool NegateLast)> DetectShortCircuitChains(
+        ControlFlowGraph cfg, HashSet<int> loopHeaders, int[]? entryStackHeights, out HashSet<int> absorbed)
+    {
+        absorbed = [];
+        var result = new Dictionary<int, (List<ConditionChainTerm> Terms, bool NegateLast)>();
+
+        // Entry stack height of a block; > 0 means it consumes stack-carried
+        // values (a value merge, not a statement-level condition).
+        int EntryHeight(int idx)
+        {
+            if (entryStackHeights is null) return 0;
+            int start = cfg.BasicBlocks[idx].Start;
+            return start >= 0 && start < entryStackHeights.Length
+                ? Math.Max(entryStackHeights[start], 0)
+                : 0;
+        }
+
+        // Predecessor counts: a continuation must be reachable only from the
+        // preceding condition, or its evaluation isn't conditional on it.
+        var predCount = new int[cfg.BasicBlocks.Count];
+        foreach (var b in cfg.BasicBlocks)
+        {
+            foreach (var t in b.Targets)
+            {
+                int ti = cfg.LookupIndex(t.Start);
+                if (ti >= 0) predCount[ti]++;
+            }
+        }
+
+        var chainMembers = new HashSet<int>();
+
+        for (int i = 0; i < cfg.BasicBlocks.Count; i++)
+        {
+            if (chainMembers.Contains(i) || loopHeaders.Contains(i))
+                continue;
+            if (ConditionEdges(cfg, i) is null)
+                continue;
+
+            // Collect the fallthrough succession of single-pred condition blocks.
+            var chain = new List<int> { i };
+            int cur = i;
+            while (true)
+            {
+                int ft = cfg.LookupIndex(cfg.BasicBlocks[cur].FallthroughTarget?.Start ?? -1);
+                if (ft < 0 || predCount[ft] != 1 || loopHeaders.Contains(ft) || ConditionEdges(cfg, ft) is null
+                    || EntryHeight(ft) > 0)
+                    break;
+                chain.Add(ft);
+                cur = ft;
+            }
+
+            if (chain.Count < 2)
+                continue;
+
+            // Resolve overall then/else from the last block — trying both
+            // polarities, since the final test may be inverted (a || b lowers
+            // to jump-if-a-true / jump-if-NOT-b-true) — then validate links.
+            // Trim from the end until validation succeeds or the chain is gone.
+            bool found = false;
+            while (!found && chain.Count >= 2)
+            {
+                var last = ConditionEdges(cfg, chain[^1])!.Value;
+                foreach (bool negateLast in (ReadOnlySpan<bool>)[false, true])
+                {
+                    int thenIdx = negateLast ? last.FalseIdx : last.TrueIdx;
+                    int elseIdx = negateLast ? last.TrueIdx : last.FalseIdx;
+
+                    var terms = new List<ConditionChainTerm>();
+                    bool valid = EntryHeight(thenIdx) == 0 && EntryHeight(elseIdx) == 0;
+                    int join = FindFollowBlock(cfg, null!, chain[^1], thenIdx, elseIdx);
+                    if (join >= 0 && EntryHeight(join) > 0)
+                        valid = false;
+                    for (int c = 0; valid && c < chain.Count - 1; c++)
+                    {
+                        var e = ConditionEdges(cfg, chain[c])!.Value;
+                        int next = chain[c + 1];
+                        if (e.TrueIdx == next && e.FalseIdx == elseIdx)
+                            terms.Add(new ConditionChainTerm(next, CombineWithOr: false)); // cond && rest
+                        else if (e.FalseIdx == next && e.TrueIdx == thenIdx)
+                            terms.Add(new ConditionChainTerm(next, CombineWithOr: true));  // cond || rest
+                        else
+                            valid = false;
+                    }
+
+                    if (valid)
+                    {
+                        result[chain[0]] = (terms, negateLast);
+                        foreach (var t in terms)
+                            absorbed.Add(t.BlockIndex);
+                        chainMembers.UnionWith(chain);
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                    chain.RemoveAt(chain.Count - 1);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// True/false targets of a two-way condition block, normalized for branch
+    /// sense: comparison branches and brtrue jump when the condition is TRUE;
+    /// brfalse jumps when it is FALSE.
+    /// </summary>
+    internal static (int TrueIdx, int FalseIdx)? ConditionEdges(ControlFlowGraph cfg, int idx)
+    {
+        var b = cfg.BasicBlocks[idx];
+        if (b.Targets.Count != 2 || b.BranchTarget is null || b.FallthroughTarget is null)
+            return null;
+        int bt = cfg.LookupIndex(b.BranchTarget.Start);
+        int ft = cfg.LookupIndex(b.FallthroughTarget.Start);
+        if (bt < 0 || ft < 0)
+            return null;
+        bool jumpWhenFalse = b.TerminatingBranch is ILOpCode.Brfalse or ILOpCode.Brfalse_s;
+        return jumpWhenFalse ? (ft, bt) : (bt, ft);
     }
 
     /// <summary>

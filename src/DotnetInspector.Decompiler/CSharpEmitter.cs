@@ -1534,6 +1534,20 @@ public static class CSharpEmitter
                 }
             }
 
+            // Short-circuit chains: the condition spans several blocks joined by
+            // && / ||; compose their true-conditions and consume the chain.
+            bool isChain = block.ConditionChain.Count > 0;
+            if (isChain)
+            {
+                condition = ComposeChainCondition(block);
+                branchExpression = null;
+                foreach (var term in block.ConditionChain)
+                {
+                    _consumedBlocks.Add(term.BlockIndex);
+                    RemoveGotoTargetsForConsumedBlock(term.BlockIndex);
+                }
+            }
+
             // Detect null-conditional pattern: brtrue with dup + trivial else (pop + br.s)
             if (branchExpression is not null && IsNullConditionalPattern(branchExpression, block))
             {
@@ -1542,7 +1556,7 @@ public static class CSharpEmitter
             }
 
             // Detect ternary pattern: both then and else produce a single S_0 value
-            if (block.ThenBlock is not null && block.ElseBlock is not null)
+            if (!isChain && block.ThenBlock is not null && block.ElseBlock is not null)
             {
                 var thenValue = TryExtractTernaryValue(block.ThenBlock);
                 var elseValue = TryExtractTernaryValue(block.ElseBlock);
@@ -1572,7 +1586,7 @@ public static class CSharpEmitter
             }
 
             // Detect ternary/short-circuit with no else but follow block assigns S_0
-            if (block.ThenBlock is not null && block.ElseBlock is null)
+            if (!isChain && block.ThenBlock is not null && block.ElseBlock is null)
             {
                 var thenValue = TryExtractTernaryValue(block.ThenBlock);
                 var followValue = TryExtractFollowTernaryValue(block);
@@ -1602,13 +1616,14 @@ public static class CSharpEmitter
             }
 
             // Apply negation if the conditional detector swapped then/else
-            if (block.NegateCondition)
+            // (chains consume the flag as last-leaf negation in composition).
+            if (!isChain && block.NegateCondition)
                 condition = NegateConditionString(condition);
 
             if (TryEmitRuntimeCustomAwaitGuard(block))
                 return;
 
-            if (TryEmitNullConditionalAssignment(block, condition, indent))
+            if (!isChain && TryEmitNullConditionalAssignment(block, condition, indent))
                 return;
 
             // Item 1: Short-circuit return: if(cond) return expr; return false/true;
@@ -1647,6 +1662,115 @@ public static class CSharpEmitter
                     _sb.AppendLine("}");
                 }
             }
+        }
+
+        /// <summary>
+        /// Renders a short-circuit chain's combined condition. The recursion is
+        /// right-nested by construction (a || (b &amp;&amp; c)), which matches C#
+        /// precedence with parentheses only when an || group sits under an &amp;&amp;.
+        /// </summary>
+        string ComposeChainCondition(StructuredBlock block)
+        {
+            var blocks = new List<int> { block.ConditionBlockIndex };
+            foreach (var term in block.ConditionChain)
+                blocks.Add(term.BlockIndex);
+
+            return Compose(0).Text;
+
+            (string Text, bool TopLevelOr) Compose(int i)
+            {
+                string leaf = RenderTrueCondition(blocks[i]);
+                if (i == blocks.Count - 1)
+                {
+                    // For chains, NegateCondition flags an inverted final test
+                    // (a || b lowers to jump-if-a / jump-if-NOT-b).
+                    if (block.NegateCondition)
+                        leaf = NegateConditionString(leaf);
+                    return (leaf, false);
+                }
+
+                // ConditionChain[i] holds the operator joining blocks[i] to the rest.
+                var (rest, restTopOr) = Compose(i + 1);
+                if (block.ConditionChain[i].CombineWithOr)
+                    return ($"{leaf} || {rest}", true);
+                return ($"{leaf} && {(restTopOr ? $"({rest})" : rest)}", false);
+            }
+        }
+
+        /// <summary>
+        /// Renders the condition under which a condition block transfers to the
+        /// TRUE path. Comparison branches and brtrue jump when true, so their
+        /// rendering is used directly; brfalse renders its jump (false)
+        /// condition, which is negated. Pre-branch temp stores (Debug builds
+        /// route subexpressions through locals) are folded into the expression.
+        /// </summary>
+        string RenderTrueCondition(int blockIdx)
+        {
+            if (!_blockMap.TryGetValue(blockIdx, out var astBlock)
+                || astBlock.Nodes.LastOrDefault() is not ILAstStatement { Expression: var branchExpr })
+            {
+                return "/* condition */";
+            }
+
+            for (int i = astBlock.Nodes.Count - 2; i >= 0; i--)
+            {
+                if (astBlock.Nodes[i] is not ILAstStatement { Expression: var stExpr })
+                    break;
+                if (stExpr.OpCode is ILOpCode.Nop)
+                    continue;
+                if (stExpr.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                        or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                    && stExpr.Arguments.Count == 1
+                    // ILAst trees share nodes (dup), so splicing a value that
+                    // itself loads locals can make a tree its own descendant.
+                    // Only fold local-free values — the Debug temp shapes that
+                    // motivate folding (comparisons of args/constants) qualify.
+                    && !ContainsLocalLoad(stExpr.Arguments[0]))
+                {
+                    string name = stExpr.Operand ?? GetLocalName(stExpr.OpCode);
+                    if (SubstituteFirstLoad(branchExpr, name, stExpr.Arguments[0]))
+                        continue;
+                }
+                break;
+            }
+
+            // BranchConditionToString already yields the fallthrough/true-path
+            // form for one-argument branches (ExtractCondition normalizes
+            // brfalse(x) to x / x != null / x != 0), and comparison branches
+            // render their jump condition, whose target IS the true edge — so
+            // no polarity adjustment is needed here.
+            return BranchConditionToString(branchExpr);
+        }
+
+        static bool ContainsLocalLoad(ILAstExpression expr)
+        {
+            if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
+                or ILOpCode.Ldloca or ILOpCode.Ldloca_s)
+            {
+                return true;
+            }
+            foreach (var arg in expr.Arguments)
+            {
+                if (ContainsLocalLoad(arg))
+                    return true;
+            }
+            return false;
+        }
+
+        static bool SubstituteFirstLoad(ILAstExpression expr, string localName, ILAstExpression value)
+        {
+            for (int i = 0; i < expr.Arguments.Count; i++)
+            {
+                if (GetLocalReferenceName(expr.Arguments[i]) == localName)
+                {
+                    expr.Arguments[i] = value;
+                    return true;
+                }
+                if (SubstituteFirstLoad(expr.Arguments[i], localName, value))
+                    return true;
+            }
+            return false;
         }
 
         bool TryEmitRuntimeCustomAwaitGuard(StructuredBlock block)

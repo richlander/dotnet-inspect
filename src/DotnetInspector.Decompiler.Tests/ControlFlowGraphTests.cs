@@ -247,6 +247,36 @@ public class CfgSampleClass
 
     public static bool UnsignedBoundsCheck(int index, int[] array) => (uint)index < (uint)array.Length;
 
+    // --- Short-circuit condition chains ---
+
+    public static string IfAnd(int a, int b)
+    {
+        if (a > 0 && b > 0)
+            return "both";
+        return "no";
+    }
+
+    public static string IfOr(int a, int b)
+    {
+        if (a > 0 || b > 0)
+            return "either";
+        return "neither";
+    }
+
+    public static string TripleAnd(int a, int b, int c)
+    {
+        if (a > 0 && b > 0 && c > 0)
+            return "all";
+        return "no";
+    }
+
+    public static string MixedAndOr(string? s, int n)
+    {
+        if (s != null && (s.Length > n || n < 0))
+            return s;
+        return "";
+    }
+
     public static string UnsignedBoundsBranch(int index, int[] array)
     {
         if ((uint)index >= (uint)array.Length)

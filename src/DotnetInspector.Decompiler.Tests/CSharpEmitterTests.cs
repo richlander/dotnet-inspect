@@ -129,6 +129,39 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("endfilter", output);
     }
 
+    // --- Short-circuit condition chains (Release-shaped IL) ---
+    // Debug builds materialize && / || as stack values, so chain coverage uses
+    // the always-Release platform assembly.
+
+    [Fact]
+    public void CoreLib_IsNullOrEmpty_ReconstructsShortCircuit()
+    {
+        string output = EmitCoreLibMethod("System.String", "IsNullOrEmpty");
+
+        Assert.True(output.Contains("&&") || output.Contains("||"),
+            $"Expected a short-circuit operator in:\n{output}");
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void CoreLib_IsNullOrEmpty_KeepsNullCheckSemantics()
+    {
+        string output = EmitCoreLibMethod("System.String", "IsNullOrEmpty");
+
+        Assert.Contains("null", output);
+        Assert.Contains("Length", output);
+    }
+
+    static string EmitCoreLibMethod(string typeName, string methodName)
+    {
+        var assemblyPath = typeof(object).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var context = MethodBodyContext.Create(peReader, typeName, methodName);
+        Assert.NotNull(context);
+        return CSharpEmitter.Emit(context);
+    }
+
     // --- Inliner soundness ---
 
     [Fact]
