@@ -210,11 +210,19 @@ public sealed class StructuredControlFlow
     /// Analyze control flow from a pre-computed CFG.
     /// </summary>
     public static StructuredControlFlow Analyze(MethodBodyContext context, ControlFlowGraph cfg)
+        => Analyze(context, cfg, ast: null);
+
+    /// <summary>
+    /// Analyze with the ILAst available: enables transformations that must
+    /// validate block contents (short-circuit chains reject continuation
+    /// blocks containing real statements).
+    /// </summary>
+    public static StructuredControlFlow Analyze(MethodBodyContext context, ControlFlowGraph cfg, ILAstMethod? ast)
     {
         var domTree = DominatorTree.Build(cfg);
         var loops = LoopDetector.DetectLoops(cfg, domTree);
         var entryHeights = StackHeightCalculator.ComputeOffsetEntryHeights(context);
-        var conditionals = ConditionalDetector.DetectConditionals(cfg, domTree, loops, entryHeights);
+        var conditionals = ConditionalDetector.DetectConditionals(cfg, domTree, loops, entryHeights, ast);
         var exRegions = MapExceptionRegions(context, cfg);
 
         var root = BuildStructuredTree(cfg, domTree, loops, conditionals, exRegions);

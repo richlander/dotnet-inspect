@@ -152,12 +152,38 @@ public class CSharpEmitterTests
         Assert.Contains("Length", output);
     }
 
-    static string EmitCoreLibMethod(string typeName, string methodName)
+    [Fact]
+    public void CoreLib_AbsShort_KeepsNegateAssignment()
+    {
+        // Math.Abs(short): the inner overflow check is a fallthrough condition
+        // block, but its block also contains `value = (short)-value`. The chain
+        // detector must NOT absorb it — that drops the assignment, rendering
+        // `if (value >= 0 || value >= 0)`.
+        string output = EmitCoreLibMethod("System.Math", "Abs", overloadIndex: 0);
+
+        Assert.Contains("-value", output);
+        Assert.DoesNotContain("||", output);
+        Assert.DoesNotContain("&&", output);
+    }
+
+    [Fact]
+    public void AbsShort_KeepsNegateAssignment()
+    {
+        // Same shape from the fixture assembly. In Release builds this hits the
+        // chain detector; in Debug the stack-height guard already disables
+        // chains, so the assignment trivially survives.
+        string output = EmitMethod(nameof(CfgSampleClass.AbsShort));
+
+        Assert.Contains("-value", output);
+        Assert.DoesNotContain("||", output);
+    }
+
+    static string EmitCoreLibMethod(string typeName, string methodName, int overloadIndex = 0)
     {
         var assemblyPath = typeof(object).Assembly.Location;
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
-        var context = MethodBodyContext.Create(peReader, typeName, methodName);
+        var context = MethodBodyContext.Create(peReader, typeName, methodName, overloadIndex);
         Assert.NotNull(context);
         return CSharpEmitter.Emit(context);
     }

@@ -23,7 +23,7 @@ public static class CSharpEmitter
         var simResult = StackSimulator.Simulate(context, cfg);
         var ast = ILAstBuilder.Build(context, cfg, simResult);
         var transforms = Transforms.TransformPipeline.Run(ast);
-        var structure = StructuredControlFlow.Analyze(context, cfg);
+        var structure = StructuredControlFlow.Analyze(context, cfg, ast);
         var sb = new StringBuilder();
         var emitter = new EmitterContext(ast, structure, sb, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals)
         {

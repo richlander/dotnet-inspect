@@ -20,9 +20,16 @@ sealed class ExpressionInliner : IILAstTransform
     {
         HashSet<string> inlinedLocals = [];
 
+        // Method-wide use counts: a definition that is live at its block's exit
+        // may feed loads in OTHER blocks, which within-block scanning can't see.
+        Dictionary<string, int> methodUses = [];
+        foreach (var b in method.Blocks)
+            foreach (var node in b.Nodes)
+                CountReferencesInNode(node, methodUses);
+
         // Pass 1: within-block inlining (single block, store → load adjacency)
         foreach (var block in method.Blocks)
-            InlineBlock(block, inlinedLocals);
+            InlineBlock(block, inlinedLocals, methodUses);
 
         // Pass 2: cross-block inlining (exactly 1 def + 1 use across entire method)
         InlineCrossBlock(method, inlinedLocals);
@@ -35,7 +42,8 @@ sealed class ExpressionInliner : IILAstTransform
     /// exactly once in a subsequent node, with no intervening redefinition.
     /// Replace the use with the stored expression and nop-out the store.
     /// </summary>
-    static void InlineBlock(ILAstBlock block, HashSet<string> inlinedLocals)
+    static void InlineBlock(ILAstBlock block, HashSet<string> inlinedLocals,
+        Dictionary<string, int> methodUses)
     {
         for (int i = 0; i < block.Nodes.Count; i++)
         {
@@ -97,6 +105,18 @@ sealed class ExpressionInliner : IILAstTransform
                 // within this node (earlier call arguments, receivers) must not
                 // mutate state the value reads.
                 if (readsMutableState && MutatesBeforeFirstRef(candidate, varName))
+                    break;
+
+                // The store is removed when we inline, so the definition must
+                // not be observable anywhere else. If no later node in THIS
+                // block redefines the variable, the definition is live at the
+                // block exit and other blocks may load it (e.g. a condition
+                // temp reused inside the then-arm) — only safe when this is
+                // the variable's only use in the whole method.
+                bool redefinedLater = false;
+                for (int k = j + 1; k < block.Nodes.Count && !redefinedLater; k++)
+                    redefinedLater = IsStoreToVar(block.Nodes[k], varName);
+                if (!redefinedLater && methodUses.GetValueOrDefault(varName) != 1)
                     break;
 
                 // Exactly one reference — inline it
@@ -228,8 +248,11 @@ sealed class ExpressionInliner : IILAstTransform
 
     static void CountExprRefs(ILAstExpression expr, Dictionary<string, int> counts)
     {
+        // ldloca counts as a use: an address read observes the variable's
+        // storage, so a definition feeding one can never be inlined away.
         if (expr.OpCode is ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2
-            or ILOpCode.Ldloc_3 or ILOpCode.Ldloc_s or ILOpCode.Ldloc)
+            or ILOpCode.Ldloc_3 or ILOpCode.Ldloc_s or ILOpCode.Ldloc
+            or ILOpCode.Ldloca or ILOpCode.Ldloca_s)
         {
             string? vn = expr.Operand ?? GetLocalNameFromOp(expr.OpCode);
             if (vn is not null)
@@ -252,7 +275,7 @@ sealed class ExpressionInliner : IILAstTransform
     static int CountExprRefs(ILAstExpression expr, string varName)
     {
         int count = 0;
-        if (IsLoadOf(expr, varName))
+        if (IsLoadOf(expr, varName) || IsAddressOf(expr, varName))
             count++;
         foreach (var arg in expr.Arguments)
             count += CountExprRefs(arg, varName);
@@ -296,6 +319,13 @@ sealed class ExpressionInliner : IILAstTransform
             string? name = expr.Operand ?? GetLocalNameFromOp(expr.OpCode);
             return name == varName;
         }
+        return false;
+    }
+
+    static bool IsAddressOf(ILAstExpression expr, string varName)
+    {
+        if (expr.OpCode is ILOpCode.Ldloca or ILOpCode.Ldloca_s)
+            return (expr.Operand ?? GetLocalNameFromOp(expr.OpCode)) == varName;
         return false;
     }
 
