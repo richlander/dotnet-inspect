@@ -222,6 +222,30 @@ public class CSharpEmitterTests
         Assert.Contains("else", output);
     }
 
+    [Fact]
+    public void CoreLib_ClampDouble_PrefersInvertedIfOverNegatedTernary()
+    {
+        // !(value > max) ? value : max reads worse than the source's
+        // if (value > max) return max; — negated ternary conditions invert
+        // into the statement form.
+        string output = EmitCoreLibMethod("System.Math", "Clamp", overloadIndex: 8);
+
+        Assert.Contains("if (value > max)", output);
+        Assert.DoesNotContain("!(", output);
+    }
+
+    [Fact]
+    public void CoreLib_StringContains_KeepsTwoReturnShapeForLongExpressions()
+    {
+        // Folding both returns into one ternary produced a 200-character
+        // line; over-long renderings keep the source's guarded-return shape.
+        string output = EmitCoreLibMethod("System.String", "Contains", overloadIndex: 0);
+
+        Assert.Contains("&& value.Length == 1)", output);
+        Assert.Contains("    return base.Contains(value[0]);", output);
+        Assert.DoesNotContain(" ? ", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]

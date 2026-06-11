@@ -2847,10 +2847,64 @@ public static class CSharpEmitter
             }
             if (elseReturn is null) return false;
 
-            WriteIndent(indent);
-            _sb.AppendLine($"return {condition} ? {thenReturn} : {elseReturn};");
+            // Prefer the statement form where the ternary reads poorly:
+            // a negated condition inverts into an if that matches how the
+            // source is written, and an over-long rendering keeps the
+            // source's two-return shape.
+            if (TryStripOuterNegation(condition) is { } inverted)
+            {
+                EmitReturnPair(inverted, elseReturn, thenReturn, indent);
+            }
+            else if (condition.Length + thenReturn.Length + elseReturn.Length > 90)
+            {
+                EmitReturnPair(condition, thenReturn, elseReturn, indent);
+            }
+            else
+            {
+                WriteIndent(indent);
+                _sb.AppendLine($"return {condition} ? {thenReturn} : {elseReturn};");
+            }
             ConsumeReturnBlocks(block);
             return true;
+        }
+
+        void EmitReturnPair(string condition, string guardedReturn, string fallthroughReturn, int indent)
+        {
+            WriteIndent(indent);
+            _sb.AppendLine($"if ({condition})");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+            WriteIndent(indent + 1);
+            _sb.AppendLine($"return {guardedReturn};");
+            WriteIndent(indent);
+            _sb.AppendLine("}");
+            WriteIndent(indent);
+            _sb.AppendLine($"return {fallthroughReturn};");
+        }
+
+        /// <summary>
+        /// If the condition is a whole-expression negation we wrapped
+        /// ourselves — "!(...)" with the first paren matching the last —
+        /// returns the unwrapped inner condition. The inverted if/return
+        /// renders that case the way the source spells it.
+        /// </summary>
+        static string? TryStripOuterNegation(string condition)
+        {
+            if (!condition.StartsWith("!(", StringComparison.Ordinal)
+                || !condition.EndsWith(")", StringComparison.Ordinal))
+                return null;
+            int depth = 0;
+            for (int i = 1; i < condition.Length; i++)
+            {
+                if (condition[i] == '(') depth++;
+                else if (condition[i] == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i == condition.Length - 1 ? condition[2..^1] : null;
+                }
+            }
+            return null;
         }
 
         /// <summary>
