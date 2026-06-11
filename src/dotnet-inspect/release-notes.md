@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.10.4
+
+### AI integration fixes
+
+- Detects `Microsoft.Extensions.AI.OpenAI` AI adapter APIs such as `AsIChatClient`, `AsIEmbeddingGenerator`, and related modality adapters.
+- Includes package-owned OpenAI realtime client support types in the AI integration section.
+- Renames the `Integrations` roll-up count column to `APIs`.
+
 ## v0.10.3
 
 ### Library integrations

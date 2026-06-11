@@ -155,6 +155,29 @@ public static class EcosystemIntegrationScanner
         return kind.Length > 0;
     }
 
+    private static bool TryClassifyAIAdapterReturnType(string returnType, out string kind)
+    {
+        kind = "";
+        if (returnType.StartsWith("Microsoft.Extensions.AI.IChatClient", StringComparison.Ordinal))
+            kind = "Chat";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.IEmbeddingGenerator", StringComparison.Ordinal))
+            kind = "Embeddings";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.IImageGenerator", StringComparison.Ordinal))
+            kind = "Images";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.IRealtimeClient", StringComparison.Ordinal))
+            kind = "Realtime";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.ISpeechToTextClient", StringComparison.Ordinal))
+            kind = "Speech to Text";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.ITextToSpeechClient", StringComparison.Ordinal))
+            kind = "Text to Speech";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.IHostedFileClient", StringComparison.Ordinal))
+            kind = "Hosted Files";
+        else if (returnType.StartsWith("Microsoft.Extensions.AI.AITool", StringComparison.Ordinal))
+            kind = "Tools";
+
+        return kind.Length > 0;
+    }
+
     private static bool IsAspireType(string typeName) => TryGetAspireKind(typeName, out _);
 
     private static bool TryGetAspireKind(string typeName, out string kind)
@@ -181,6 +204,14 @@ public static class EcosystemIntegrationScanner
     {
         if (AITypes.TryGetValue(typeName, out kind!))
             return true;
+
+        if (typeName.StartsWith("Microsoft.Extensions.AI.", StringComparison.Ordinal)
+            && typeName.Contains("OpenAI", StringComparison.Ordinal)
+            && typeName.Contains("RealtimeClient", StringComparison.Ordinal))
+        {
+            kind = "Realtime";
+            return true;
+        }
 
         if (!typeName.StartsWith("Aspire.", StringComparison.Ordinal)
             || !typeName.Contains("OpenAI", StringComparison.Ordinal))
@@ -330,9 +361,6 @@ public static class EcosystemIntegrationScanner
                 continue;
 
             var methodName = reader.GetString(method.Name);
-            if (!methodName.StartsWith("Add", StringComparison.Ordinal))
-                continue;
-
             var context = GenericContext.ForMethod(reader, typeDefinition, method);
             var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
             var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
@@ -447,6 +475,13 @@ public static class EcosystemIntegrationScanner
             return false;
 
         var returnType = signature.ReturnType;
+        if (methodName.StartsWith("AsI", StringComparison.Ordinal)
+            || methodName == "AsAITool")
+        {
+            if (TryClassifyAIAdapterReturnType(returnType, out kind))
+                return true;
+        }
+
         if (returnType.Contains("ChatClientBuilder", StringComparison.Ordinal))
             kind = "Chat";
         else if (returnType.Contains("EmbeddingGeneratorBuilder", StringComparison.Ordinal))
