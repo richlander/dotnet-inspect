@@ -295,6 +295,31 @@ public class CfgSampleClass
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
 
+    public static int DayNumber(string day)
+    {
+        switch (day)
+        {
+            case "mon": return 1;
+            case "tue": return 2;
+            case "wed": return 3;
+            case "thu": return 4;
+            case "fri": return 5;
+            case "sat": return 6;
+            case "sun": return 7;
+            default: return 0;
+        }
+    }
+
+    public static int SmallStringSwitch(string s)
+    {
+        switch (s)
+        {
+            case "a": return 1;
+            case "b": return 2;
+            default: return 0;
+        }
+    }
+
     public static int LenOrZero(object o)
     {
         var s = o as string;

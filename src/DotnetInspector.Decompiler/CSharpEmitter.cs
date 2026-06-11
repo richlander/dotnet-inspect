@@ -86,6 +86,16 @@ public static class CSharpEmitter
         // Labels already emitted (avoid duplicates for shared blocks)
         readonly HashSet<string> _emittedLabels;
 
+        // Recognized hash-form string switches, keyed by root block index.
+        readonly Dictionary<int, StringSwitchInfo> _stringSwitches = [];
+
+        sealed record StringSwitchInfo(
+            string Subject,
+            List<(List<string> Literals, ILAstExpression Value)> Arms,
+            ILAstExpression DefaultValue,
+            HashSet<int> ConsumedBlocks,
+            List<ILAstNode> SkipNodes);
+
         // Stack-slot locals (S_N) declared so far — they exist nowhere in
         // metadata, so the first surviving store must declare them.
         readonly HashSet<string> _declaredSlotLocals = [];
@@ -1460,6 +1470,10 @@ public static class CSharpEmitter
             // Switch-expression arm temps fold away; suppress their declarations.
             ScanForSwitchExpressionLocals();
 
+            // Hash-form string switches (ComputeStringHash dispatch) fold to
+            // switch expressions; suppresses hash/copy/temp declarations.
+            ScanForStringSwitches();
+
             // Emit local variable declarations
             if (_ast.Locals.Count > 0)
             {
@@ -1826,6 +1840,12 @@ public static class CSharpEmitter
             // The condition block's last expression is the branch condition
             string condition = "/* condition */";
             ILAstExpression? branchExpression = null;
+            if (block.ConditionBlockIndex >= 0 && _stringSwitches.TryGetValue(block.ConditionBlockIndex, out var stringSwitch))
+            {
+                EmitStringSwitchExpression(block, stringSwitch, indent);
+                return;
+            }
+
             if (block.ConditionBlockIndex >= 0 && _blockMap.TryGetValue(block.ConditionBlockIndex, out var condBlock))
             {
                 _currentBlockNodes = condBlock.Nodes;
@@ -5339,6 +5359,291 @@ public static class CSharpEmitter
 
             WriteIndent(indent);
             _sb.AppendLine("}");
+        }
+
+        /// <summary>
+        /// Recognizes the hash-form string switch: csc lowers
+        /// 'switch (s)' over many string cases to
+        /// 'H = ComputeStringHash(s)' + a branch tree over H + per-case
+        /// 'if (s == "lit")' verification leaves sharing one default. The
+        /// dispatch tree carries no source semantics — the (literal, arm)
+        /// pairs and the default are the whole switch.
+        /// </summary>
+        void ScanForStringSwitches()
+        {
+            foreach (var (rootIdx, rootBlock) in _blockMap)
+            {
+                // Find: stloc H = call ComputeStringHash(ldloc subject)
+                string? hashLocal = null;
+                string? subjectLocal = null;
+                ILAstNode? hashNode = null;
+                foreach (var node in rootBlock.Nodes)
+                {
+                    if (node is ILAstStatement { Expression: var e }
+                        && e.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                            or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                        && e.Arguments.Count == 1
+                        && e.Arguments[0] is { OpCode: ILOpCode.Call } call
+                        && call.Operand?.Contains("ComputeStringHash", StringComparison.Ordinal) == true
+                        && call.Arguments.Count == 1
+                        && GetLocalReferenceName(call.Arguments[0]) is { } subj)
+                    {
+                        hashLocal = e.Operand ?? GetLocalName(e.OpCode);
+                        subjectLocal = subj;
+                        hashNode = node;
+                        break;
+                    }
+                }
+                if (hashLocal is null || subjectLocal is null)
+                    continue;
+
+                if (TryBuildStringSwitch(rootIdx, rootBlock, hashNode!, hashLocal, subjectLocal) is { } info)
+                    _stringSwitches[rootIdx] = info;
+            }
+        }
+
+        StringSwitchInfo? TryBuildStringSwitch(
+            int rootIdx, ILAstBlock rootBlock, ILAstNode hashNode, string hashLocal, string subjectLocal)
+        {
+            var consumed = new HashSet<int>();
+            var verifications = new List<(string Literal, int ArmStart)>();
+            var defaultCandidates = new HashSet<int>();
+
+            // Walk the dispatch tree from the root's trailing branch.
+            var queue = new Queue<int>();
+            var seen = new HashSet<int> { rootIdx };
+            EnqueueSuccessors(rootIdx, queue, seen);
+
+            while (queue.Count > 0)
+            {
+                int idx = queue.Dequeue();
+                if (!_blockMap.TryGetValue(idx, out var b))
+                    return null;
+                var nodes = b.Nodes
+                    .Where(n => n is not ILAstStatement { Expression.OpCode: ILOpCode.Nop })
+                    .ToList();
+
+                // Verification leaf: brtrue/brfalse(op_Equality(subject, ldstr)).
+                if (nodes.Count == 1
+                    && nodes[0] is ILAstStatement { Expression: var leaf }
+                    && leaf.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s
+                    && leaf.Arguments.Count == 1
+                    && leaf.Arguments[0] is { OpCode: ILOpCode.Call, Arguments.Count: 2 } eq
+                    && eq.Operand?.Contains("op_Equality", StringComparison.Ordinal) == true
+                    && GetLocalReferenceName(eq.Arguments[0]) == subjectLocal
+                    && eq.Arguments[1].OpCode == ILOpCode.Ldstr
+                    && eq.Arguments[1].Operand is { } literal
+                    && leaf.Operand is string leafTarget
+                    && BlockAtLabel(leafTarget) is { } leafTargetIdx)
+                {
+                    bool isTrue = leaf.OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s;
+                    int armStart = isTrue ? leafTargetIdx : idx + 1;
+                    int failStart = isTrue ? idx + 1 : leafTargetIdx;
+                    // The fail path must be (a hop to) the shared default.
+                    int failResolved = ResolveBareBr(failStart);
+                    consumed.Add(idx);
+                    if (failResolved != failStart)
+                        consumed.Add(failStart);
+                    verifications.Add((literal, armStart));
+                    defaultCandidates.Add(failResolved);
+                    continue;
+                }
+
+                // Dispatch block: every statement only touches the hash local.
+                bool isDispatch = nodes.Count > 0 && nodes.All(n =>
+                    n is ILAstStatement { Expression: var d }
+                    && (d.OpCode is ILOpCode.Br or ILOpCode.Br_s
+                        || (d.OpCode.IsBranch() && TreeOnlyLoadsLocalOrConsts(d, hashLocal))));
+                if (isDispatch)
+                {
+                    consumed.Add(idx);
+                    EnqueueSuccessors(idx, queue, seen);
+                    continue;
+                }
+
+                // Anything else reached from the dispatch tree is the default's
+                // start (reached by a bare br already consumed) — record it.
+                defaultCandidates.Add(idx);
+            }
+
+            if (verifications.Count < 2 || defaultCandidates.Count != 1)
+                return null;
+            int defaultIdx = defaultCandidates.Single();
+
+            // Arms (and default) must be single-value/throw shapes.
+            var temps = new HashSet<string>();
+            var armByTarget = new Dictionary<int, (List<string> Literals, ILAstExpression Value)>();
+            foreach (var (literal, armStart) in verifications)
+            {
+                if (!armByTarget.TryGetValue(armStart, out var arm))
+                {
+                    var value = ResolveSwitchArm(armStart, consumed, temps);
+                    if (value is null)
+                        return null;
+                    armByTarget[armStart] = arm = ([], value);
+                }
+                arm.Literals.Add(literal);
+            }
+            var defaultValue = ResolveSwitchArm(defaultIdx, consumed, temps);
+            if (defaultValue is null)
+                return null;
+
+            // Subject: follow trivial copies inside the root block; the copies
+            // and hash store render inside the expression, so they are skipped
+            // when nothing else reads them.
+            var skipNodes = new List<ILAstNode> { hashNode };
+            string subject = subjectLocal;
+            var suppressNames = new HashSet<string> { hashLocal };
+            string cur = subjectLocal;
+            for (int hops = 0; hops < 3; hops++)
+            {
+                ILAstNode? copyNode = null;
+                ILAstExpression? source = null;
+                foreach (var node in rootBlock.Nodes)
+                {
+                    if (node is ILAstStatement { Expression: var st }
+                        && st.OpCode is ILOpCode.Stloc or ILOpCode.Stloc_s
+                            or ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
+                        && (st.Operand ?? GetLocalName(st.OpCode)) == cur
+                        && st.Arguments.Count == 1)
+                    {
+                        copyNode = node;
+                        source = st.Arguments[0];
+                    }
+                }
+                if (copyNode is null || source is null)
+                    break;
+                bool simpleSource = source.OpCode is ILOpCode.Ldarg or ILOpCode.Ldarg_s
+                    or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
+                    or ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                    or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3;
+                if (!simpleSource)
+                    break;
+                skipNodes.Add(copyNode);
+                suppressNames.Add(cur);
+                subject = ExpressionToString(source);
+                if (GetLocalReferenceName(source) is not { } next)
+                    break;
+                cur = next;
+            }
+
+            // Locals folded into the expression must have no reads elsewhere.
+            foreach (var (idx, b) in _blockMap)
+            {
+                if (consumed.Contains(idx) || idx == rootIdx)
+                    continue;
+                foreach (string name in suppressNames.Append(subjectLocal).Concat(temps))
+                {
+                    if (BlockReferencesLocal(b, name))
+                        return null;
+                }
+            }
+            _suppressedLocals.UnionWith(suppressNames);
+            _suppressedLocals.UnionWith(temps);
+
+            var arms = armByTarget
+                .OrderBy(kv => kv.Key)
+                .Select(kv => kv.Value)
+                .ToList();
+            return new StringSwitchInfo(subject, arms, defaultValue, consumed, skipNodes);
+        }
+
+        void EnqueueSuccessors(int idx, Queue<int> queue, HashSet<int> seen)
+        {
+            if (!_blockMap.TryGetValue(idx, out var b)
+                || b.Nodes.LastOrDefault() is not ILAstStatement { Expression: var last })
+                return;
+            if (last.Operand is string target && (last.OpCode.IsBranch() || last.OpCode is ILOpCode.Br or ILOpCode.Br_s)
+                && BlockAtLabel(target) is { } targetIdx && seen.Add(targetIdx))
+            {
+                queue.Enqueue(targetIdx);
+            }
+            // Conditional branches fall through to the next block.
+            if (last.OpCode is not (ILOpCode.Br or ILOpCode.Br_s) && seen.Add(idx + 1))
+                queue.Enqueue(idx + 1);
+        }
+
+        int ResolveBareBr(int idx)
+        {
+            if (_blockMap.TryGetValue(idx, out var b)
+                && b.Nodes.Where(n => n is not ILAstStatement { Expression.OpCode: ILOpCode.Nop }).ToList()
+                    is [ILAstStatement { Expression: { OpCode: ILOpCode.Br or ILOpCode.Br_s, Operand: string t } }]
+                && BlockAtLabel(t) is { } targetIdx)
+            {
+                return targetIdx;
+            }
+            return idx;
+        }
+
+        static bool TreeOnlyLoadsLocalOrConsts(ILAstExpression expr, string local)
+        {
+            if (expr.OpCode is ILOpCode.Ldloc or ILOpCode.Ldloc_s
+                or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3)
+            {
+                return (expr.Operand ?? GetLocalName(expr.OpCode)) == local;
+            }
+            if (expr.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Calli or ILOpCode.Newobj
+                or ILOpCode.Ldfld or ILOpCode.Ldsfld or ILOpCode.Ldarg or ILOpCode.Ldarg_s
+                or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3)
+            {
+                return false;
+            }
+            foreach (var arg in expr.Arguments)
+            {
+                if (!TreeOnlyLoadsLocalOrConsts(arg, local))
+                    return false;
+            }
+            return true;
+        }
+
+        void EmitStringSwitchExpression(StructuredBlock block, StringSwitchInfo info, int indent)
+        {
+            if (_blockMap.TryGetValue(block.ConditionBlockIndex, out var rootBlock))
+            {
+                _currentBlockNodes = rootBlock.Nodes;
+                TryEmitLabel(block.ConditionBlockIndex);
+                for (int i = 0; i < rootBlock.Nodes.Count - 1; i++)
+                {
+                    var node = rootBlock.Nodes[i];
+                    if (_skipNodes.Contains(node) || info.SkipNodes.Contains(node))
+                        continue;
+                    if (node is ILAstStatement stmt)
+                        EmitStatement(stmt.Expression, indent);
+                    else if (node is ILAstAssignment assign)
+                        EmitAssignmentNode(assign, indent);
+                }
+                _currentBlockNodes = null;
+            }
+
+            WriteIndent(indent);
+            _sb.AppendLine($"return {info.Subject} switch");
+            WriteIndent(indent);
+            _sb.AppendLine("{");
+            foreach (var (literals, value) in info.Arms)
+            {
+                WriteIndent(indent + 1);
+                _sb.Append(string.Join(" or ", literals));
+                _sb.Append(" => ");
+                EmitSwitchArmValue(value);
+                _sb.AppendLine(",");
+            }
+            WriteIndent(indent + 1);
+            _sb.Append("_ => ");
+            EmitSwitchArmValue(info.DefaultValue);
+            _sb.AppendLine();
+            WriteIndent(indent);
+            _sb.AppendLine("};");
+
+            _consumedBlocks.Add(block.ConditionBlockIndex);
+            foreach (int idx in info.ConsumedBlocks)
+            {
+                _consumedBlocks.Add(idx);
+                RemoveGotoTargetsForConsumedBlock(idx);
+            }
+            if (block.ThenBlock is not null)
+                ConsumeStructuredBlock(block.ThenBlock);
+            if (block.ElseBlock is not null)
+                ConsumeStructuredBlock(block.ElseBlock);
         }
 
         /// <summary>
