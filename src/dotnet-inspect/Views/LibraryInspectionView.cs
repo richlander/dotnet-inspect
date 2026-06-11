@@ -206,6 +206,13 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
+    public bool HasAI => _data.AI is { Count: > 0 };
+
+    [MarkoutSection(Name = "AI", ShowWhenProperty = nameof(HasAI))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? AISection => ToIntegrationSignalRows(_data.AI);
+
+    [MarkoutIgnore]
     public bool HasDependencyInjection => _data.DependencyInjection is { Count: > 0 };
 
     [MarkoutSection(Name = "Dependency Injection", ShowWhenProperty = nameof(HasDependencyInjection))]
@@ -382,6 +389,7 @@ public class LibraryInspectionView
             return integrations.Count;
 
         var count = 0;
+        if (inspection.HasAISupport) count++;
         if (inspection.HasDependencyInjectionSupport) count++;
         if (inspection.HasLoggingSupport) count++;
         if (inspection.HasOpenTelemetrySupport) count++;

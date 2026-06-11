@@ -209,6 +209,12 @@ public class LibraryInspection
     public List<IntegrationSummary>? Integrations { get; set; }
 
     /// <summary>
+    /// Metadata evidence of Microsoft.Extensions.AI integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? AI { get; set; }
+
+    /// <summary>
     /// Metadata evidence of dependency injection integration.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -310,6 +316,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly references OpenTelemetry or .NET diagnostics telemetry primitives.</summary>
     [JsonIgnore]
     public bool HasOpenTelemetrySupport { get; set; }
+
+    /// <summary>Whether the assembly references Microsoft.Extensions.AI primitives.</summary>
+    [JsonIgnore]
+    public bool HasAISupport { get; set; }
 
     /// <summary>Whether the assembly references dependency injection primitives.</summary>
     [JsonIgnore]
