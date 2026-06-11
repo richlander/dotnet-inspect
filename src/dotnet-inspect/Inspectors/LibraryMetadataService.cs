@@ -626,10 +626,10 @@ internal static class LibraryMetadataService
         List<IntegrationSignal>? signals)
     {
         if (signals is { Count: > 0 })
-            integrations.Add(new IntegrationSummary(name, CountRenderedIntegrationExamples(name, signals)));
+            integrations.Add(new IntegrationSummary(name, CountRenderedIntegrationApis(name, signals)));
     }
 
-    private static int CountRenderedIntegrationExamples(string name, List<IntegrationSignal> signals)
+    private static int CountRenderedIntegrationApis(string name, List<IntegrationSignal> signals)
     {
         var apiCount = signals.Count(signal => signal.Shape == IntegrationSignalShape.Api);
         return apiCount > 0 && name is not ("AI" or "Aspire" or "HTTP Client" or "OpenTelemetry")
