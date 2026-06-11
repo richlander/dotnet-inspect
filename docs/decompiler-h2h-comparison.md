@@ -4,6 +4,8 @@ Comparison of `dotnet-inspect` decompiler output against the actual C# source fr
 
 Snapshot: June 2026 (third). The previous snapshot graded **B+** with 12 of 17 methods at A-/A; this one grades **A-** with 16 of 17. Everything the previous snapshot listed as a top gap has been closed: generic `ldelem` rendering, dangling `goto` labels, inverted-guard re-nesting, and the `ref`/`typeof`/generic-naming expression artifacts.
 
+Style target: where one IL shape admits several C# spellings, the decompiler renders the form dotnet/runtime's `.editorconfig` and code fixers encourage — see [decompiler-taste.md](decompiler-taste.md) for the design principles behind that choice and its hard limits.
+
 Methodology note: grades compare against the original dotnet/runtime source. When refreshing this document, [ilspycmd](https://www.nuget.org/packages/ilspycmd) (`dotnet tool install -g ilspycmd`) is a useful second reference — decompiling the same methods with a mature decompiler distinguishes "information lost in compilation" (ILSpy can't recover it either) from "gap in our pipeline" (ILSpy renders it, we don't). It is an analysis aid only; no test or CI infrastructure depends on it. ILSpy observations below are from ilspycmd 9.1.
 
 ---
