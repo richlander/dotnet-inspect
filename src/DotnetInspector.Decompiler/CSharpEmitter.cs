@@ -25,7 +25,7 @@ public static class CSharpEmitter
         var transforms = Transforms.TransformPipeline.Run(ast);
         var structure = StructuredControlFlow.Analyze(context, cfg, ast);
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals)
+        var emitter = new EmitterContext(ast, structure, sb, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals, context.DeclaringType)
         {
             BodyContext = context,
             LambdaDepth = lambdaDepth,
@@ -37,10 +37,10 @@ public static class CSharpEmitter
     /// <summary>
     /// Emit C# source from pre-computed ILAst and control flow structure.
     /// </summary>
-    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null)
+    public static string Emit(ILAstMethod ast, StructuredControlFlow structure, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null, string? declaringType = null)
     {
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType, parameterNames, inlinedLocals);
+        var emitter = new EmitterContext(ast, structure, sb, reader, hasThis, returnType, parameterNames, inlinedLocals, declaringType);
         emitter.EmitMethod();
         return sb.ToString();
     }
@@ -60,6 +60,7 @@ public static class CSharpEmitter
         readonly bool _returnsBool;
         readonly string? _returnTypeName;
         readonly IReadOnlyList<string>? _paramNames;
+        readonly string? _declaringType;
 
         // Map block index → ILAstBlock for quick lookup
         readonly Dictionary<int, ILAstBlock> _blockMap;
@@ -170,7 +171,7 @@ public static class CSharpEmitter
         // awaitable.GetAwaiter(); if (!awaiter.IsCompleted) AsyncHelpers.AwaitAwaiter(awaiter); awaiter.GetResult().
         readonly Dictionary<string, ILAstExpression> _runtimeCustomAwaitSources = [];
 
-        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null)
+        public EmitterContext(ILAstMethod ast, StructuredControlFlow structure, StringBuilder sb, MetadataReader? reader = null, bool hasThis = false, string? returnType = null, IReadOnlyList<string>? parameterNames = null, HashSet<string>? inlinedLocals = null, string? declaringType = null)
         {
             _ast = ast;
             _structure = structure;
@@ -181,6 +182,7 @@ public static class CSharpEmitter
             _returnTypeName = returnType;
             _paramNames = parameterNames;
             _inlinedLocals = inlinedLocals ?? [];
+            _declaringType = declaringType;
 
             _blockMap = [];
             for (int i = 0; i < ast.Blocks.Count; i++)
@@ -6194,6 +6196,20 @@ public static class CSharpEmitter
         void EmitStatement(ILAstExpression expr, int indent)
         {
             TryEnsureCollectionTempForMutation(expr, indent);
+
+            // The implicit base constructor call is never written in C#
+            // source. An argless ctor call on `this` to a DIFFERENT type is
+            // exactly that; argless `: this()` chaining (same type) stays
+            // visible since another ctor body runs.
+            if (expr.OpCode is ILOpCode.Call
+                && expr.Operand is { } ctorOp && ctorOp.EndsWith("::.ctor", StringComparison.Ordinal)
+                && !expr.IsStaticCall
+                && expr.Arguments.Count == 1
+                && expr.Arguments[0].OpCode == ILOpCode.Ldarg_0
+                && ctorOp[..^7] != _declaringType)
+            {
+                return;
+            }
 
             switch (expr.OpCode)
             {

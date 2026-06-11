@@ -958,7 +958,8 @@ public static class ILAstBuilder
 
     static ILAstExpression BuildCall(
         MetadataReader reader, int token, ILOpCode opcode,
-        int offset, Stack<ILAstExpression> stack, GenericContext? callerGenericContext = null)
+        int offset, Stack<ILAstExpression> stack, GenericContext? callerGenericContext = null,
+        string? genericArgsSuffix = null)
     {
         try
         {
@@ -983,6 +984,8 @@ public static class ILAstBuilder
                     returnType = sig.ReturnType;
                     var declType = reader.GetTypeDefinition(methodDef.GetDeclaringType());
                     methodName = $"{reader.GetFullTypeName(declType)}::{reader.GetString(methodDef.Name)}";
+                    if (genericArgsSuffix is not null && paramCount == 0)
+                        methodName += genericArgsSuffix;
                     break;
                 }
 
@@ -1010,13 +1013,28 @@ public static class ILAstBuilder
                     // (its !N are the caller's type params); the SIGNATURE above
                     // decodes in the instantiation context built from it.
                     methodName = ResolveMethodRefName(reader, memberRef, callerGenericContext);
+                    if (genericArgsSuffix is not null && paramCount == 0 && methodName is not null)
+                        methodName += genericArgsSuffix;
                     break;
                 }
 
                 case HandleKind.MethodSpecification:
                 {
                     var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-                    return BuildCall(reader, MetadataTokens.GetToken(spec.Method), opcode, offset, stack, callerGenericContext);
+                    // Explicit type arguments render only where C# REQUIRES
+                    // them: a parameterless generic method has no inference
+                    // basis (Array.Empty<T>()). Parametered calls infer in
+                    // source, so appending args there would diverge from it.
+                    string? suffix = null;
+                    try
+                    {
+                        var typeArgs = spec.DecodeSignature(SignatureDecoder.Instance, callerGenericContext);
+                        if (typeArgs.Length > 0)
+                            suffix = $"<{string.Join(", ", typeArgs)}>";
+                    }
+                    catch { }
+                    return BuildCall(reader, MetadataTokens.GetToken(spec.Method), opcode, offset, stack,
+                        callerGenericContext, suffix);
                 }
 
                 default:
