@@ -1492,17 +1492,16 @@ public static class CSharpEmitter
             // but still need to appear at method end for other paths.
             EnsureTrailingReturn();
 
-            FixupDanglingGotoLabels();
+            FixupGotoLabels();
         }
 
         /// <summary>
-        /// Inserts labels for gotos that rendered while their target's label was
-        /// suppressed. Structuring suppresses then/else/follow labels assuming
-        /// every branch to them is absorbed; any branch that still fell back to
-        /// a textual goto would otherwise dangle. Insertions run back-to-front
-        /// so earlier recorded positions stay valid.
+        /// Inserts a label at each recorded block position that an emitted
+        /// textual goto references. Labels are demand-driven: a label appears
+        /// in the output if and only if a goto names it. Insertions run
+        /// back-to-front so earlier recorded positions stay valid.
         /// </summary>
-        void FixupDanglingGotoLabels()
+        void FixupGotoLabels()
         {
             List<(int Pos, string Label)>? pending = null;
             foreach (string target in _emittedGotos)
@@ -1537,13 +1536,14 @@ public static class CSharpEmitter
                 n is ILAstStatement { Expression.OpCode: ILOpCode.Ret });
             if (!hasReturn) return;
 
-            // If this block is a return-only block and all gotos to it were inlined,
-            // its label is no longer needed — skip the trailing return
+            // If this block is a return-only block no rendered goto references
+            // (every branch to it was structured away or inlined), it has
+            // already been represented — skip the trailing return
             if (lastBlock.Nodes.Count == 1
                 && _blockStartOffset.TryGetValue(lastBlockIdx, out int offset))
             {
                 string label = $"IL_{offset:X4}";
-                if (!_emittedLabels.Contains(label))
+                if (!_emittedGotos.Contains(label))
                     return;
             }
 
@@ -4310,6 +4310,50 @@ public static class CSharpEmitter
         }
 
         /// <summary>
+        /// Renders a conditional branch whose target contains only a return as
+        /// <c>if (cond) return ...;</c>. The target block itself still emits
+        /// normally for paths that reach it by fallthrough.
+        /// </summary>
+        bool TryEmitConditionalReturn(ILAstExpression branchExpr, string targetLabel, int indent)
+        {
+            if (FindReturnOnlyBlock(targetLabel) is not { } retExpr)
+                return false;
+
+            WriteIndent(indent);
+            _sb.Append("if (");
+            EmitBranchCondition(branchExpr);
+            _sb.Append(") ");
+            if (retExpr.Arguments.Count > 0)
+            {
+                _sb.Append("return ");
+                bool wasBool = _emitBoolContext;
+                if (_returnsBool)
+                    _emitBoolContext = true;
+                EmitExpression(retExpr.Arguments[0], _returnTypeName);
+                _emitBoolContext = wasBool;
+                _sb.AppendLine(";");
+            }
+            else
+            {
+                _sb.AppendLine("return;");
+            }
+            return true;
+        }
+
+        ILAstExpression? FindReturnOnlyBlock(string targetLabel)
+        {
+            foreach (var (blockIdx, offset) in _blockStartOffset)
+            {
+                if ($"IL_{offset:X4}" != targetLabel) continue;
+                if (!_blockMap.TryGetValue(blockIdx, out var targetBlock)) return null;
+                if (targetBlock.Nodes.Count != 1) return null;
+                if (targetBlock.Nodes[0] is not ILAstStatement { Expression: var retExpr }) return null;
+                return retExpr.OpCode == ILOpCode.Ret ? retExpr : null;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// If the goto target is a block containing only a return statement,
         /// emit the return directly and return true. Otherwise return false.
         /// </summary>
@@ -5404,6 +5448,10 @@ public static class CSharpEmitter
                     // Conditional branches — when not consumed by structuring
                     // Try guard clause pattern: if (cond) goto TARGET; body → if (negated) { body; }
                     if (expr.Operand is string condTarget && TryEmitGuardClause(expr, condTarget, indent))
+                        break;
+                    // Branch to a return-only block: render the return under
+                    // the condition — no goto, no label needed.
+                    if (expr.Operand is string condRet && TryEmitConditionalReturn(expr, condRet, indent))
                         break;
                     WriteIndent(indent);
                     _sb.Append($"if (");
@@ -7296,17 +7344,12 @@ public static class CSharpEmitter
             if (_blockStartOffset.TryGetValue(blockIndex, out int startOffset))
             {
                 string label = $"IL_{startOffset:X4}";
-                // Wherever a label is withheld, remember the spot: structuring
-                // marks labels consumed on the ASSUMPTION every branch to them
-                // is structured away, but a stray branch can still render as a
-                // goto — FixupDanglingGotoLabels repairs those at the end.
-                if (!_emittedLabels.Contains(label))
-                    _suppressedLabelPositions.TryAdd(label, _sb.Length);
-                // Suppress labels consumed by while-loop conditions or loop headers
-                if (_loopConsumedLabels.Contains(label) || _loopHeaderLabels.Contains(label))
-                    return;
-                if (_gotoTargets.Contains(label) && _emittedLabels.Add(label))
-                    _sb.AppendLine($"{label}:");
+                // Labels are lazy: record where this one WOULD go and let
+                // FixupGotoLabels insert it only if a textual goto actually
+                // references it. Eager printing can't know that — structuring
+                // absorbs most branch references, and patterns (inlined
+                // returns, guard clauses) absorb more during emission.
+                _suppressedLabelPositions.TryAdd(label, _sb.Length);
             }
         }
 
