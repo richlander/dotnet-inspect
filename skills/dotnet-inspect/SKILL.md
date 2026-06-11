@@ -57,7 +57,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document. Categories such as `@Integrations` expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
+`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Categories such as `@Integrations` expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
 
 ## General tips
 
@@ -116,22 +116,21 @@ Fidelity expectations: `Original Source` is the SourceLink-backed original sourc
 
 For crash/stack diagnostics that include a MethodDef token plus IL offset, `source --il-offset 0x06000001+0x5` can map the offset to source. This is a niche deep-debugging path; do not start there for normal API lookup.
 
-## Package, library, and Signals workflow
+## Package, library, integrations, and Signals workflow
 
 Use `package` for NuGet package structure and registry-backed signals. Use `library` for assembly metadata, APIs, PDB/SourceLink evidence, and direct references.
 
 ```bash
 dnx dotnet-inspect -y -- package System.Text.Json -S Signals
 dnx dotnet-inspect -y -- package System.Text.Json -S "Library Files"
-dnx dotnet-inspect -y -- package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
+dnx dotnet-inspect -y -- package Aspire.Azure.AI.OpenAI --library -S @Integrations
 dnx dotnet-inspect -y -- library System.Text.Json -S Signals
-dnx dotnet-inspect -y -- library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dnx dotnet-inspect -y -- library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 ```
 
 `Signals` reports observations, not a safety or trust verdict. Library Signals include SourceLink presence, SourceLink availability, determinism, trim/AOT markers, async kind (`Runtime`, `State machine`, `Mixed`, or `None`), memory-safety metadata, unsafe/PInvoke observations, and direct references. Package Signals include TFMs, manifest, readme/license, dependencies, package signature, local provenance, vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age.
 
-Use `package Foo --library` to inspect the package's primary DLL when it is unambiguous; add a DLL name when a package contains multiple libraries. Use the `Integrations` library section as a roll-up of detected ecosystem support, then select a focused integration section by name. Integration sections currently include AI, Aspire, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and OpenTelemetry. Focused integration sections list package-owned actionable types or starter APIs, not raw assembly references. Use the `OpenTelemetry` library section for detailed OpenTelemetry types such as `ActivitySource`, `DiagnosticSource`, and `System.Diagnostics.Metrics` types.
+Use `package Foo --library` to inspect the package's primary DLL when it is unambiguous; add a DLL name when a package contains multiple libraries. Use `-S Integrations` for the ecosystem roll-up, `-S @Integrations` for roll-up plus focused sections, or a focused section such as `OpenTelemetry`. Integration sections cover AI, Aspire resources, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and OpenTelemetry. Focused sections list package-owned starter APIs, support types, and telemetry controls, not raw assembly references.
 
 `library X -S Signals` resolves SourceLink by acquiring a missing PDB. Per-source-file reachability is opt-in: add `-S "SourceLink Availability"` and `-S "SourceLink Missing Files"` for HTTP HEAD checks, or `-S "SourceLink Integrity"` to download source files and compare checksums. For .NET tool packages, inspect the tool DLL through the package context, for example `library dotnet-inspect.dll --package dotnet-inspect@<version> -S "SourceLink Integrity"`. Tool v2 pointer/RID packages resolve to their inspectable framework-dependent payload.
 
