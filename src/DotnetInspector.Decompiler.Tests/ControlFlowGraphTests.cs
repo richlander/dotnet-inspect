@@ -295,6 +295,37 @@ public class CfgSampleClass
 
     public static bool ULongGe(ulong a, ulong b) => a >= b;
 
+    public static string LowerBoundCheck(System.Array array)
+    {
+        if (array.GetLowerBound(0) != 0)
+            return "nonzero";
+        return "zero";
+    }
+
+    public static void ReverseCopy(int[] src, int[] dst, int dstIndex, int count)
+    {
+        int i = 0;
+        int j = dstIndex + count;
+        while (i < count)
+            dst[--j] = src[i++];
+    }
+
+    public static void ChecksThenTry(int x)
+    {
+        if (x < 0)
+            throw new ArgumentOutOfRangeException(nameof(x));
+        if (x > 100)
+            throw new ArgumentException("too big");
+        try
+        {
+            Console.WriteLine(x);
+        }
+        catch (InvalidOperationException)
+        {
+            throw new ArgumentException("bad");
+        }
+    }
+
     public static int DayNumber(string day)
     {
         switch (day)
