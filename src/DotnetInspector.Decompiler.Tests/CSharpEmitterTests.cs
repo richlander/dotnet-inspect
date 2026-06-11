@@ -452,13 +452,19 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void ColorName_UsesEnumCaseLabels()
+    public void ColorName_RendersSwitchExpressionWithEnumLabels()
     {
+        // All arms return a value, so the switch renders as a switch
+        // expression (editorconfig: csharp_style_prefer_switch_expression) —
+        // identically from Debug and Release IL.
         string output = EmitMethod(nameof(CfgSampleClass.ColorName));
 
-        Assert.Contains("case", output);
-        Assert.Contains("Green", output);
-        Assert.Contains("Yellow", output);
+        Assert.Contains("return c switch", output);
+        Assert.Contains("Color.Green => \"green\",", output);
+        Assert.Contains("_ => \"?\"", output);
+        Assert.DoesNotContain("case", output);
+        // Arm temps fold into the expression; no dangling declaration.
+        Assert.DoesNotContain("string V_", output);
     }
 
     // --- Loop branches: continue / break ---
@@ -773,19 +779,23 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void SwitchStatement_HasCaseLabels()
+    public void SwitchStatement_AllArmsReturn_RendersSwitchExpression()
     {
+        // Every arm returns, so the canonical form is the switch expression
+        // (editorconfig: csharp_style_prefer_switch_expression).
         string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
 
-        Assert.Contains("case", output);
+        Assert.Contains("switch", output);
+        Assert.Contains("=>", output);
+        Assert.DoesNotContain("case", output);
     }
 
     [Fact]
-    public void SwitchStatement_HasDefaultCase()
+    public void SwitchStatement_HasDefaultArm()
     {
         string output = EmitMethod(nameof(CfgSampleClass.SwitchStatement));
 
-        Assert.Contains("default:", output);
+        Assert.Contains("_ =>", output);
     }
 
     [Fact]
