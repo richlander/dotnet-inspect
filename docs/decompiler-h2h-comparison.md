@@ -4,6 +4,8 @@ Comparison of `dotnet-inspect` decompiler output against the actual C# source fr
 
 Snapshot: June 2026. Previous snapshot graded a **B** average; the gap items it listed (field compound assignment, `&&`/`||` reconstruction, `goto`-to-`continue`, `ref` arguments, bool return context) have all since been closed.
 
+Methodology note: grades compare against the original dotnet/runtime source. When refreshing this document, [ilspycmd](https://www.nuget.org/packages/ilspycmd) (`dotnet tool install -g ilspycmd`) is a useful second reference — decompiling the same methods with a mature decompiler distinguishes "information lost in compilation" (ILSpy can't recover it either) from "gap in our pipeline" (ILSpy renders it, we don't). It is an analysis aid only; no test or CI infrastructure depends on it.
+
 ---
 
 ## Exact and Near-Exact Matches
