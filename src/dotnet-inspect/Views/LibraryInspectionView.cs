@@ -199,8 +199,7 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "Integrations", ShowWhenProperty = nameof(HasIntegrations))]
     public List<IntegrationRow>? IntegrationsSection =>
         _data.Integrations?
-            .Select((i, index) => new IntegrationRow(
-                index == 0 ? _data.Integrations.Count.ToString() : "",
+            .Select(i => new IntegrationRow(
                 i.Integration,
                 i.Count,
                 FormatSectionSelect(i.NextSection)))
@@ -480,7 +479,6 @@ public record AuditSignalRow(
 
 [MarkoutSerializable]
 public record IntegrationRow(
-    string Integrations,
     string Integration,
     int Examples,
     string Next);

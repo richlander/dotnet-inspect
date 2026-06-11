@@ -1934,8 +1934,8 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
-        Assert.Contains("| Integrations | Integration | Examples | Next |", output);
-        Assert.Contains("| 1 | OpenTelemetry |", output);
+        Assert.Contains("| Integration | Examples | Next |", output);
+        Assert.Contains("| OpenTelemetry |", output);
         Assert.Contains("-S OpenTelemetry", output);
         Assert.DoesNotContain("## OpenTelemetry", output);
         Assert.DoesNotContain("Tip:", error);
