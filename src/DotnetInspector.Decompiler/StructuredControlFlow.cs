@@ -300,6 +300,71 @@ public sealed class StructuredControlFlow
             }
         }
 
+        // Predecessor counts (distinct edges) for arm-chain absorption.
+        var predCounts = new int[cfg.BasicBlocks.Count];
+        foreach (var bb in cfg.BasicBlocks)
+        {
+            var succs = new HashSet<int>();
+            if (bb.BranchTarget is not null) succs.Add(cfg.IndexOf(bb.BranchTarget));
+            if (bb.FallthroughTarget is not null) succs.Add(cfg.IndexOf(bb.FallthroughTarget));
+            if (bb.SwitchCaseTargets is not null)
+                foreach (var t in bb.SwitchCaseTargets) succs.Add(cfg.IndexOf(t));
+            foreach (int sIdx in succs)
+                if (sIdx >= 0) predCounts[sIdx]++;
+        }
+
+        // An if/else arm is the arm head plus its single-predecessor
+        // fallthrough chain: blocks only reachable from inside the arm (e.g.
+        // the continuation after an inverted guard) must render inside the
+        // arm's braces — emitted at top level, the OTHER arm's fallthrough
+        // would appear to flow into them.
+        StructuredBlock BuildArm(int headIndex)
+        {
+            if (headIndex >= 0)
+                processed.Add(headIndex);
+
+            List<int> chain = [headIndex];
+            int cur = headIndex;
+            while (cur >= 0)
+            {
+                var ft = cfg.BasicBlocks[cur].FallthroughTarget;
+                int next = ft is null ? -1 : cfg.IndexOf(ft);
+                if (next < 0 || processed.Contains(next)
+                    || predCounts[next] != 1
+                    || loopHeaders.ContainsKey(next) || blockToLoop.ContainsKey(next)
+                    || inExceptionRegion.ContainsKey(next)
+                    || switchBlocks.ContainsKey(next)
+                    || conditionBlocks.ContainsKey(next))
+                {
+                    break;
+                }
+                chain.Add(next);
+                processed.Add(next);
+                cur = next;
+            }
+
+            if (chain.Count == 1)
+            {
+                return new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.BasicBlock,
+                    BlockIndex = headIndex,
+                    Label = $"Block_{headIndex}"
+                };
+            }
+
+            return new StructuredBlock
+            {
+                Kind = StructuredBlockKind.Sequence,
+                Children = chain.Select(idx => new StructuredBlock
+                {
+                    Kind = StructuredBlockKind.BasicBlock,
+                    BlockIndex = idx,
+                    Label = $"Block_{idx}"
+                }).ToList()
+            };
+        }
+
         for (int i = 0; i < cfg.BasicBlocks.Count; i++)
         {
             if (processed.Contains(i)) continue;
@@ -509,29 +574,13 @@ public sealed class StructuredControlFlow
 
             if (conditionBlocks.TryGetValue(i, out var cond))
             {
-                var thenBlock = new StructuredBlock
-                {
-                    Kind = StructuredBlockKind.BasicBlock,
-                    BlockIndex = cond.ThenIndex,
-                    Label = $"Block_{cond.ThenIndex}"
-                };
-                processed.Add(cond.ThenIndex);
-
-                StructuredBlock? elseBlock = null;
-                if (cond.ElseIndex >= 0)
-                {
-                    elseBlock = new StructuredBlock
-                    {
-                        Kind = StructuredBlockKind.BasicBlock,
-                        BlockIndex = cond.ElseIndex,
-                        Label = $"Block_{cond.ElseIndex}"
-                    };
-                    processed.Add(cond.ElseIndex);
-                }
-
                 processed.Add(i);
                 foreach (var term in cond.ChainTerms)
                     processed.Add(term.BlockIndex);
+
+                var thenBlock = BuildArm(cond.ThenIndex);
+                StructuredBlock? elseBlock = cond.ElseIndex >= 0 ? BuildArm(cond.ElseIndex) : null;
+
                 children.Add(new StructuredBlock
                 {
                     Kind = StructuredBlockKind.IfThenElse,

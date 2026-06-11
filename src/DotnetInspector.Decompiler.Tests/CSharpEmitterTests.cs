@@ -139,6 +139,29 @@ public class CSharpEmitterTests
         }
     }
 
+    [Fact]
+    public void CoreLib_AbsShort_NestsOutOfLineThrowInsideGuard()
+    {
+        // The throw helper call is only reachable from inside the outer
+        // if-arm (via the inner guard's fallthrough), so it must render
+        // inside the braces — at top level the negative-path code would
+        // appear reachable from the non-negative path.
+        string output = EmitCoreLibMethod("System.Math", "Abs", overloadIndex: 0);
+
+        Assert.Contains("    Math.ThrowNegateTwosCompOverflow();", output);
+    }
+
+    [Fact]
+    public void CoreLib_ListClear_GuardsArrayClearInsideThenArm()
+    {
+        // Array.Clear is only reachable from the IsReferenceOrContains-
+        // References arm; rendered at top level, the else path (which jumps
+        // straight to the return) would appear to flow into it.
+        string output = EmitCoreLibMethod("System.Collections.Generic.List`1", "Clear");
+
+        Assert.Contains("    Array.Clear", output);
+    }
+
     // --- Generic ldelem (type-parameter element access) ---
 
     [Fact]
