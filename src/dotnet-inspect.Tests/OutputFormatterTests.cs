@@ -253,7 +253,7 @@ public class OutputFormatterTests
         var libraryInspection = CreateTestAudit("Test.dll", "net9.0");
         libraryInspection.Integrations =
         [
-            new IntegrationSummary("OpenTelemetry", 2, "OpenTelemetry")
+            new IntegrationSummary("OpenTelemetry", 2)
         ];
         libraryInspection.OpenTelemetry =
         [

@@ -67,10 +67,11 @@ Bare names are routed automatically: platform-looking names (`System.*`, `Micros
 
 ## Integrations
 
-`Integrations` is a library section for ecosystem support such as AI, Dependency
-Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and
+`Integrations` is a library section for ecosystem support such as AI, Aspire,
+Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, and
 OpenTelemetry. It is a usability index, not a raw evidence report: focused
-integration sections list actionable API types rather than assembly references.
+integration sections list package-owned actionable types and starter APIs rather
+than assembly references.
 
 ## Output and querying
 

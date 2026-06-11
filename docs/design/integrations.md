@@ -32,7 +32,6 @@ The roll-up reports one row per detected integration:
 | ------ | ------- |
 | Integration | Ecosystem area, such as Logging or OpenTelemetry. |
 | Examples | Count of actionable API examples in the focused section. |
-| Next | Section selector for the focused detail view. |
 
 `Library Info` also includes an `Integrations` field. That field counts detected
 integration categories, not example rows. It is computed from cheap metadata
@@ -48,10 +47,11 @@ Examples:
 
 | Integration | Currency examples |
 | ----------- | ----------------- |
-| AI | `IChatClient`, `IEmbeddingGenerator<TInput,TEmbedding>`, `AITool`, modality client interfaces. |
-| Dependency Injection | `IServiceCollection`, service registration extension types, builder types. |
+| AI | `IChatClient`, `IEmbeddingGenerator<TInput,TEmbedding>`, `AITool`, modality client interfaces, package-owned builder/registration APIs. |
+| Aspire | `AddRedis(...)`, `RedisResource`, resource-specific `Add*` APIs returning `IResourceBuilder<T>`. |
+| Dependency Injection | Package-owned `Add*` service registration APIs and DI builder types. |
 | Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, logging extension types. |
-| OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types. |
+| OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types, `DisableTracing`/`DisableMetrics` telemetry controls. |
 | Options | `IOptions<T>`, `IOptionsMonitor<T>`, configure/validate options types. |
 | Hosting | `IHostedService`, `BackgroundService`, host builder types. |
 | Health Checks | `IHealthCheck`, health check builder/service types. |
@@ -64,7 +64,7 @@ API to use.
 
 ## Detail section shape
 
-Focused sections render examples as types:
+Focused sections render examples as types when every row is a type:
 
 ```markdown
 | Type |
@@ -82,18 +82,35 @@ When an integration has multiple kinds of currency, keep the `Kind` column:
 | Metrics | `System.Diagnostics.Metrics.Meter` |
 ```
 
+When the useful currency includes member-level entry points or a mix of member
+and type shapes, use `API` instead of `Type`:
+
+```markdown
+| Kind | API |
+| ---- | --- |
+| Hosting | `Microsoft.Extensions.Hosting.AspireOpenAIExtensions.AddOpenAIClient(...)` |
+| Chat | `Microsoft.Extensions.Hosting.AspireOpenAIClientBuilderChatClientExtensions.AddChatClient(...)` |
+| Configuration | `Aspire.OpenAI.OpenAISettings` |
+```
+
 If every row in a focused section has the same kind, hide `Kind` and render only
-`Type`. This keeps the common case compact while preserving useful distinctions
-for integrations such as OpenTelemetry.
+`Type` or `API`. This keeps the common case compact while preserving useful
+distinctions for integrations such as OpenTelemetry and AI.
 
 ## Detection and ranking
 
 Detection reads metadata only:
 
-1. Type references and type definitions are scanned for curated integration
-   namespaces and well-known types.
-2. The roll-up includes categories with at least one actionable type.
-3. Focused sections sort high-value types first, then alphabetically.
+1. Public package-owned type definitions and curated public starter extension
+   methods are scanned for integration currency.
+2. External "famous" types from referenced assemblies are not enough to create a
+   focused row; rows should identify what to use from the inspected package.
+3. Public package-owned telemetry control APIs such as `DisableTracing` and
+   `DisableMetrics` are OpenTelemetry currency because they reveal emitted
+   telemetry kinds and how callers configure them.
+4. The roll-up includes categories with at least one actionable type or starter
+   API.
+5. Focused sections sort rows by `Kind`, then by the displayed `Type` or `API`.
 
 The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive

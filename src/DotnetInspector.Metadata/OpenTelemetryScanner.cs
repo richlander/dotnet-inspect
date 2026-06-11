@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -8,7 +9,8 @@ namespace DotnetInspector.Metadata;
 /// </summary>
 public record OpenTelemetrySignalInfo(
     string Kind,
-    string Name);
+    string Name,
+    string Shape = IntegrationSignalShape.Type);
 
 /// <summary>
 /// Scans assembly metadata for OpenTelemetry packages and .NET diagnostics primitives.
@@ -28,15 +30,24 @@ public static class OpenTelemetryScanner
         var metricsTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         var diagnosticSourceTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         var microsoftTelemetryTypes = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var handle in reader.TypeReferences)
-            AddTypeMatches(reader.GetFullTypeName(reader.GetTypeReference(handle)), "TypeRef");
+        var tracingApis = new Dictionary<string, string>(StringComparer.Ordinal);
+        var metricsApis = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var handle in reader.TypeDefinitions)
-            AddTypeMatches(reader.GetFullTypeName(reader.GetTypeDefinition(handle)), "TypeDef");
+        {
+            var typeDefinition = reader.GetTypeDefinition(handle);
+            if (!typeDefinition.IsPublic)
+                continue;
+
+            var typeName = reader.GetFullTypeName(typeDefinition);
+            AddTypeMatches(typeName, "TypeDef");
+            AddTelemetryControlProperties(reader, typeDefinition, typeName);
+        }
         List<OpenTelemetrySignalInfo> results = [];
+        AddApiRows(results, "Metrics", metricsApis);
         AddTypeRows(results, "OpenTelemetry", openTelemetryTypes);
         AddTypeRows(results, "Tracing", tracingTypes);
+        AddApiRows(results, "Tracing", tracingApis);
         AddTypeRows(results, "Metrics", metricsTypes);
         AddTypeRows(results, "DiagnosticSource", diagnosticSourceTypes);
         AddTypeRows(results, "Microsoft.Extensions.Telemetry", microsoftTelemetryTypes);
@@ -55,6 +66,40 @@ public static class OpenTelemetryScanner
             if (IsMicrosoftTelemetryType(typeName))
                 AddType(microsoftTelemetryTypes, typeName, source);
         }
+
+        void AddTelemetryControlProperties(MetadataReader metadataReader, TypeDefinition typeDefinition, string typeName)
+        {
+            var context = GenericContext.ForType(metadataReader, typeDefinition);
+            foreach (var propertyHandle in typeDefinition.GetProperties())
+            {
+                var property = metadataReader.GetPropertyDefinition(propertyHandle);
+                var accessors = property.GetAccessors();
+                if (accessors.Setter.IsNil)
+                    continue;
+
+                var setter = metadataReader.GetMethodDefinition(accessors.Setter);
+                if ((setter.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                    continue;
+
+                try
+                {
+                    var signature = property.DecodeSignature(SignatureDecoder.Instance, context);
+                    if (signature.ReturnType != "bool")
+                        continue;
+                }
+                catch (BadImageFormatException)
+                {
+                    continue;
+                }
+
+                var propertyName = metadataReader.GetString(property.Name);
+                var api = $"{TypeResolver.FormatDisplayName(typeName)}.{propertyName}";
+                if (propertyName == "DisableTracing")
+                    AddType(tracingApis, api, "Property");
+                else if (propertyName == "DisableMetrics")
+                    AddType(metricsApis, api, "Property");
+            }
+        }
     }
 
     public static bool HasSupport(PEReader peReader)
@@ -62,15 +107,14 @@ public static class OpenTelemetryScanner
 
     internal static bool HasSupport(MetadataReader reader)
     {
-        foreach (var handle in reader.TypeReferences)
-        {
-            if (IsTelemetryType(reader.GetFullTypeName(reader.GetTypeReference(handle))))
-                return true;
-        }
-
         foreach (var handle in reader.TypeDefinitions)
         {
-            if (IsTelemetryType(reader.GetFullTypeName(reader.GetTypeDefinition(handle))))
+            var typeDefinition = reader.GetTypeDefinition(handle);
+            if (!typeDefinition.IsPublic)
+                continue;
+
+            if (IsTelemetryType(reader.GetFullTypeName(typeDefinition))
+                || HasTelemetryControlProperty(reader, typeDefinition))
                 return true;
         }
 
@@ -78,11 +122,12 @@ public static class OpenTelemetryScanner
     }
 
     private static bool IsTelemetryType(string typeName)
-        => IsOpenTelemetryType(typeName)
+        => !typeName.Contains(".Internal.", StringComparison.Ordinal)
+           && (IsOpenTelemetryType(typeName)
            || IsTracingPrimitive(typeName)
            || IsMetricsPrimitive(typeName)
            || IsDiagnosticSourcePrimitive(typeName)
-           || IsMicrosoftTelemetryType(typeName);
+           || IsMicrosoftTelemetryType(typeName));
 
     private static bool IsOpenTelemetryType(string typeName)
         => typeName.Equals("OpenTelemetry", StringComparison.Ordinal)
@@ -122,6 +167,46 @@ public static class OpenTelemetryScanner
     {
         foreach (var type in OrderTypes(types))
             results.Add(new OpenTelemetrySignalInfo(kind, TypeResolver.FormatDisplayName(type)));
+    }
+
+    private static void AddApiRows(
+        List<OpenTelemetrySignalInfo> results,
+        string kind,
+        Dictionary<string, string> apis)
+    {
+        foreach (var api in OrderTypes(apis))
+            results.Add(new OpenTelemetrySignalInfo(kind, api, IntegrationSignalShape.Api));
+    }
+
+    private static bool HasTelemetryControlProperty(MetadataReader reader, TypeDefinition typeDefinition)
+    {
+        var context = GenericContext.ForType(reader, typeDefinition);
+        foreach (var propertyHandle in typeDefinition.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var propertyName = reader.GetString(property.Name);
+            if (propertyName is not ("DisableTracing" or "DisableMetrics"))
+                continue;
+
+            var accessors = property.GetAccessors();
+            if (accessors.Setter.IsNil)
+                continue;
+
+            var setter = reader.GetMethodDefinition(accessors.Setter);
+            if ((setter.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                continue;
+
+            try
+            {
+                if (property.DecodeSignature(SignatureDecoder.Instance, context).ReturnType == "bool")
+                    return true;
+            }
+            catch (BadImageFormatException)
+            {
+            }
+        }
+
+        return false;
     }
 
     private static IEnumerable<string> OrderTypes(Dictionary<string, string> types)

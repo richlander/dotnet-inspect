@@ -1905,6 +1905,7 @@ public class CommandExecutionTests
         Assert.Equal(
             [
                 "AI",
+                "Aspire",
                 "Async Methods",
                 "Custom Attributes",
                 "Dependency Injection",
@@ -1935,9 +1936,8 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
-        Assert.Contains("| Integration | Examples | Next |", output);
+        Assert.Contains("| Integration | Examples |", output);
         Assert.Contains("| OpenTelemetry |", output);
-        Assert.Contains("-S OpenTelemetry", output);
         Assert.DoesNotContain("## OpenTelemetry", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -1952,8 +1952,8 @@ public class CommandExecutionTests
         Assert.Contains("Integrations", output);
         Assert.Contains("AI", output);
         Assert.Contains("Dependency Injection", output);
-        Assert.Contains("Logging", output);
-        Assert.Contains("OpenTelemetry", output);
+        Assert.DoesNotContain("Logging", output);
+        Assert.DoesNotContain("OpenTelemetry", output);
         Assert.DoesNotContain("Options", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -1968,8 +1968,8 @@ public class CommandExecutionTests
         Assert.Contains("## Integrations", output);
         Assert.Contains("## AI", output);
         Assert.Contains("## Dependency Injection", output);
-        Assert.Contains("## Logging", output);
-        Assert.Contains("## OpenTelemetry", output);
+        Assert.DoesNotContain("## Logging", output);
+        Assert.DoesNotContain("## OpenTelemetry", output);
         Assert.DoesNotContain("## Options", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -1983,7 +1983,6 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
         Assert.Contains("Logging", output);
-        Assert.Contains("-S Logging", output);
         Assert.DoesNotContain("## Logging", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -1992,15 +1991,117 @@ public class CommandExecutionTests
     public async Task LibraryCommand_AISection_DetectsAiCurrencyTypes()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI.Abstractions", "--library", "-S", "AI", "--rows", "-n", "40");
+            "package", "Microsoft.Extensions.AI.Abstractions", "--library", "-S", "AI", "--rows", "-n", "80");
 
         Assert.Equal(0, exit);
         Assert.Contains("## AI", output);
         Assert.Contains("| Kind | Type |", output);
+        Assert.DoesNotContain("| API |", output);
         Assert.Contains("| Chat | `Microsoft.Extensions.AI.IChatClient` |", output);
         Assert.Contains("| Embeddings | `Microsoft.Extensions.AI.IEmbeddingGenerator` |", output);
         Assert.Contains("| Tools | `Microsoft.Extensions.AI.AITool` |", output);
         Assert.DoesNotContain("Assembly Reference", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AISection_ForAspireOpenAI_ShowsStarterApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Aspire.OpenAI", "--library", "-S", "AI", "--rows", "-n", "40");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## AI", output);
+        Assert.Contains("| Kind | API |", output);
+        Assert.Contains("AspireOpenAIExtensions.AddOpenAIClient(...)", output);
+        Assert.Contains("AspireOpenAIClientBuilderChatClientExtensions.AddChatClient(...)", output);
+        Assert.Contains("AspireOpenAIClientBuilderEmbeddingGeneratorExtensions.AddEmbeddingGenerator(...)", output);
+        Assert.Contains("Aspire.OpenAI.AspireOpenAIClientBuilder", output);
+        Assert.Contains("Aspire.OpenAI.OpenAISettings", output);
+        Assert.DoesNotContain("Microsoft.Extensions.AI.IChatClient", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationsSection_ForAspireOpenAI_ShowsStarterIntegrations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Aspire.OpenAI", "--library", "-S", "Integrations");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| AI | 8 |", output);
+        Assert.Contains("| OpenTelemetry | 2 |", output);
+        Assert.Contains("| Hosting | 2 |", output);
+        Assert.DoesNotContain("| Aspire |", output);
+        Assert.DoesNotContain("Dependency Injection", output);
+        Assert.DoesNotContain("Logging", output);
+        Assert.DoesNotContain("Options", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AspireSection_ForAspireHostingRedis_ShowsResourceCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Aspire.Hosting.Redis", "--library", "-S", "Aspire", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Aspire", output);
+        Assert.Contains("| Kind | API |", output);
+        Assert.Contains("| Resource Builder | `Aspire.Hosting.RedisBuilderExtensions.AddRedis(...)` |", output);
+        Assert.Contains("| Resource | `Aspire.Hosting.ApplicationModel.RedisResource` |", output);
+        Assert.DoesNotContain("IDistributedApplicationBuilder", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationsCategory_ForAspireHostingRedis_RendersAspireSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Aspire.Hosting.Redis", "--library", "-S", "@Integrations", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Aspire | 4 |", output);
+        Assert.Contains("## Aspire", output);
+        Assert.Contains("RedisBuilderExtensions.AddRedis(...)", output);
+        Assert.DoesNotContain("Dependency Injection", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_HostingSection_ForAspireOpenAI_ShowsStarterApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Aspire.OpenAI", "--library", "-S", "Hosting");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Hosting", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("AspireOpenAIExtensions.AddOpenAIClient(...)", output);
+        Assert.Contains("AspireOpenAIExtensions.AddKeyedOpenAIClient(...)", output);
+        Assert.DoesNotContain("IHostApplicationBuilder", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_OpenTelemetrySection_ForAspireKafka_ShowsTelemetryControls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Aspire.Confluent.Kafka", "--library", "-S", "@Integrations", "--rows", "-n", "40");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| OpenTelemetry | 4 |", output);
+        Assert.Contains("| Hosting | 4 |", output);
+        Assert.Contains("## OpenTelemetry", output);
+        Assert.Contains("| Kind | API |", output);
+        Assert.Contains("| Metrics | `Aspire.Confluent.Kafka.KafkaConsumerSettings.DisableMetrics` |", output);
+        Assert.Contains("| Metrics | `Aspire.Confluent.Kafka.KafkaProducerSettings.DisableMetrics` |", output);
+        Assert.Contains("| Tracing | `Aspire.Confluent.Kafka.KafkaConsumerSettings.DisableTracing` |", output);
+        Assert.Contains("| Tracing | `Aspire.Confluent.Kafka.KafkaProducerSettings.DisableTracing` |", output);
+        Assert.DoesNotContain("OpenTelemetry.Instrumentation.ConfluentKafka", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -2027,11 +2128,45 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Dependency Injection", output);
-        Assert.Contains("| Type |", output);
-        Assert.Contains("Microsoft.Extensions.DependencyInjection.IServiceCollection", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("ChatClientBuilderServiceCollectionExtensions.AddChatClient(...)", output);
+        Assert.Contains("EmbeddingGeneratorBuilderServiceCollectionExtensions.AddEmbeddingGenerator(...)", output);
         Assert.DoesNotContain("| Kind |", output);
         Assert.DoesNotContain("Assembly Reference", output);
-        Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.Abstractions", output);
+        Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.IServiceCollection", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_HttpClientDiagnostics_ShowsUserFacingHttpClientCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.Http.Diagnostics", "--library", "-S", "@Integrations", "--rows", "-n", "30");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Dependency Injection | 4 |", output);
+        Assert.Contains("| HTTP Client | 10 |", output);
+        Assert.DoesNotContain("OpenTelemetry", output);
+        Assert.Contains("## HTTP Client", output);
+        Assert.Contains("| Kind | API |", output);
+        var diagnosticsRow = "| HTTP Diagnostics | `Microsoft.Extensions.Http.Diagnostics.HttpDependencyMetadataResolver` |";
+        var latencyRow = "| HTTP Latency | `Microsoft.Extensions.DependencyInjection.HttpClientLatencyTelemetryExtensions.AddHttpClientLatencyTelemetry(...)` |";
+        var loggingRow = "| HTTP Logging | `Microsoft.Extensions.DependencyInjection.HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)` |";
+        Assert.Contains(diagnosticsRow, output);
+        Assert.Contains(latencyRow, output);
+        Assert.Contains(loggingRow, output);
+        Assert.True(output.IndexOf(diagnosticsRow, StringComparison.Ordinal)
+            < output.IndexOf(latencyRow, StringComparison.Ordinal));
+        Assert.True(output.IndexOf(latencyRow, StringComparison.Ordinal)
+            < output.IndexOf(loggingRow, StringComparison.Ordinal));
+        Assert.Contains("| HTTP Logging | `Microsoft.Extensions.DependencyInjection.HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)` |", output);
+        Assert.Contains("HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)", output);
+        Assert.Contains("| HTTP Logging | `Microsoft.Extensions.Http.Logging.LoggingOptions` |", output);
+        Assert.Contains("Microsoft.Extensions.Http.Logging.IHttpClientLogEnricher", output);
+        Assert.Contains("Microsoft.Extensions.Http.Logging.LoggingOptions", output);
+        Assert.DoesNotContain("Microsoft.Extensions.Telemetry.Internal", output);
+        Assert.DoesNotContain("| `Microsoft.Extensions.DependencyInjection.HttpClientLoggingServiceCollectionExtensions` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

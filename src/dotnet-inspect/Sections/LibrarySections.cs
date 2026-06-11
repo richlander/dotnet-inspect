@@ -34,6 +34,7 @@ public static class LibrarySections
             .Add<Signals>()
             .Add<Integrations>()
             .Add<AI>()
+            .Add<Aspire>()
             .Add<DependencyInjection>()
             .Add<Logging>()
             .Add<OpenTelemetry>()
@@ -54,6 +55,7 @@ public static class LibrarySections
             .AddCategory("@Integrations",
                 "Integrations",
                 "AI",
+                "Aspire",
                 "Dependency Injection",
                 "Logging",
                 "Options",
@@ -137,6 +139,7 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model)
             => model.Integrations is { Count: > 0 }
                || model.HasAISupport
+               || model.HasAspireSupport
                || model.HasOpenTelemetrySupport
                || model.HasDependencyInjectionSupport
                || model.HasLoggingSupport
@@ -154,6 +157,16 @@ public static class LibrarySections
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model)
             => model.AI is { Count: > 0 } || model.HasAISupport;
+    }
+
+    public sealed class Aspire : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => "Aspire";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model)
+            => model.Aspire is { Count: > 0 } || model.HasAspireSupport;
     }
 
     public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>
