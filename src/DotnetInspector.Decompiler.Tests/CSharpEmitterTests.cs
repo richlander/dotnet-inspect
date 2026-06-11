@@ -184,6 +184,47 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("32", output);
     }
 
+    // --- P1 sugar: operators, local functions, enum case labels ---
+
+    [Fact]
+    public void NegateSum_RendersOperatorSugar()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.NegateSum));
+
+        Assert.Contains("a + b", output);
+        Assert.Contains("-(", output);
+        Assert.DoesNotContain("op_Addition", output);
+        Assert.DoesNotContain("op_UnaryNegation", output);
+    }
+
+    [Fact]
+    public void MoneyToInt_RendersImplicitConversionAsCast()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.MoneyToInt));
+
+        Assert.Contains("(int)", output);
+        Assert.DoesNotContain("op_Implicit", output);
+    }
+
+    [Fact]
+    public void DoubleViaLocalFunction_UsesSourceLevelName()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.DoubleViaLocalFunction));
+
+        Assert.Contains("Twice(", output);
+        Assert.DoesNotContain("g__", output);
+    }
+
+    [Fact]
+    public void ColorName_UsesEnumCaseLabels()
+    {
+        string output = EmitMethod(nameof(CfgSampleClass.ColorName));
+
+        Assert.Contains("case", output);
+        Assert.Contains("Green", output);
+        Assert.Contains("Yellow", output);
+    }
+
     // --- Inliner soundness ---
 
     [Fact]

@@ -331,6 +331,45 @@ public class CfgSampleClass
         public int Value;
     }
 
+    public struct Money
+    {
+        public int Cents;
+        public static Money operator +(Money a, Money b) => new() { Cents = a.Cents + b.Cents };
+        public static Money operator -(Money m) => new() { Cents = -m.Cents };
+        public static implicit operator int(Money m) => m.Cents;
+    }
+
+    public enum Color
+    {
+        Red,
+        Green,
+        Blue,
+        Yellow,
+    }
+
+    public static Money NegateSum(Money a, Money b) => -(a + b);
+
+    public static int MoneyToInt(Money m) => m;
+
+    public static int DoubleViaLocalFunction(int x)
+    {
+        return Twice(x);
+
+        static int Twice(int v) => v * 2;
+    }
+
+    public static string ColorName(Color c)
+    {
+        switch (c)
+        {
+            case Color.Red: return "red";
+            case Color.Green: return "green";
+            case Color.Blue: return "blue";
+            case Color.Yellow: return "yellow";
+            default: return "?";
+        }
+    }
+
     static int s_bumpCount;
 
     public static void Bump(MutableHolder h, int n)
