@@ -69,10 +69,10 @@ public class OfflineVerbosityTests : IDisposable
     // ── type command: single type ────────────────────────────────────
 
     [Fact]
-    public async Task SingleType_Quiet_Offline_Succeeds()
+    public async Task SingleType_MarkdownQuiet_Offline_Succeeds()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "JsonSerializer", "--platform", "System.Text.Json", "-v:q", "--offline");
+            "type", "JsonSerializer", "--platform", "System.Text.Json", "--markdown", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -87,8 +87,9 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
-        // Minimal type view keeps logical method groups bounded.
-        Assert.Contains("Method Groups", output);
+        // Minimal type shape keeps logical method groups bounded.
+        Assert.Contains("Methods", output);
+        Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
     }
 
     [Fact]
@@ -145,10 +146,10 @@ public class OfflineVerbosityTests : IDisposable
     // ── router -> qualified type name ─────────────────────────────────
 
     [Fact]
-    public async Task Router_QualifiedType_Quiet_Offline_Succeeds()
+    public async Task Router_QualifiedType_MarkdownQuiet_Offline_Succeeds()
     {
         var (exit, output, _) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer", "-v:q", "--offline");
+            "System.Text.Json.JsonSerializer", "--markdown", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -162,7 +163,7 @@ public class OfflineVerbosityTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
-        Assert.Contains("Overloads", output);
+        Assert.Contains("overloads", output);
     }
 
     [Fact]
@@ -230,7 +231,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task SingleType_ForwardedType_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "HashSet", "--platform", "System.Collections", "-v:q", "--offline");
+            "type", "HashSet", "--platform", "System.Collections", "--markdown", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("HashSet", output);

@@ -131,6 +131,7 @@ public static class TypeOptionsParser
             Jsonl = opts.ResolveJsonl(parseResult),
             OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             ShapeOutput = parseResult.GetValue(args.ShapeOption),

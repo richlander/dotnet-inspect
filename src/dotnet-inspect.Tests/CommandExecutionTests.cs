@@ -238,6 +238,46 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_NormalVerbosity_StaysShapeAndExpandsOverloads()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer", "-v:n", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("├─", output);
+        Assert.Contains("Methods (10 logical, 107 overloads)", output);
+        Assert.Contains("Deserialize<TValue>(System.IO.Stream utf8Json", output);
+        Assert.DoesNotContain("Deserialize (40 overloads)", output);
+        Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer", "-v:q", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-v:q is not supported by the type shape renderer", error);
+        Assert.Contains("--markdown -v:q", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_MarkdownQuiet_RendersCompactSectionView()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer", "--markdown", "-v:q", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Text.Json.JsonSerializer", output);
+        Assert.Contains("Kind: class", output);
+        Assert.DoesNotContain("├─", output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions
