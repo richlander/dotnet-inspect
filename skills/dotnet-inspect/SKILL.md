@@ -57,7 +57,7 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --count
 dnx dotnet-inspect -y -- library System.Text.Json -S "Async*" --rows -n 10
 ```
 
-`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Categories such as `@Integrations` expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
+`@` represents a category or grouping of sections. Bare `-S` renders `@Default`, a curated high-density view; `-S @All` renders an exhaustive document with all sections. Categories such as `@Integrations` and `@Switches` expand to related sections. Sections marked opt-in must be selected explicitly with `-S`. Focused library/member `-S Section` output keeps a compact context row before the selected section.
 
 ## General tips
 
