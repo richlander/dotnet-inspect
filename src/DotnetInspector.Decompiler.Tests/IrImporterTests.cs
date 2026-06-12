@@ -77,15 +77,20 @@ public class IrImporterTests
     }
 
     [Fact]
-    public void ExceptionRegions_StopHonestly_WithUnsupportedNode()
+    public void ExceptionRegions_ImportFlat_WithTypedHandlerEntry()
     {
         var function = ImportFixture(nameof(CfgSampleClass.ChecksThenTry));
 
-        var unsupported = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Contains("exception regions", unsupported.Reason);
-        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
-        var diagnostic = Assert.Single(function.Diagnostics);
-        Assert.Equal(DiagnosticIds.UnsupportedConstruct, diagnostic.Id);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var region = Assert.Single(function.Regions);
+        Assert.Equal(HandlerKind.Catch, region.Kind);
+        // Region boundaries are block leaders in the flat container.
+        Assert.True(function.Body.IndexOfOffset(region.TryOffset) >= 0);
+        Assert.True(function.Body.IndexOfOffset(region.HandlerOffset) >= 0);
+        // The handler's first block consumes the CLR-pushed exception.
+        var caught = function.Descendants.OfType<CaughtException>().First();
+        Assert.Equal(region.CatchType, caught.Type);
+        Assert.NotEmpty(function.Descendants.OfType<Leave>());
         function.CheckInvariant();
     }
 
@@ -229,6 +234,29 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void TryFinally_ImportsWithEndFinally()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.TryFinallyAdd));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(HandlerKind.Finally, Assert.Single(function.Regions).Kind);
+        Assert.Single(function.Descendants.OfType<EndFinally>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ExceptionFilter_ImportsWithEndFilter()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.FilteredLength));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(HandlerKind.Filter, Assert.Single(function.Regions).Kind);
+        Assert.Single(function.Descendants.OfType<EndFilter>());
+        Assert.NotEmpty(function.Descendants.OfType<CaughtException>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void CoreLib_SimpleCorpusMethods_ImportAtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
@@ -301,6 +329,47 @@ public class JoinTypeConflictTests : IDisposable
         var load = Assert.Single(function.Descendants.OfType<LoadStackSlot>(),
             l => l.Parent is ExpressionStatement);
         Assert.Null(load.Type);
+        function.CheckInvariant();
+    }
+
+    IrFunction BuildSyntheticWithRegion(byte[] il, HandlerRegion region)
+    {
+        var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        _disposables.Push(source);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var method = new ImportedMethod(
+            TypeRef.CoreLib("Synthetic", "T"), "M", signature,
+            new MethodBody([.. il], MaxStack: 8, Locals: [], LocalNames: [], Handlers: [region]));
+        return IrImporter.Build(source, method, GenericScope.Empty);
+    }
+
+    [Fact]
+    public void Endfinally_NonEmptyStack_IsMalformed_StopsHonestly()
+    {
+        // try { leave } finally { ldc.i4.1; endfinally }  — ECMA requires an
+        // empty stack at endfinally; the stray value must not import as Full.
+        var function = BuildSyntheticWithRegion(
+            [0xDE, 0x02, 0x17, 0xDC, 0x2A],
+            new HandlerRegion(HandlerKind.Finally, 0, 2, 2, 2, 0, null));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Contains("endfinally", diagnostic.Message);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Endfilter_MoreThanVerdict_IsMalformed_StopsHonestly()
+    {
+        // Filter code that never consumes the CLR-pushed exception: after
+        // popping the verdict the exception remains — malformed per ECMA.
+        var function = BuildSyntheticWithRegion(
+            [0xDE, 0x06, 0x17, 0xFE, 0x11, 0x26, 0xDE, 0x00, 0x2A],
+            new HandlerRegion(HandlerKind.Filter, 0, 2, 5, 3, 2, null));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Contains("filter verdict", diagnostic.Message);
         function.CheckInvariant();
     }
 
