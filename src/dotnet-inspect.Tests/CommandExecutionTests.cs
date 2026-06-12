@@ -2398,6 +2398,22 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_AuthenticationSection_ForAwsCognitoIdentity_ShowsIdentityCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Amazon.AspNetCore.Identity.Cognito", "--library", "-S", "@Integrations", "--rows", "-n", "30");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Authentication | 1 |", output);
+        Assert.Contains("| Dependency Injection | 1 |", output);
+        Assert.Contains("## Authentication", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("CognitoServiceCollectionExtensions.AddCognitoIdentity(...)", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_OpenApiSection_ForSwashbuckle_ShowsOpenApiCurrency()
     {
         var (exit, output, error) = await RunAppAsync(

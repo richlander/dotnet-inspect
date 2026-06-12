@@ -569,6 +569,17 @@ public static class EcosystemIntegrationScanner
             return true;
         }
 
+        if (receiver == "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+            && methodName.StartsWith("Add", StringComparison.Ordinal)
+            && methodName.Contains("Identity", StringComparison.Ordinal)
+            && (signature.ReturnType == "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+                || signature.ReturnType.EndsWith("IdentityBuilder", StringComparison.Ordinal)
+                || signature.ReturnType.EndsWith("AuthenticationBuilder", StringComparison.Ordinal)))
+        {
+            kind = "Identity";
+            return true;
+        }
+
         if (receiver == "Microsoft.AspNetCore.Builder.IApplicationBuilder"
             && methodName is "UseAuthentication" or "UseAuthorization")
         {
