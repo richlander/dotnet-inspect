@@ -194,6 +194,19 @@ public class LibraryInspectionView
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
     [MarkoutIgnore]
+    public bool HasSwitches => _data.Switches is { Count: > 0 };
+
+    [MarkoutSection(Name = "Switches", ShowWhenProperty = nameof(HasSwitches))]
+    [MarkoutIgnoreColumnWhen(nameof(SwitchKindIsUniform), "Kind")]
+    public List<SwitchRow>? SwitchesSection =>
+        _data.Switches?
+            .OrderBy(s => s.Kind, StringComparer.Ordinal)
+            .ThenBy(s => s.Switch, StringComparer.Ordinal)
+            .ThenBy(s => s.Api, StringComparer.Ordinal)
+            .Select(s => new SwitchRow(s.Kind, MarkoutInline.Code(s.Switch), MarkoutInline.Code(s.Api)))
+            .ToList();
+
+    [MarkoutIgnore]
     public bool HasIntegrations => _data.Integrations is { Count: > 0 };
 
     [MarkoutSection(Name = EcosystemIntegrationNames.Integrations, ShowWhenProperty = nameof(HasIntegrations))]
@@ -516,6 +529,9 @@ public class LibraryInspectionView
     public static bool IntegrationApiKindIsUniform(List<IntegrationApiSignalRow>? rows)
         => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
 
+    public static bool SwitchKindIsUniform(List<SwitchRow>? rows)
+        => rows?.Select(row => row.Kind).Distinct(StringComparer.Ordinal).Count() <= 1;
+
     private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
@@ -601,6 +617,12 @@ public record AuditSignalRow(
     string Signal,
     string Value,
     string Evidence);
+
+[MarkoutSerializable]
+public record SwitchRow(
+    string Kind,
+    string Switch,
+    [property: MarkoutPropertyName("API")] string Api);
 
 [MarkoutSerializable]
 public record IntegrationRow(

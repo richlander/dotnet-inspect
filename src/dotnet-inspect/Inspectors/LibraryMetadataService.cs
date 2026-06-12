@@ -88,6 +88,7 @@ internal static class LibraryMetadataService
             inspection.HasOpenApiSupport = presenceFlags.HasOpenApiSupport;
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
+            inspection.HasSwitches = presenceFlags.HasSwitches;
 
             // PE debug directory fields
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
@@ -675,6 +676,35 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    internal static List<SwitchInfo>? ScanSwitches(string path, VerboseLogger logger)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            return ScanSwitches(peReader, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    internal static List<SwitchInfo>? ScanSwitches(PEReader peReader, string path, VerboseLogger logger)
+    {
+        try
+        {
+            var switches = SwitchScanner.Scan(peReader);
+            return switches.Count > 0 ? switches : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
             return null;
         }
     }

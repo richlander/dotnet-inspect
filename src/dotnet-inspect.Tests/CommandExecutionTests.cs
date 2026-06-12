@@ -2021,11 +2021,38 @@ public class CommandExecutionTests
                 "SourceLink Availability",
                 "SourceLink Integrity",
                 "SourceLink Missing Files",
+                "Switches",
                 "Type Forwarders"
             ],
             optInNames);
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SwitchesSection_DetectsFeatureSwitchDefinitions()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Switches", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Switches", output);
+        Assert.Contains("| Kind | Switch | API |", output);
+        Assert.Contains("| Feature Switch | `System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault` | `System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault` |", output);
+        Assert.Contains("| AppContext | `System.Text.Json.Serialization.RespectNullableAnnotationsDefault` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "@Switches", "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Switches", output);
+        Assert.DoesNotContain("Integrations", output);
+        Assert.DoesNotContain("Tip:", error);
     }
 
     [Fact]

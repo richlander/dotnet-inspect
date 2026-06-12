@@ -77,6 +77,10 @@ OpenAPI, and OpenTelemetry. It is a usability index, not a raw evidence report: 
 integration sections list package-owned actionable types and starter APIs rather
 than assembly references.
 
+`Switches` is a peer library section for feature, compatibility, and runtime
+configuration switches such as `FeatureSwitchDefinitionAttribute` and
+`AppContext` switch names.
+
 ## Output and querying
 
 Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--rows -n N` to cap rendered table rows, `--count` to count table rows in one selected section, and `--mermaid` on `depends` for diagrams. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
