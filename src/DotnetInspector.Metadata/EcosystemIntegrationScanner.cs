@@ -23,6 +23,7 @@ public record EcosystemIntegrationPresence
     public bool HasAspireSupport { get; init; }
     public bool HasAISupport { get; init; }
     public bool HasAuthenticationSupport { get; init; }
+    public bool HasConfigurationSupport { get; init; }
     public bool HasOpenTelemetrySupport { get; init; }
     public bool HasDependencyInjectionSupport { get; init; }
     public bool HasLoggingSupport { get; init; }
@@ -110,6 +111,9 @@ public static class EcosystemIntegrationScanner
             case EcosystemIntegrationNames.Authentication:
                 presence.HasAuthenticationSupport = true;
                 break;
+            case EcosystemIntegrationNames.Configuration:
+                presence.HasConfigurationSupport = true;
+                break;
             case EcosystemIntegrationNames.DependencyInjection:
                 presence.HasDependencyInjectionSupport = true;
                 break;
@@ -144,6 +148,8 @@ public static class EcosystemIntegrationScanner
             AddType(GetAIBucket(buckets, aiKind), typeName, source);
         if (source == "TypeDef" && TryGetAuthenticationKind(typeName, out var authenticationKind))
             AddType(buckets.Authentication, typeName, source, authenticationKind);
+        if (source == "TypeDef" && TryGetConfigurationKind(typeName, out var configurationKind))
+            AddType(buckets.Configuration, typeName, source, configurationKind);
         if (source == "TypeDef" && TryGetOpenApiKind(typeName, out var openApiKind))
             AddType(buckets.OpenApi, typeName, source, openApiKind);
         if (TryGetDependencyInjectionKind(typeName, out var dependencyInjectionKind))
@@ -170,6 +176,8 @@ public static class EcosystemIntegrationScanner
             presence.HasAISupport = true;
         if (IsAuthenticationType(typeName))
             presence.HasAuthenticationSupport = true;
+        if (TryGetConfigurationKind(typeName, out _))
+            presence.HasConfigurationSupport = true;
         if (IsDependencyInjectionType(typeName))
             presence.HasDependencyInjectionSupport = true;
         if (IsLoggingType(typeName))
@@ -208,6 +216,30 @@ public static class EcosystemIntegrationScanner
 
     private static bool IsLoggingType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.Logging.", StringComparison.Ordinal);
+
+    private static bool IsConfigurationType(string typeName)
+        => typeName.StartsWith("Microsoft.Extensions.Configuration.", StringComparison.Ordinal)
+           || typeName.Contains(".Configuration.", StringComparison.Ordinal);
+
+    private static bool TryGetConfigurationKind(string typeName, out string kind)
+    {
+        kind = "";
+        if (!IsConfigurationType(typeName))
+            return false;
+
+        var simpleName = typeName[(typeName.LastIndexOf('.') + 1)..];
+        if (simpleName.EndsWith("ConfigurationProvider", StringComparison.Ordinal))
+            kind = "Provider";
+        else if (simpleName.EndsWith("ConfigurationSource", StringComparison.Ordinal))
+            kind = "Source";
+        else if (simpleName.EndsWith("ConfigurationOptions", StringComparison.Ordinal)
+                 || simpleName.EndsWith("Options", StringComparison.Ordinal))
+            kind = "Configuration";
+        else if (simpleName.EndsWith("SecretManager", StringComparison.Ordinal))
+            kind = "Configuration";
+
+        return kind.Length > 0;
+    }
 
     private static bool IsOptionsType(string typeName)
         => typeName.StartsWith("Microsoft.Extensions.Options.", StringComparison.Ordinal);
@@ -545,6 +577,8 @@ public static class EcosystemIntegrationScanner
                 GetAIBucket(buckets, aiKind).Apis.TryAdd(api, aiKind);
             if (TryClassifyAuthenticationStarterMethod(methodName, signature, out var authenticationKind))
                 buckets.Authentication.Apis.TryAdd(api, authenticationKind);
+            if (TryClassifyConfigurationStarterMethod(methodName, signature, out var configurationKind))
+                buckets.Configuration.Apis.TryAdd(api, configurationKind);
             if (TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
                 buckets.DependencyInjection.Apis.TryAdd(api, dependencyInjectionKind);
             if (TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
@@ -591,6 +625,22 @@ public static class EcosystemIntegrationScanner
             return false;
 
         kind = "Provider";
+        return true;
+    }
+
+    private static bool TryClassifyConfigurationStarterMethod(
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
+            || signature.ParameterTypes.Length == 0
+            || signature.ParameterTypes[0] != "Microsoft.Extensions.Configuration.IConfigurationBuilder"
+            || signature.ReturnType != "Microsoft.Extensions.Configuration.IConfigurationBuilder")
+            return false;
+
+        kind = "Configuration Source";
         return true;
     }
 
@@ -932,6 +982,7 @@ public static class EcosystemIntegrationScanner
         public required IntegrationBucket AIBuilder { get; init; }
         public required IntegrationBucket AIConfiguration { get; init; }
         public required IntegrationBucket Authentication { get; init; }
+        public required IntegrationBucket Configuration { get; init; }
         public required IntegrationBucket DependencyInjection { get; init; }
         public required IntegrationBucket Logging { get; init; }
         public required IntegrationBucket OpenApi { get; init; }
@@ -956,6 +1007,7 @@ public static class EcosystemIntegrationScanner
             AITools,
             AIHostedFiles,
             Authentication,
+            Configuration,
             DependencyInjection,
             Logging,
             OpenApi,
@@ -981,6 +1033,7 @@ public static class EcosystemIntegrationScanner
             AIBuilder = new IntegrationBucket(EcosystemIntegrationNames.AI, "Builder"),
             AIConfiguration = new IntegrationBucket(EcosystemIntegrationNames.AI, "Configuration"),
             Authentication = new IntegrationBucket(EcosystemIntegrationNames.Authentication, "Authentication"),
+            Configuration = new IntegrationBucket(EcosystemIntegrationNames.Configuration, "Configuration"),
             DependencyInjection = new IntegrationBucket(EcosystemIntegrationNames.DependencyInjection, "Dependency Injection"),
             Logging = new IntegrationBucket(EcosystemIntegrationNames.Logging, "Logging"),
             OpenApi = new IntegrationBucket(EcosystemIntegrationNames.OpenAPI, "OpenAPI"),
@@ -998,6 +1051,7 @@ public static class EcosystemIntegrationScanner
         public bool HasAspireSupport { get; set; }
         public bool HasAISupport { get; set; }
         public bool HasAuthenticationSupport { get; set; }
+        public bool HasConfigurationSupport { get; set; }
         public bool HasOpenTelemetrySupport { get; init; }
         public bool HasDependencyInjectionSupport { get; set; }
         public bool HasLoggingSupport { get; set; }
@@ -1014,6 +1068,7 @@ public static class EcosystemIntegrationScanner
             HasAspireSupport = HasAspireSupport,
             HasAISupport = HasAISupport,
             HasAuthenticationSupport = HasAuthenticationSupport,
+            HasConfigurationSupport = HasConfigurationSupport,
             HasOpenTelemetrySupport = HasOpenTelemetrySupport,
             HasDependencyInjectionSupport = HasDependencyInjectionSupport,
             HasLoggingSupport = HasLoggingSupport,

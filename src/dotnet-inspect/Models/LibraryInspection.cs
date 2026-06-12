@@ -239,6 +239,12 @@ public class LibraryInspection
     public List<IntegrationSignal>? Authentication { get; set; }
 
     /// <summary>
+    /// Metadata evidence of configuration integration.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<IntegrationSignal>? Configuration { get; set; }
+
+    /// <summary>
     /// Metadata evidence of dependency injection integration.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -368,6 +374,10 @@ public class LibraryInspection
     /// <summary>Whether the assembly contains authentication/authorization primitives.</summary>
     [JsonIgnore]
     public bool HasAuthenticationSupport { get; set; }
+
+    /// <summary>Whether the assembly contains configuration primitives.</summary>
+    [JsonIgnore]
+    public bool HasConfigurationSupport { get; set; }
 
     /// <summary>Whether the assembly references dependency injection primitives.</summary>
     [JsonIgnore]

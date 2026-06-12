@@ -41,6 +41,7 @@ public static class LibrarySections
             .Add<AspNetCore>()
             .Add<Authentication>()
             .Add<Aspire>()
+            .Add<Configuration>()
             .Add<DependencyInjection>()
             .Add<Logging>()
             .Add<OpenTelemetry>()
@@ -195,6 +196,15 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Aspire.CanRender(model);
+    }
+
+    public sealed class Configuration : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => LibraryIntegrationCatalog.Configuration.Name;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => ScannerIntegrations;
+        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Configuration.CanRender(model);
     }
 
     public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>

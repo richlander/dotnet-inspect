@@ -2008,6 +2008,7 @@ public class CommandExecutionTests
                 "Aspire",
                 "Async Methods",
                 "Authentication",
+                "Configuration",
                 "Custom Attributes",
                 "Dependency Injection",
                 "Extension Methods",
@@ -2098,6 +2099,36 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_ConfigurationIntegration_ForSystemsManager_ShowsConfigurationApis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Amazon.Extensions.Configuration.SystemsManager", "--library", "-S", "Configuration", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Configuration", output);
+        Assert.Contains("| Kind | API |", output);
+        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.SystemsManagerExtensions.AddSystemsManager(...)` |", output);
+        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.AppConfigExtensions.AddAppConfig(...)` |", output);
+        Assert.Contains("| Provider | `Amazon.Extensions.Configuration.SystemsManager.SystemsManagerConfigurationProvider` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ConfigurationIntegration_ForJson_ShowsConfigurationProviderShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.Configuration.Json", "--library", "-S", "Configuration", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Configuration", output);
+        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)` |", output);
+        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonStream(...)` |", output);
+        Assert.Contains("| Provider | `Microsoft.Extensions.Configuration.Json.JsonConfigurationProvider` |", output);
+        Assert.Contains("| Source | `Microsoft.Extensions.Configuration.Json.JsonConfigurationSource` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IntegrationsSection_RollsUpOpenTelemetry()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2132,6 +2163,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Integrations", output);
         Assert.Contains("AI", output);
+        Assert.DoesNotContain("Configuration", output);
         Assert.Contains("Dependency Injection", output);
         Assert.DoesNotContain("Logging", output);
         Assert.DoesNotContain("OpenTelemetry", output);

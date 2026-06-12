@@ -207,11 +207,12 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(31, pipeline.AllSectionNames.Length);
+        Assert.Equal(32, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
         Assert.Contains("Authentication", pipeline.AllSectionNames);
+        Assert.Contains("Configuration", pipeline.AllSectionNames);
         Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
         Assert.Contains("Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Hosting", pipeline.AllSectionNames);
@@ -676,6 +677,7 @@ public class SectionPipelineTests
     [InlineData("Aspire")]
     [InlineData("ASP.NET Core")]
     [InlineData("Authentication")]
+    [InlineData("Configuration")]
     [InlineData("Dependency Injection")]
     [InlineData("AI")]
     [InlineData("Logging")]
@@ -693,6 +695,7 @@ public class SectionPipelineTests
             HasAspireSupport = sectionName == "Aspire",
             HasAspNetCoreSupport = sectionName == "ASP.NET Core",
             HasAuthenticationSupport = sectionName == "Authentication",
+            HasConfigurationSupport = sectionName == "Configuration",
             HasAISupport = sectionName == "AI",
             HasDependencyInjectionSupport = sectionName == "Dependency Injection",
             HasLoggingSupport = sectionName == "Logging",

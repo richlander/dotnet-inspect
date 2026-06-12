@@ -51,6 +51,7 @@ Examples:
 | ASP.NET Core | `Use*` middleware APIs, `Map*` endpoint APIs, ASP.NET Core option types. |
 | Aspire | `AddRedis(...)`, `RedisResource`, resource-specific `Add*` APIs returning `IResourceBuilder<T>`. |
 | Authentication | `AddAuthentication(...)`, `AddJwtBearer(...)`, `UseAuthentication(...)`, auth/authorization option and builder types. |
+| Configuration | `AddJsonFile(...)`, `AddSystemsManager(...)`, `IConfigurationBuilder` source registration APIs, configuration provider/source/options types. |
 | Dependency Injection | Package-owned `Add*` service registration APIs and DI builder types. |
 | Logging | `ILogger`, `ILogger<T>`, `LoggerMessageAttribute`, provider registration APIs such as `AddAWSProvider(...)`. |
 | OpenTelemetry | `ActivitySource`, `Meter`, `DiagnosticSource`, OpenTelemetry provider/exporter types, `DisableTracing`/`DisableMetrics` telemetry controls. |

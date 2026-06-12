@@ -303,6 +303,23 @@ public class LibraryInspectionView
     public List<IntegrationSignalRow>? AspireTypeSection => ToIntegrationSignalRows(_data.Aspire);
 
     [MarkoutIgnore]
+    public bool HasConfiguration => _data.Configuration is { Count: > 0 };
+
+    [MarkoutIgnore]
+    public bool HasConfigurationApis => _data.Configuration?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasConfigurationTypesOnly => HasConfiguration && !HasConfigurationApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Configuration, ShowWhenProperty = nameof(HasConfigurationApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? ConfigurationApiSection => HasConfigurationApis ? ToIntegrationApiSignalRows(_data.Configuration, includeTypes: true) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Configuration, ShowWhenProperty = nameof(HasConfigurationTypesOnly))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
+    public List<IntegrationSignalRow>? ConfigurationTypeSection => ToIntegrationSignalRows(_data.Configuration);
+
+    [MarkoutIgnore]
     public bool HasDependencyInjection => _data.DependencyInjection is { Count: > 0 };
 
     [MarkoutIgnore]
