@@ -341,6 +341,17 @@ public sealed class CSharpPrinter
         {
             return $"!({Operand(left)} {ComparisonOperator(Conditions.Inverse(kind))} {Operand(right)})";
         }
+        // Null tests render the is-form (taste doc): it is always the
+        // reference test the IL performs, where == could round-trip to an
+        // op_Equality call under operator overloads.
+        if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            && (left is Constant { Value: null } || right is Constant { Value: null }))
+        {
+            var operand = right is Constant { Value: null } ? left : right;
+            return kind == ComparisonKind.Equal
+                ? $"{Operand(operand)} is null"
+                : $"{Operand(operand)} is not null";
+        }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
@@ -389,7 +400,7 @@ public sealed class CSharpPrinter
         {
             // Boolean was filtered above, so an I4 family here is a real integer (or char).
             StackFamily.I4 or StackFamily.I8 or StackFamily.I => ($"{text} != 0", $"{text} == 0"),
-            StackFamily.O => ($"{text} != null", $"{text} == null"),
+            StackFamily.O => ($"{text} is not null", $"{text} is null"),
             _ => null,
         };
     }
