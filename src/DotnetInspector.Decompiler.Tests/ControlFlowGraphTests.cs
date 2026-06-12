@@ -244,6 +244,14 @@ public class CfgSampleClass
 
     public static void Noop() { }
 
+    public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
+
+    public static int FirstElement(int[] a) => a[0];
+
+    public static void SetFirstElement(int[] a, int v) => a[0] = v;
+
+    public static int PowerOfTwo(int x) => x switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 0 };
+
     [System.Runtime.InteropServices.DllImport("nonexistent")]
     private static extern void Overloaded(int x);
 
