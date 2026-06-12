@@ -965,9 +965,13 @@ public static class ApiOutputFormatter
 
             // Lowered C#. A null context with no failure means the member has
             // no IL body (abstract/extern) — nothing to show, not an error.
-            if (wantsDecompiledSource && (context != null || contextFailure != null))
+            // One analysis feeds both code sections (CFG and stack
+            // simulation are computed once, not per emitter).
+            var analysis = context != null ? Decompiler.MethodAnalysis.Create(context) : null;
+
+            if (wantsDecompiledSource && (analysis != null || contextFailure != null))
             {
-                var result = contextFailure ?? Decompiler.CSharpEmitter.Decompile(context!);
+                var result = contextFailure ?? Decompiler.CSharpEmitter.Decompile(analysis!);
                 string? source = null;
                 if (result.Output is { } lowered)
                 {
@@ -1000,10 +1004,10 @@ public static class ApiOutputFormatter
             }
 
             // Annotated IL
-            if (wantsAnnotatedIL && (context != null || contextFailure != null))
+            if (wantsAnnotatedIL && (analysis != null || contextFailure != null))
             {
                 var result = contextFailure ?? Decompiler.AnnotatedILEmitter.Decompile(
-                    context!, Decompiler.ILAnnotationDepth.Structured);
+                    analysis!, Decompiler.ILAnnotationDepth.Structured);
                 memberCode.AnnotatedIL = new CodeSection(
                     "il", result.Output?.TrimEnd() ?? DiagnosticComment(result));
                 hasCode = true;

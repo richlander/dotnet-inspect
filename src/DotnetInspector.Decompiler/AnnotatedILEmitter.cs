@@ -39,11 +39,19 @@ public static class AnnotatedILEmitter
     /// Emit annotated IL for a method at the specified depth.
     /// </summary>
     public static string Emit(MethodBodyContext context, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
-    {
-        var cfg = ControlFlowGraph.Create(context);
-        var simResult = StackSimulator.Simulate(context, cfg);
-        return Emit(context, cfg, simResult, depth);
-    }
+        => Emit(MethodAnalysis.Create(context), depth);
+
+    /// <summary>
+    /// Emits annotated IL from a shared <see cref="MethodAnalysis"/>. Only
+    /// the pre-transform stages (CFG, stack simulation) are consumed — the
+    /// IL projections stay ground truth regardless of raising transforms.
+    /// </summary>
+    public static string Emit(MethodAnalysis analysis, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
+        => Emit(analysis.Context, analysis.Cfg, analysis.Stack, depth);
+
+    /// <summary>Decompiles annotated IL from a shared <see cref="MethodAnalysis"/>, with failures expressed as diagnostics.</summary>
+    public static DecompilerResult Decompile(MethodAnalysis analysis, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
+        => DecompilerResult.Run(() => Emit(analysis, depth));
 
     /// <summary>
     /// Emit annotated IL from pre-computed analysis results.

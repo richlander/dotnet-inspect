@@ -5,8 +5,16 @@ using DotnetInspector.Decompiler;
 
 namespace DotnetInspector.Decompiler.Tests;
 
-public class DecompilerResultTests
+public class DecompilerResultTests : IDisposable
 {
+    readonly Stack<IDisposable> _disposables = new();
+
+    public void Dispose()
+    {
+        while (_disposables.Count > 0)
+            _disposables.Pop().Dispose();
+    }
+
     [Fact]
     public void Decompile_ValidMethod_ReportsFullFidelity()
     {
@@ -52,10 +60,15 @@ public class DecompilerResultTests
     }
 
     /// <summary>A context whose IL is a truncated two-byte opcode — the reader throws in both configurations.</summary>
-    static MethodBodyContext CorruptContext()
+    MethodBodyContext CorruptContext()
     {
-        using var stream = File.OpenRead(typeof(object).Assembly.Location);
-        using var peReader = new PEReader(stream);
+        // The PEReader must outlive the context: MetadataReader points into
+        // its memory block (disposing it under a live context is a
+        // use-after-free that crashes the process, not a test failure).
+        var stream = File.OpenRead(typeof(object).Assembly.Location);
+        var peReader = new PEReader(stream);
+        _disposables.Push(peReader);
+        _disposables.Push(stream);
         var reader = peReader.GetMetadataReader();
         return new MethodBodyContext(
             ilBytes: [0xFE],  // extended-opcode prefix with no second byte
@@ -93,5 +106,68 @@ public class TypeSourceComposerTests
         Assert.Contains("namespace System.Collections.Generic;", listing);
         Assert.Contains("private T[] _array;", listing);
         Assert.Contains("_array = Array.Empty<T>();", listing);
+    }
+}
+
+public class MethodAnalysisTests : IDisposable
+{
+    readonly Stack<IDisposable> _disposables = new();
+
+    public void Dispose()
+    {
+        while (_disposables.Count > 0)
+            _disposables.Pop().Dispose();
+    }
+
+    MethodBodyContext CoreLibContext(string type, string method)
+    {
+        // PEReader kept alive for the test's lifetime — the context's
+        // MetadataReader points into its memory block.
+        var stream = File.OpenRead(typeof(object).Assembly.Location);
+        var peReader = new PEReader(stream);
+        _disposables.Push(peReader);
+        _disposables.Push(stream);
+        var context = MethodBodyContext.Create(peReader, type, method);
+        Assert.NotNull(context);
+        return context;
+    }
+
+    [Fact]
+    public void SharedAnalysis_ProducesSameOutputsAsDirectPaths()
+    {
+        var context = CoreLibContext("System.String", "IsNullOrWhiteSpace");
+        var analysis = MethodAnalysis.Create(context);
+
+        Assert.Equal(CSharpEmitter.Emit(context), CSharpEmitter.Emit(analysis));
+        Assert.Equal(
+            AnnotatedILEmitter.Emit(context, ILAnnotationDepth.Structured),
+            AnnotatedILEmitter.Emit(analysis, ILAnnotationDepth.Structured));
+    }
+
+    [Fact]
+    public void Stages_ComputeOnce()
+    {
+        var analysis = MethodAnalysis.Create(CoreLibContext("System.String", "IsNullOrEmpty"));
+
+        Assert.Same(analysis.Cfg, analysis.Cfg);
+        Assert.Same(analysis.Stack, analysis.Stack);
+        Assert.Same(analysis.Ast, analysis.Ast);
+        Assert.Same(analysis.Structure, analysis.Structure);
+    }
+
+    [Fact]
+    public void AnnotatedIL_FromSharedAnalysis_UnaffectedByCSharpEmission()
+    {
+        // The IL projection must be identical whether or not the C# emitter
+        // (and its raising transforms) ran first against the same analysis.
+        var context = CoreLibContext("System.String", "IsNullOrWhiteSpace");
+        string ilAlone = AnnotatedILEmitter.Emit(
+            MethodAnalysis.Create(context), ILAnnotationDepth.Structured);
+
+        var shared = MethodAnalysis.Create(context);
+        _ = CSharpEmitter.Emit(shared);
+        string ilAfterCSharp = AnnotatedILEmitter.Emit(shared, ILAnnotationDepth.Structured);
+
+        Assert.Equal(ilAlone, ilAfterCSharp);
     }
 }

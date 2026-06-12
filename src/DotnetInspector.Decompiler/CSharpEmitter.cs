@@ -22,18 +22,25 @@ public static class CSharpEmitter
     public static DecompilerResult Decompile(MethodBodyContext context)
         => DecompilerResult.Run(() => Emit(context));
 
+    /// <summary>Decompiles from a shared <see cref="MethodAnalysis"/>, with failures expressed as diagnostics.</summary>
+    public static DecompilerResult Decompile(MethodAnalysis analysis)
+        => DecompilerResult.Run(() => Emit(analysis));
+
     public static string Emit(MethodBodyContext context)
-        => Emit(context, lambdaDepth: 0);
+        => Emit(MethodAnalysis.Create(context), lambdaDepth: 0);
+
+    /// <summary>Emits C# from a shared <see cref="MethodAnalysis"/> so the analysis stages are computed once across projections.</summary>
+    public static string Emit(MethodAnalysis analysis)
+        => Emit(analysis, lambdaDepth: 0);
 
     internal static string Emit(MethodBodyContext context, int lambdaDepth)
+        => Emit(MethodAnalysis.Create(context), lambdaDepth);
+
+    internal static string Emit(MethodAnalysis analysis, int lambdaDepth)
     {
-        var cfg = ControlFlowGraph.Create(context);
-        var simResult = StackSimulator.Simulate(context, cfg);
-        var ast = ILAstBuilder.Build(context, cfg, simResult);
-        var transforms = Transforms.TransformPipeline.Run(ast);
-        var structure = StructuredControlFlow.Analyze(context, cfg, ast);
+        var context = analysis.Context;
         var sb = new StringBuilder();
-        var emitter = new EmitterContext(ast, structure, sb, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, transforms.InlinedLocals, context.DeclaringType)
+        var emitter = new EmitterContext(analysis.Ast, analysis.Structure, sb, context.Reader, context.HasThis, context.ReturnType, context.ParameterNames, analysis.TransformResults.InlinedLocals, context.DeclaringType)
         {
             BodyContext = context,
             LambdaDepth = lambdaDepth,
