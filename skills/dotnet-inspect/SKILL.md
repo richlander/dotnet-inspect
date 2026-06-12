@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.10.4
+version: 0.10.5
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, SourceLink/symbol provenance, and version-to-version API changes.
 ---
 
@@ -137,7 +137,7 @@ dnx dotnet-inspect -y -- library System.Diagnostics.DiagnosticSource -S OpenTele
 
 `Signals` reports observations, not a safety or trust verdict. Library Signals include SourceLink presence, SourceLink availability, determinism, trim/AOT markers, async kind (`Runtime`, `State machine`, `Mixed`, or `None`), memory-safety metadata, unsafe/PInvoke observations, and direct references. Package Signals include TFMs, manifest, readme/license, dependencies, package signature, local provenance, vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age.
 
-Use `package Foo --library` to inspect the package's primary DLL when it is unambiguous; add a DLL name when a package contains multiple libraries. Use `-S Integrations` for the ecosystem roll-up, `-S @Integrations` for roll-up plus focused sections, or a focused section such as `OpenTelemetry`. Integration sections cover AI, ASP.NET Core, Aspire resources, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. Focused sections list package-owned starter APIs, support types, and telemetry controls, not raw assembly references.
+Use `package Foo --library` to inspect the package's primary DLL when it is unambiguous; add a DLL name when a package contains multiple libraries. Use `-S Integrations` for the ecosystem roll-up, `-S @Integrations` for roll-up plus focused sections, or a focused section such as `OpenTelemetry`. Integration sections cover AI, ASP.NET Core, Aspire resources, Authentication, Dependency Injection, Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. Focused sections list package-owned starter APIs, support types, and telemetry controls, not raw assembly references.
 
 Use `-S Switches` when runtime feature switches or compatibility switches may affect behavior.
 

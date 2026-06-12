@@ -370,6 +370,7 @@ public static class AssemblyDetailScanner
         flags.HasAspNetCoreSupport = integrationPresence.HasAspNetCoreSupport;
         flags.HasAspireSupport = integrationPresence.HasAspireSupport;
         flags.HasAISupport = integrationPresence.HasAISupport;
+        flags.HasAuthenticationSupport = integrationPresence.HasAuthenticationSupport;
         flags.HasDependencyInjectionSupport = integrationPresence.HasDependencyInjectionSupport;
         flags.HasLoggingSupport = integrationPresence.HasLoggingSupport;
         flags.HasOptionsSupport = integrationPresence.HasOptionsSupport;
@@ -513,6 +514,7 @@ public class PresenceFlags
     public bool HasAspNetCoreSupport { get; set; }
     public bool HasAspireSupport { get; set; }
     public bool HasAISupport { get; set; }
+    public bool HasAuthenticationSupport { get; set; }
     public bool HasDependencyInjectionSupport { get; set; }
     public bool HasLoggingSupport { get; set; }
     public bool HasOptionsSupport { get; set; }

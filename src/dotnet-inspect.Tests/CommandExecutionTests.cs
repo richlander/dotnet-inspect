@@ -2007,6 +2007,7 @@ public class CommandExecutionTests
                 "ASP.NET Core",
                 "Aspire",
                 "Async Methods",
+                "Authentication",
                 "Custom Attributes",
                 "Dependency Injection",
                 "Extension Methods",
@@ -2349,6 +2350,66 @@ public class CommandExecutionTests
         Assert.Contains("## Health Checks", output);
         Assert.Contains("| API |", output);
         Assert.Contains("SqlServerHealthCheckBuilderExtensions.AddSqlServer(...)", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AuthenticationSection_ForJwtBearer_ShowsSchemeCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.AspNetCore.Authentication.JwtBearer", "--library", "-S", "@Integrations", "--rows", "-n", "40");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Authentication | 5 |", output);
+        Assert.Contains("## Authentication", output);
+        Assert.Contains("| Authentication | `Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(...)` |", output);
+        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions` |", output);
+        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AuthenticationSection_ForAuthenticationCore_ShowsMiddlewareCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.AspNetCore.Authentication", "--library", "-S", "Authentication", "--rows", "-n", "40");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Authentication", output);
+        Assert.Contains("| Authentication | `Microsoft.Extensions.DependencyInjection.AuthenticationServiceCollectionExtensions.AddAuthentication(...)` |", output);
+        Assert.Contains("| Middleware | `Microsoft.AspNetCore.Builder.AuthAppBuilderExtensions.UseAuthentication(...)` |", output);
+        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AuthenticationSection_ForAuthorization_ShowsAuthorizationCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.AspNetCore.Authorization", "--library", "-S", "Authentication", "--rows", "-n", "40");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Authentication", output);
+        Assert.Contains("| Authorization | `Microsoft.Extensions.DependencyInjection.AuthorizationServiceCollectionExtensions.AddAuthorizationCore(...)` |", output);
+        Assert.Contains("| Builder | `Microsoft.AspNetCore.Authorization.AuthorizationBuilder` |", output);
+        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authorization.AuthorizationOptions` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AuthenticationSection_ForAwsCognitoIdentity_ShowsIdentityCurrency()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Amazon.AspNetCore.Identity.Cognito", "--library", "-S", "@Integrations", "--rows", "-n", "30");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Authentication | 1 |", output);
+        Assert.Contains("| Dependency Injection | 1 |", output);
+        Assert.Contains("## Authentication", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("CognitoServiceCollectionExtensions.AddCognitoIdentity(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
