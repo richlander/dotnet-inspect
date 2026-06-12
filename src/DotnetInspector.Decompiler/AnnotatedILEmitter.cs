@@ -28,6 +28,14 @@ public enum ILAnnotationDepth
 public static class AnnotatedILEmitter
 {
     /// <summary>
+    /// Emits annotated IL with failures expressed as diagnostics rather than
+    /// exceptions. On success the fidelity is <see cref="DecompilationFidelity.Full"/>
+    /// for this projection (the IL views are ground truth at every depth).
+    /// </summary>
+    public static DecompilerResult Decompile(MethodBodyContext context, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
+        => DecompilerResult.Run(() => Emit(context, depth));
+
+    /// <summary>
     /// Emit annotated IL for a method at the specified depth.
     /// </summary>
     public static string Emit(MethodBodyContext context, ILAnnotationDepth depth = ILAnnotationDepth.Typed)

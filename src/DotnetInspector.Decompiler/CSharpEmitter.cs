@@ -14,6 +14,14 @@ public static class CSharpEmitter
     /// <summary>
     /// Emit C# source for a method.
     /// </summary>
+    /// <summary>
+    /// Decompiles to C# with failures expressed as diagnostics rather than
+    /// exceptions. Prefer this over <see cref="Emit(MethodBodyContext)"/>
+    /// anywhere a failure should degrade output instead of unwinding.
+    /// </summary>
+    public static DecompilerResult Decompile(MethodBodyContext context)
+        => DecompilerResult.Run(() => Emit(context));
+
     public static string Emit(MethodBodyContext context)
         => Emit(context, lambdaDepth: 0);
 

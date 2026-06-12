@@ -73,7 +73,7 @@ public sealed class MethodBodyContext
     /// </summary>
     public System.Reflection.PortableExecutable.PEReader? PE { get; init; }
 
-    MethodBodyContext(
+    internal MethodBodyContext(
         byte[] ilBytes,
         ImmutableArray<ExceptionRegion> exceptionRegions,
         int maxStack,
