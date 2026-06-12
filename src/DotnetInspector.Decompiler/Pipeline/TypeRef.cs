@@ -30,6 +30,14 @@ public enum TypeRefKind
 /// Rendering is a printer concern; <see cref="ToDisplayString"/> exists for
 /// diagnostics and tests, not as the product output path.
 /// </summary>
+/// <remarks>
+/// Core-first slice, two deliberate gaps versus the full design contract:
+/// no definition token (identity is assembly + name, which cannot
+/// distinguish two same-named types in one assembly scope), and generic
+/// parameters compare by index and kind only — without owner identity,
+/// parameter equality is meaningful only within a single owner's scope.
+/// Both must close before the parity gate makes this the contract.
+/// </remarks>
 public sealed class TypeRef : IEquatable<TypeRef>
 {
     /// <summary>Canonical assembly identity for primitives and other corelib types, regardless of which facade spelled them.</summary>
