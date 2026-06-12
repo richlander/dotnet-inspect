@@ -150,6 +150,38 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void CoreLib_Ternary_ImportsViaStackSlots()
+    {
+        // 'TargetFrameworkName ??= ...' carries a value across block
+        // boundaries — the canonical stack-carrying edge, materialized
+        // through position-indexed slots so every predecessor of the join
+        // stores to the same slot.
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.AppContext", "get_TargetFrameworkName");
+
+        Assert.NotNull(function);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.NotEmpty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.NotEmpty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CoreLib_GenericMethodCall_ResolvesMethodSpecification()
+    {
+        // Array.get_Length calls Unsafe.As<...> — a MethodSpecification.
+        // Unresolved, its arity-0 fallback mis-popped the stack and poisoned
+        // everything downstream (2,484 false stops in the CoreLib sweep).
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Array", "get_Length");
+
+        Assert.NotNull(function);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var genericCall = function.Descendants.OfType<Call>().First(c => !c.Callee.TypeArguments.IsEmpty);
+        Assert.NotEqual("?", genericCall.Callee.Name);
+    }
+
+    [Fact]
     public void CoreLib_SimpleCorpusMethods_ImportAtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
@@ -157,6 +189,7 @@ public class IrImporterTests
         [
             ("System.String", "IsNullOrEmpty"),
             ("System.Math", "Max"),
+            ("System.Math", "Clamp"),
             ("System.Text.StringBuilder", "Clear"),
             ("System.Collections.Generic.HashSet`1", "Contains"),
         ];

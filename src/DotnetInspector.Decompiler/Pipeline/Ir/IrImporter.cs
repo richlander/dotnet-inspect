@@ -119,12 +119,13 @@ public static class IrImporter
 
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span);
+        var state = new BuildState();
 
         foreach (int leader in leaders)
         {
             var block = new Block(leader);
             container.Add(block);
-            if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope))
+            if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope, state))
                 return function;  // honest stop already recorded
         }
 
@@ -166,13 +167,66 @@ public static class IrImporter
         return ilLength;
     }
 
+    /// <summary>Cross-block import state: stack types at block entries, blocks already built, and the dup slot counter.</summary>
+    sealed class BuildState
+    {
+        public Dictionary<int, List<TypeRef?>> EntryStacks { get; } = [];
+        public HashSet<int> Built { get; } = [];
+        public int NextDupSlot { get; set; } = StoreStackSlot.DupSlotBase;
+    }
+
+    /// <summary>
+    /// Spills the leftover evaluation stack into position-indexed slots and
+    /// records the entry stack of every target. Position indexing makes all
+    /// predecessors of a join store to the same slots. Returns false on a
+    /// depth disagreement or a stack-carrying back edge (out of slice).
+    /// </summary>
+    static bool PropagateAndSpill(IrFunction function, Block body, Stack<IrExpression> stack, BuildState state, int[] targets, int offset)
+    {
+        var values = stack.Reverse().ToArray();
+        stack.Clear();
+        var types = values.Select(v => v.ResultType).ToList();
+        for (int i = 0; i < values.Length; i++)
+            body.Add(new StoreStackSlot(i, values[i]));
+        foreach (int target in targets)
+        {
+            if (state.EntryStacks.TryGetValue(target, out var existing))
+            {
+                if (existing.Count != types.Count)
+                {
+                    Stop(function, body, stack, offset, "(join)",
+                        "evaluation-stack depth disagrees between paths into a join, outside the slice");
+                    return false;
+                }
+            }
+            else if (state.Built.Contains(target) && types.Count > 0)
+            {
+                Stop(function, body, stack, offset, "(back edge)",
+                    "stack-carrying back edge, outside the slice");
+                return false;
+            }
+            else
+            {
+                state.EntryStacks[target] = types;
+            }
+        }
+        return true;
+    }
+
     /// <summary>Builds one block. Returns false when the import stopped honestly inside it.</summary>
     static bool BuildBlock(MetadataSource source, ImportedMethod method, IrFunction function, Block body,
-        ReadOnlySpan<byte> il, int start, int end, GenericScope callerScope)
+        ReadOnlySpan<byte> il, int start, int end, GenericScope callerScope, BuildState state)
     {
         var stack = new Stack<IrExpression>();
         var reader = new ILReaderLite(il[..end], currentOffset: start);
         int offset = start;
+
+        // Entry values arrive in position-indexed slots stored by predecessors.
+        state.Built.Add(start);
+        var entry = state.EntryStacks.TryGetValue(start, out var carried) ? carried : [];
+        state.EntryStacks[start] = entry;
+        for (int i = 0; i < entry.Count; i++)
+            stack.Push(new LoadStackSlot(i, entry[i]));
 
         try
         {
@@ -285,6 +339,13 @@ public static class IrImporter
                 case ILOpCode.Call or ILOpCode.Callvirt:
                 {
                     var callee = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    if (callee.DeclaringType.Kind == TypeRefKind.Unsupported)
+                    {
+                        // Unknown arity would mis-pop the stack and corrupt
+                        // everything downstream — stop here instead.
+                        Stop(function, body, stack, offset, "call", $"unresolvable callee: {callee.DeclaringType.UnsupportedReason}");
+                        return false;
+                    }
                     int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
@@ -328,10 +389,18 @@ public static class IrImporter
                 }
 
                 case ILOpCode.Throw:
+                {
                     // A leader follows every throw (FindLeaders), so the block
-                    // ends here and unreachable IL lands in its own block.
-                    body.Add(new Throw(Pop(stack)));
+                    // ends here and unreachable IL lands in its own block. Any
+                    // pending stack values were evaluated before the exception
+                    // argument; they spill as statements in evaluation order.
+                    var thrown = Pop(stack);
+                    foreach (var pending in stack.Reverse())
+                        body.Add(new ExpressionStatement(pending));
+                    stack.Clear();
+                    body.Add(new Throw(thrown));
                     break;
+                }
 
                 case ILOpCode.Neg:
                     stack.Push(new Unary(UnaryKind.Negate, Pop(stack)));
@@ -340,20 +409,73 @@ public static class IrImporter
                     stack.Push(new Unary(UnaryKind.BitwiseNot, Pop(stack)));
                     break;
 
+                case ILOpCode.Dup:
+                {
+                    // Trees cannot share nodes: dup materializes through a slot.
+                    var value = Pop(stack);
+                    int slot = state.NextDupSlot++;
+                    body.Add(new StoreStackSlot(slot, value));
+                    stack.Push(new LoadStackSlot(slot, value.ResultType));
+                    stack.Push(new LoadStackSlot(slot, value.ResultType));
+                    break;
+                }
+
+                case ILOpCode.Ldlen:
+                    stack.Push(new ArrayLength(Pop(stack)));
+                    break;
+
+                case ILOpCode.Box:
+                    stack.Push(new Box(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Isinst:
+                    stack.Push(new IsInstance(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Castclass:
+                    stack.Push(new CastClass(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Newarr:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new NewArray(elementType, Pop(stack)));
+                    break;
+                }
+
+                case ILOpCode.Ldtoken:
+                {
+                    var handle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    stack.Push(handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
+                        ? new LoadToken(ResolveTypeToken(source.Reader, handle, callerScope), ResolveTypeToken(source.Reader, handle, callerScope).ToDisplayString())
+                        : new LoadToken(null, $"{handle.Kind} token"));
+                    break;
+                }
+
                 case ILOpCode.Pop:
                     body.Add(new ExpressionStatement(Pop(stack)));
                     break;
 
                 case ILOpCode.Br or ILOpCode.Br_s:
-                    body.Add(new Branch(reader.ReadBranchDestination(opcode)));
+                {
+                    int target = reader.ReadBranchDestination(opcode);
+                    if (!PropagateAndSpill(function, body, stack, state, [target], offset))
+                        return false;
+                    body.Add(new Branch(target));
                     break;
+                }
 
-                case ILOpCode.Brtrue or ILOpCode.Brtrue_s:
-                    body.Add(new ConditionalBranch(Pop(stack), reader.ReadBranchDestination(opcode)));
+                case ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s:
+                {
+                    var condition = Pop(stack);
+                    if (opcode is ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                        condition = new LogicalNot(condition);
+                    int target = reader.ReadBranchDestination(opcode);
+                    if (!PropagateAndSpill(function, body, stack, state, [target, end], offset))
+                        return false;
+                    body.Add(new ConditionalBranch(condition, target));
                     break;
-                case ILOpCode.Brfalse or ILOpCode.Brfalse_s:
-                    body.Add(new ConditionalBranch(new LogicalNot(Pop(stack)), reader.ReadBranchDestination(opcode)));
-                    break;
+                }
 
                 case >= ILOpCode.Beq_s and <= ILOpCode.Blt_un_s or >= ILOpCode.Beq and <= ILOpCode.Blt_un:
                 {
@@ -361,6 +483,8 @@ public static class IrImporter
                     var right = Pop(stack);
                     var left = Pop(stack);
                     var (kind, isUnsigned) = ComparisonOf(opcode);
+                    if (!PropagateAndSpill(function, body, stack, state, [target, end], offset))
+                        return false;
                     body.Add(new ConditionalBranch(new Comparison(kind, isUnsigned, left, right), target));
                     break;
                 }
@@ -385,9 +509,13 @@ public static class IrImporter
 
         if (stack.Count > 0)
         {
-            Stop(function, body, stack, end, "(block boundary)",
-                "evaluation stack carries values across a block boundary, outside the slice");
-            return false;
+            if (end >= il.Length)
+            {
+                Stop(function, body, stack, end, "(method end)",
+                    "evaluation stack is not empty at the end of the method");
+                return false;
+            }
+            return PropagateAndSpill(function, body, stack, state, [end], end);
         }
         return true;
     }
@@ -507,6 +635,14 @@ public static class IrImporter
                 var signature = member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty);
                 return new MethodRef(declaring, reader.GetString(member.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance);
             }
+            case HandleKind.MethodSpecification:
+            {
+                // A generic method instantiation: resolve the underlying
+                // method, then attach the decoded type arguments.
+                var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
+                var generic = ResolveMethod(reader, spec.Method, callerScope);
+                return generic with { TypeArguments = spec.DecodeSignature(TypeRefDecoder.Instance, callerScope) };
+            }
             default:
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
         }
@@ -533,6 +669,14 @@ public static class IrImporter
                 return new FieldRef(TypeRef.Unsupported($"field handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown field type"));
         }
     }
+
+    static TypeRef ResolveTypeToken(MetadataReader reader, EntityHandle handle, GenericScope callerScope) => handle.Kind switch
+    {
+        HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
+        HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
+        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, callerScope, (TypeSpecificationHandle)handle, 0),
+        _ => TypeRef.Unsupported($"type token kind {handle.Kind}"),
+    };
 
     static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent, GenericScope callerScope) => parent.Kind switch
     {

@@ -8,7 +8,11 @@ public sealed record MethodRef(
     string Name,
     TypeRef ReturnType,
     ImmutableArray<TypeRef> ParameterTypes,
-    bool HasThis);
+    bool HasThis)
+{
+    /// <summary>Generic method type arguments (MethodSpec instantiations); empty for non-generic callees.</summary>
+    public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
+}
 
 /// <summary>A materialized field reference.</summary>
 public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type);
@@ -323,7 +327,7 @@ public sealed class Call : IrExpression
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => Callee.ReturnType;
     public override IEnumerable<TypeRef> DirectTypes
-        => Callee.ParameterTypes.Append(Callee.DeclaringType).Append(Callee.ReturnType);
+        => Callee.ParameterTypes.Concat(Callee.TypeArguments).Append(Callee.DeclaringType).Append(Callee.ReturnType);
 
     public override string Describe()
         => $"{(IsVirtual ? "CallVirt" : "Call")} {Callee.DeclaringType.ToDisplayString()}.{Callee.Name}";
@@ -406,6 +410,135 @@ public sealed class Return : IrNode
     public IrExpression? Value => Children.Count > 0 ? (IrExpression)Children[0] : null;
 
     public override string Describe() => "Return";
+}
+
+/// <summary>
+/// A synthetic variable carrying an evaluation-stack value across a block
+/// boundary (ternaries, short-circuit values) or materializing a dup.
+/// Edge slots are position-indexed so every predecessor of a join stores to
+/// the same slot; dup slots allocate from <see cref="DupSlotBase"/> up.
+/// </summary>
+public sealed class StoreStackSlot : IrNode
+{
+    public const int DupSlotBase = 256;
+
+    public StoreStackSlot(int slot, IrExpression value)
+    {
+        Slot = slot;
+        AddChild(value);
+    }
+
+    public int Slot { get; }
+    public IrExpression Value => (IrExpression)Children[0];
+
+    public override string Describe() => $"StoreStackSlot S_{Slot}";
+}
+
+public sealed class LoadStackSlot : IrExpression
+{
+    public LoadStackSlot(int slot, TypeRef? type)
+    {
+        Slot = slot;
+        Type = type;
+    }
+
+    public int Slot { get; }
+    public TypeRef? Type { get; }
+    public override TypeRef? ResultType => Type;
+
+    public override string Describe() => $"LoadStackSlot S_{Slot}";
+}
+
+public sealed class ArrayLength : IrExpression
+{
+    public ArrayLength(IrExpression array) => AddChild(array);
+
+    public IrExpression Array => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Int32");
+
+    public override string Describe() => "ArrayLength";
+}
+
+public sealed class Box : IrExpression
+{
+    public Box(TypeRef type, IrExpression operand)
+    {
+        Type = type;
+        AddChild(operand);
+    }
+
+    public TypeRef Type { get; }
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Object");
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"Box {Type.ToDisplayString()}";
+}
+
+/// <summary>The isinst test producing the cast-or-null value (raising refines to is-patterns or as-casts).</summary>
+public sealed class IsInstance : IrExpression
+{
+    public IsInstance(TypeRef type, IrExpression operand)
+    {
+        Type = type;
+        AddChild(operand);
+    }
+
+    public TypeRef Type { get; }
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"IsInstance {Type.ToDisplayString()}";
+}
+
+public sealed class CastClass : IrExpression
+{
+    public CastClass(TypeRef type, IrExpression operand)
+    {
+        Type = type;
+        AddChild(operand);
+    }
+
+    public TypeRef Type { get; }
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"CastClass {Type.ToDisplayString()}";
+}
+
+public sealed class NewArray : IrExpression
+{
+    public NewArray(TypeRef elementType, IrExpression length)
+    {
+        ElementType = elementType;
+        AddChild(length);
+    }
+
+    public TypeRef ElementType { get; }
+    public IrExpression Length => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.SzArray(ElementType);
+
+    public override string Describe() => $"NewArray {ElementType.ToDisplayString()}[]";
+}
+
+/// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
+public sealed class LoadToken : IrExpression
+{
+    public LoadToken(TypeRef? type, string display)
+    {
+        Type = type;
+        Display = display;
+    }
+
+    /// <summary>The token's type when it is a type token; null for method/field tokens.</summary>
+    public TypeRef? Type { get; }
+    public string Display { get; }
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", Type is null ? "RuntimeHandle" : "RuntimeTypeHandle");
+    public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
+
+    public override string Describe() => $"LoadToken {Display}";
 }
 
 /// <summary>
