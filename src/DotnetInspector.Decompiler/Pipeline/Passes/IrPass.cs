@@ -29,6 +29,7 @@ public static class IrPasses
         new TypedConstantsPass(),
         new PropertySugarPass(),
         new StructuringPass(),
+        new ForLoopPass(),
     ];
 
     public static void Run(IrFunction function) => Run(function, Default);

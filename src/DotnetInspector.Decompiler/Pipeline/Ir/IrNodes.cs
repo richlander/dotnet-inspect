@@ -157,6 +157,30 @@ public sealed class WhileLoop : IrNode
     public override string Describe() => "WhileLoop";
 }
 
+/// <summary>
+/// A raised for loop: initializer statement, stay-in-loop condition,
+/// increment statement, body. Produced from a WhileLoop whose preceding
+/// statement initializes the condition variable and whose body ends by
+/// stepping it.
+/// </summary>
+public sealed class ForLoop : IrNode
+{
+    public ForLoop(IrNode initializer, IrExpression condition, IrNode increment, Block body)
+    {
+        AddChild(initializer);
+        AddChild(condition);
+        AddChild(increment);
+        AddChild(body);
+    }
+
+    public IrNode Initializer => Children[0];
+    public IrExpression Condition => (IrExpression)Children[1];
+    public IrNode Increment => Children[2];
+    public Block Body => (Block)Children[3];
+
+    public override string Describe() => "ForLoop";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {
