@@ -373,7 +373,10 @@ public static class IrImporter
                     break;
 
                 case >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4_8:
-                    stack.Push(new Constant(opcode - ILOpCode.Ldc_i4_0, TypeRef.CoreLib("System", "Int32")));
+                    // Enum subtraction yields the enum's underlying ushort —
+                    // box an actual int or every typed-position check downstream
+                    // sees a value that lies about its own type.
+                    stack.Push(new Constant((int)(opcode - ILOpCode.Ldc_i4_0), TypeRef.CoreLib("System", "Int32")));
                     break;
                 case ILOpCode.Ldc_i4_s:
                     stack.Push(new Constant((int)(sbyte)reader.ReadILByte(), TypeRef.CoreLib("System", "Int32")));
@@ -1037,7 +1040,10 @@ public static class IrImporter
                 var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, method.GetDeclaringType(), 0);
                 var typeScope = new GenericScope(GenericParameterNames(reader, reader.GetTypeDefinition(method.GetDeclaringType()).GetGenericParameters()), []);
                 var signature = method.DecodeSignature(TypeRefDecoder.Instance, typeScope);
-                return new MethodRef(declaring, reader.GetString(method.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance);
+                return new MethodRef(declaring, reader.GetString(method.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
+                {
+                    IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
+                };
             }
             case HandleKind.MemberReference:
             {
@@ -1048,12 +1054,21 @@ public static class IrImporter
                 // instantiate them against the parent's type arguments so a
                 // call on List<int> reports int, not T.
                 var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
+                string memberName = reader.GetString(member.Name);
                 return new MethodRef(
                     declaring,
-                    reader.GetString(member.Name),
+                    memberName,
                     signature.ReturnType.Instantiate(typeArguments, []),
                     [.. signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, []))],
-                    signature.Header.IsInstance);
+                    signature.Header.IsInstance)
+                {
+                    // MemberRefs carry no flags; accessor-shape naming is the
+                    // strongest local evidence without assembly resolution.
+                    IsSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
+                        || memberName.StartsWith("set_", StringComparison.Ordinal)
+                        || memberName.StartsWith("op_", StringComparison.Ordinal)
+                        || memberName is ".ctor" or ".cctor",
+                };
             }
             case HandleKind.MethodSpecification:
             {

@@ -434,6 +434,53 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void UnsignedConversion_CastsSignedSource()
+    {
+        // conv.r.un on a signed int: the source reads as unsigned, so the
+        // C# spelling needs the (uint) cast or the value is wrong for
+        // negative inputs.
+        var convert = new Pipeline.Convert(
+            TypeRef.CoreLib("System", "Double"), isChecked: false, isUnsigned: true,
+            new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32")));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(convert));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Double"),
+            [new Parameter("a", TypeRef.CoreLib("System", "Int32"))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return (double)(uint)a;", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void TypedConstants_BoxedAndElementConstants_Retype()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var boxed = new Box(boolType, new Constant(1, TypeRef.CoreLib("System", "Int32")));
+        block.Add(new ExpressionStatement(boxed));
+        block.Add(new StoreElement(boolType,
+            new LoadArgument(0, "flags", TypeRef.SzArray(boolType)),
+            new Constant(0, TypeRef.CoreLib("System", "Int32")),
+            new Constant(1, TypeRef.CoreLib("System", "Int32"))));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("flags", TypeRef.SzArray(boolType))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        new TypedConstantsPass().Run(function);
+
+        Assert.Equal(true, ((Constant)boxed.Operand).Value);
+        var store = function.Descendants.OfType<StoreElement>().Single();
+        Assert.Equal(true, ((Constant)store.Value).Value);
+        // The index constant stays int — element typing applies to the value.
+        Assert.Equal(0, ((Constant)store.Index).Value);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void UnsignedOperations_CastSignedOperands_PlainWhenAlreadyUnsigned()
     {
         var signedInt = new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32"));
@@ -464,15 +511,42 @@ public class CSharpPrinterTests
     }
 
     [Fact]
-    public void Constructor_ThisReceiver_PrintsBaseCall()
+    public void Constructor_ImplicitBaseCall_IsSuppressed()
     {
+        // A no-argument base-constructor call is implicit in C#; only the
+        // field initializer remains in the body. (Argumentful base(...)
+        // still prints until constructor initializers are modeled.)
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, ".ctor");
 
         Assert.NotNull(function);
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("base();", output);
+        Assert.DoesNotContain("base(", output);
         Assert.DoesNotContain(".ctor", output);
+        Assert.Contains("_shadowed = 1;", output);
+    }
+
+    [Fact]
+    public void UnsignedComparison_InverseCondition_KeepsUnsignedCasts()
+    {
+        // brfalse over an unsigned comparison folds to the inverse operator;
+        // the unsigned operand casts must survive the fold.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var comparison = new Comparison(ComparisonKind.LessThan, isUnsigned: true,
+            new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new LogicalNot(comparison), 4));
+        var target = new Block(4);
+        container.Add(target);
+        target.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("if ((uint)a >= (uint)b) goto IL_0004;", output);
     }
 
     [Fact]
@@ -493,5 +567,51 @@ public class CSharpPrinterTests
 
         Assert.Equal(baseline, candidate);
         Assert.Equal("return _size;", candidate);
+    }
+}
+
+public class RaisingPassTests
+{
+    static string PrintWithPasses(string typeName, string methodName, MetadataSource source)
+    {
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        return result.Output!.ReplaceLineEndings("\n").TrimEnd();
+    }
+
+    [Fact]
+    public void TypedConstants_BoolReturn_PrintsFalse()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        Assert.Equal("return false;", PrintWithPasses("System.Array", "get_IsReadOnly", source));
+    }
+
+    [Fact]
+    public void PropertySugar_GetterCall_PrintsPropertyAccess()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        Assert.Equal("return s.Length;",
+            PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.LengthOf), source));
+    }
+
+    [Fact]
+    public void Passes_PreserveInvariants_AcrossCoreLibSample()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        foreach (var (type, method) in new[]
+        {
+            ("System.String", "IsNullOrEmpty"),
+            ("System.Collections.Generic.Dictionary`2", "ContainsValue"),
+            ("System.Text.StringBuilder", "Clear"),
+        })
+        {
+            var function = IrImporter.Import(source, type, method);
+            Assert.NotNull(function);
+            IrPasses.Run(function);  // CheckInvariant runs after every pass in debug
+            Assert.True(CSharpPrinter.Print(function).Succeeded);
+        }
     }
 }

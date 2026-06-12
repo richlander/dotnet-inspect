@@ -51,6 +51,23 @@ public abstract class IrNode
         child.ChildIndex = index;
     }
 
+    /// <summary>
+    /// Detaches and returns all children, in slot order — the re-parenting
+    /// primitive for restructuring passes (detach, build the replacement
+    /// around them, then <see cref="ReplaceWith"/>).
+    /// </summary>
+    public IReadOnlyList<IrNode> DetachChildren()
+    {
+        var detached = new List<IrNode>(_children);
+        foreach (var child in detached)
+        {
+            child.Parent = null;
+            child.ChildIndex = -1;
+        }
+        _children.Clear();
+        return detached;
+    }
+
     /// <summary>Replaces this node at its slot in the parent. The primitive rewrite — what makes "this node was consumed" a tree edit instead of side-channel state.</summary>
     public void ReplaceWith(IrNode replacement)
     {

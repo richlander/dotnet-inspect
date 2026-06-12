@@ -57,7 +57,8 @@ public sealed class CSharpPrinter
                 bool isLast = i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;
-                sb.AppendLine(Statement(statement));
+                if (Statement(statement) is { } line)
+                    sb.AppendLine(line);
             }
         }
         return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
@@ -100,8 +101,18 @@ public sealed class CSharpPrinter
             yield return $"{(type is null ? "var" : TypeText(type))} S_{slot};";
     }
 
-    string Statement(IrNode node) => node switch
+    /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
+    string? Statement(IrNode node) => node switch
     {
+        ExpressionStatement
+        {
+            Expression: Call
+            {
+                Callee: { Name: ".ctor", HasThis: true, ParameterTypes.IsEmpty: true } callee,
+            } call,
+        } when call.Arguments[0] is LoadArgument { Index: 0, Name: "this" }
+            && !Equals(callee.DeclaringType, _function.DeclaringType)
+            => null,
         ExpressionStatement e => e.Expression is UnsupportedNode u
             ? $"/* {u.Describe()} */"
             : $"{Expression(e.Expression)};",
@@ -109,6 +120,7 @@ public sealed class CSharpPrinter
         StoreArgument s => $"{s.Name} = {Expression(s.Value)};",
         StoreStackSlot s => $"S_{s.Slot} = {Expression(s.Value)};",
         StoreField s => $"{FieldTarget(s.Field, s.Instance)} = {Expression(s.Value)};",
+        StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
         StoreIndirect s => $"*{Operand(s.Address)} = {Expression(s.Value)};",
         InitObject o => $"*{Operand(o.Address)} = default({TypeText(o.Type)});",
@@ -138,6 +150,7 @@ public sealed class CSharpPrinter
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
+        LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -174,9 +187,12 @@ public sealed class CSharpPrinter
     }
 
     string ComparisonText(Comparison comparison)
-        => comparison.IsUnsigned
-            ? $"{UnsignedOperand(comparison.Left)} {ComparisonOperator(comparison.Kind)} {UnsignedOperand(comparison.Right)}"
-            : $"{Operand(comparison.Left)} {ComparisonOperator(comparison.Kind)} {Operand(comparison.Right)}";
+        => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
+
+    string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
+        => isUnsigned
+            ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
+            : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
     string UnsignedOperand(IrExpression operand)
@@ -193,10 +209,10 @@ public sealed class CSharpPrinter
         return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
     }
 
-    /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds to the inverse text-free form later (raising work, not printing work).</summary>
+    /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds to the inverse form, preserving unsigned operand casts.</summary>
     string Condition(IrExpression condition) => condition switch
     {
-        LogicalNot { Operand: Comparison c } => $"{Operand(c.Left)} {ComparisonOperator(Inverse(c.Kind))} {Operand(c.Right)}",
+        LogicalNot { Operand: Comparison c } => ComparisonText(Inverse(c.Kind), c.IsUnsigned, c.Left, c.Right),
         _ => Expression(condition),
     };
 
@@ -223,7 +239,30 @@ public sealed class CSharpPrinter
     {
         null => $"{TypeText(field.DeclaringType)}.{field.Name}",
         LoadArgument { Index: 0, Name: "this" } => field.Name,
-        _ => $"{Operand(instance)}.{field.Name}",
+        _ => $"{ReceiverText(instance)}.{field.Name}",
+    };
+
+    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name)
+    {
+        string receiver = instance switch
+        {
+            null => TypeText(accessor.DeclaringType),
+            LoadArgument { Index: 0, Name: "this" } => "",
+            _ => ReceiverText(instance),
+        };
+        string dotted = receiver.Length == 0 ? name : $"{receiver}.{name}";
+        return name == "Item" && indexArguments.Count > 0
+            ? $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]"
+            : indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
+    }
+
+    /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
+    string ReceiverText(IrExpression receiver) => receiver switch
+    {
+        LoadLocalAddress a => $"V_{a.Index}",
+        LoadArgumentAddress a => a.Name,
+        LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
+        _ => Operand(receiver),
     };
 
     string CallText(Call call)
@@ -244,7 +283,7 @@ public sealed class CSharpPrinter
         }
         return receiver is LoadArgument { Index: 0, Name: "this" }
             ? $"{call.Callee.Name}{typeArguments}({rest})"
-            : $"{Operand(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
+            : $"{ReceiverText(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)
@@ -252,7 +291,10 @@ public sealed class CSharpPrinter
 
     string ConvertText(Convert convert)
     {
-        string cast = $"({TypeText(convert.Target)}){Operand(convert.Operand)}";
+        // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
+        // a signed operand needs its unsigned cast or the value is wrong.
+        string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand) : Operand(convert.Operand);
+        string cast = $"({TypeText(convert.Target)}){operand}";
         return convert.IsChecked ? $"checked({cast})" : cast;
     }
 
@@ -260,11 +302,25 @@ public sealed class CSharpPrinter
     {
         null => "null",
         string s => $"\"{s.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+        bool b => b ? "true" : "false",
+        char c => CharText(c),
         int i => i.ToString(CultureInfo.InvariantCulture),
         long l => l.ToString(CultureInfo.InvariantCulture),
         float f => $"{f.ToString("R", CultureInfo.InvariantCulture)}f",
         double d => $"{d.ToString("R", CultureInfo.InvariantCulture)}d",
         _ => constant.Value.ToString() ?? "?",
+    };
+
+    static string CharText(char c) => c switch
+    {
+        '\\' => "'\\\\'",
+        '\'' => "'\\''",
+        '\t' => "'\\t'",
+        '\n' => "'\\n'",
+        '\r' => "'\\r'",
+        '\0' => "'\\0'",
+        _ when char.IsControl(c) => $"'\\u{(int)c:x4}'",
+        _ => $"'{c}'",
     };
 
     static string BinaryOperator(Binary binary) => binary.Kind switch
