@@ -45,9 +45,19 @@ public static class AnnotatedILEmitter
     /// Emits annotated IL from a shared <see cref="MethodAnalysis"/>. Only
     /// the pre-transform stages (CFG, stack simulation) are consumed — the
     /// IL projections stay ground truth regardless of raising transforms.
+    /// Raw depth touches no analysis at all: it is the fallback projection
+    /// that must survive CFG and stack-simulation failures.
     /// </summary>
     public static string Emit(MethodAnalysis analysis, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
-        => Emit(analysis.Context, analysis.Cfg, analysis.Stack, depth);
+    {
+        if (depth == ILAnnotationDepth.Raw)
+        {
+            var sb = new StringBuilder();
+            EmitRaw(analysis.Context, sb);
+            return sb.ToString();
+        }
+        return Emit(analysis.Context, analysis.Cfg, analysis.Stack, depth);
+    }
 
     /// <summary>Decompiles annotated IL from a shared <see cref="MethodAnalysis"/>, with failures expressed as diagnostics.</summary>
     public static DecompilerResult Decompile(MethodAnalysis analysis, ILAnnotationDepth depth = ILAnnotationDepth.Typed)
