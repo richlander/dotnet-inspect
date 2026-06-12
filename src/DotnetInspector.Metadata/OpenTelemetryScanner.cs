@@ -124,7 +124,8 @@ public static class OpenTelemetryScanner
 
                 var methodName = metadataReader.GetString(method.Name);
                 if (!methodName.StartsWith("Add", StringComparison.Ordinal)
-                    && !methodName.StartsWith("Use", StringComparison.Ordinal))
+                    && !methodName.StartsWith("Use", StringComparison.Ordinal)
+                    && methodName != "OpenTelemetry")
                     continue;
 
                 MethodSignature<string> signature;
@@ -186,7 +187,9 @@ public static class OpenTelemetryScanner
 
     private static bool IsOpenTelemetryType(string typeName)
         => typeName.Equals("OpenTelemetry", StringComparison.Ordinal)
-           || typeName.StartsWith("OpenTelemetry.", StringComparison.Ordinal);
+           || typeName.StartsWith("OpenTelemetry.", StringComparison.Ordinal)
+           || typeName == "Serilog.OpenTelemetryLoggerConfigurationExtensions"
+           || typeName.StartsWith("Serilog.Sinks.OpenTelemetry.", StringComparison.Ordinal);
 
     private static bool IsTracingPrimitive(string typeName)
         => typeName.StartsWith("System.Diagnostics.Activity", StringComparison.Ordinal)
@@ -282,7 +285,8 @@ public static class OpenTelemetryScanner
 
             var methodName = reader.GetString(method.Name);
             if (!methodName.StartsWith("Add", StringComparison.Ordinal)
-                && !methodName.StartsWith("Use", StringComparison.Ordinal))
+                && !methodName.StartsWith("Use", StringComparison.Ordinal)
+                && methodName != "OpenTelemetry")
                 continue;
 
             try
@@ -319,6 +323,9 @@ public static class OpenTelemetryScanner
         else if (receiver is "OpenTelemetry.IOpenTelemetryBuilder" or "OpenTelemetry.OpenTelemetryBuilder"
                  || signature.ReturnType is "OpenTelemetry.IOpenTelemetryBuilder" or "OpenTelemetry.OpenTelemetryBuilder")
             kind = "OpenTelemetry";
+        else if (receiver.StartsWith("Serilog.Configuration.Logger", StringComparison.Ordinal)
+                 && signature.ReturnType == "Serilog.LoggerConfiguration")
+            kind = "Logging";
 
         return kind.Length > 0;
     }

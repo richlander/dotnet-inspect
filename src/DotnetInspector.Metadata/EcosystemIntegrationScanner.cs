@@ -279,7 +279,11 @@ public static class EcosystemIntegrationScanner
 
     private static bool IsAuthenticationType(string typeName)
         => typeName.StartsWith("Microsoft.AspNetCore.Authentication.", StringComparison.Ordinal)
-           || typeName.StartsWith("Microsoft.AspNetCore.Authorization.", StringComparison.Ordinal);
+           || typeName.StartsWith("Microsoft.AspNetCore.Authorization.", StringComparison.Ordinal)
+           || typeName.StartsWith("Microsoft.AspNetCore.Components.Authorization.", StringComparison.Ordinal)
+           || typeName.StartsWith("OpenIddict.Validation.AspNetCore.", StringComparison.Ordinal)
+           || typeName.StartsWith("HotChocolate.Authorization.", StringComparison.Ordinal)
+           || typeName.StartsWith("GraphQL.Authorization.", StringComparison.Ordinal);
 
     private static bool TryGetAuthenticationKind(string typeName, out string kind)
     {
@@ -295,6 +299,41 @@ public static class EcosystemIntegrationScanner
         {
             kind = "Configuration";
             return true;
+        }
+
+        if (typeName.StartsWith("Microsoft.AspNetCore.Components.Authorization.", StringComparison.Ordinal))
+        {
+            kind = simpleName.Contains("Authorize", StringComparison.Ordinal) ? "Authorization UI" : "Authentication State";
+            return true;
+        }
+
+        if (typeName.StartsWith("OpenIddict.Validation.AspNetCore.", StringComparison.Ordinal)
+            && simpleName.Contains("Validation", StringComparison.Ordinal))
+        {
+            kind = "Validation";
+            return true;
+        }
+
+        if (typeName.StartsWith("HotChocolate.Authorization.", StringComparison.Ordinal)
+            || typeName.StartsWith("GraphQL.Authorization.", StringComparison.Ordinal))
+        {
+            if (simpleName.EndsWith("Requirement", StringComparison.Ordinal))
+                kind = "Requirement";
+            else if (simpleName.Contains("Policy", StringComparison.Ordinal))
+                kind = "Policy";
+            else if (simpleName.EndsWith("ValidationRule", StringComparison.Ordinal))
+                kind = "Validation";
+            else if (simpleName.EndsWith("Handler", StringComparison.Ordinal))
+                kind = "Handler";
+            else if (simpleName.EndsWith("Attribute", StringComparison.Ordinal)
+                     || simpleName.EndsWith("Directive", StringComparison.Ordinal))
+                kind = "Annotation";
+            else if (simpleName.EndsWith("Options", StringComparison.Ordinal)
+                     || simpleName.EndsWith("Settings", StringComparison.Ordinal))
+                kind = "Configuration";
+
+            if (kind.Length > 0)
+                return true;
         }
 
         if (simpleName is "AuthorizationBuilder" or "AuthorizationPolicyBuilder")
@@ -322,6 +361,18 @@ public static class EcosystemIntegrationScanner
             || simpleName.EndsWith("Settings", StringComparison.Ordinal))
         {
             kind = "Configuration";
+            return true;
+        }
+
+        if (simpleName.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            kind = "Annotation";
+            return true;
+        }
+
+        if (simpleName.EndsWith("Filter", StringComparison.Ordinal))
+        {
+            kind = "Filter";
             return true;
         }
 
@@ -585,6 +636,8 @@ public static class EcosystemIntegrationScanner
                 buckets.Logging.Apis.TryAdd(api, loggingKind);
             if (TryClassifyOpenApiStarterMethod(typeName, methodName, signature, out var openApiKind))
                 buckets.OpenApi.Apis.TryAdd(api, openApiKind);
+            if (TryClassifyOptionsStarterMethod(methodName, signature, out var optionsKind))
+                buckets.Options.Apis.TryAdd(api, optionsKind);
             if (TryClassifyAspNetCoreStarterMethod(methodName, signature, out var aspNetCoreKind))
                 buckets.AspNetCore.Apis.TryAdd(api, aspNetCoreKind);
             if (TryClassifyHealthChecksStarterMethod(methodName, signature, out var healthChecksKind))
@@ -603,13 +656,18 @@ public static class EcosystemIntegrationScanner
         out string kind)
     {
         kind = "";
-        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
-            || signature.ParameterTypes.Length == 0
+        if (signature.ParameterTypes.Length == 0
             || signature.ParameterTypes[0] != "Microsoft.Extensions.DependencyInjection.IServiceCollection")
             return false;
 
-        kind = "Service Registration";
-        return true;
+        if (methodName.StartsWith("Add", StringComparison.Ordinal))
+            kind = "Service Registration";
+        else if (methodName == "Scan")
+            kind = "Assembly Scanning";
+        else if (methodName is "Decorate" or "TryDecorate")
+            kind = "Decoration";
+
+        return kind.Length > 0;
     }
 
     private static bool TryClassifyLoggingStarterMethod(
@@ -638,7 +696,42 @@ public static class EcosystemIntegrationScanner
             || signature.ParameterTypes.Length == 0
             || signature.ParameterTypes[0] != "Microsoft.Extensions.Configuration.IConfigurationBuilder"
             || signature.ReturnType != "Microsoft.Extensions.Configuration.IConfigurationBuilder")
+        {
+            if (signature.ParameterTypes.Length == 0)
+                return false;
+
+            var receiver = signature.ParameterTypes[0];
+            if (receiver == "Microsoft.Extensions.Configuration.IConfiguration"
+                && methodName is "Bind" or "Get" or "GetValue")
+            {
+                kind = "Binding";
+                return true;
+            }
+
+            if (receiver.StartsWith("Microsoft.Extensions.Options.OptionsBuilder<", StringComparison.Ordinal)
+                && methodName is "Bind" or "BindConfiguration")
+            {
+                kind = "Options Binding";
+                return true;
+            }
+
+            if (receiver == "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+                && methodName == "Configure"
+                && signature.ParameterTypes.Any(type => type == "Microsoft.Extensions.Configuration.IConfiguration"))
+            {
+                kind = "Options Binding";
+                return true;
+            }
+
+            if (methodName is "Configuration" or "AddConfiguration"
+                && signature.ParameterTypes.Any(type => type == "Microsoft.Extensions.Configuration.IConfiguration"))
+            {
+                kind = "Configuration Consumer";
+                return true;
+            }
+
             return false;
+        }
 
         kind = "Configuration Source";
         return true;
@@ -654,6 +747,13 @@ public static class EcosystemIntegrationScanner
             return false;
 
         var receiver = signature.ParameterTypes[0];
+        if (receiver == "Microsoft.Extensions.DependencyInjection.IServiceCollection"
+            && methodName == "AddCascadingAuthenticationState")
+        {
+            kind = "Authentication State";
+            return true;
+        }
+
         if (receiver == "Microsoft.AspNetCore.Authentication.AuthenticationBuilder"
             && methodName.StartsWith("Add", StringComparison.Ordinal))
         {
@@ -686,6 +786,27 @@ public static class EcosystemIntegrationScanner
             return true;
         }
 
+        if (receiver.Contains("OpenIddictValidationBuilder", StringComparison.Ordinal)
+            && methodName == "UseAspNetCore")
+        {
+            kind = "Validation";
+            return true;
+        }
+
+        if (receiver == "HotChocolate.Execution.Configuration.IRequestExecutorBuilder"
+            && methodName.StartsWith("AddAuthorization", StringComparison.Ordinal))
+        {
+            kind = "Authorization";
+            return true;
+        }
+
+        if (receiver == "GraphQL.DI.IGraphQLBuilder"
+            && methodName is "AddAuthorization" or "AddGraphQLAuthorization")
+        {
+            kind = "Authorization";
+            return true;
+        }
+
         if (receiver == "Microsoft.AspNetCore.Builder.IApplicationBuilder"
             && methodName is "UseAuthentication" or "UseAuthorization")
         {
@@ -715,8 +836,44 @@ public static class EcosystemIntegrationScanner
                 => "Middleware",
             ({ } name, "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder") when name.StartsWith("Map", StringComparison.Ordinal)
                 => "Endpoint",
+            ({ } name, { } receiver) when name.StartsWith("Enable", StringComparison.Ordinal)
+                                          && (receiver.Contains("Swagger", StringComparison.Ordinal)
+                                              || receiver.Contains("OpenApi", StringComparison.Ordinal)
+                                              || receiver.Contains("OpenAPI", StringComparison.Ordinal))
+                => "Configuration",
             _ => ""
         };
+
+        return kind.Length > 0;
+    }
+
+    private static bool TryClassifyOptionsStarterMethod(
+        string methodName,
+        MethodSignature<string> signature,
+        out string kind)
+    {
+        kind = "";
+        if (signature.ParameterTypes.Length == 0)
+            return false;
+
+        var receiver = signature.ParameterTypes[0];
+        if (receiver.StartsWith("Microsoft.Extensions.Options.OptionsBuilder<", StringComparison.Ordinal))
+        {
+            if (methodName.Contains("Validate", StringComparison.Ordinal))
+                kind = "Validation";
+            else if (methodName.StartsWith("Bind", StringComparison.Ordinal)
+                     || methodName.StartsWith("Configure", StringComparison.Ordinal))
+                kind = "Configuration";
+        }
+        else if (receiver == "Microsoft.Extensions.DependencyInjection.IServiceCollection")
+        {
+            if (methodName.Contains("Validate", StringComparison.Ordinal)
+                && signature.ReturnType == "Microsoft.Extensions.DependencyInjection.IServiceCollection")
+                kind = "Validation";
+            else if (methodName == "Configure"
+                     && signature.ParameterTypes.Any(type => type == "Microsoft.Extensions.Configuration.IConfiguration"))
+                kind = "Configuration";
+        }
 
         return kind.Length > 0;
     }
@@ -748,13 +905,21 @@ public static class EcosystemIntegrationScanner
         out string kind)
     {
         kind = "";
-        if (!methodName.StartsWith("Add", StringComparison.Ordinal)
-            || signature.ParameterTypes.Length == 0
-            || signature.ParameterTypes[0] != "Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder")
+        if (signature.ParameterTypes.Length == 0)
             return false;
 
-        kind = "Health Check";
-        return true;
+        var receiver = signature.ParameterTypes[0];
+        if (methodName.StartsWith("Add", StringComparison.Ordinal)
+            && receiver == "Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder")
+            kind = "Health Check";
+        else if (methodName.StartsWith("UseHealthChecks", StringComparison.Ordinal)
+                 && receiver == "Microsoft.AspNetCore.Builder.IApplicationBuilder")
+            kind = "Middleware";
+        else if (methodName.StartsWith("MapHealthChecks", StringComparison.Ordinal)
+                 && receiver == "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder")
+            kind = "Endpoint";
+
+        return kind.Length > 0;
     }
 
     private static bool TryClassifyAspireStarterMethod(
@@ -796,6 +961,13 @@ public static class EcosystemIntegrationScanner
             && signature.ParameterTypes[0] == "Microsoft.Extensions.Hosting.IHostBuilder")
         {
             kind = "Hosting";
+            return true;
+        }
+
+        if (methodName.Contains("HostedService", StringComparison.Ordinal)
+            && signature.ParameterTypes[0] == "Microsoft.Extensions.DependencyInjection.IServiceCollection")
+        {
+            kind = "Hosted Service";
             return true;
         }
 
@@ -911,6 +1083,10 @@ public static class EcosystemIntegrationScanner
         "Builder" => 1,
         "Resource" => 1,
         "Configuration" => 2,
+        "Configuration Source" => 2,
+        "Options Binding" => 2,
+        "Binding" => 2,
+        "Configuration Consumer" => 2,
         "Resource Interface" => 2,
         "Chat" => 3,
         "Embeddings" => 4,
@@ -925,7 +1101,22 @@ public static class EcosystemIntegrationScanner
         "HTTP Diagnostics" => 22,
         "Builder Configuration" => 23,
         "Service Registration" => 24,
+        "Assembly Scanning" => 25,
         "Factory" => 26,
+        "Decoration" => 27,
+        "Hosted Service" => 28,
+        "Health Check" => 29,
+        "Middleware" => 30,
+        "Endpoint" => 31,
+        "Authentication State" => 32,
+        "Authorization UI" => 33,
+        "Authorization" => 34,
+        "Validation" => 35,
+        "Policy" => 36,
+        "Requirement" => 37,
+        "Handler" => 38,
+        "Annotation" => 39,
+        "Filter" => 40,
         _ => 100
     };
 

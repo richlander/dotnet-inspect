@@ -390,9 +390,19 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasOptions => _data.Options is { Count: > 0 };
 
-    [MarkoutSection(Name = EcosystemIntegrationNames.Options, ShowWhenProperty = nameof(HasOptions))]
+    [MarkoutIgnore]
+    public bool HasOptionsApis => _data.Options?.Any(signal => signal.Shape == IntegrationSignalShape.Api) == true;
+
+    [MarkoutIgnore]
+    public bool HasOptionsTypesOnly => HasOptions && !HasOptionsApis;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Options, ShowWhenProperty = nameof(HasOptionsApis))]
+    [MarkoutIgnoreColumnWhen(nameof(IntegrationApiKindIsUniform), "Kind")]
+    public List<IntegrationApiSignalRow>? OptionsApiSection => HasOptionsApis ? ToIntegrationApiSignalRows(_data.Options, includeTypes: false) : null;
+
+    [MarkoutSection(Name = EcosystemIntegrationNames.Options, ShowWhenProperty = nameof(HasOptionsTypesOnly))]
     [MarkoutIgnoreColumnWhen(nameof(IntegrationKindIsUniform), "Kind")]
-    public List<IntegrationSignalRow>? OptionsSection => ToIntegrationSignalRows(_data.Options);
+    public List<IntegrationSignalRow>? OptionsTypeSection => ToIntegrationSignalRows(_data.Options);
 
     [MarkoutIgnore]
     public bool HasHosting => _data.Hosting is { Count: > 0 };
