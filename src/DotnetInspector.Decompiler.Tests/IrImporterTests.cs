@@ -267,3 +267,55 @@ public class IrImporterTests
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 }
+
+public class JoinTypeConflictTests : IDisposable
+{
+    readonly Stack<IDisposable> _disposables = new();
+
+    public void Dispose()
+    {
+        while (_disposables.Count > 0)
+            _disposables.Pop().Dispose();
+    }
+
+    IrFunction BuildSynthetic(byte[] il)
+    {
+        var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        _disposables.Push(source);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var method = new ImportedMethod(
+            TypeRef.CoreLib("Synthetic", "T"), "M", signature,
+            new MethodBody([.. il], MaxStack: 8, Locals: [], LocalNames: [], Handlers: []));
+        return IrImporter.Build(source, method, GenericScope.Empty);
+    }
+
+    [Fact]
+    public void JoinTypeConflict_BeforeJoinIsBuilt_MergesToHonestUnknown()
+    {
+        // ldc.i4.1; brtrue.s L1; ldc.i4.0; br.s J; L1: ldnull; J: pop; ret
+        // Two forward edges carry int and object into J: pre-build conflict
+        // merges to null (honest unknown), never a guessed type.
+        var function = BuildSynthetic([0x17, 0x2D, 0x03, 0x16, 0x2B, 0x01, 0x14, 0x26, 0x2A]);
+
+        Assert.Empty(function.Diagnostics);
+        var load = Assert.Single(function.Descendants.OfType<LoadStackSlot>(),
+            l => l.Parent is ExpressionStatement);
+        Assert.Null(load.Type);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void JoinTypeConflict_AfterJoinIsBuilt_StopsHonestly()
+    {
+        // ldc.i4.0; br.s J; J: pop; ret; (unreachable) ldnull; br.s J
+        // The join is built with int before the object-carrying edge arrives;
+        // already-emitted loads cannot be retyped, so the import stops.
+        var function = BuildSynthetic([0x16, 0x2B, 0x00, 0x26, 0x2A, 0x14, 0x2B, 0xFB]);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Equal(DiagnosticIds.UnsupportedConstruct, diagnostic.Id);
+        Assert.Contains("types disagree", diagnostic.Message);
+        function.CheckInvariant();
+    }
+}

@@ -7,9 +7,10 @@ namespace DotnetInspector.Decompiler.Pipeline;
 /// <summary>
 /// Builds the typed IR for one method while its <see cref="MetadataSource"/>
 /// is alive; the resulting <see cref="IrFunction"/> is fully materialized.
-/// Slice scope: branching bodies whose evaluation stack is empty at every
-/// block boundary (no exception regions, no stack-carrying edges). IL
-/// outside the slice becomes an explicit <see cref="UnsupportedNode"/> with
+/// Slice scope: branching bodies including stack-carrying edges (values
+/// crossing block boundaries materialize through stack slots); exception
+/// regions and function-pointer IL remain outside the slice. IL outside
+/// the slice becomes an explicit <see cref="UnsupportedNode"/> with
 /// a <see cref="DiagnosticIds.UnsupportedConstruct"/> diagnostic and import
 /// stops — fidelity degrades honestly, output never guesses.
 /// </summary>
@@ -104,7 +105,8 @@ public static class IrImporter
         => new(GenericParameterNames(reader, typeDef.GetGenericParameters()),
                GenericParameterNames(reader, method.GetGenericParameters()));
 
-    static IrFunction Build(MetadataSource source, ImportedMethod method, GenericScope callerScope)
+    /// <summary>Internal for tests: synthetic IL can exercise join shapes C# never compiles to.</summary>
+    internal static IrFunction Build(MetadataSource source, ImportedMethod method, GenericScope callerScope)
     {
         var container = new BlockContainer();
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container);
