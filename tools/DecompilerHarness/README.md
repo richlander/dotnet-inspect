@@ -8,7 +8,7 @@ The differential harness from [docs/decompiler-pipeline.md](../../docs/decompile
 
 **Replacement-pipeline inventory** (`--pipeline next`): sweeps through the new importer and reports the fidelity histogram plus stop-reason buckets — the prioritized slice roadmap. Exits nonzero if any importer bug (DEC0001) appears.
 
-**Diff** (`--candidate <name>`): runs two pipelines over every method and reports agreement, categorized first-line diffs, and one-sided failures. Diffing against `next` activates when it grows its C# printer.
+**Diff** (`--candidate <name>`): runs two pipelines over every method and reports agreement, categorized first-line diffs, and one-sided failures. `--candidate next` is the parity scoreboard: every comparable method through both pipelines as trimmed C# text, with difference buckets that double as the raising-pass docket.
 
 **Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — prints every stage of one method's analysis as projections of the shared `MethodAnalysis`: raw IL, typed IL (per-instruction stack states), structured IL (blocks and exception regions), then C#. The IL projections come from pre-transform stages, so the output is exactly what each pipeline layer saw.
 
@@ -30,8 +30,8 @@ dotnet run --project tools/DecompilerHarness -c Release -- --pipeline next
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --pipeline next --dump 'System.String::IsNullOrEmpty'
 
-# Diff mode (--candidate next) activates when the replacement pipeline
-# grows its C# printer
+# Parity scoreboard: every comparable method through both pipelines
+dotnet run --project tools/DecompilerHarness -c Release -- --candidate next
 
 # Stage-by-stage dump of one method (metadata type name)
 dotnet run --project tools/DecompilerHarness -c Release -- \
