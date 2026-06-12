@@ -286,6 +286,8 @@ public sealed class CSharpPrinter
         Binary b => BinaryText(b),
         Comparison c => ComparisonText(c),
         LogicalNot n => $"!{Operand(n.Operand)}",
+        LogicalBinary l => LogicalText(l),
+        Conditional t => $"{Condition(t.Condition)} ? {Operand(t.WhenTrue)} : {Operand(t.WhenFalse)}",
         Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
@@ -413,6 +415,28 @@ public sealed class CSharpPrinter
             or Call or NewObject or ArrayLength or LoadElement or CaughtException or SizeOf or LoadToken
             or LoadProperty;
         return atomic ? text : $"({text})";
+    }
+
+    /// <summary>
+    /// Short-circuit composition prints comparisons and nots bare (they bind
+    /// tighter than &amp;&amp;/||); same-kind chains associate without parens;
+    /// mixed kinds parenthesize.
+    /// </summary>
+    string LogicalText(LogicalBinary logical)
+    {
+        // Sides are condition positions: Condition() owns truthiness (a
+        // string operand spells 'is not null', never '!value') and the
+        // negation folds. Same-kind chains associate bare; mixed kinds
+        // and ternaries parenthesize.
+        string Side(IrExpression side) => side switch
+        {
+            LogicalBinary nested when nested.Kind == logical.Kind => LogicalText(nested),
+            LogicalBinary nested => $"({LogicalText(nested)})",
+            Conditional => $"({Expression(side)})",
+            _ => Condition(side),
+        };
+        string op = logical.Kind == LogicalKind.And ? "&&" : "||";
+        return $"{Side(logical.Left)} {op} {Side(logical.Right)}";
     }
 
     /// <summary>

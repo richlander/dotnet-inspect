@@ -248,6 +248,20 @@ public class CfgSampleClass
 
     public static int Reused(int x) { var n = x + 1; return n * n; }
 
+    public static bool BothPositive(int a, int b)
+    {
+        if (a > 0)
+        {
+            if (b > 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static int Pick(bool c, int a, int b) => c ? a : b;
+
     public static int DoWhileSum(int n)
     {
         int s = 0;

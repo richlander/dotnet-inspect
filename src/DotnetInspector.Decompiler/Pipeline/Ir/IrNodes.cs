@@ -228,6 +228,48 @@ public sealed class Comparison : IrExpression
 }
 
 /// <summary>Logical negation of a truth-valued operand (the brfalse lowering; raising passes refine to comparisons).</summary>
+public enum LogicalKind { And, Or }
+
+/// <summary>
+/// Short-circuit boolean composition (&amp;&amp;/||) — distinct from the
+/// bitwise <see cref="Binary"/> forms. Raised by boolean folding from
+/// guard-return chains and nested guards; IL has no direct encoding.
+/// </summary>
+public sealed class LogicalBinary : IrExpression
+{
+    public LogicalBinary(LogicalKind kind, IrExpression left, IrExpression right)
+    {
+        Kind = kind;
+        AddChild(left);
+        AddChild(right);
+    }
+
+    public LogicalKind Kind { get; }
+    public IrExpression Left => (IrExpression)Children[0];
+    public IrExpression Right => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Boolean");
+
+    public override string Describe() => $"Logical{Kind}";
+}
+
+/// <summary>A raised ternary: condition selects between two values (the slot-diamond shape).</summary>
+public sealed class Conditional : IrExpression
+{
+    public Conditional(IrExpression condition, IrExpression whenTrue, IrExpression whenFalse)
+    {
+        AddChild(condition);
+        AddChild(whenTrue);
+        AddChild(whenFalse);
+    }
+
+    public IrExpression Condition => (IrExpression)Children[0];
+    public IrExpression WhenTrue => (IrExpression)Children[1];
+    public IrExpression WhenFalse => (IrExpression)Children[2];
+    public override TypeRef? ResultType => WhenTrue.ResultType ?? WhenFalse.ResultType;
+
+    public override string Describe() => "Conditional";
+}
+
 public sealed class LogicalNot : IrExpression
 {
     public LogicalNot(IrExpression operand) => AddChild(operand);

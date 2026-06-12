@@ -747,18 +747,53 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void Structuring_GuardShape_RaisesToIf()
+    public void BooleanFolding_GuardReturn_FoldsToSourceForm()
     {
+        // The corpus front door, character-identical to the dotnet/runtime
+        // source: return value == null || value.Length == 0; (is-form per
+        // the taste doc).
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
         string output = PrintWithPasses("System.String", "IsNullOrEmpty", source);
 
+        Assert.Equal("return value is null || value.Length == 0;\n", output + "\n");
+    }
+
+    [Fact]
+    public void BooleanFolding_GuardAndBoolComparison_FoldToAndChain()
+    {
+        // The && lowering plus the ceq-with-zero value form, folded back to
+        // the exact dotnet/runtime source: _size != 0 && IndexOf(item) >= 0.
+        // (Release-compiled CoreLib: the Debug result-local pattern with a
+        // shared failure tail is a later structuring slice.)
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        string output = PrintWithPasses("System.Collections.Generic.List`1", "Contains", source);
+
+        Assert.Equal("return _size != 0 && IndexOf(item) >= 0;", output);
+    }
+
+    [Fact]
+    public void BooleanFolding_TernarySource_PerConfigShape()
+    {
+        // Debug lowers the ternary through a stack-slot diamond, which folds
+        // back to the ternary (with the double-negative unwrapped and arms
+        // swapped). Release lowers it as dual returns, which stay in
+        // statement form — the same negation-shaped rule the baseline
+        // applies (old pipeline PR #421).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(
+            typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Pick), source);
+
+#if DEBUG
+        Assert.Equal("return c ? a : b;", output);
+#else
         Assert.Equal("""
-            if (value is not null)
+            if (!c)
             {
-                return value.Length == 0;
+                return b;
             }
-            return true;
+            return a;
             """.ReplaceLineEndings("\n"), output);
+#endif
     }
 
     [Fact]
