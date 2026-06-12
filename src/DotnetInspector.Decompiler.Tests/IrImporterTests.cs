@@ -332,6 +332,47 @@ public class JoinTypeConflictTests : IDisposable
         function.CheckInvariant();
     }
 
+    IrFunction BuildSyntheticWithRegion(byte[] il, HandlerRegion region)
+    {
+        var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        _disposables.Push(source);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var method = new ImportedMethod(
+            TypeRef.CoreLib("Synthetic", "T"), "M", signature,
+            new MethodBody([.. il], MaxStack: 8, Locals: [], LocalNames: [], Handlers: [region]));
+        return IrImporter.Build(source, method, GenericScope.Empty);
+    }
+
+    [Fact]
+    public void Endfinally_NonEmptyStack_IsMalformed_StopsHonestly()
+    {
+        // try { leave } finally { ldc.i4.1; endfinally }  — ECMA requires an
+        // empty stack at endfinally; the stray value must not import as Full.
+        var function = BuildSyntheticWithRegion(
+            [0xDE, 0x02, 0x17, 0xDC, 0x2A],
+            new HandlerRegion(HandlerKind.Finally, 0, 2, 2, 2, 0, null));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Contains("endfinally", diagnostic.Message);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Endfilter_MoreThanVerdict_IsMalformed_StopsHonestly()
+    {
+        // Filter code that never consumes the CLR-pushed exception: after
+        // popping the verdict the exception remains — malformed per ECMA.
+        var function = BuildSyntheticWithRegion(
+            [0xDE, 0x06, 0x17, 0xFE, 0x11, 0x26, 0xDE, 0x00, 0x2A],
+            new HandlerRegion(HandlerKind.Filter, 0, 2, 5, 3, 2, null));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var diagnostic = Assert.Single(function.Diagnostics);
+        Assert.Contains("filter verdict", diagnostic.Message);
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void JoinTypeConflict_AfterJoinIsBuilt_StopsHonestly()
     {

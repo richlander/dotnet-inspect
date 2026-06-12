@@ -8,8 +8,9 @@ namespace DotnetInspector.Decompiler.Pipeline;
 /// Builds the typed IR for one method while its <see cref="MetadataSource"/>
 /// is alive; the resulting <see cref="IrFunction"/> is fully materialized.
 /// Slice scope: branching bodies including stack-carrying edges (values
-/// crossing block boundaries materialize through stack slots); exception
-/// regions and function-pointer IL remain outside the slice. IL outside
+/// crossing block boundaries materialize through stack slots) and exception
+/// regions (imported flat; nesting is raising-pass work). Function-pointer
+/// IL (ldftn/calli) and localloc remain outside the slice. IL outside
 /// the slice becomes an explicit <see cref="UnsupportedNode"/> with
 /// a <see cref="DiagnosticIds.UnsupportedConstruct"/> diagnostic and import
 /// stops — fidelity degrades honestly, output never guesses.
@@ -761,15 +762,31 @@ public static class IrImporter
                 }
 
                 case ILOpCode.Endfinally:
-                    foreach (var pending in stack.Reverse())
-                        body.Add(new ExpressionStatement(pending));
-                    stack.Clear();
+                    // ECMA-335 III.3.35: the evaluation stack must be empty.
+                    // Unlike leave (defined to empty the stack), a non-empty
+                    // stack here is malformed IL — stop honestly.
+                    if (stack.Count > 0)
+                    {
+                        Stop(function, body, stack, offset, "endfinally",
+                            "evaluation stack is not empty at endfinally (malformed IL)");
+                        return false;
+                    }
                     body.Add(new EndFinally());
                     break;
 
                 case ILOpCode.Endfilter:
-                    body.Add(new EndFilter(Pop(stack)));
+                {
+                    // ECMA-335 III.3.34: the stack holds exactly the verdict.
+                    var verdict = Pop(stack);
+                    if (stack.Count > 0)
+                    {
+                        Stop(function, body, stack, offset, "endfilter",
+                            "evaluation stack holds more than the filter verdict (malformed IL)");
+                        return false;
+                    }
+                    body.Add(new EndFilter(verdict));
                     break;
+                }
 
                 case ILOpCode.Rethrow:
                     body.Add(new Throw(new CaughtException(null)));
