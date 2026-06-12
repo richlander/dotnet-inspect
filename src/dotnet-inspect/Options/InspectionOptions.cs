@@ -34,6 +34,11 @@ public record InspectionOptions
     public string? PackageLibrary { get; init; }
 
     /// <summary>
+    /// Inspect all compatible libraries in the package instead of selecting one.
+    /// </summary>
+    public bool AllLibraries { get; init; }
+
+    /// <summary>
     /// Show the package file tree (lib/tools structure).
     /// </summary>
     public bool ListLayout { get; init; }
@@ -195,7 +200,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count || PackageLibrary != null;
+    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || NoHeader || ListLayout || ListFiles || ListTfms || ListVersions || ShowReadme || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.
