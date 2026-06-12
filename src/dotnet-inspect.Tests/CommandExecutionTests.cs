@@ -1993,6 +1993,7 @@ public class CommandExecutionTests
                 "HTTP Client",
                 "Integrations",
                 "Logging",
+                "OpenAPI",
                 "OpenTelemetry",
                 "Options",
                 "Resources",
