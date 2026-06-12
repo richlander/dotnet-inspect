@@ -571,6 +571,59 @@ public sealed class LoadToken : IrExpression
     public override string Describe() => $"LoadToken {Kind} {Display}";
 }
 
+/// <summary>A raised property or indexer read (from a get_ accessor call).</summary>
+public sealed class LoadProperty : IrExpression
+{
+    public LoadProperty(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments)
+    {
+        Accessor = accessor;
+        HasInstance = instance is not null;
+        if (instance is not null)
+            AddChild(instance);
+        foreach (var argument in indexArguments)
+            AddChild(argument);
+    }
+
+    public MethodRef Accessor { get; }
+    public bool HasInstance { get; }
+    public string PropertyName => Accessor.Name["get_".Length..];
+    public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
+    public IReadOnlyList<IrExpression> IndexArguments
+        => Children.Skip(HasInstance ? 1 : 0).Cast<IrExpression>().ToList();
+    public override TypeRef? ResultType => Accessor.ReturnType;
+    public override IEnumerable<TypeRef> DirectTypes
+        => Accessor.ParameterTypes.Append(Accessor.DeclaringType).Append(Accessor.ReturnType);
+
+    public override string Describe() => $"LoadProperty {Accessor.DeclaringType.ToDisplayString()}.{PropertyName}";
+}
+
+/// <summary>A raised property or indexer write (from a set_ accessor call).</summary>
+public sealed class StoreProperty : IrNode
+{
+    public StoreProperty(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, IrExpression value)
+    {
+        Accessor = accessor;
+        HasInstance = instance is not null;
+        if (instance is not null)
+            AddChild(instance);
+        foreach (var argument in indexArguments)
+            AddChild(argument);
+        AddChild(value);
+    }
+
+    public MethodRef Accessor { get; }
+    public bool HasInstance { get; }
+    public string PropertyName => Accessor.Name["set_".Length..];
+    public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
+    public IReadOnlyList<IrExpression> IndexArguments
+        => Children.Skip(HasInstance ? 1 : 0).Take(Children.Count - (HasInstance ? 1 : 0) - 1).Cast<IrExpression>().ToList();
+    public IrExpression Value => (IrExpression)Children[^1];
+    public override IEnumerable<TypeRef> DirectTypes
+        => Accessor.ParameterTypes.Append(Accessor.DeclaringType);
+
+    public override string Describe() => $"StoreProperty {Accessor.DeclaringType.ToDisplayString()}.{PropertyName}";
+}
+
 /// <summary>The exception value the CLR pushes on entry to a catch or filter handler.</summary>
 public sealed class CaughtException : IrExpression
 {

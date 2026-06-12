@@ -495,3 +495,49 @@ public class CSharpPrinterTests
         Assert.Equal("return _size;", candidate);
     }
 }
+
+public class RaisingPassTests
+{
+    static string PrintWithPasses(string typeName, string methodName, MetadataSource source)
+    {
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        return result.Output!.ReplaceLineEndings("\n").TrimEnd();
+    }
+
+    [Fact]
+    public void TypedConstants_BoolReturn_PrintsFalse()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        Assert.Equal("return false;", PrintWithPasses("System.Array", "get_IsReadOnly", source));
+    }
+
+    [Fact]
+    public void PropertySugar_GetterCall_PrintsPropertyAccess()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        Assert.Equal("return s.Length;",
+            PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.LengthOf), source));
+    }
+
+    [Fact]
+    public void Passes_PreserveInvariants_AcrossCoreLibSample()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        foreach (var (type, method) in new[]
+        {
+            ("System.String", "IsNullOrEmpty"),
+            ("System.Collections.Generic.Dictionary`2", "ContainsValue"),
+            ("System.Text.StringBuilder", "Clear"),
+        })
+        {
+            var function = IrImporter.Import(source, type, method);
+            Assert.NotNull(function);
+            IrPasses.Run(function);  // CheckInvariant runs after every pass in debug
+            Assert.True(CSharpPrinter.Print(function).Succeeded);
+        }
+    }
+}

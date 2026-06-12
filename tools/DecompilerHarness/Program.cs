@@ -213,6 +213,7 @@ static class Program
                         candidatePartial++;
                         continue;
                     }
+                    IrPasses.Run(function);
                     var candidate = CSharpPrinter.Print(function);
                     if (candidate.Output is null)
                     {
@@ -281,6 +282,13 @@ static class Program
             Console.WriteLine();
             Console.WriteLine("==== IR (typed tree after import) ====");
             Console.Write(IrPrinter.Dump(function));
+            foreach (var pass in IrPasses.Default)
+            {
+                IrPasses.Run(function, [pass]);
+                Console.WriteLine();
+                Console.WriteLine($"==== IR (after {pass.Name}) ====");
+                Console.Write(IrPrinter.Dump(function));
+            }
             Console.WriteLine();
             Console.WriteLine("==== C# (lowered; structure not yet raised) ====");
             var printed = CSharpPrinter.Print(function);

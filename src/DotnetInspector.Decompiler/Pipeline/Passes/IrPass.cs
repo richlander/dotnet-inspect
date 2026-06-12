@@ -1,0 +1,38 @@
+using System.Collections.Immutable;
+
+namespace DotnetInspector.Decompiler.Pipeline;
+
+/// <summary>
+/// A raising pass over the IR: one class, one job, registered in
+/// <see cref="IrPasses.Default"/> — the ordered list IS the architecture
+/// document (docs/decompiler-pipeline.md). Passes rewrite the tree via
+/// <see cref="IrNode.ReplaceWith"/>; they communicate through the tree,
+/// never side-channel state.
+/// </summary>
+public interface IIrPass
+{
+    string Name { get; }
+
+    void Run(IrFunction function);
+}
+
+/// <summary>The pipeline's pass list and runner. Debug builds validate tree invariants after every pass — a violation is a pass bug, never input data.</summary>
+public static class IrPasses
+{
+    public static ImmutableArray<IIrPass> Default { get; } =
+    [
+        new TypedConstantsPass(),
+        new PropertySugarPass(),
+    ];
+
+    public static void Run(IrFunction function) => Run(function, Default);
+
+    public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)
+    {
+        foreach (var pass in passes)
+        {
+            pass.Run(function);
+            function.CheckInvariant();
+        }
+    }
+}

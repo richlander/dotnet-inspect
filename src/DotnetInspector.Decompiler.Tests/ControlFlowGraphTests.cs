@@ -242,6 +242,8 @@ public class CfgSampleClass
 {
     public static byte ToByte(int x) => (byte)x;
 
+    public static int LengthOf(string s) => s.Length;
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;

@@ -109,6 +109,7 @@ public sealed class CSharpPrinter
         StoreArgument s => $"{s.Name} = {Expression(s.Value)};",
         StoreStackSlot s => $"S_{s.Slot} = {Expression(s.Value)};",
         StoreField s => $"{FieldTarget(s.Field, s.Instance)} = {Expression(s.Value)};",
+        StoreProperty s => $"{PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName)} = {Expression(s.Value)};",
         StoreElement s => $"{Expression(s.Array)}[{Expression(s.Index)}] = {Expression(s.Value)};",
         StoreIndirect s => $"*{Operand(s.Address)} = {Expression(s.Value)};",
         InitObject o => $"*{Operand(o.Address)} = default({TypeText(o.Type)});",
@@ -138,6 +139,7 @@ public sealed class CSharpPrinter
         Unary u => $"~{Operand(u.Operand)}",
         Convert v => ConvertText(v),
         Call c => CallText(c),
+        LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments)})",
         ArrayLength l => $"{Operand(l.Array)}.Length",
         LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
@@ -223,7 +225,30 @@ public sealed class CSharpPrinter
     {
         null => $"{TypeText(field.DeclaringType)}.{field.Name}",
         LoadArgument { Index: 0, Name: "this" } => field.Name,
-        _ => $"{Operand(instance)}.{field.Name}",
+        _ => $"{ReceiverText(instance)}.{field.Name}",
+    };
+
+    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name)
+    {
+        string receiver = instance switch
+        {
+            null => TypeText(accessor.DeclaringType),
+            LoadArgument { Index: 0, Name: "this" } => "",
+            _ => ReceiverText(instance),
+        };
+        string dotted = receiver.Length == 0 ? name : $"{receiver}.{name}";
+        return name == "Item" && indexArguments.Count > 0
+            ? $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]"
+            : indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
+    }
+
+    /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
+    string ReceiverText(IrExpression receiver) => receiver switch
+    {
+        LoadLocalAddress a => $"V_{a.Index}",
+        LoadArgumentAddress a => a.Name,
+        LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
+        _ => Operand(receiver),
     };
 
     string CallText(Call call)
@@ -244,7 +269,7 @@ public sealed class CSharpPrinter
         }
         return receiver is LoadArgument { Index: 0, Name: "this" }
             ? $"{call.Callee.Name}{typeArguments}({rest})"
-            : $"{Operand(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
+            : $"{ReceiverText(receiver)}.{call.Callee.Name}{typeArguments}({rest})";
     }
 
     string Arguments(IEnumerable<IrExpression> arguments)
@@ -260,11 +285,25 @@ public sealed class CSharpPrinter
     {
         null => "null",
         string s => $"\"{s.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+        bool b => b ? "true" : "false",
+        char c => CharText(c),
         int i => i.ToString(CultureInfo.InvariantCulture),
         long l => l.ToString(CultureInfo.InvariantCulture),
         float f => $"{f.ToString("R", CultureInfo.InvariantCulture)}f",
         double d => $"{d.ToString("R", CultureInfo.InvariantCulture)}d",
         _ => constant.Value.ToString() ?? "?",
+    };
+
+    static string CharText(char c) => c switch
+    {
+        '\\' => "'\\\\'",
+        '\'' => "'\\''",
+        '\t' => "'\\t'",
+        '\n' => "'\\n'",
+        '\r' => "'\\r'",
+        '\0' => "'\\0'",
+        _ when char.IsControl(c) => $"'\\u{(int)c:x4}'",
+        _ => $"'{c}'",
     };
 
     static string BinaryOperator(Binary binary) => binary.Kind switch
