@@ -237,15 +237,16 @@ The runtime's exception region metadata (`ExceptionRegion`) directly encodes
 try/catch/finally boundaries, making exception handling recovery more
 straightforward than loop/conditional recovery.
 
-**Simplification vs ILSpy.** Because we emit lowered C# rather than recovering
-sugar (`using`, `foreach`, `lock`), our Phase 4 requirements are lighter than
-ILSpy's. We need structuring for: (1) knowing where to emit `try`/`finally`/
-`catch` blocks in lowered C#, (2) recovering `if`/`else` to avoid `goto`-heavy
-output, and (3) block structure for annotated IL. We do NOT need ILSpy's
-~50 IL transforms for pattern matching, iterator reconstruction, or async state
-machine recovery. The `ConditionalDetector` does detect specific IL patterns
-like null-conditionals (`dup` + `brtrue` + trivial else), but these are
-pattern-specific optimizations in the emitter, not general sugar recovery.
+**Historical note (superseded).** This phase was originally scoped to lowered
+C# with no sugar recovery, which kept structuring requirements lighter than
+ILSpy's. The decompiler has since grown well beyond that target: it recovers
+`lock`, `using`, string interpolation, string switches, switch expressions,
+is-patterns, and more, governed by [decompiler-taste.md](../decompiler-taste.md)
+(which decides *what* to render) and
+[decompiler-pipeline.md](../decompiler-pipeline.md) (the current architecture
+and the migration toward ILSpy-style raising transforms). Read those two
+documents for the current design; the phases below are kept as a record of how
+the pipeline was built.
 
 ### Phase 5: Annotated IL Emitter ✅
 

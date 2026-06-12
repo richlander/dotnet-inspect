@@ -25,7 +25,8 @@ Decompilation is this pipeline run in reverse. Where Roslyn *lowers* C# construc
 | State machines | planned raising passes (PDB-first) | `AsyncRewriter` / `IteratorRewriter` | — | `AsyncAwaitDecompiler` / `YieldReturnDecompiler` (passes 7–8) |
 | Per-pass validation | planned `CheckInvariant` | `Debug.Assert` culture | asserts between phases | `ILInstruction.CheckInvariant(ILPhase)` |
 | Diff-driven verification | h2h corpus diff + dual-config suites | — | jitutils `asmdiffs` / SuperPMI | — |
-| Pipeline visibility | planned `--dump-stages` | — | `JitDump` | DebugSteps UI |
+| Pipeline visibility | planned `--dump-stages` (= annotated IL per stage) | — | `JitDump` | DebugSteps UI |
+| IL views | `AnnotatedILEmitter` depths as stage projections | — | dump of imported IR | — |
 | Output stage | `CSharpEmitter` (today: decides while printing) | emit phase | codegen | `StatementBuilder` → `CSharpOutputVisitor` |
 | Parenthesization | string inspection (today) | precedence in syntax factory | — | `InsertParenthesesVisitor` over finished AST |
 | Naming | emitter-resident (today) | — | — | `AssignVariableNames` (final pass, scope-aware) |
@@ -55,6 +56,10 @@ Key properties:
 - **The statement tree is the library's product, not the string.** Alternate front ends (IDE hovers, web viewers, diff tools) consume the tree and apply their own formatting and spans; our printer is merely the first front end. The taste document becomes printer policy, not library behavior.
 - **Whole-type composition lives in the library.** `TypeSourceComposer` (today in the CLI) moves into `DotnetInspector.Decompiler` so any front end gets per-type listings, using-hoisting, and forwarder-following without rebuilding them.
 - **Naming is a final pass over fully-determined scopes**, as in ILSpy's `AssignVariableNames`. PDB local scopes are its natural input. The two remaining corpus gaps (synthesized names for `S_N`/`V_N`, multi-scope declaration placement) are this pass, not emitter features.
+- **One analysis, many projections.** A single analysis facade computes CFG, stack simulation, ILAst, and structure once per method; the C# printer, the annotated IL emitter, stage dumps, and any future front end consume the same result. Today `CSharpEmitter` and `AnnotatedILEmitter` each rebuild these pieces.
+- **Every stage boundary is a projectable IR, and the IL views are early-stage projections.** This is already latent in the code: `ILAnnotationDepth.Raw/Typed/Structured` renders the same method at three analysis depths. Formalized: raw IL projects the imported instruction stream (pre-transform — the IL views are ground truth, so they must project the tree *before* raising passes rewrite it), annotated IL projects the ILAst enriched with stack/CFG/structure facts, and C# projects the statement tree. One projection function parameterized by stage kills the IL-vs-annotated-IL divergence bug class structurally (it took a dedup PR to fix it once already), and `--dump-stages` stops being a new format: it is the annotated IL printer applied after each pass — exactly JitDump's relationship to GenTree.
+- **Results carry diagnostics.** The library returns a result with output, diagnostics, and a fidelity level — never a silent `catch { }` in the library or its hosts. IL that has no C# spelling is modeled explicitly in the tree (an unrepresentable node rendered as such), not forced into plausible text. Output degrades honestly, with the reason attached.
+- **Type identity is symbolic inside the pipeline.** Today type names become strings early; in the target architecture, handles and signatures (byref, pinned, generic, function pointer, token identity) stay typed through the tree, and strings appear only at the printer.
 - **State machines wait for this architecture.** Both Roslyn (dedicated rewriters) and ILSpy (dedicated early transforms) treat async/iterators as pass-layer work. Attempting them against the current emitter would be building on the part of the codebase scheduled for demolition.
 
 ## What we deliberately do differently
@@ -63,17 +68,24 @@ Two divergences from ILSpy are intentional and argued in [decompiler-taste.md](d
 
 - **Honest output over aggressive canonicalization.** Where Debug and Release builds produce different IL, we preserve the difference rather than normalizing to one rendering. The canonicalization dial is set weaker than ILSpy's on purpose: this is an inspection tool, and the IL is the ground truth.
 - **Zero runtime dependencies.** The library depends only on `System.Reflection.Metadata` (via `DotnetInspector.Metadata`). We borrow the architecture of our neighbors, not their packages — no Roslyn syntax trees, no NRefactory-derived AST. The statement tree is small (roughly a dozen node kinds) and hand-written; ILSpy's generated 60 KB instruction set solves a scale problem we do not have.
+- **Dataflow facts proportionate to the rewrites we do.** Cross-block transforms get dominance and use-def facts from the pipeline context (today `ExpressionInliner` documents that it has no dominance check and restricts itself to position-independent constants). We deliberately stop short of SSA and value numbering: ILSpy ships a complete decompiler without them, and a JIT-grade dataflow stack would be infrastructure without a customer here.
 
 ## Migration plan
 
 Each step is a normal PR validated the same way as a rendering change: full h2h corpus diff (only intended sites move), decompiler suite green in both Debug and Release, CLI suite green.
 
-- **Step 0 — verification rails.** `CheckInvariant` on the ILAst, run after every pass in debug builds; pass-list discipline (every new detection is a pass, never a new emitter field); a `--dump-stages` diagnostic in the JitDump genre.
-- **Step 1 — code motion (independent, anytime).** Move `TypeSourceComposer` from the CLI into the library.
-- **Step 2 — drain the emitter into passes.** Migrate detections one PR at a time: lock, using, string interpolation, string-switch, spill folds. Each PR deletes at least one emitter side-channel field. Each pass tells us what the statement tree must eventually represent — this is how the tree's schema gets dictated rather than guessed.
-- **Step 3 — the statement tree.** Introduce the typed statement tree between structuring and printing; remaining mid-print decisions become tree edits; the emitter shrinks to a printer. The tree is designed as public API for external front ends.
-- **Step 4 — finishing visitors.** Parenthesization over the finished tree (retiring string inspection); the naming pass (PDB-scope-aware), which closes the last two corpus gaps.
+- **Step 0 — verification rails.** `CheckInvariant` on the ILAst, run after every pass in debug builds; pass-list discipline (every new detection is a pass, never a new emitter field); a `--dump-stages` diagnostic in the JitDump genre; dominance/use-def facts exposed through the transform context.
+- **Step 1 — honest failure.** Replace silent `catch { }` suppression in the CLI formatter and composer with a library result type carrying diagnostics and a fidelity level. Sections that cannot render say why, instead of disappearing.
+- **Step 2 — seams (code motion).** Move `TypeSourceComposer` from the CLI into the library. Introduce the analysis facade (compute CFG/stack/ILAst/structure once; all emitters consume it). Extract a code-section provider so `ApiOutputFormatter` only renders and stops opening PE files itself. Split `MethodBodyContext` along its three roles: method body data, metadata/signature resolution, symbol/source provision.
+- **Step 3 — drain the emitter into passes.** Migrate detections one PR at a time: lock, using, string interpolation, string-switch, spill folds. Each PR deletes at least one emitter side-channel field. Each pass tells us what the statement tree must eventually represent — this is how the tree's schema gets dictated rather than guessed.
+- **Step 4 — the statement tree.** Introduce the typed statement tree between structuring and printing; remaining mid-print decisions become tree edits; the emitter shrinks to a printer. Type identity stays symbolic in the tree; unrepresentable IL gets an explicit node. The tree is designed as public API for external front ends.
+- **Step 5 — finishing visitors.** Parenthesization over the finished tree (retiring string inspection); the naming pass (PDB-scope-aware), which closes the last two corpus gaps.
 - **Then: state machines**, as dedicated raising passes mirroring `AsyncRewriter`/`IteratorRewriter`, designed PDB-first against state-machine debug info.
+
+Two verification rails grow alongside the steps:
+
+- **Compile-back testing.** Where output is representable C#, decompile → compile → compare IL shape. This is the semantic analog of asmdiffs, and the natural complement to the existing text-level corpus diff and the IL round-trip suite.
+- **A stress corpus.** EH filters and fault handlers, `constrained.`/`tail.`/`volatile.`/`readonly.` prefixes, `calli`, and malformed or obfuscated IL as first-class test cases — the inputs a JIT treats as table stakes and a text-first decompiler tends to meet in the field first.
 
 ## Conventions for new pipeline code
 
