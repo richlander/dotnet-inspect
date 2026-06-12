@@ -68,6 +68,19 @@ public abstract class IrNode
         return detached;
     }
 
+    /// <summary>Detaches this node from its parent; later siblings shift down one slot.</summary>
+    public void Detach()
+    {
+        if (Parent is null)
+            throw new InvalidOperationException("Node is already detached.");
+        var siblings = Parent._children;
+        siblings.RemoveAt(ChildIndex);
+        for (int i = ChildIndex; i < siblings.Count; i++)
+            siblings[i].ChildIndex = i;
+        Parent = null;
+        ChildIndex = -1;
+    }
+
     /// <summary>Replaces this node at its slot in the parent. The primitive rewrite — what makes "this node was consumed" a tree edit instead of side-channel state.</summary>
     public void ReplaceWith(IrNode replacement)
     {

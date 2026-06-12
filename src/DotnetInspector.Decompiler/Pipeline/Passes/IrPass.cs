@@ -22,6 +22,8 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> Default { get; } =
     [
         new TypedConstantsPass(),
+        new RedundantBranchEliminationPass(),
+        new ExpressionInliningPass(),
         new PropertySugarPass(),
     ];
 

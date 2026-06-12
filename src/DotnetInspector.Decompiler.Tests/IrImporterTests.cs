@@ -598,6 +598,47 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void ExpressionInlining_SingleUseTemp_Collapses()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        Assert.Equal("return x + x;",
+            PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Twice), source));
+    }
+
+    [Fact]
+    public void MultiUseLocal_DeclaresAtItsEntryBlockStore()
+    {
+        // Two loads: no inlining; the declaration merges into the store,
+        // current-style. Debug uses a local (V_0), Release a dup slot
+        // (S_256) — the merged-declaration shape must hold for both.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Reused), source);
+
+        Assert.Matches(@"int (V_0|S_\d+) = x \+ 1;", output);
+        Assert.DoesNotMatch(@"int (V_0|S_\d+);", output);
+        Assert.Matches(@"return (V_0|S_\d+) \* \1;", output);
+    }
+
+    [Fact]
+    public void NonBoolBranchOperands_SpellTheComparison()
+    {
+        // brtrue over a reference must not print 'if (s)' — that is not C#.
+        var stringType = TypeRef.CoreLib("System", "String");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new LoadArgument(0, "s", stringType), 4));
+        var target = new Block(4);
+        container.Add(target);
+        target.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("s", stringType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Contains("if (s != null) goto IL_0004;", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
     public void Passes_PreserveInvariants_AcrossCoreLibSample()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
