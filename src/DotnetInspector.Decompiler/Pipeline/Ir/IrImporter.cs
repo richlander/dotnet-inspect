@@ -147,6 +147,18 @@ public static class IrImporter
                 if (reader.Offset < il.Length)
                     leaders.Add(reader.Offset);
             }
+            else if (opcode == ILOpCode.Switch)
+            {
+                uint count = reader.ReadILUInt32();
+                var raw = new int[count];
+                for (int i = 0; i < count; i++)
+                    raw[i] = (int)reader.ReadILUInt32();
+                int next = reader.Offset;
+                foreach (int target in raw)
+                    leaders.Add(next + target);
+                if (next < il.Length)
+                    leaders.Add(next);
+            }
             else
             {
                 reader.Skip(opcode);
@@ -240,6 +252,8 @@ public static class IrImporter
         var stack = new Stack<IrExpression>();
         var reader = new ILReaderLite(il[..end], currentOffset: start);
         int offset = start;
+        TypeRef? constrainedTo = null;
+        bool volatilePrefix = false, readonlyPrefix = false;
 
         // Entry values arrive in position-indexed slots stored by predecessors.
         state.Built.Add(start);
@@ -256,6 +270,21 @@ public static class IrImporter
             var opcode = reader.ReadILOpcode();
             switch (opcode)
             {
+                case ILOpCode.Constrained:
+                    constrainedTo = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    continue;
+                case ILOpCode.Volatile:
+                    volatilePrefix = true;
+                    continue;
+                case ILOpCode.Readonly:
+                    readonlyPrefix = true;
+                    continue;
+                case ILOpCode.Unaligned:
+                    // Alignment is a JIT hint with no source-level meaning;
+                    // the operand byte is consumed and the access proceeds.
+                    reader.ReadILByte();
+                    continue;
+
                 case ILOpCode.Nop:
                     break;
 
@@ -307,6 +336,35 @@ public static class IrImporter
                 case ILOpCode.Ldc_i8:
                     stack.Push(new Constant((long)reader.ReadILUInt64(), TypeRef.CoreLib("System", "Int64")));
                     break;
+                case ILOpCode.Ldc_r4:
+                    stack.Push(new Constant(BitConverter.UInt32BitsToSingle(reader.ReadILUInt32()), TypeRef.CoreLib("System", "Single")));
+                    break;
+                case ILOpCode.Ldc_r8:
+                    stack.Push(new Constant(BitConverter.UInt64BitsToDouble(reader.ReadILUInt64()), TypeRef.CoreLib("System", "Double")));
+                    break;
+
+                case ILOpCode.Sizeof:
+                    stack.Push(new SizeOf(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope)));
+                    break;
+
+                case ILOpCode.Switch:
+                {
+                    uint count = reader.ReadILUInt32();
+                    var rawTargets = new int[count];
+                    for (int i = 0; i < count; i++)
+                        rawTargets[i] = (int)reader.ReadILUInt32();
+                    int next = reader.Offset;
+                    var targets = ImmutableArray.CreateBuilder<int>((int)count);
+                    foreach (int raw in rawTargets)
+                        targets.Add(next + raw);
+                    var value = Pop(stack);
+                    var allSuccessors = targets.Append(end).Distinct().ToArray();
+                    if (!PropagateAndSpill(function, body, stack, state, allSuccessors, offset))
+                        return false;
+                    body.Add(new SwitchBranch(value, targets.MoveToImmutable()));
+                    break;
+                }
+
                 case ILOpCode.Ldnull:
                     stack.Push(new Constant(null, TypeRef.CoreLib("System", "Object")));
                     break;
@@ -370,7 +428,8 @@ public static class IrImporter
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
-                    var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments);
+                    var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments) { ConstrainedTo = constrainedTo };
+                    constrainedTo = null;
                     if (callee.ReturnType is { Name: "Void", Namespace: "System" })
                         body.Add(new ExpressionStatement(call));
                     else
@@ -381,22 +440,132 @@ public static class IrImporter
                 case ILOpCode.Ldfld or ILOpCode.Ldsfld:
                 {
                     var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                    stack.Push(new LoadField(field, opcode == ILOpCode.Ldfld ? Pop(stack) : null));
+                    stack.Push(new LoadField(field, opcode == ILOpCode.Ldfld ? Pop(stack) : null) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
                     break;
                 }
                 case ILOpCode.Stfld:
                 {
                     var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var value = Pop(stack);
-                    body.Add(new StoreField(field, Pop(stack), value));
+                    body.Add(new StoreField(field, Pop(stack), value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
                     break;
                 }
                 case ILOpCode.Stsfld:
                 {
                     var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                    body.Add(new StoreField(field, null, Pop(stack)));
+                    body.Add(new StoreField(field, null, Pop(stack)) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
                     break;
                 }
+
+                case ILOpCode.Ldflda or ILOpCode.Ldsflda:
+                {
+                    var field = ResolveField(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new LoadFieldAddress(field, opcode == ILOpCode.Ldflda ? Pop(stack) : null));
+                    break;
+                }
+
+                case ILOpCode.Ldloca_s:
+                {
+                    int index = reader.ReadILByte();
+                    stack.Push(new LoadLocalAddress(index, method.Body.Locals[index]));
+                    break;
+                }
+                case ILOpCode.Ldloca:
+                {
+                    int index = reader.ReadILUInt16();
+                    stack.Push(new LoadLocalAddress(index, method.Body.Locals[index]));
+                    break;
+                }
+                case ILOpCode.Ldarga_s:
+                    stack.Push(MakeLoadArgumentAddress(method, reader.ReadILByte()));
+                    break;
+                case ILOpCode.Ldarga:
+                    stack.Push(MakeLoadArgumentAddress(method, reader.ReadILUInt16()));
+                    break;
+
+                case ILOpCode.Ldelema:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var index = Pop(stack);
+                    stack.Push(new LoadElementAddress(elementType, Pop(stack), index, readonlyPrefix));
+                    readonlyPrefix = false;
+                    break;
+                }
+
+                case ILOpCode.Ldobj:
+                {
+                    var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new LoadIndirect(type, Pop(stack)) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Stobj:
+                {
+                    var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var value = Pop(stack);
+                    body.Add(new StoreIndirect(type, Pop(stack), value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Initobj:
+                {
+                    var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    body.Add(new InitObject(type, Pop(stack)));
+                    break;
+                }
+
+                case >= ILOpCode.Ldind_i1 and <= ILOpCode.Ldind_ref:
+                {
+                    stack.Push(new LoadIndirect(IndirectTypeOf(opcode), Pop(stack)) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Stind_ref or (>= ILOpCode.Stind_i1 and <= ILOpCode.Stind_r8) or ILOpCode.Stind_i:
+                {
+                    var value = Pop(stack);
+                    body.Add(new StoreIndirect(IndirectTypeOf(opcode), Pop(stack), value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+
+                case ILOpCode.Ldelem:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var index = Pop(stack);
+                    stack.Push(new LoadElement(elementType, Pop(stack), index));
+                    break;
+                }
+                case >= ILOpCode.Ldelem_i1 and <= ILOpCode.Ldelem_ref or ILOpCode.Ldelem_i:
+                {
+                    var index = Pop(stack);
+                    stack.Push(new LoadElement(ElementTypeOf(opcode), Pop(stack), index));
+                    break;
+                }
+                case ILOpCode.Stelem:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var value = Pop(stack);
+                    var index = Pop(stack);
+                    body.Add(new StoreElement(elementType, Pop(stack), index, value));
+                    break;
+                }
+                case >= ILOpCode.Stelem_i and <= ILOpCode.Stelem_ref:
+                {
+                    var value = Pop(stack);
+                    var index = Pop(stack);
+                    body.Add(new StoreElement(ElementTypeOf(opcode), Pop(stack), index, value));
+                    break;
+                }
+
+                case ILOpCode.Unbox:
+                    stack.Push(new Unbox(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+                case ILOpCode.Unbox_any:
+                    stack.Push(new UnboxAny(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
 
                 case ILOpCode.Newobj:
                 {
@@ -554,6 +723,13 @@ public static class IrImporter
                         "opcode is outside the slice");
                     return false;
             }
+
+            if (constrainedTo is not null || volatilePrefix || readonlyPrefix)
+            {
+                Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
+                    "an IL prefix applied to an instruction that does not accept it");
+                return false;
+            }
         }
 
         }
@@ -652,6 +828,50 @@ public static class IrImporter
         var parameter = method.Signature.Parameters[index];
         return new LoadArgument(index, parameter.Name, parameter.Type);
     }
+
+    static LoadArgumentAddress MakeLoadArgumentAddress(ImportedMethod method, int index)
+    {
+        if (method.Signature.HasThis)
+        {
+            if (index == 0)
+                return new LoadArgumentAddress(0, "this", method.DeclaringType);
+            var p = method.Signature.Parameters[index - 1];
+            return new LoadArgumentAddress(index, p.Name, p.Type);
+        }
+        var parameter = method.Signature.Parameters[index];
+        return new LoadArgumentAddress(index, parameter.Name, parameter.Type);
+    }
+
+    /// <summary>Element/indirection type encoded by a typed ldind/stind/ldelem/stelem opcode; null for the .ref forms (the operand's type stands in).</summary>
+    static TypeRef? IndirectTypeOf(ILOpCode opcode) => opcode switch
+    {
+        ILOpCode.Ldind_i1 or ILOpCode.Stind_i1 => TypeRef.CoreLib("System", "SByte"),
+        ILOpCode.Ldind_u1 => TypeRef.CoreLib("System", "Byte"),
+        ILOpCode.Ldind_i2 or ILOpCode.Stind_i2 => TypeRef.CoreLib("System", "Int16"),
+        ILOpCode.Ldind_u2 => TypeRef.CoreLib("System", "UInt16"),
+        ILOpCode.Ldind_i4 or ILOpCode.Stind_i4 => TypeRef.CoreLib("System", "Int32"),
+        ILOpCode.Ldind_u4 => TypeRef.CoreLib("System", "UInt32"),
+        ILOpCode.Ldind_i8 or ILOpCode.Stind_i8 => TypeRef.CoreLib("System", "Int64"),
+        ILOpCode.Ldind_r4 or ILOpCode.Stind_r4 => TypeRef.CoreLib("System", "Single"),
+        ILOpCode.Ldind_r8 or ILOpCode.Stind_r8 => TypeRef.CoreLib("System", "Double"),
+        ILOpCode.Ldind_i or ILOpCode.Stind_i => TypeRef.CoreLib("System", "IntPtr"),
+        _ => null,  // ldind.ref / stind.ref
+    };
+
+    static TypeRef? ElementTypeOf(ILOpCode opcode) => opcode switch
+    {
+        ILOpCode.Ldelem_i1 or ILOpCode.Stelem_i1 => TypeRef.CoreLib("System", "SByte"),
+        ILOpCode.Ldelem_u1 => TypeRef.CoreLib("System", "Byte"),
+        ILOpCode.Ldelem_i2 or ILOpCode.Stelem_i2 => TypeRef.CoreLib("System", "Int16"),
+        ILOpCode.Ldelem_u2 => TypeRef.CoreLib("System", "UInt16"),
+        ILOpCode.Ldelem_i4 or ILOpCode.Stelem_i4 => TypeRef.CoreLib("System", "Int32"),
+        ILOpCode.Ldelem_u4 => TypeRef.CoreLib("System", "UInt32"),
+        ILOpCode.Ldelem_i8 or ILOpCode.Stelem_i8 => TypeRef.CoreLib("System", "Int64"),
+        ILOpCode.Ldelem_r4 or ILOpCode.Stelem_r4 => TypeRef.CoreLib("System", "Single"),
+        ILOpCode.Ldelem_r8 or ILOpCode.Stelem_r8 => TypeRef.CoreLib("System", "Double"),
+        ILOpCode.Ldelem_i or ILOpCode.Stelem_i => TypeRef.CoreLib("System", "IntPtr"),
+        _ => null,  // ldelem.ref / stelem.ref
+    };
 
     static StoreArgument MakeStoreArgument(ImportedMethod method, int index, IrExpression value)
     {

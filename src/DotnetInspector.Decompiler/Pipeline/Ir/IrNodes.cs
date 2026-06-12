@@ -323,11 +323,15 @@ public sealed class Call : IrExpression
 
     public MethodRef Callee { get; }
     public bool IsVirtual { get; }
+
+    /// <summary>The constrained. prefix type for constrained callvirt; null otherwise.</summary>
+    public TypeRef? ConstrainedTo { get; init; }
     /// <summary>Arguments including the receiver for instance calls.</summary>
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => Callee.ReturnType;
     public override IEnumerable<TypeRef> DirectTypes
-        => Callee.ParameterTypes.Concat(Callee.TypeArguments).Append(Callee.DeclaringType).Append(Callee.ReturnType);
+        => Callee.ParameterTypes.Concat(Callee.TypeArguments).Append(Callee.DeclaringType).Append(Callee.ReturnType)
+            .Concat(ConstrainedTo is null ? [] : [ConstrainedTo]);
 
     public override string Describe()
         => $"{(IsVirtual ? "CallVirt" : "Call")} {Callee.DeclaringType.ToDisplayString()}.{Callee.Name}";
@@ -371,6 +375,7 @@ public sealed class LoadField : IrExpression
     }
 
     public FieldRef Field { get; }
+    public bool IsVolatile { get; init; }
     public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
     public override TypeRef? ResultType => Field.Type;
     public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
@@ -391,6 +396,7 @@ public sealed class StoreField : IrNode
     }
 
     public FieldRef Field { get; }
+    public bool IsVolatile { get; init; }
     public bool HasInstance { get; }
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
     public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
@@ -549,6 +555,229 @@ public sealed class LoadToken : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"LoadToken {Kind} {Display}";
+}
+
+/// <summary>The address of a local — the receiver form for value-type calls and ref/out arguments.</summary>
+public sealed class LoadLocalAddress : IrExpression
+{
+    public LoadLocalAddress(int index, TypeRef type)
+    {
+        Index = index;
+        Type = type;
+    }
+
+    public int Index { get; }
+    public TypeRef Type { get; }
+    public override TypeRef? ResultType => TypeRef.ByRef(Type);
+
+    public override string Describe() => $"LoadLocalAddress {Index} ({Type.ToDisplayString()})";
+}
+
+public sealed class LoadArgumentAddress : IrExpression
+{
+    public LoadArgumentAddress(int index, string name, TypeRef type)
+    {
+        Index = index;
+        Name = name;
+        Type = type;
+    }
+
+    public int Index { get; }
+    public string Name { get; }
+    public TypeRef Type { get; }
+    public override TypeRef? ResultType => TypeRef.ByRef(Type);
+
+    public override string Describe() => $"LoadArgumentAddress {Index} ({Type.ToDisplayString()} {Name})";
+}
+
+public sealed class LoadFieldAddress : IrExpression
+{
+    public LoadFieldAddress(FieldRef field, IrExpression? instance)
+    {
+        Field = field;
+        if (instance is not null)
+            AddChild(instance);
+    }
+
+    public FieldRef Field { get; }
+    public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
+    public override TypeRef? ResultType => TypeRef.ByRef(Field.Type);
+    public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
+
+    public override string Describe() => $"LoadFieldAddress {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
+}
+
+public sealed class LoadElementAddress : IrExpression
+{
+    public LoadElementAddress(TypeRef elementType, IrExpression array, IrExpression index, bool isReadOnly)
+    {
+        ElementType = elementType;
+        IsReadOnly = isReadOnly;
+        AddChild(array);
+        AddChild(index);
+    }
+
+    public TypeRef ElementType { get; }
+    /// <summary>The readonly. prefix: no type check, address usable only for reads.</summary>
+    public bool IsReadOnly { get; }
+    public IrExpression Array => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.ByRef(ElementType);
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe() => $"LoadElementAddress {ElementType.ToDisplayString()}{(IsReadOnly ? " readonly" : "")}";
+}
+
+/// <summary>Load through an address (ldobj and the ldind.* family). A null type means the opcode does not encode one (ldind.ref).</summary>
+public sealed class LoadIndirect : IrExpression
+{
+    public LoadIndirect(TypeRef? type, IrExpression address)
+    {
+        Type = type;
+        AddChild(address);
+    }
+
+    public TypeRef? Type { get; }
+    public bool IsVolatile { get; init; }
+    public IrExpression Address => (IrExpression)Children[0];
+    public override TypeRef? ResultType
+        => Type ?? (Address.ResultType is { Kind: TypeRefKind.ByRef } byRef ? byRef.ElementType : null);
+    public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
+
+    public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
+}
+
+public sealed class StoreIndirect : IrNode
+{
+    public StoreIndirect(TypeRef? type, IrExpression address, IrExpression value)
+    {
+        Type = type;
+        AddChild(address);
+        AddChild(value);
+    }
+
+    public TypeRef? Type { get; }
+    public bool IsVolatile { get; init; }
+    public IrExpression Address => (IrExpression)Children[0];
+    public IrExpression Value => (IrExpression)Children[1];
+    public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
+
+    public override string Describe() => $"StoreIndirect {Type?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
+}
+
+/// <summary>initobj: default-initialize the storage at an address.</summary>
+public sealed class InitObject : IrNode
+{
+    public InitObject(TypeRef type, IrExpression address)
+    {
+        Type = type;
+        AddChild(address);
+    }
+
+    public TypeRef Type { get; }
+    public IrExpression Address => (IrExpression)Children[0];
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"InitObject {Type.ToDisplayString()}";
+}
+
+public sealed class LoadElement : IrExpression
+{
+    public LoadElement(TypeRef? elementType, IrExpression array, IrExpression index)
+    {
+        ElementType = elementType;
+        AddChild(array);
+        AddChild(index);
+    }
+
+    /// <summary>Null when the opcode does not encode one (ldelem.ref); the array's element type stands in.</summary>
+    public TypeRef? ElementType { get; }
+    public IrExpression Array => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override TypeRef? ResultType
+        => ElementType ?? (Array.ResultType is { Kind: TypeRefKind.SzArray } array ? array.ElementType : null);
+    public override IEnumerable<TypeRef> DirectTypes => ElementType is null ? [] : [ElementType];
+
+    public override string Describe() => $"LoadElement {ResultType?.ToDisplayString() ?? "?"}";
+}
+
+public sealed class StoreElement : IrNode
+{
+    public StoreElement(TypeRef? elementType, IrExpression array, IrExpression index, IrExpression value)
+    {
+        ElementType = elementType;
+        AddChild(array);
+        AddChild(index);
+        AddChild(value);
+    }
+
+    public TypeRef? ElementType { get; }
+    public IrExpression Array => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public IrExpression Value => (IrExpression)Children[2];
+    public override IEnumerable<TypeRef> DirectTypes => ElementType is null ? [] : [ElementType];
+
+    public override string Describe() => $"StoreElement {ElementType?.ToDisplayString() ?? "?"}";
+}
+
+public sealed class SizeOf : IrExpression
+{
+    public SizeOf(TypeRef type) => Type = type;
+
+    public TypeRef Type { get; }
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Int32");
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"SizeOf {Type.ToDisplayString()}";
+}
+
+/// <summary>The switch opcode: jump to Targets[value], else fall through.</summary>
+public sealed class SwitchBranch : IrNode
+{
+    public SwitchBranch(IrExpression value, ImmutableArray<int> targetOffsets)
+    {
+        TargetOffsets = targetOffsets;
+        AddChild(value);
+    }
+
+    public IrExpression Value => (IrExpression)Children[0];
+    public ImmutableArray<int> TargetOffsets { get; }
+
+    public override string Describe()
+        => $"SwitchBranch [{string.Join(", ", TargetOffsets.Select(t => $"IL_{t:X4}"))}]";
+}
+
+/// <summary>unbox: a managed pointer into the box (distinct from unbox.any, which loads the value).</summary>
+public sealed class Unbox : IrExpression
+{
+    public Unbox(TypeRef type, IrExpression operand)
+    {
+        Type = type;
+        AddChild(operand);
+    }
+
+    public TypeRef Type { get; }
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.ByRef(Type);
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"Unbox {Type.ToDisplayString()}";
+}
+
+public sealed class UnboxAny : IrExpression
+{
+    public UnboxAny(TypeRef type, IrExpression operand)
+    {
+        Type = type;
+        AddChild(operand);
+    }
+
+    public TypeRef Type { get; }
+    public IrExpression Operand => (IrExpression)Children[0];
+    public override TypeRef? ResultType => Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"UnboxAny {Type.ToDisplayString()}";
 }
 
 /// <summary>

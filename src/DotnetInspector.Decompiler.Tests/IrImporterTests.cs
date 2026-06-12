@@ -191,6 +191,44 @@ public class IrImporterTests
             || type.TypeArguments.Any(ContainsGenericParameter);
 
     [Fact]
+    public void AddressOf_OutArgument_ImportsAsLocalAddress()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.ParseOrZero));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var address = function.Descendants.OfType<LoadLocalAddress>().First();
+        Assert.Equal("ref int", address.ResultType?.ToDisplayString());
+        var call = function.Descendants.OfType<Call>().First(c => c.Callee.Name == "TryParse");
+        Assert.Contains(call.Arguments, a => a is LoadLocalAddress);
+    }
+
+    [Fact]
+    public void ElementAccess_ImportsTypedLoadAndStore()
+    {
+        var load = ImportFixture(nameof(CfgSampleClass.FirstElement));
+        var store = ImportFixture(nameof(CfgSampleClass.SetFirstElement));
+
+        Assert.Equal(DecompilationFidelity.Full, load.Fidelity);
+        Assert.Equal("int", Assert.Single(load.Descendants.OfType<LoadElement>()).ResultType?.ToDisplayString());
+        Assert.Equal(DecompilationFidelity.Full, store.Fidelity);
+        Assert.Single(store.Descendants.OfType<StoreElement>());
+    }
+
+    [Fact]
+    public void Switch_ImportsWithTargetsAsLeaders()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.PowerOfTwo));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var switchBranch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.True(switchBranch.TargetOffsets.Length >= 4);
+        // Every switch target starts a block.
+        Assert.All(switchBranch.TargetOffsets,
+            target => Assert.True(function.Body.IndexOfOffset(target) >= 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void CoreLib_SimpleCorpusMethods_ImportAtFullFidelity()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
