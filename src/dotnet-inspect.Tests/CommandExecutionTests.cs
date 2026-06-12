@@ -2129,6 +2129,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_ConfigurationIntegration_ForUserSecrets_ShowsConfigurationApi()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.Configuration.UserSecrets", "--library", "-S", "Configuration", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Configuration", output);
+        Assert.Contains("| API |", output);
+        Assert.Contains("| `Microsoft.Extensions.Configuration.UserSecretsConfigurationExtensions.AddUserSecrets(...)` |", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IntegrationsSection_RollsUpOpenTelemetry()
     {
         var (exit, output, error) = await RunAppAsync(
