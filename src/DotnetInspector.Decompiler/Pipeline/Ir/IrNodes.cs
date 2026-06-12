@@ -523,22 +523,32 @@ public sealed class NewArray : IrExpression
     public override string Describe() => $"NewArray {ElementType.ToDisplayString()}[]";
 }
 
+public enum RuntimeTokenKind { Type, Method, Field }
+
 /// <summary>ldtoken: a runtime handle for a type, method, or field (the typeof/ldtoken patterns raise from this).</summary>
 public sealed class LoadToken : IrExpression
 {
-    public LoadToken(TypeRef? type, string display)
+    public LoadToken(RuntimeTokenKind kind, TypeRef? type, string display)
     {
+        Kind = kind;
         Type = type;
         Display = display;
     }
 
+    public RuntimeTokenKind Kind { get; }
+
     /// <summary>The token's type when it is a type token; null for method/field tokens.</summary>
     public TypeRef? Type { get; }
     public string Display { get; }
-    public override TypeRef? ResultType => TypeRef.CoreLib("System", Type is null ? "RuntimeHandle" : "RuntimeTypeHandle");
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", Kind switch
+    {
+        RuntimeTokenKind.Type => "RuntimeTypeHandle",
+        RuntimeTokenKind.Method => "RuntimeMethodHandle",
+        _ => "RuntimeFieldHandle",
+    });
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
-    public override string Describe() => $"LoadToken {Display}";
+    public override string Describe() => $"LoadToken {Kind} {Display}";
 }
 
 /// <summary>

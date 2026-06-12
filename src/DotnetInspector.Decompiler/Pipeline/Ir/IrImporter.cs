@@ -198,6 +198,26 @@ public static class IrImporter
                         "evaluation-stack depth disagrees between paths into a join, outside the slice");
                     return false;
                 }
+                for (int i = 0; i < types.Count; i++)
+                {
+                    if (Equals(existing[i], types[i]) || types[i] is null)
+                        continue;
+                    if (existing[i] is null)
+                    {
+                        if (!state.Built.Contains(target))
+                            existing[i] = types[i];
+                        continue;
+                    }
+                    if (state.Built.Contains(target))
+                    {
+                        // The join was already built with the first type; a
+                        // conflicting later edge cannot be retyped honestly.
+                        Stop(function, body, stack, offset, "(join)",
+                            "evaluation-stack types disagree between paths into a join, outside the slice");
+                        return false;
+                    }
+                    existing[i] = null;  // unknown — honest, never a guess
+                }
             }
             else if (state.Built.Contains(target) && types.Count > 0)
             {
@@ -446,9 +466,45 @@ public static class IrImporter
                 case ILOpCode.Ldtoken:
                 {
                     var handle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                    stack.Push(handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
-                        ? new LoadToken(ResolveTypeToken(source.Reader, handle, callerScope), ResolveTypeToken(source.Reader, handle, callerScope).ToDisplayString())
-                        : new LoadToken(null, $"{handle.Kind} token"));
+                    switch (handle.Kind)
+                    {
+                        case HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification:
+                        {
+                            var type = ResolveTypeToken(source.Reader, handle, callerScope);
+                            stack.Push(new LoadToken(RuntimeTokenKind.Type, type, type.ToDisplayString()));
+                            break;
+                        }
+                        case HandleKind.MethodDefinition or HandleKind.MethodSpecification:
+                        {
+                            var callee = ResolveMethod(source.Reader, handle, callerScope);
+                            stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
+                            break;
+                        }
+                        case HandleKind.FieldDefinition:
+                        {
+                            var field = ResolveField(source.Reader, handle, callerScope);
+                            stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}"));
+                            break;
+                        }
+                        case HandleKind.MemberReference:
+                        {
+                            var member = source.Reader.GetMemberReference((MemberReferenceHandle)handle);
+                            if (member.GetKind() == MemberReferenceKind.Field)
+                            {
+                                var field = ResolveField(source.Reader, handle, callerScope);
+                                stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}"));
+                            }
+                            else
+                            {
+                                var callee = ResolveMethod(source.Reader, handle, callerScope);
+                                stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
+                            }
+                            break;
+                        }
+                        default:
+                            Stop(function, body, stack, offset, "ldtoken", $"unrepresentable token kind {handle.Kind}");
+                            return false;
+                    }
                     break;
                 }
 
@@ -633,15 +689,31 @@ public static class IrImporter
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
                 var declaring = ResolveParentType(reader, member.Parent, callerScope);
                 var signature = member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty);
-                return new MethodRef(declaring, reader.GetString(member.Name), signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance);
+                // The signature's !N are the declaring type's parameters;
+                // instantiate them against the parent's type arguments so a
+                // call on List<int> reports int, not T.
+                var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
+                return new MethodRef(
+                    declaring,
+                    reader.GetString(member.Name),
+                    signature.ReturnType.Instantiate(typeArguments, []),
+                    [.. signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, []))],
+                    signature.Header.IsInstance);
             }
             case HandleKind.MethodSpecification:
             {
                 // A generic method instantiation: resolve the underlying
-                // method, then attach the decoded type arguments.
+                // method, then instantiate its !!N against the decoded type
+                // arguments so the call site reports concrete types.
                 var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
                 var generic = ResolveMethod(reader, spec.Method, callerScope);
-                return generic with { TypeArguments = spec.DecodeSignature(TypeRefDecoder.Instance, callerScope) };
+                var methodArguments = spec.DecodeSignature(TypeRefDecoder.Instance, callerScope);
+                return generic with
+                {
+                    TypeArguments = methodArguments,
+                    ReturnType = generic.ReturnType.Instantiate([], methodArguments),
+                    ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
+                };
             }
             default:
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
@@ -663,7 +735,10 @@ public static class IrImporter
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
                 var declaring = ResolveParentType(reader, member.Parent, callerScope);
-                return new FieldRef(declaring, reader.GetString(member.Name), member.DecodeFieldSignature(TypeRefDecoder.Instance, GenericScope.Empty));
+                var fieldType = member.DecodeFieldSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+                if (declaring.Kind == TypeRefKind.GenericInstance)
+                    fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
+                return new FieldRef(declaring, reader.GetString(member.Name), fieldType);
             }
             default:
                 return new FieldRef(TypeRef.Unsupported($"field handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown field type"));

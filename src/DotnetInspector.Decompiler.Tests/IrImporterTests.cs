@@ -179,7 +179,16 @@ public class IrImporterTests
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         var genericCall = function.Descendants.OfType<Call>().First(c => !c.Callee.TypeArguments.IsEmpty);
         Assert.NotEqual("?", genericCall.Callee.Name);
+        // The call site reports instantiated types, not the callee's formal
+        // !!N parameters (second-review fix).
+        Assert.False(ContainsGenericParameter(genericCall.Callee.ReturnType));
+        Assert.All(genericCall.Callee.ParameterTypes, p => Assert.False(ContainsGenericParameter(p)));
     }
+
+    static bool ContainsGenericParameter(TypeRef type)
+        => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+            || (type.ElementType is { } element && ContainsGenericParameter(element))
+            || type.TypeArguments.Any(ContainsGenericParameter);
 
     [Fact]
     public void CoreLib_SimpleCorpusMethods_ImportAtFullFidelity()
