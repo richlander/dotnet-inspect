@@ -464,15 +464,42 @@ public class CSharpPrinterTests
     }
 
     [Fact]
-    public void Constructor_ThisReceiver_PrintsBaseCall()
+    public void Constructor_ImplicitBaseCall_IsSuppressed()
     {
+        // A no-argument base-constructor call is implicit in C#; only the
+        // field initializer remains in the body. (Argumentful base(...)
+        // still prints until constructor initializers are modeled.)
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, ".ctor");
 
         Assert.NotNull(function);
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("base();", output);
+        Assert.DoesNotContain("base(", output);
         Assert.DoesNotContain(".ctor", output);
+        Assert.Contains("_shadowed = 1;", output);
+    }
+
+    [Fact]
+    public void UnsignedComparison_InverseCondition_KeepsUnsignedCasts()
+    {
+        // brfalse over an unsigned comparison folds to the inverse operator;
+        // the unsigned operand casts must survive the fold.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var comparison = new Comparison(ComparisonKind.LessThan, isUnsigned: true,
+            new LoadArgument(0, "a", intType), new LoadArgument(1, "b", intType));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new ConditionalBranch(new LogicalNot(comparison), 4));
+        var target = new Block(4);
+        container.Add(target);
+        target.Add(new Return(null));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("if ((uint)a >= (uint)b) goto IL_0004;", output);
     }
 
     [Fact]

@@ -57,7 +57,8 @@ public sealed class CSharpPrinter
                 bool isLast = i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
                 if (isLast && !labeledReturnOnly && statement is Return { Value: null })
                     break;
-                sb.AppendLine(Statement(statement));
+                if (Statement(statement) is { } line)
+                    sb.AppendLine(line);
             }
         }
         return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
@@ -100,8 +101,18 @@ public sealed class CSharpPrinter
             yield return $"{(type is null ? "var" : TypeText(type))} S_{slot};";
     }
 
-    string Statement(IrNode node) => node switch
+    /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
+    string? Statement(IrNode node) => node switch
     {
+        ExpressionStatement
+        {
+            Expression: Call
+            {
+                Callee: { Name: ".ctor", HasThis: true, ParameterTypes.IsEmpty: true } callee,
+            } call,
+        } when call.Arguments[0] is LoadArgument { Index: 0, Name: "this" }
+            && !Equals(callee.DeclaringType, _function.DeclaringType)
+            => null,
         ExpressionStatement e => e.Expression is UnsupportedNode u
             ? $"/* {u.Describe()} */"
             : $"{Expression(e.Expression)};",
@@ -176,9 +187,12 @@ public sealed class CSharpPrinter
     }
 
     string ComparisonText(Comparison comparison)
-        => comparison.IsUnsigned
-            ? $"{UnsignedOperand(comparison.Left)} {ComparisonOperator(comparison.Kind)} {UnsignedOperand(comparison.Right)}"
-            : $"{Operand(comparison.Left)} {ComparisonOperator(comparison.Kind)} {Operand(comparison.Right)}";
+        => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
+
+    string ComparisonText(ComparisonKind kind, bool isUnsigned, IrExpression left, IrExpression right)
+        => isUnsigned
+            ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
+            : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
 
     /// <summary>Casts a signed-integer operand to its unsigned counterpart; already-unsigned, float (.un = unordered), and unknown-typed operands print plain.</summary>
     string UnsignedOperand(IrExpression operand)
@@ -195,10 +209,10 @@ public sealed class CSharpPrinter
         return cast is null ? Operand(operand) : $"({cast}){Operand(operand)}";
     }
 
-    /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds to the inverse text-free form later (raising work, not printing work).</summary>
+    /// <summary>Conditions render brtrue's raw value as-is; LogicalNot over a comparison folds to the inverse form, preserving unsigned operand casts.</summary>
     string Condition(IrExpression condition) => condition switch
     {
-        LogicalNot { Operand: Comparison c } => $"{Operand(c.Left)} {ComparisonOperator(Inverse(c.Kind))} {Operand(c.Right)}",
+        LogicalNot { Operand: Comparison c } => ComparisonText(Inverse(c.Kind), c.IsUnsigned, c.Left, c.Right),
         _ => Expression(condition),
     };
 

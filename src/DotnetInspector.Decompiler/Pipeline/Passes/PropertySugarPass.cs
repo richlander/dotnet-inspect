@@ -41,12 +41,14 @@ public sealed class PropertySugarPass : IIrPass
     }
 
     static bool IsGetter(MethodRef callee)
-        => callee.Name.StartsWith("get_", StringComparison.Ordinal)
+        => callee.IsSpecialName
+            && callee.Name.StartsWith("get_", StringComparison.Ordinal)
             && callee.Name.Length > "get_".Length
             && callee.ReturnType is not { Namespace: "System", Name: "Void" };
 
     static bool IsSetter(MethodRef callee)
-        => callee.Name.StartsWith("set_", StringComparison.Ordinal)
+        => callee.IsSpecialName
+            && callee.Name.StartsWith("set_", StringComparison.Ordinal)
             && callee.Name.Length > "set_".Length
             && callee.ParameterTypes.Length >= 1
             && callee.ReturnType is { Namespace: "System", Name: "Void" };

@@ -12,6 +12,14 @@ public sealed record MethodRef(
 {
     /// <summary>Generic method type arguments (MethodSpec instantiations); empty for non-generic callees.</summary>
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
+
+    /// <summary>
+    /// Metadata SpecialName evidence (accessors, operators). Exact for
+    /// same-assembly MethodDefs; cross-assembly MemberRefs carry no flags,
+    /// so the resolver falls back to accessor-shape naming — the strongest
+    /// local evidence available without assembly resolution.
+    /// </summary>
+    public bool IsSpecialName { get; init; }
 }
 
 /// <summary>A materialized field reference.</summary>
