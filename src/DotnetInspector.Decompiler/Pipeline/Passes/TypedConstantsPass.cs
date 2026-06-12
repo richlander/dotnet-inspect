@@ -38,6 +38,15 @@ public sealed class TypedConstantsPass : IIrPass
                     when left is not Constant && left.ResultType is { } leftType:
                     Retype(constant, leftType);
                     break;
+                case Box { Operand: Constant constant } box:
+                    Retype(constant, box.Type);
+                    break;
+                case StoreElement { Value: Constant constant, ElementType: { } elementType }:
+                    Retype(constant, elementType);
+                    break;
+                case StoreIndirect { Value: Constant constant, Type: { } indirectType }:
+                    Retype(constant, indirectType);
+                    break;
             }
         }
     }

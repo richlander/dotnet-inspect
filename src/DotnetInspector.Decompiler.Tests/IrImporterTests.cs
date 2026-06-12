@@ -434,6 +434,53 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void UnsignedConversion_CastsSignedSource()
+    {
+        // conv.r.un on a signed int: the source reads as unsigned, so the
+        // C# spelling needs the (uint) cast or the value is wrong for
+        // negative inputs.
+        var convert = new Pipeline.Convert(
+            TypeRef.CoreLib("System", "Double"), isChecked: false, isUnsigned: true,
+            new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32")));
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new Return(convert));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Double"),
+            [new Parameter("a", TypeRef.CoreLib("System", "Int32"))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        Assert.Equal("return (double)(uint)a;", CSharpPrinter.Print(function).Output!.Trim());
+    }
+
+    [Fact]
+    public void TypedConstants_BoxedAndElementConstants_Retype()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var boxed = new Box(boolType, new Constant(1, TypeRef.CoreLib("System", "Int32")));
+        block.Add(new ExpressionStatement(boxed));
+        block.Add(new StoreElement(boolType,
+            new LoadArgument(0, "flags", TypeRef.SzArray(boolType)),
+            new Constant(0, TypeRef.CoreLib("System", "Int32")),
+            new Constant(1, TypeRef.CoreLib("System", "Int32"))));
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
+            [new Parameter("flags", TypeRef.SzArray(boolType))], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        new TypedConstantsPass().Run(function);
+
+        Assert.Equal(true, ((Constant)boxed.Operand).Value);
+        var store = function.Descendants.OfType<StoreElement>().Single();
+        Assert.Equal(true, ((Constant)store.Value).Value);
+        // The index constant stays int — element typing applies to the value.
+        Assert.Equal(0, ((Constant)store.Index).Value);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void UnsignedOperations_CastSignedOperands_PlainWhenAlreadyUnsigned()
     {
         var signedInt = new LoadArgument(0, "a", TypeRef.CoreLib("System", "Int32"));

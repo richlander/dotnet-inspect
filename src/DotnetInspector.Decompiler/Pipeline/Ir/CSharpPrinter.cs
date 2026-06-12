@@ -291,7 +291,10 @@ public sealed class CSharpPrinter
 
     string ConvertText(Convert convert)
     {
-        string cast = $"({TypeText(convert.Target)}){Operand(convert.Operand)}";
+        // conv.r.un and conv.ovf.*.un interpret the SOURCE as unsigned —
+        // a signed operand needs its unsigned cast or the value is wrong.
+        string operand = convert.IsUnsigned ? UnsignedOperand(convert.Operand) : Operand(convert.Operand);
+        string cast = $"({TypeText(convert.Target)}){operand}";
         return convert.IsChecked ? $"checked({cast})" : cast;
     }
 
